@@ -10,6 +10,8 @@ use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::{
     Anchor, Block, BlockKind, ContainerKind, Content, ISLAND_SLOT, Invariant, Mark, MarkKind,
 };
+use quillmark_content::change::{Assoc, Change, Mapping};
+use quillmark_content::model::Pos;
 use quillmark_content::repair::{Raw, RawAnchor, RawIsland, Repair, repair};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -282,7 +284,7 @@ struct WriteBack {
 }
 
 fn write_back(m: &Raw) -> (WriteBack, Vec<Repair>) {
-    let (value, repairs) = repair(m.clone());
+    let (value, repairs, _) = repair(m.clone());
     let kept = align(&m.text, &value.text);
     (WriteBack { value, kept }, repairs)
 }
@@ -363,11 +365,11 @@ proptest! {
         for x in &ds {
             damage(&mut raw, *x);
         }
-        let (c, _) = repair(raw.clone());
+        let (c, _, _) = repair(raw.clone());
         prop_assert_eq!(c.validate(), Ok(()));
         prop_assert_eq!(Content::from_value(&c.to_value()), Ok(c.clone()));
         prop_assert_eq!(repair(raw).0, c.clone());
-        prop_assert_eq!(repair(Raw::from(&c)), (c, Vec::new()));
+        prop_assert_eq!(repair(Raw::from(&c)), (c, Vec::new(), Change::default()));
     }
 
     /// A rule that inserts nothing reaches its value from the merged state by
@@ -387,10 +389,50 @@ proptest! {
         }
     }
 
+    /// A position mapped through the change repair answers lands where
+    /// repair puts an anchor there: a point as `apply` moves one, a range's
+    /// edges inward, and a range whose edges cross is one repair dropped.
+    #[test]
+    fn repairs_change_maps_each_anchor_where_repair_puts_it(d in document(), ds in damages(), spread in 2usize..5) {
+        let mut raw = Raw::from(&d);
+        let len = d.len_usv();
+        for k in (0..len).step_by(spread) {
+            let end = (k + spread).min(len);
+            raw.anchors.push(RawAnchor { anchor: Anchor::new(format!("g-{k}"), k, end), range: k < end });
+            raw.anchors.push(RawAnchor { anchor: Anchor::new(format!("p-{k}"), k, k), range: false });
+        }
+        for x in &ds {
+            damage(&mut raw, *x);
+        }
+        let (c, _, change) = repair(raw.clone());
+        let map = Mapping::from_change(&change).unwrap();
+        let at = |p: Pos| match p {
+            Pos::At(p) => p,
+            p => panic!("{p:?}"),
+        };
+        let n = raw.text.chars().count();
+        let mut seen = BTreeMap::new();
+        raw.anchors.iter().for_each(|a| *seen.entry(a.anchor.id.clone()).or_insert(0) += 1);
+        for RawAnchor { anchor: a, range } in &raw.anchors {
+            if seen[&a.id] > 1 || a.end > n || a.start > a.end || (*range && a.start == a.end) {
+                continue;
+            }
+            let held = c.anchor(&a.id);
+            if !*range && a.start == a.end {
+                let p = at(map.map_point(&Pos::At(a.start)).pos);
+                prop_assert_eq!(held.map(|h| (h.start, h.end)), Some((p, p)), "{} in {:?}\n{:?}", a.id, raw.text, change);
+            } else {
+                let (s, e) = (at(map.map(&Pos::At(a.start), Assoc::After).pos), at(map.map(&Pos::At(a.end), Assoc::Before).pos));
+                let want = (s < e).then_some((s, e));
+                prop_assert_eq!(held.map(|h| (h.start, h.end)), want, "{} in {:?}\n{:?}", a.id, raw.text, change);
+            }
+        }
+    }
+
     #[test]
     fn a_valid_value_repairs_to_itself(d in document()) {
-        prop_assert_eq!(repair(Raw::from(&d)), (d.clone(), Vec::new()));
-        prop_assert_eq!(repair(Raw::from_value(&d.to_value()).unwrap()), (d, Vec::new()));
+        prop_assert_eq!(repair(Raw::from(&d)), (d.clone(), Vec::new(), Change::default()));
+        prop_assert_eq!(repair(Raw::from_value(&d.to_value()).unwrap()), (d, Vec::new(), Change::default()));
     }
 }
 
@@ -407,7 +449,7 @@ fn paths(c: &Content) -> Vec<Vec<&str>> {
 
 #[test]
 fn a_path_naming_a_missing_container_loses_it() {
-    let (c, repairs) = repair(raw(json!({
+    let (c, repairs, _) = repair(raw(json!({
         "text": "a\nb",
         "blocks": [{"id": "b0", "kind": "para", "path": ["q0"]}, {"id": "b1", "kind": "para", "path": ["l0", "i5"]}],
         "containers": [{"id": "i5", "kind": "item"}]
@@ -425,7 +467,7 @@ fn a_path_naming_a_missing_container_loses_it() {
 
 #[test]
 fn a_container_under_two_paths_takes_its_first_blocks() {
-    let (c, repairs) = repair(raw(json!({
+    let (c, repairs, _) = repair(raw(json!({
         "text": "a\nb",
         "blocks": [
             {"id": "b0", "kind": "para", "path": ["q0", "l0", "i0"]},
@@ -448,7 +490,7 @@ fn a_container_under_two_paths_takes_its_first_blocks() {
 
 #[test]
 fn a_container_over_two_runs_splits_with_derived_ids() {
-    let (c, repairs) = repair(raw(json!({
+    let (c, repairs, _) = repair(raw(json!({
         "text": "a\nb\nc",
         "blocks": [
             {"id": "b0", "kind": "para", "path": ["l0", "i0"]},
@@ -486,7 +528,7 @@ fn a_container_over_two_runs_splits_with_derived_ids() {
 
 #[test]
 fn a_slot_without_a_record_and_a_record_without_a_slot_both_go() {
-    let (c, repairs) = repair(raw(json!({
+    let (c, repairs, _) = repair(raw(json!({
         "text": "a\u{FFFC}b",
         "blocks": [{"id": "b0", "kind": "para"}],
         "marks": [{"start": 0, "end": 3, "type": "strong"}],
@@ -511,7 +553,7 @@ fn a_slot_without_a_record_and_a_record_without_a_slot_both_go() {
 
 #[test]
 fn a_second_slot_naming_one_island_holds_a_copy() {
-    let (c, repairs) = repair(raw(json!({
+    let (c, repairs, _) = repair(raw(json!({
         "text": "\u{FFFC}\u{FFFC}",
         "blocks": [{"id": "b0", "kind": "para"}],
         "slot_ids": ["m0", "m0"],
@@ -531,7 +573,7 @@ fn a_second_slot_naming_one_island_holds_a_copy() {
 #[test]
 fn text_beside_a_block_island_splits_into_its_own_blocks() {
     let cell = json!({"text": "", "blocks": [{"id": "b0", "kind": "para"}]});
-    let (c, repairs) = repair(raw(json!({
+    let (c, repairs, _) = repair(raw(json!({
         "text": "ab\u{FFFC}cd",
         "blocks": [{"id": "b0", "kind": "para"}],
         "anchors": [{"id": "c-1", "start": 0, "end": 2}, {"id": "c-2", "start": 2, "end": 5}],
@@ -576,12 +618,12 @@ fn an_x_block_holding_a_table_alone_repairs_to_itself() {
     };
     c.normalize();
     assert_eq!(c.validate(), Ok(()));
-    assert_eq!(repair(Raw::from(&c)), (c, Vec::new()));
+    assert_eq!(repair(Raw::from(&c)), (c, Vec::new(), Change::default()));
 }
 
 #[test]
 fn a_slot_under_a_bad_key_goes_and_the_rest_stays() {
-    let (c, repairs) = repair(raw(json!({
+    let (c, repairs, _) = repair(raw(json!({
         "text": "Title\nbody \u{FFFC}",
         "blocks": [{"id": "b0", "kind": "heading", "attrs": {"level": 1}}, {"id": "b1", "kind": "para", "path": ["l0", "i0"]}],
         "containers": [{"id": "l0", "kind": "list"}, {"id": "i0", "kind": "item"}],
@@ -603,7 +645,7 @@ fn a_slot_under_a_bad_key_goes_and_the_rest_stays() {
 
 #[test]
 fn a_collapsed_range_anchor_is_dropped_and_a_point_kept() {
-    let (c, repairs) = repair(raw(json!({
+    let (c, repairs, _) = repair(raw(json!({
         "text": "abc",
         "blocks": [{"id": "b0", "kind": "para"}],
         "anchors": [
@@ -625,7 +667,7 @@ fn a_collapsed_range_anchor_is_dropped_and_a_point_kept() {
 #[test]
 fn a_table_row_missing_a_cell_gets_an_empty_slot() {
     let cell = |t: &str| json!({"text": t, "blocks": [{"id": "b0", "kind": "para"}]});
-    let (c, repairs) = repair(raw(json!({
+    let (c, repairs, _) = repair(raw(json!({
         "text": "\u{FFFC}",
         "blocks": [{"id": "b0", "kind": "para"}],
         "islands": [{
@@ -653,7 +695,7 @@ fn a_table_row_missing_a_cell_gets_an_empty_slot() {
 
 #[test]
 fn a_missing_block_record_is_minted_from_its_neighbour() {
-    let (c, _) = repair(Raw {
+    let (c, _, _) = repair(Raw {
         text: "a\nb".into(),
         blocks: vec![Block::new("b0", BlockKind::Para)],
         ..Raw::default()
@@ -702,7 +744,7 @@ fn a_raw_in_utf16_clamps_an_offset_inside_a_character_or_past_the_text() {
     });
     let raw = Raw::from_value_in(&v, Utf16).unwrap();
     assert_eq!((raw.marks[0].start, raw.marks[0].end), (0, 3));
-    let (c, repairs) = repair(raw);
+    let (c, repairs, _) = repair(raw);
     assert!(repairs.is_empty(), "{repairs:?}");
     assert_eq!((c.marks[0].start, c.marks[0].end), (0, 3));
 }
@@ -790,10 +832,10 @@ proptest! {
     fn a_raw_value_in_utf16_repairs_or_refuses(v in raw_json()) {
         use quillmark_content::units::Utf16;
         if let Ok(r) = Raw::from_value_in(&v, Utf16) {
-            let (c, _) = repair(r.clone());
+            let (c, _, _) = repair(r.clone());
             prop_assert_eq!(c.validate(), Ok(()));
             prop_assert_eq!(repair(r).0, c.clone());
-            prop_assert_eq!(repair(Raw::from(&c)), (c, Vec::new()));
+            prop_assert_eq!(repair(Raw::from(&c)), (c, Vec::new(), Change::default()));
         }
     }
 

@@ -91,7 +91,7 @@ fn a_text_revise_carries_its_anchors_by_the_diff() {
     assert_eq!((c1.quote.as_str(), c1.prefix.as_str()), ("literal", "now a *"));
 
     let revised = quill().writer(&mut doc).revise_field("note", "now a line, longer").expect("revise");
-    let dropped: Vec<&str> = revised.dropped_anchors.iter().map(|a| a.id.as_str()).collect();
+    let dropped: Vec<&str> = revised.dropped_anchors.iter().map(|a| a.context.id.as_str()).collect();
     assert_eq!(dropped, ["c1"], "the receipt names the anchor the edit took");
 }
 

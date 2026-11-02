@@ -403,18 +403,12 @@ Body.
         .to_string();
     assert_eq!(text, r"a \*b\* line");
 
-    let delta = quill
+    let applied = quill
         .writer(&mut doc)
         .revise_field("note", &text)
         .expect("revise")
-        .delta;
-    assert!(
-        delta
-            .ops
-            .iter()
-            .all(|op| matches!(op, quillmark_content::lines::delta::Op::Retain(_))),
-        "a no-change revise is all-retain: {delta:?}"
-    );
+        .applied;
+    assert!(applied.steps.is_empty(), "a no-change revise changes nothing: {applied:?}");
     assert_eq!(bytes(&doc), before, "a no-change revise moves no bytes");
 
     let _ = quill

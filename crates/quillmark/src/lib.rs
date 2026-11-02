@@ -38,7 +38,7 @@ pub use quillmark_core::{
     backend::{Backend, FontFace},
     document::{
         AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, Base, BaseError, Card, Document,
-        DocumentAnchor, DocumentRevised, EditError, ImportError, Parsed, Reattached, Revised,
+        DocumentAnchor, DocumentRevised, EditError, ImportError, Parsed, Reattached, Receipt,
     },
     error::{DOCUMENT_FILE, Diagnostic, Location, ParseError, RenderError, RenderResult, Severity},
     path::DocPath,

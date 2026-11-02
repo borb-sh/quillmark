@@ -15,10 +15,10 @@ use quillmark_content::model::Content;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
-use super::edit::{EditError, Revised, is_valid_field_name, revise_import};
+use super::edit::{EditError, is_valid_field_name, revise_import};
 use super::merge::{MergeConflict, merge_documents};
 use super::revise::align_cards;
-use super::{Card, Codec, Document, Parsed, Revising, dropped_constructs};
+use super::{Card, Codec, Document, Parsed, Receipt, Revising, Target};
 use crate::error::{Diagnostic, diag_args};
 use crate::path::{DocPath, DocSeg};
 use crate::quill::{BoundParseError, FieldSchema, FieldType, QuillConfig};
@@ -191,21 +191,19 @@ pub fn content_hash(content: &Content) -> String {
 }
 
 /// [`revise_import`] under `base`: refused when `base` is stale, a merge when
-/// `base` is a read the stored value has moved on from.
+/// `base` is a read the stored value has moved on from. Answers the revised
+/// value, the warnings of the writer's markdown, and whether it merged.
 pub fn revise_import_against(
     held: &Content,
     stored: &Normalized,
     base: Base<'_>,
     body: &str,
-) -> Result<(Normalized, Revised), EditError> {
+) -> Result<(Normalized, Vec<ImportWarning>, bool), EditError> {
     let write = richtext_write(stored, || content_hash(held), base, body)?;
     let revise = |md: &str| revise_import(stored, md).map_err(EditError::import);
     match write {
-        Write::Own => revise(body),
-        Write::Merged(md, warnings) => {
-            let (content, revised) = revise(&md)?;
-            Ok((content, revised.reporting(warnings)))
-        }
+        Write::Own => revise(body).map(|(content, warnings)| (content, warnings, false)),
+        Write::Merged(md, warnings) => revise(&md).map(|(content, _)| (content, warnings, true)),
     }
 }
 
@@ -277,9 +275,12 @@ fn richtext_write(
     }
 }
 
-impl Revised {
-    fn reporting(mut self, warnings: Vec<ImportWarning>) -> Self {
-        self.warnings = dropped_constructs(warnings, None);
+impl Receipt {
+    fn merged(mut self, warnings: Option<Vec<ImportWarning>>) -> Self {
+        if let Some(warnings) = warnings {
+            self.warnings = warnings;
+        }
+        self.rebased = true;
         self
     }
 }
@@ -393,10 +394,13 @@ impl Card {
         &mut self,
         base: Base<'_>,
         body: impl Into<String>,
-    ) -> Result<Revised, EditError> {
-        let (content, revised) = revise_import_against(self.body(), self.body_lines(), base, &body.into())?;
-        self.overwrite_body(content);
-        Ok(revised)
+    ) -> Result<Receipt, EditError> {
+        let (content, warnings, merged) = revise_import_against(self.body(), self.body_lines(), base, &body.into())?;
+        let receipt = self.revising(Target::Body, warnings, |card| {
+            card.overwrite_body(content);
+            Ok(())
+        })?;
+        Ok(if merged { receipt.merged(None) } else { receipt })
     }
 
     /// [`revise_field`](Self::revise_field) under `base`, its hash
@@ -406,11 +410,12 @@ impl Card {
         name: &str,
         base: Base<'_>,
         body: impl Into<String>,
-    ) -> Result<Revised, EditError> {
+    ) -> Result<Receipt, EditError> {
         let body = body.into();
         if self.stored_codec(name) == Codec::Text {
-            let body = self.text_body_against(name, base, body, || self.field_hash(name))?;
-            return self.revise_field(name, body);
+            let (body, merged) = self.text_body_against(name, base, body, || self.field_hash(name))?;
+            let receipt = self.revise_field(name, body)?;
+            return Ok(if merged { receipt.merged(None) } else { receipt });
         }
         let stored = self.richtext_base(name)?;
         let held = self.richtext_value(name)?;
@@ -418,7 +423,7 @@ impl Card {
             .map_err(|e| at_field(e, name))?;
         match write {
             Write::Own => self.revise_field(name, body),
-            Write::Merged(md, warnings) => Ok(self.revise_field(name, md)?.reporting(warnings)),
+            Write::Merged(md, warnings) => Ok(self.revise_field(name, md)?.merged(Some(warnings))),
         }
     }
 
@@ -433,7 +438,7 @@ impl Card {
         base: Base<'_>,
         body: impl Into<String>,
         schema: &FieldSchema,
-    ) -> Result<Revised, EditError> {
+    ) -> Result<Receipt, EditError> {
         let body = body.into();
         if !matches!(
             schema.r#type,
@@ -450,35 +455,36 @@ impl Card {
                 Write::Own => self.revise_field_checked(name, body, schema),
                 Write::Merged(md, warnings) => Ok(self
                     .revise_field_checked(name, md, schema)?
-                    .reporting(warnings)),
+                    .merged(Some(warnings))),
             };
         }
-        let body = self.text_body_against(name, base, body, || self.field_hash_checked(name, schema))?;
-        self.revise_field_checked(name, body, schema)
+        let (body, merged) = self.text_body_against(name, base, body, || self.field_hash_checked(name, schema))?;
+        let receipt = self.revise_field_checked(name, body, schema)?;
+        Ok(if merged { receipt.merged(None) } else { receipt })
     }
 
     /// The text a literal-codec revise under `base` writes: `body` when `base`
     /// is current, the line merge of `body` over the text now when `base` is a
     /// read it has moved on from, refused when the hash `current` answers is
-    /// not `base`'s or the merge conflicts.
+    /// not `base`'s or the merge conflicts; and whether it merged.
     fn text_body_against(
         &self,
         name: &str,
         base: Base<'_>,
         body: String,
         current: impl Fn() -> Result<String, EditError>,
-    ) -> Result<String, EditError> {
+    ) -> Result<(String, bool), EditError> {
         match base {
             Base::Hash(read) => {
                 check(current()?, read).map_err(|e| EditError::Base(e.at_field(name)))?;
-                Ok(body)
+                Ok((body, false))
             }
             Base::Read(read) => {
                 let now = self.text_now(name)?.unwrap_or_default();
                 if read == now {
-                    return Ok(body);
+                    return Ok((body, false));
                 }
-                merge_lines(read, &now, &body).ok_or_else(|| {
+                merge_lines(read, &now, &body).map(|merged| (merged, true)).ok_or_else(|| {
                     match current() {
                         Ok(current) => EditError::Base(BaseError::Conflict {
                             current,

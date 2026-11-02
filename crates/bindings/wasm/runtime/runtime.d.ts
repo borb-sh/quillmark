@@ -151,7 +151,6 @@ export type {
 	Addr,
 	CardAddr,
 	Delta,
-	Revised,
 	BaseOptions,
 	DocumentRevised,
 	MergeConflict,
@@ -652,7 +651,7 @@ declare module '../core/wasm.js' {
 	}
 }
 
-import type { Addr, BaseOptions, Content, DocumentRevised, PathStep, Resolved, Revised } from '../core/wasm.js';
+import type { Addr, BaseOptions, Content, DocumentRevised, PathStep, Receipt, Resolved } from '../core/wasm.js';
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
@@ -700,19 +699,20 @@ export declare class DocumentWriter {
 	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**
 	 * Revise the main body from markdown; anchors rebase. Returns the
-	 * `Revised` receipt, its warnings at `main.body` and `droppedAnchors`
-	 * naming each anchor the diff dropped: a body carries no field schema to
-	 * type against. `opts` names what the writer read: a stale
-	 * `baseHash` (from {@link hashAt}) throws `edit::stale_base`, and a
-	 * `baseMarkdown` merges.
+	 * `Receipt` a content write answers: `applied` the change from the body
+	 * before, its warnings at `main.body`, and the anchors the write dropped
+	 * or moved; a body carries no field schema to type against. `opts` names
+	 * what the writer read: a stale `baseHash` (from {@link hashAt}) throws
+	 * `edit::stale_base`, and a `baseMarkdown` merges, setting `rebased`.
 	 */
-	reviseBody(markdown: string, opts?: BaseOptions): Revised;
+	reviseBody(markdown: string, opts?: BaseOptions): Receipt;
 	/**
 	 * Revise the content main-card field `name` from authored text: typed *and*
 	 * anchor-preserving. Surviving anchors rebase, then the diffed result is
 	 * schema-conformed (a one-paragraph `richtext` rejects a multi-block result). Throws
 	 * `UnknownField` for a name the schema does not declare. Returns the
-	 * `Revised` receipt, its warnings at the field.
+	 * `Receipt`, its warnings at the field; a `text` field's `applied` is one
+	 * splice over its literal text.
 	 *
 	 * The codec comes from the declared type: `richtext` diffs markdown, while
 	 * `text` diffs the literal text and never imports markdown, so a
@@ -721,7 +721,7 @@ export declare class DocumentWriter {
 	 * `opts` names what the writer read, as on {@link reviseBody}; a `text`
 	 * field's `baseMarkdown` is the literal text it read.
 	 */
-	reviseField(name: string, text: string, opts?: BaseOptions): Revised;
+	reviseField(name: string, text: string, opts?: BaseOptions): Receipt;
 	/**
 	 * Replace the bound document with `markdown`, then conform it. Composable
 	 * cards align to the stored ones by `$kind` and text similarity, an aligned
@@ -777,14 +777,14 @@ export declare class CardWriter {
 	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**
 	 * Revise this card's body from markdown (edit semantics), returning the
-	 * `Revised` receipt, its warnings at the card's body.
+	 * `Receipt`, its warnings at the card's body.
 	 */
-	reviseBody(markdown: string, opts?: BaseOptions): Revised;
+	reviseBody(markdown: string, opts?: BaseOptions): Receipt;
 	/**
 	 * The card twin of {@link DocumentWriter.reviseField}. Throws `UnknownField`
 	 * for an undeclared name and `IndexOutOfRange` for a bad bound index.
 	 */
-	reviseField(name: string, text: string, opts?: BaseOptions): Revised;
+	reviseField(name: string, text: string, opts?: BaseOptions): Receipt;
 }
 
 /**

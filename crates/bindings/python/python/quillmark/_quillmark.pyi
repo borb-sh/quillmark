@@ -159,7 +159,7 @@ class Document:
     def reattach(
         self,
         selectors: Sequence[AnchorContext],
-        deltas: dict[str, dict[str, Any]] | None = None,
+        changes: dict[str, Change] | None = None,
     ) -> Reattached: ...
     def read(self, field: str | None = None, card: int | str | None = None) -> Content: ...
     def annotated(self, field: str | None = None, card: int | str | None = None) -> str: ...
@@ -201,6 +201,11 @@ class MovedAnchor(TypedDict):
     id: str
     before: str
     after: str
+    # What moved, the first that holds: "position" (an anchor step put it
+    # other than where the write's text edits carry it), "block" (its start
+    # sits in another block), "context" (its text or the eight characters
+    # either side read otherwise).
+    reason: Literal["position", "block", "context"]
 
 class ReceiptDroppedAnchor(AnchorContext, total=False):
     island: str
@@ -213,7 +218,8 @@ class Receipt(TypedDict):
     moved_anchors: list[MovedAnchor]
     warnings: list[Diagnostic]
     # The base was a value the field had moved on from, and the write was
-    # rebased over what changed since.
+    # rebased over what changed since, or, for a writer's revise under its
+    # markdown read, merged with it.
     rebased: bool
     # Each placeholder id the change gave a record it put, and the id the
     # write minted for it.
@@ -221,6 +227,15 @@ class Receipt(TypedDict):
 
 def invert(change: Change, before: Content) -> Change: ...
 def diff(before: Content, after: Content) -> Change: ...
+
+class Repaired(TypedDict):
+    content: Content
+    repairs: list[dict[str, Any]]
+    # The change from the merged text to the content's: a position mapped
+    # through it lands where repair puts an anchor there.
+    change: Change
+
+def repair(raw: dict[str, Any]) -> Repaired: ...
 class AnchorContext(TypedDict):
     id: str
     path: str
@@ -233,20 +248,11 @@ class Reattached(TypedDict):
     reattached: list[AnchorContext]
     orphaned: list[AnchorContext]
 
-class DroppedAnchor(TypedDict):
-    id: str
-    line: str
-
 class DocumentDroppedAnchor(TypedDict):
     id: str
     path: str
     card_id: str | None
     line: str
-
-class Revised(TypedDict):
-    delta: dict[str, Any]
-    warnings: list[Diagnostic]
-    dropped_anchors: list[DroppedAnchor]
 
 class MergeConflict(TypedDict):
     path: str
@@ -313,7 +319,7 @@ class Writer:
         *,
         base_hash: str | None = None,
         base_markdown: str | None = None,
-    ) -> Revised: ...
+    ) -> Receipt: ...
     def revise_field(
         self,
         name: str,
@@ -322,7 +328,7 @@ class Writer:
         *,
         base_hash: str | None = None,
         base_markdown: str | None = None,
-    ) -> Revised: ...
+    ) -> Receipt: ...
     def revise_document(
         self,
         markdown: str,

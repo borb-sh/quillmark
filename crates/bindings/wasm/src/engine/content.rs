@@ -131,7 +131,8 @@ export interface Change {
  * - `container` adds a container or sets an existing one's attributes, or
  *   removes one no path names.
  * - `mark` adds or removes formatting over a range.
- * - `anchor` places, moves or removes a comment anchor.
+ * - `anchor` places a comment anchor under an id the value holds nowhere,
+ *   moves the one its text holds (`move: true`), or removes one.
  * - `island` replaces an island's props, or inserts an island's slot at `at`.
  * - `nested` applies a change inside one slot of an island.
  *
@@ -141,7 +142,10 @@ export interface Change {
  * mints an id for it past every id the value holds, under `actor` where one is
  * given, and the receipt's `minted` names it.
  *
- * A `mark` step and an `anchor` placement take `quote`, the text their range
+ * A placement of a held id, and a move or removal of one the text does not
+ * hold, is refused (`edit::content_apply`).
+ *
+ * A `mark` step and an `anchor` placement or move take `quote`, the text their range
  * covered when the writer read it, and an island insert takes `block`, the id
  * of the block the writer read `at` in. A step whose `quote` or `block` the
  * value no longer holds is refused as stale (`edit::content_apply`), as a
@@ -156,7 +160,7 @@ export type Step =
     | { setBlock: { id: string; kind?: ContentBlockKind["kind"]; attrs?: Record<string, unknown>; path?: string[] } }
     | { container: ContentContainer | { id: string; remove: true } }
     | { mark: { start: number; end: number; add: boolean; quote?: string } & ContentMarkKind }
-    | { anchor: (ContentAnchor & { quote?: string }) | { id: string; remove: true } }
+    | { anchor: (ContentAnchor & { quote?: string; move?: true }) | { id: string; remove: true } }
     | { island: { id: string; props: Record<string, unknown>; slots?: Record<string, Content> } | { at: number; island: ContentIsland; block?: string } }
     | { nested: { island: string; slot: string; change: Change } };
 
@@ -166,7 +170,11 @@ export type Step =
  * write's `base`. `droppedAnchors` names each anchor the value held and holds
  * nowhere now, as it read before: every one a `revise` or `replace` lost, and
  * for an `apply` every one but those its `anchor` steps removed.
- * `movedAnchors` names each surviving one whose text the write rewrote.
+ * `movedAnchors` names each surviving one the write moved, a point included,
+ * with the text it covered before and after and `reason`, the first of these
+ * that holds: `position`, an anchor step put it other than where the write's
+ * text edits carry it; `block`, its start sits in another block; `context`,
+ * its text or the eight characters either side read otherwise.
  * `warnings` holds a `parse::dropped_construct` per construct a revise's
  * markdown dropped.
  * `rebased` says the write's `base` was a value the field had moved on from,
@@ -178,10 +186,18 @@ export interface Receipt {
     applied: Change;
     hash: string;
     droppedAnchors: DroppedAnchor[];
-    movedAnchors: { id: string; before: string; after: string }[];
+    movedAnchors: MovedAnchor[];
     warnings: Diagnostic[];
     rebased: boolean;
     minted: Record<string, string>;
+}
+
+/** A surviving anchor a write moved, and what moved. */
+export interface MovedAnchor {
+    id: string;
+    before: string;
+    after: string;
+    reason: "position" | "block" | "context";
 }
 
 /**
@@ -275,7 +291,7 @@ export interface RawContent {
 
 /**
  * One mend `repair` made. `inserts` marks one whose write-back inserts text
- * or a slot, which only a session's single writer writes back; any peer may
+ * or a slot, which only a server writes back, and with none no peer; any peer may
  * write back a report holding none.
  */
 export type Repair = { inserts?: true } & (
@@ -292,18 +308,21 @@ export type Repair = { inserts?: true } & (
 | { repair: "in_slot"; island: string; slot: string; inner: Repair }
 );
 
-/** What `repair` read a merged value as: the valid `content`, and each
- *  mend, none for a value already valid. */
+/** What `repair` read a merged value as: the valid `content`, each mend,
+ *  and `change`, the change from the merged text to the content's, which
+ *  `mapPos` carries a position through to where repair puts an anchor
+ *  there; no mend and no step for a value already valid. */
 export interface Repaired {
     content: Content;
     repairs: Repair[];
+    change: Change;
 }
 
 "#;
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ReceiptJs {
+pub(super) struct ReceiptJs {
     applied: Value,
     hash: String,
     dropped_anchors: Vec<DroppedAnchorJs>,
@@ -330,6 +349,7 @@ struct MovedJs {
     id: String,
     before: String,
     after: String,
+    reason: &'static str,
 }
 
 /// A `WriteOptions` from JS: the `base` the writer read and its `actor`.
@@ -493,8 +513,14 @@ fn write(
     let mut card = card_mut_of(doc, addr)?;
     let receipt: Receipt = card.write_in(target(addr), edit, opts, Utf16).map_err(to_js)?;
     let card_id = card.id().map(str::to_string);
-    let warnings = super::diags(receipt.diagnostics(Some(&path)));
-    Ok(ReceiptJs {
+    Ok(receipt_js(receipt, &path, card_id))
+}
+
+/// `receipt` as it crosses, its dropped anchors' selectors at `path` on the
+/// card `card_id` names.
+pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath, card_id: Option<String>) -> ReceiptJs {
+    let warnings = super::diags(receipt.diagnostics(Some(path)));
+    ReceiptJs {
         applied: receipt.applied.to_value(),
         hash: receipt.hash,
         dropped_anchors: receipt
@@ -519,12 +545,12 @@ fn write(
         moved_anchors: receipt
             .moved_anchors
             .into_iter()
-            .map(|m| MovedJs { id: m.id, before: m.before, after: m.after })
+            .map(|m| MovedJs { id: m.id, before: m.before, after: m.after, reason: m.reason.name() })
             .collect(),
         warnings,
         rebased: receipt.rebased,
         minted: receipt.minted,
-    })
+    }
 }
 
 #[wasm_bindgen]
@@ -795,19 +821,22 @@ pub fn diff(
     serialize_or_throw(&change.to_value(), "diff")
 }
 
-/// The valid value every peer holding the merged state `raw` reads, and what
-/// was mended to reach it: total and deterministic, every id it mints derived
-/// from the ids involved. Throws only on a `raw` not shaped as content.
+/// The valid value every peer holding the merged state `raw` reads, what was
+/// mended to reach it, and the change from `raw`'s text to the value's, which
+/// a peer maps its positions through: total and deterministic, every id it
+/// mints derived from the ids involved. Throws only on a `raw` not shaped as
+/// content.
 #[wasm_bindgen(js_name = repair, unchecked_return_type = "Repaired")]
 pub fn repair(#[wasm_bindgen(unchecked_param_type = "RawContent")] raw: JsValue) -> Result<JsValue, JsValue> {
     let json = js_value_to_json(raw, "repair")?;
     check_content_value(&json).map_err(bound_error)?;
     let raw = quillmark_content::repair::Raw::from_value_in(&json, Utf16)
         .map_err(|e| WasmError::from(format!("repair: not shaped as content: {e}")).to_js_value())?;
-    let (content, repairs) = quillmark_content::repair::repair(raw);
+    let (content, repairs, change) = quillmark_content::repair::repair(raw.clone());
     let out = serde_json::json!({
         "content": content.to_value_in(Utf16),
         "repairs": repairs.iter().map(quillmark_content::repair::Repair::to_value).collect::<Vec<_>>(),
+        "change": quillmark_content::repair::change_in(&raw, &change, Utf16).to_value(),
     });
     serialize_or_throw(&out, "repair")
 }

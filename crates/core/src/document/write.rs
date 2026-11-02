@@ -112,20 +112,44 @@ pub struct Receipt {
     /// with the slot that held it: every one a revise or replace lost, and
     /// for an apply every one but those its `anchor` steps removed.
     pub dropped_anchors: Vec<Dropped>,
-    /// Each surviving anchor whose text the write rewrote.
+    /// Each surviving anchor the write moved, a point included, and what
+    /// moved: its position, its block or its context.
     pub moved_anchors: Vec<Moved>,
     /// The markdown import's warnings, for a revise.
     pub warnings: Vec<ImportWarning>,
     /// The base was a value the field had moved on from, and the write was
-    /// rebased over what changed since.
+    /// rebased over what changed since, or, for a writer's revise under its
+    /// markdown read, merged with it.
     pub rebased: bool,
     /// Each placeholder the change gave a record it put, and the id the
     /// write minted for it past every id the value it landed on, the value
     /// its base named and the writes since hold.
     pub minted: BTreeMap<String, String>,
+    counted: Counted,
+}
+
+/// What a receipt's `applied` counts its offsets over, when it counts them in
+/// scalars and holds what [`Receipt::in_units`] converts them on.
+#[derive(Debug, Clone, PartialEq)]
+enum Counted {
+    Host,
+    Content(Arc<Content>),
 }
 
 impl Receipt {
+    /// The receipt with `applied` counted in `u`. A writer's revise answers
+    /// its change in scalars, and this converts it on the value it read; a
+    /// receipt [`Card::write`] or [`Card::write_in`] answered comes back as
+    /// it is, in the units its write was given.
+    pub fn in_units(mut self, u: impl Units) -> Receipt {
+        self.applied = match std::mem::replace(&mut self.counted, Counted::Host) {
+            Counted::Host => return self,
+            Counted::Content(before) => units::change_from_scalars(&self.applied, &before, u)
+                .expect("a receipt's change applies to the value it read"),
+        };
+        self
+    }
+
     /// The receipt's warnings as diagnostics at `at`: a
     /// [`dropped_construct`](super::dropped_construct) per construct the
     /// markdown dropped.
@@ -302,7 +326,41 @@ impl Card {
         };
         let rebased = read.since.is_some();
         let hash = self.land(target, read, applied.content, applied.applied)?;
-        Ok(Receipt { applied: shown, hash, dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, rebased, minted })
+        Ok(Receipt { applied: shown, hash, dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, rebased, minted, counted: Counted::Host })
+    }
+
+    /// Run `write`, which stores a new value at `target`, and answer its
+    /// receipt: the change from the value before to the value after, in
+    /// scalars, logged as a write through [`write`](Self::write) logs its own,
+    /// so a later write naming the hash before rebases over it.
+    pub(crate) fn revising(
+        &mut self,
+        target: Target<'_>,
+        warnings: Vec<ImportWarning>,
+        write: impl FnOnce(&mut Self) -> Result<(), EditError>,
+    ) -> Result<Receipt, EditError> {
+        let before = self.read(target)?;
+        let before_hash = self.hash_now(target, &before);
+        write(self)?;
+        let after = self.read(target)?;
+        let change = diff::diff(&before, &after).map_err(|e| EditError::change(e.into()))?;
+        let applied = change::apply(&before, &change).map_err(EditError::change)?;
+        let dropped_anchors = change::lost_anchors(&before, &after, |_| true);
+        let hash = self.hash_now(target, &after);
+        let before = Arc::new(before);
+        if hash != before_hash {
+            self.log.record(target, before_hash, Content::clone(&before), applied.applied.clone(), hash.clone());
+        }
+        Ok(Receipt {
+            applied: applied.applied,
+            hash,
+            dropped_anchors,
+            moved_anchors: applied.moved,
+            warnings,
+            rebased: false,
+            minted: applied.minted,
+            counted: Counted::Content(before),
+        })
     }
 
     /// The value `base` names at `target`: the value now, where `base` is

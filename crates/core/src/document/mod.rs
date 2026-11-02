@@ -656,14 +656,14 @@ pub use dto::{
     STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, StorageError,
     StoredDocument, peek_storage_version,
 };
-pub use edit::{CardMut, EditError, Revised, revise_import};
+pub use edit::{CardMut, EditError, revise_import};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
 pub use merge::MergeConflict;
 pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
 pub use payload::{MetaKey, Payload, PayloadItem};
 /// Returned by [`Document::reattach`], so nameable from here.
 pub use quillmark_content::lines::anchor::Reattached;
-/// Carried by [`Revised::dropped_anchors`], so nameable from here.
+/// Answered by [`Card::body_annotated`] and the content crate's anchor reads, so nameable from here.
 pub use quillmark_content::lines::export::{AnchorRead, Annotated};
 /// Carried by [`EditError::Import`], so nameable from here.
 pub use quillmark_content::lines::import::ImportError;

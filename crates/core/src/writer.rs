@@ -28,7 +28,7 @@
 use indexmap::IndexMap;
 
 use crate::document::edit::{overflow_errors, resolve_field_write};
-use crate::document::{Base, Card, Document, DocumentRevised, EditError, Revised, Revising};
+use crate::document::{Base, Card, Document, DocumentRevised, EditError, Receipt, Revising};
 use crate::error::Diagnostic;
 use crate::path::DocPath;
 use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
@@ -95,12 +95,10 @@ impl<'a> TypedWriter<'a> {
     }
 
     /// Revise the main card's body from markdown: edit semantics, surviving
-    /// anchors rebase. The [`Revised`] receipt's warnings anchor at
-    /// `main.body`. Untyped, because a body carries no field schema to type
-    /// against.
-    pub fn revise_body(&mut self, markdown: &str) -> Result<Revised, EditError> {
-        let revised = self.doc.main_card_mut().revise_body(markdown)?;
-        Ok(revised.with_path(&DocPath::main_body()))
+    /// anchors rebase, and the [`Receipt`] a content write answers. Untyped,
+    /// because a body carries no field schema to type against.
+    pub fn revise_body(&mut self, markdown: &str) -> Result<Receipt, EditError> {
+        self.doc.main_card_mut().revise_body(markdown)
     }
 
     /// [`revise_body`](Self::revise_body) under `base`, which refuses a stale
@@ -109,12 +107,8 @@ impl<'a> TypedWriter<'a> {
         &mut self,
         base: Base<'_>,
         markdown: &str,
-    ) -> Result<Revised, EditError> {
-        let revised = self
-            .doc
-            .main_card_mut()
-            .revise_body_against(base, markdown)?;
-        Ok(revised.with_path(&DocPath::main_body()))
+    ) -> Result<Receipt, EditError> {
+        self.doc.main_card_mut().revise_body_against(base, markdown)
     }
 
     /// Revise a content field on the main card from authored text: typed *and*
@@ -126,8 +120,9 @@ impl<'a> TypedWriter<'a> {
     /// The codec comes from the declared type: `richtext` diffs markdown and
     /// rebases anchors; `text` diffs the literal text and never imports
     /// markdown, so a byte-identical revise of a value carrying escapes is a
-    /// byte no-op. The [`Revised`] receipt's warnings anchor at the field.
-    pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Revised, EditError> {
+    /// byte no-op, and its [`Receipt`]'s change is one splice over the
+    /// literal text.
+    pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Receipt, EditError> {
         let schema = Some(&self.config.main.fields);
         revise_impl(
             self.doc.main_card_mut(),
@@ -135,7 +130,6 @@ impl<'a> TypedWriter<'a> {
             name,
             None,
             text,
-            &DocPath::main(),
         )
     }
 
@@ -146,7 +140,7 @@ impl<'a> TypedWriter<'a> {
         name: &str,
         base: Base<'_>,
         text: &str,
-    ) -> Result<Revised, EditError> {
+    ) -> Result<Receipt, EditError> {
         let schema = Some(&self.config.main.fields);
         revise_impl(
             self.doc.main_card_mut(),
@@ -154,7 +148,6 @@ impl<'a> TypedWriter<'a> {
             name,
             Some(base),
             text,
-            &DocPath::main(),
         )
     }
 
@@ -254,8 +247,7 @@ impl<'a> TypedWriter<'a> {
             warnings.extend(
                 card.revise_body(md)
                     .map_err(|e| vec![("$body".to_string(), e)])?
-                    .with_path(&base.body())
-                    .warnings,
+                    .diagnostics(Some(&base.body())),
             );
         }
         match at {
@@ -347,12 +339,9 @@ impl<'a> CardWriter<'a> {
     }
 
     /// Revise this card's body from markdown (edit semantics): the card twin
-    /// of [`TypedWriter::revise_body`], its warnings anchored at the card's
-    /// body.
-    pub fn revise_body(&mut self, markdown: &str) -> Result<Revised, EditError> {
-        let base = self.base();
-        let revised = self.card_mut().revise_body(markdown)?;
-        Ok(revised.with_path(&base.body()))
+    /// of [`TypedWriter::revise_body`].
+    pub fn revise_body(&mut self, markdown: &str) -> Result<Receipt, EditError> {
+        self.card_mut().revise_body(markdown)
     }
 
     /// The card twin of [`TypedWriter::revise_body_against`].
@@ -360,18 +349,15 @@ impl<'a> CardWriter<'a> {
         &mut self,
         read: Base<'_>,
         markdown: &str,
-    ) -> Result<Revised, EditError> {
-        let base = self.base();
-        let revised = self.card_mut().revise_body_against(read, markdown)?;
-        Ok(revised.with_path(&base.body()))
+    ) -> Result<Receipt, EditError> {
+        self.card_mut().revise_body_against(read, markdown)
     }
 
     /// The card twin of [`TypedWriter::revise_field`], resolved against the
     /// card's [`CardSchema`](crate::quill::CardSchema).
-    pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Revised, EditError> {
+    pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Receipt, EditError> {
         let schema = self.fields_schema();
-        let base = self.base();
-        revise_impl(self.card_mut(), schema, name, None, text, &base)
+        revise_impl(self.card_mut(), schema, name, None, text)
     }
 
     /// The card twin of [`TypedWriter::field_hash`].
@@ -389,10 +375,9 @@ impl<'a> CardWriter<'a> {
         name: &str,
         read: Base<'_>,
         text: &str,
-    ) -> Result<Revised, EditError> {
+    ) -> Result<Receipt, EditError> {
         let schema = self.fields_schema();
-        let base = self.base();
-        revise_impl(self.card_mut(), schema, name, Some(read), text, &base)
+        revise_impl(self.card_mut(), schema, name, Some(read), text)
     }
 
     /// Write several fields on this card atomically; see
@@ -431,24 +416,21 @@ fn commit_impl(
 }
 
 /// The anchor-preserving twin of [`commit_impl`], shared by the writers'
-/// `revise_field` and `revise_field_against`. `base` is the card's root, where
-/// the receipt's warnings anchor under the field.
+/// `revise_field` and `revise_field_against`.
 fn revise_impl(
     card: &mut Card,
     fields_schema: Option<&IndexMap<String, FieldSchema>>,
     name: &str,
     read: Option<Base<'_>>,
     text: &str,
-    base: &DocPath,
-) -> Result<Revised, EditError> {
+) -> Result<Receipt, EditError> {
     let Some(schema) = fields_schema.and_then(|m| m.get(name)) else {
         return Err(EditError::unknown_field(name));
     };
-    let revised = match read {
-        None => card.revise_field_checked(name, text, schema)?,
-        Some(read) => card.revise_field_checked_against(name, read, text, schema)?,
-    };
-    Ok(revised.with_path(&base.field(name)))
+    match read {
+        None => card.revise_field_checked(name, text, schema),
+        Some(read) => card.revise_field_checked_against(name, read, text, schema),
+    }
 }
 
 /// All-or-nothing batched write shared by [`TypedWriter::set_all`] and
@@ -821,8 +803,9 @@ card_kinds:
         );
     }
 
-    /// Each verb that imports markdown returns the import's drops anchored at
-    /// the address it wrote.
+    /// Each verb that imports markdown returns the import's drops: a verb that
+    /// answers diagnostics anchors them at the address it wrote, and a revise
+    /// answers them in its receipt, as a content write does.
     #[test]
     fn markdown_writes_anchor_their_dropped_constructs() {
         let config = config();
@@ -840,23 +823,24 @@ card_kinds:
                 Some(path.to_string()),
             )]
         };
+        let unanchored = vec![(Some(crate::document::DROPPED_CONSTRUCT.to_string()), None)];
 
         let added = ed
             .add_card("note", [("prose", "a")], Some("<span>x</span>"), None)
             .unwrap();
         assert_eq!(anchors(&added), dropped("cards.note[0].body"));
         let revised = ed.revise_body("<kbd>x</kbd>").unwrap();
-        assert_eq!(anchors(&revised.warnings), dropped("main.body"));
+        assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
         let revised = ed.revise_field("subject", "<kbd>x</kbd>").unwrap();
-        assert_eq!(anchors(&revised.warnings), dropped("main.subject"));
+        assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
         let revised = ed.card(0).unwrap().revise_body("<kbd>x</kbd>").unwrap();
-        assert_eq!(anchors(&revised.warnings), dropped("cards.note[0].body"));
+        assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
         let revised = ed
             .card(0)
             .unwrap()
             .revise_field("blurb", "<kbd>x</kbd>")
             .unwrap();
-        assert_eq!(anchors(&revised.warnings), dropped("cards.note[0].blurb"));
+        assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
         let revised = ed.card(0).unwrap().revise_field("blurb", "plain").unwrap();
         assert!(revised.warnings.is_empty());
         let added = ed
@@ -881,10 +865,7 @@ card_kinds:
             .unwrap()
             .revise_body("<kbd>x</kbd>")
             .unwrap();
-        assert_eq!(
-            anchors(&revised.warnings),
-            [(Some(crate::document::DROPPED_CONSTRUCT.to_string()), None)]
-        );
+        assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
     }
 
     /// A whole-document revise warns the parse's drops in card order, then each

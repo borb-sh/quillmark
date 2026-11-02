@@ -61,7 +61,7 @@ fn every_write_keeps_the_codec() {
 
     let mut v = before.to_value();
     v["marks"] = json!([{ "start": 0, "end": 3, "type": "emph" }]);
-    let (repaired, _) = repair(Raw::from_value(&v).unwrap());
+    let (repaired, _, _) = repair(Raw::from_value(&v).unwrap());
     assert_eq!(repaired, before, "repair strips what a plain value cannot hold");
 }
 

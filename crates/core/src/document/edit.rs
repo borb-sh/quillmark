@@ -11,10 +11,9 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use quillmark_content::lines::delta::{Delta, carry_anchors, diff_import};
-use quillmark_content::units::Units;
+use quillmark_content::lines::delta::{carry_anchors, diff_import};
 use quillmark_content::lines::export::{AnchorRead, anchors_where};
-use quillmark_content::lines::import::ImportError;
+use quillmark_content::lines::import::{ImportError, ImportWarning};
 use quillmark_content::lines::model::Normalized;
 
 use crate::document::base::{Base, BaseError};
@@ -733,76 +732,14 @@ pub(crate) fn resolve_field_write(
     Ok((stored, drops))
 }
 
-/// The receipt of a revise: the text [`Delta`] an editor bridge maps its
-/// positions through, one `parse::dropped_construct` warning per construct the
-/// import dropped ([`dropped_construct`](crate::document::dropped_construct)),
-/// and the anchors the write dropped. A [`Card`] verb does not know the card's
-/// address, so its warnings carry no `path`; a caller that does anchors them
-/// with [`with_path`](Self::with_path).
-#[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
-#[must_use = "carries the import's warnings and the dropped anchors; read them or bind it"]
-pub struct Revised {
-    pub delta: Delta,
-    pub warnings: Vec<Diagnostic>,
-    /// Every anchor of the stored value, in its prose or a table cell or
-    /// footnote note, whose id the revised value holds nowhere, in the order
-    /// [`anchors_where`] lists them, each with the text of the line or cell it
-    /// stood in.
-    pub dropped_anchors: Vec<AnchorRead>,
-    /// The text `delta` applies to.
-    base: String,
-}
-
-impl Revised {
-    /// [`delta`](Self::delta) with each count in `u`, a host's units.
-    pub fn delta_in(&self, u: impl Units) -> Delta {
-        self.delta.to_units(&self.base, u)
-    }
-
-    /// Anchor every warning at `path`, the revised body or field.
-    pub fn with_path(mut self, path: &crate::path::DocPath) -> Self {
-        let at = path.to_string();
-        self.warnings = self
-            .warnings
-            .into_iter()
-            .map(|w| w.with_path(at.clone()))
-            .collect();
-        self
-    }
-}
-
-/// [`diff_import`] `body` against `base`, minting the import's warnings and
-/// naming the anchors it dropped.
+/// [`diff_import`] `body` against `base`: the revised value, its anchors
+/// carried, and the import's warnings.
 pub fn revise_import(
     base: &Normalized,
     body: impl Into<String>,
-) -> Result<(Normalized, Revised), ImportError> {
-    let (content, delta, warnings) = diff_import(base, &body.into())?;
-    let warnings = crate::document::dropped_constructs(warnings, None);
-    let dropped_anchors = dropped_anchors(base, &content);
-    Ok((
-        content,
-        Revised {
-            delta,
-            warnings,
-            dropped_anchors,
-            base: base.text.clone(),
-        },
-    ))
-}
-
-/// [`revise_body_content`](Card::revise_body_content)'s carry, with its receipt.
-fn carry_receipt(base: &Normalized, content: Normalized) -> (Normalized, Revised) {
-    let (content, delta) = carry_anchors(base, content);
-    let dropped_anchors = dropped_anchors(base, &content);
-    let revised = Revised {
-        delta,
-        warnings: Vec::new(),
-        dropped_anchors,
-        base: base.text.clone(),
-    };
-    (content, revised)
+) -> Result<(Normalized, Vec<ImportWarning>), ImportError> {
+    let (content, _, warnings) = diff_import(base, &body.into())?;
+    Ok((content, warnings))
 }
 
 /// Every anchor of `stored`, in its prose or a cell, whose id `next` holds
@@ -988,7 +925,7 @@ impl<'a> CardMut<'a> {
     }
 
     /// [`Card::revise_body`].
-    pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Revised, EditError> {
+    pub fn revise_body(&mut self, body: impl Into<String>) -> Result<super::Receipt, EditError> {
         self.0.revise_body(body)
     }
 
@@ -997,7 +934,7 @@ impl<'a> CardMut<'a> {
         &mut self,
         name: &str,
         body: impl Into<String>,
-    ) -> Result<Revised, EditError> {
+    ) -> Result<super::Receipt, EditError> {
         self.0.revise_field(name, body)
     }
 
@@ -1006,7 +943,7 @@ impl<'a> CardMut<'a> {
         &mut self,
         base: Base<'_>,
         body: impl Into<String>,
-    ) -> Result<Revised, EditError> {
+    ) -> Result<super::Receipt, EditError> {
         self.0.revise_body_against(base, body)
     }
 
@@ -1016,12 +953,12 @@ impl<'a> CardMut<'a> {
         name: &str,
         base: Base<'_>,
         body: impl Into<String>,
-    ) -> Result<Revised, EditError> {
+    ) -> Result<super::Receipt, EditError> {
         self.0.revise_field_against(name, base, body)
     }
 
     /// [`Card::revise_body_content`].
-    pub fn revise_body_content(&mut self, content: impl Into<Normalized>) -> Revised {
+    pub fn revise_body_content(&mut self, content: impl Into<Normalized>) -> Result<super::Receipt, EditError> {
         self.0.revise_body_content(content)
     }
 
@@ -1030,7 +967,7 @@ impl<'a> CardMut<'a> {
         &mut self,
         name: &str,
         content: impl Into<Normalized>,
-    ) -> Result<Revised, EditError> {
+    ) -> Result<super::Receipt, EditError> {
         self.0.revise_field_content(name, content)
     }
 
@@ -1050,7 +987,7 @@ impl<'a> CardMut<'a> {
         name: &str,
         body: impl Into<String>,
         schema: &FieldSchema,
-    ) -> Result<Revised, EditError> {
+    ) -> Result<super::Receipt, EditError> {
         self.0.revise_field_checked(name, body, schema)
     }
 
@@ -1070,7 +1007,7 @@ impl<'a> CardMut<'a> {
         base: Base<'_>,
         body: impl Into<String>,
         schema: &FieldSchema,
-    ) -> Result<Revised, EditError> {
+    ) -> Result<super::Receipt, EditError> {
         self.0
             .revise_field_checked_against(name, base, body, schema)
     }
@@ -1518,26 +1455,27 @@ impl Card {
     /// Revise the body from an authored markdown string: edit semantics. Imports
     /// the markdown, diffs it against the current body so surviving identity
     /// anchors rebase (formatting marks are re-derived), and returns the
-    /// [`Revised`] receipt: the text [`Delta`] an editor bridge maps its own
-    /// positions through ([`Delta::map_pos`]), the import's
-    /// `parse::dropped_construct` warnings, unanchored, and the anchors the
-    /// diff dropped, which [`Document::reattach`] can place again. An
+    /// [`Receipt`](super::Receipt) a content write answers: the change from the
+    /// body before to the body now, which a host maps its positions through, the
+    /// import's warnings, and the anchors the write dropped or moved. An
     /// over-nested input returns [`EditError::Import`] rather than degrading to
     /// the empty content.
-    pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Revised, EditError> {
-        let (content, revised) = revise_import(self.body_lines(), body).map_err(EditError::import)?;
-        self.overwrite_body(content);
-        Ok(revised)
+    pub fn revise_body(&mut self, body: impl Into<String>) -> Result<super::Receipt, EditError> {
+        let (content, warnings) = revise_import(self.body_lines(), body).map_err(EditError::import)?;
+        self.revising(super::Target::Body, warnings, |card| {
+            card.overwrite_body(content);
+            Ok(())
+        })
     }
 
     /// Decode the field's current content (an absent field imports from empty),
     /// diff `body` against it so surviving anchors rebase, and return the new
-    /// content with its receipt. Stores nothing: the caller lands it.
+    /// content with the import's warnings. Stores nothing: the caller lands it.
     fn diff_field(
         &self,
         name: &str,
         body: impl Into<String>,
-    ) -> Result<(Normalized, Revised), EditError> {
+    ) -> Result<(Normalized, Vec<ImportWarning>), EditError> {
         let base = self.richtext_base(name)?;
         revise_import(&base, body).map_err(EditError::import)
     }
@@ -1566,7 +1504,7 @@ impl Card {
     /// twin of [`revise_body`](Self::revise_body). Decodes the field's current
     /// content as the diff base (an **absent** field cold-imports from empty),
     /// rebases surviving anchors, re-stores the canonical content, and returns
-    /// the [`Revised`] receipt.
+    /// the [`Receipt`](super::Receipt), as [`revise_body`](Self::revise_body) does.
     ///
     /// Schema-blind: a one-line `richtext` violation surfaces at validate/render,
     /// not here.
@@ -1588,13 +1526,12 @@ impl Card {
         &mut self,
         name: &str,
         body: impl Into<String>,
-    ) -> Result<Revised, EditError> {
+    ) -> Result<super::Receipt, EditError> {
         if self.stored_codec(name) == Codec::Text {
             return self.revise_field_plain(name, &body.into());
         }
-        let (content, revised) = self.diff_field(name, body)?;
-        self.store_field_content(name, &content)?;
-        Ok(revised)
+        let (content, warnings) = self.diff_field(name, body)?;
+        self.revising(super::Target::Field(name), warnings, |card| card.store_field_content(name, &content))
     }
 
     /// The codec the stored field names: `text` for a content object spelling
@@ -1606,36 +1543,39 @@ impl Card {
     /// Revise a field under the literal codec: `text` imported as plain
     /// content, each anchor of the stored value carried by the diff, and the
     /// value stored under `codec: "plain"`.
-    fn revise_field_plain(&mut self, name: &str, text: &str) -> Result<Revised, EditError> {
+    fn revise_field_plain(&mut self, name: &str, text: &str) -> Result<super::Receipt, EditError> {
         check_field_name(name)?;
         let base = match self.field_content(name, Codec::Text) {
             Some(Ok(rt)) => rt,
             Some(Err(e)) => return Err(field_decode(name, &[], Codec::Text, e)),
             None => Normalized::empty(),
         };
-        let (content, revised) =
-            carry_receipt(&base, quillmark_content::lines::import::from_plaintext(text));
+        let (content, _) = carry_anchors(&base, quillmark_content::lines::import::from_plaintext(text));
         let stored = super::stored_as(
             self.payload.get(name).map(QuillValue::as_json),
             &content,
             Codec::Text.content(),
         );
-        self.payload_mut()
-            .insert(name.to_string(), QuillValue::from_json(stored))
-            .map_err(EditError::InvalidPayload)?;
-        Ok(revised)
+        self.revising(super::Target::Field(name), Vec::new(), |card| {
+            card.payload_mut()
+                .insert(name.to_string(), QuillValue::from_json(stored))
+                .map_err(EditError::InvalidPayload)
+                .map(|_| ())
+        })
     }
 
     /// Revise the body to a pre-built content: [`revise_body`](Self::revise_body)
     /// with no markdown import. Diffs `content` against the current body,
     /// carries each prose anchor `content` does not hold by id through the diff
-    /// ([`carry_anchors`]), and returns the [`Revised`] receipt, which holds no
-    /// warning and names each anchor the diff deleted. What `content` carries
-    /// lands as it is, its own anchors and island ids included.
-    pub fn revise_body_content(&mut self, content: impl Into<Normalized>) -> Revised {
-        let (content, revised) = carry_receipt(self.body_lines(), content.into());
-        self.overwrite_body(content);
-        revised
+    /// ([`carry_anchors`]), and returns the [`Receipt`](super::Receipt), which
+    /// holds no warning. What `content` carries lands as it is, its own anchors
+    /// and island ids included.
+    pub fn revise_body_content(&mut self, content: impl Into<Normalized>) -> Result<super::Receipt, EditError> {
+        let (content, _) = carry_anchors(self.body_lines(), content.into());
+        self.revising(super::Target::Body, Vec::new(), |card| {
+            card.overwrite_body(content);
+            Ok(())
+        })
     }
 
     /// Revise a richtext field to a pre-built content: the field-level twin of
@@ -1655,17 +1595,16 @@ impl Card {
         &mut self,
         name: &str,
         content: impl Into<Normalized>,
-    ) -> Result<Revised, EditError> {
+    ) -> Result<super::Receipt, EditError> {
         let base = self.richtext_base(name)?;
-        let (content, revised) = carry_receipt(&base, content.into());
-        self.store_field_content(name, &content)?;
-        Ok(revised)
+        let (content, _) = carry_anchors(&base, content.into());
+        self.revising(super::Target::Field(name), Vec::new(), |card| card.store_field_content(name, &content))
     }
 
     /// Revise a content field from authored text **with schema enforcement**:
     /// [`revise_field`](Self::revise_field)'s anchor-rebasing diff, then the
     /// conform [`commit_field`](Self::commit_field) runs. Returns the
-    /// [`Revised`] receipt, and leaves the field unchanged on any error. A
+    /// [`Receipt`](super::Receipt), and leaves the field unchanged on any error. A
     /// `text` field imports no markdown, so its receipt holds no warning.
     ///
     /// **Hidden** on the same terms as [`commit_field`](Self::commit_field): its
@@ -1677,7 +1616,7 @@ impl Card {
         name: &str,
         body: impl Into<String>,
         schema: &FieldSchema,
-    ) -> Result<Revised, EditError> {
+    ) -> Result<super::Receipt, EditError> {
         if matches!(schema.r#type, FieldType::Text { .. }) {
             // The strict write runs the literal codec's boundary cleanup, so
             // the committed text is what the anchors are carried onto.
@@ -1693,7 +1632,7 @@ impl Card {
                 .map_err(|e| field_decode(name, &[], Codec::Text, e))?;
             return self.revise_field_plain(name, &text);
         }
-        let (content, revised) = self.diff_field(name, body)?;
+        let (content, warnings) = self.diff_field(name, body)?;
         // Re-canonicalizing a content object keeps its identity marks, so the
         // schema check fires on the value the anchors survived onto.
         let canonical = super::stored_over(self.payload.get(name).map(QuillValue::as_json), &content);
@@ -1703,10 +1642,12 @@ impl Card {
             schema,
             &DocPath::new(),
         )?;
-        self.payload_mut()
-            .insert(name.to_string(), stored)
-            .map_err(EditError::InvalidPayload)?;
-        Ok(revised)
+        self.revising(super::Target::Field(name), warnings, |card| {
+            card.payload_mut()
+                .insert(name.to_string(), stored)
+                .map(|_| ())
+                .map_err(EditError::InvalidPayload)
+        })
     }
 }
 

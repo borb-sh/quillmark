@@ -88,10 +88,15 @@ pub enum MarkStep {
     Remove { start: Usv, end: Usv, tag: String, quote: Option<String> },
 }
 
+/// `quote` is as a mark step's.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnchorStep {
-    /// Places or moves an anchor. `quote` is as a mark step's.
-    Set { anchor: Anchor, quote: Option<String> },
+    /// Places an anchor under an id neither its text nor a slot in it holds:
+    /// one held is [`ApplyError::AnchorHeld`], so two hosts minting one id
+    /// collide loudly rather than one moving the other's anchor.
+    Place { anchor: Anchor, quote: Option<String> },
+    /// Moves the anchor its text holds under the id.
+    Move { anchor: Anchor, quote: Option<String> },
     Remove { id: String },
 }
 
@@ -127,6 +132,8 @@ pub enum ApplyError {
     ContainerKind { id: String },
     ContainerInUse { id: String },
     UnknownAnchor { id: String },
+    /// An anchor placement of an id the text or a slot in it already holds.
+    AnchorHeld { id: String },
     UnknownIsland { id: String },
     UnknownSlot { island: String, slot: String },
     /// A splice whose `blocks` or `islands` do not match its insert, or a
@@ -144,6 +151,7 @@ impl std::fmt::Display for ApplyError {
             ApplyError::ContainerKind { id } => write!(f, "container `{id}` cannot change its kind"),
             ApplyError::ContainerInUse { id } => write!(f, "container `{id}` is still on a block's path"),
             ApplyError::UnknownAnchor { id } => write!(f, "no anchor `{id}`"),
+            ApplyError::AnchorHeld { id } => write!(f, "anchor `{id}` is held: move it, or place another id"),
             ApplyError::UnknownIsland { id } => write!(f, "no island `{id}`"),
             ApplyError::UnknownSlot { island, slot } => write!(f, "island `{island}` has no slot `{slot}`"),
             ApplyError::BadStep { step, reason } => write!(f, "step {step}: {reason}"),
@@ -173,7 +181,8 @@ pub struct Applied {
     /// Each anchor the value held before and holds nowhere after, unless an
     /// `anchor` step removed it, as it read before, in reading order.
     pub dropped: Vec<Dropped>,
-    /// Each surviving range anchor whose text the change rewrote.
+    /// Each surviving anchor, a point included, whose position, block or
+    /// context the change moved, by id.
     pub moved: Vec<Moved>,
     /// Each placeholder the change gave a record it put, and the id
     /// [`mint::fill`](crate::mint::fill) gave it, minted past the ids `before`
@@ -197,11 +206,52 @@ pub struct SlotRef {
     pub slot: String,
 }
 
+/// A surviving anchor a change moved: the text it covered before and after,
+/// and what moved.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Moved {
     pub id: String,
     pub before: String,
     pub after: String,
+    pub reason: MoveReason,
+}
+
+/// What moved about an anchor, the first of these that holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoveReason {
+    /// A step put it other than where the change's edits to the text carry
+    /// it, or in another slot.
+    Position,
+    /// Its start sits in another block.
+    Block,
+    /// Its text, or the [`CONTEXT`] characters on either side of it, reads
+    /// otherwise.
+    Context,
+}
+
+impl MoveReason {
+    /// The reason's name on the wire.
+    pub fn name(self) -> &'static str {
+        match self {
+            MoveReason::Position => "position",
+            MoveReason::Block => "block",
+            MoveReason::Context => "context",
+        }
+    }
+}
+
+/// The characters on each side of an anchor its context reads, as many as
+/// `reattach` holds a selector's prefix and suffix to.
+pub const CONTEXT: Usv = 8;
+
+impl AnchorStep {
+    /// The id of the anchor the step names.
+    pub fn id(&self) -> &str {
+        match self {
+            AnchorStep::Place { anchor, .. } | AnchorStep::Move { anchor, .. } => &anchor.id,
+            AnchorStep::Remove { id } => id,
+        }
+    }
 }
 
 impl Change {
@@ -253,9 +303,41 @@ fn applying(before: &Content, change: &Change, undo: bool) -> Result<(Applied, C
         }
         false => Vec::new(),
     };
-    let moved = moved_anchors(before, &content, &run.touched);
+    let applied = Change { steps: applied };
+    let moved = moved_anchors(before, &content, &applied, &run);
     let inverse = Change { steps: groups.into_iter().rev().flatten().collect() };
-    Ok((Applied { content, applied: Change { steps: applied }, dropped, moved, minted }, inverse))
+    Ok((Applied { content, applied, dropped, moved, minted }, inverse))
+}
+
+/// The text `change`'s top-level splices inserted that survives in `after`,
+/// the text it produced, as scalar ranges into `after`. The change counts in
+/// `u`; a range whose edge falls inside a character or past `after` is left
+/// out.
+pub fn inserted_spans(change: &Change, after: &str, u: impl Units) -> Vec<(Usv, Usv)> {
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    for step in &change.steps {
+        let Step::Splice(s) = step else { continue };
+        let (at, deleted, inserted) = (s.at, u.len(&s.delete), u.len(&s.insert));
+        let end = at + deleted;
+        let shift = |p: usize, inside: usize| match p {
+            p if p <= at => p,
+            p if p >= end => p - deleted + inserted,
+            _ => inside,
+        };
+        spans = spans
+            .into_iter()
+            .map(|(a, b)| (shift(a, at + inserted), shift(b, at)))
+            .filter(|(a, b)| a < b)
+            .collect();
+        if inserted > 0 {
+            spans.push((at, at + inserted));
+        }
+    }
+    spans.sort_unstable();
+    spans
+        .into_iter()
+        .filter_map(|(a, b)| Some((crate::units::to_scalars(u, after, a)?, crate::units::to_scalars(u, after, b)?)))
+        .collect()
 }
 
 /// Each anchor of `before`, in its text or a slot, that `after` holds
@@ -305,8 +387,10 @@ pub(crate) struct Run {
     undo: bool,
     /// The id of each anchor an `anchor` step removed.
     removed: Vec<String>,
-    /// Each anchor whose text a step may have rewritten.
+    /// Each anchor whose position, block or context a step may have moved.
     touched: HashSet<String>,
+    /// Each anchor an `anchor` step placed or moved.
+    stepped: HashSet<String>,
     /// Whether a step may have lost an anchor other than by an `anchor` step.
     lost: bool,
 }
@@ -319,7 +403,7 @@ const TWICE_ISLAND: &str = "the island id is held twice";
 
 impl Run {
     pub(crate) fn new(undo: bool) -> Run {
-        Run { undo, removed: Vec::new(), touched: HashSet::new(), lost: false }
+        Run { undo, removed: Vec::new(), touched: HashSet::new(), stepped: HashSet::new(), lost: false }
     }
 
     /// Runs `steps` on one level, each checked over what it touched, and
@@ -458,6 +542,13 @@ impl Run {
         let next = if untouched { next } else { settled(ws, &written, next) };
         let inserted = clipped(&next, at, at + m);
 
+        let breaks = s.insert.contains('\n') || s.delete.contains('\n');
+        let (lo, hi) = match breaks {
+            true => (ws.min(at.saturating_sub(CONTEXT)), d.block_end(k1).max(end + CONTEXT)),
+            false => (at.saturating_sub(CONTEXT), end + CONTEXT),
+        };
+        let near = d.c.anchors.partition_point(|a| a.start <= hi);
+        self.touched.extend(d.c.anchors[..near].iter().filter(|a| a.end >= lo).map(|a| a.id.clone()));
         let restores = self.shift_anchors(d, at, dn, m);
         let blocks = d.rewrite(k0, k1, &written, next, s.blocks.clone());
         let gone: Vec<Island> = d.c.islands.splice(first..first + lost, islands.iter().cloned()).collect();
@@ -520,7 +611,7 @@ impl Run {
             if self.undo {
                 let back = (map_start(start, at, m, dn, point), map_end(end_, at, m, dn, point));
                 if !alive || back != (a.start, a.end) {
-                    restores.push(a.clone());
+                    restores.push((a.clone(), alive));
                 }
             }
             if !alive {
@@ -538,9 +629,12 @@ impl Run {
         }
         restores
             .into_iter()
-            .map(|a| {
+            .map(|(a, alive)| {
                 let quote = Some(d.slice(a.start, a.end));
-                Step::Anchor(AnchorStep::Set { anchor: a, quote })
+                Step::Anchor(match alive {
+                    true => AnchorStep::Move { anchor: a, quote },
+                    false => AnchorStep::Place { anchor: a, quote },
+                })
             })
             .collect()
     }
@@ -581,33 +675,47 @@ impl Run {
     }
 
     fn anchor(&mut self, d: &mut Draft, s: &AnchorStep, n: usize) -> Result<(AnchorStep, Step), ApplyError> {
-        let back = |d: &Draft, a: Anchor| {
+        let back = |d: &Draft, a: Anchor, place: bool| {
             let quote = Some(d.slice(a.start, a.end));
-            Step::Anchor(AnchorStep::Set { anchor: a, quote })
+            Step::Anchor(match place {
+                true => AnchorStep::Place { anchor: a, quote },
+                false => AnchorStep::Move { anchor: a, quote },
+            })
         };
         match s {
-            AnchorStep::Set { anchor: a, quote } => {
+            AnchorStep::Place { anchor: a, quote } | AnchorStep::Move { anchor: a, quote } => {
                 let held = quoted(d, a.start, a.end, quote, n)?;
                 if a.id.is_empty() || a.start > a.end || a.end > d.len() {
                     return Err(ApplyError::BadStep { step: n, reason: "an anchor step's range is past the text" });
                 }
-                let prior = d.c.anchors.iter().position(|h| h.id == a.id).map(|k| d.c.anchors[k].clone());
-                d.c.anchors.retain(|h| h.id != a.id);
+                let prior = d.c.anchors.iter().position(|h| h.id == a.id);
+                let place = matches!(s, AnchorStep::Place { .. });
+                let prior = match (place, prior) {
+                    (true, None) if !d.c.islands.iter().any(|i| i.slots.values().any(|slot| slot.holds_anchor(&a.id))) => None,
+                    (true, _) => return Err(ApplyError::AnchorHeld { id: a.id.clone() }),
+                    (false, Some(k)) => Some(d.c.anchors.remove(k)),
+                    (false, None) => return Err(ApplyError::UnknownAnchor { id: a.id.clone() }),
+                };
                 let key = |h: &Anchor| (h.start, h.end, h.id.clone());
                 let at = d.c.anchors.partition_point(|h| key(h) < key(a));
                 d.c.anchors.insert(at, a.clone());
                 self.touched.insert(a.id.clone());
+                self.stepped.insert(a.id.clone());
                 let undo = match prior {
-                    Some(p) => back(d, p),
+                    Some(p) => back(d, p, false),
                     None => Step::Anchor(AnchorStep::Remove { id: a.id.clone() }),
                 };
-                Ok((AnchorStep::Set { anchor: a.clone(), quote: held }, undo))
+                let done = match place {
+                    true => AnchorStep::Place { anchor: a.clone(), quote: held },
+                    false => AnchorStep::Move { anchor: a.clone(), quote: held },
+                };
+                Ok((done, undo))
             }
             AnchorStep::Remove { id } => {
                 let at = d.c.anchors.iter().position(|h| &h.id == id).ok_or_else(|| ApplyError::UnknownAnchor { id: id.clone() })?;
                 let held = d.c.anchors.remove(at);
                 self.removed.push(id.clone());
-                Ok((s.clone(), back(d, held)))
+                Ok((s.clone(), back(d, held, true)))
             }
         }
     }
@@ -898,53 +1006,128 @@ fn differing(a: &[&Mark], b: &[&Mark]) -> Vec<(Usv, Usv)> {
     gone
 }
 
-/// Each range anchor `touched` names that the change kept, whose text it
-/// changed.
-fn moved_anchors(before: &Content, after: &Content, touched: &HashSet<String>) -> Vec<Moved> {
-    if touched.is_empty() {
+/// Each anchor `run` touched that the change kept and moved, by id: one an
+/// `anchor` step put other than where the change's edits carry it, then one
+/// whose start sits in another block, then one whose text or context reads
+/// otherwise.
+fn moved_anchors(before: &Content, after: &Content, applied: &Change, run: &Run) -> Vec<Moved> {
+    if run.touched.is_empty() {
         return Vec::new();
     }
     let mut was = HashMap::new();
-    quotes(before, touched, &mut was);
+    sites(before, &run.touched, &[], &mut was);
     let mut now = HashMap::new();
-    quotes(after, touched, &mut now);
+    sites(after, &run.touched, &[], &mut now);
+    let maps = match run.stepped.is_empty() {
+        true => None,
+        false => Mapping::from_change(applied).ok(),
+    };
     let mut out: Vec<Moved> = now
         .into_iter()
-        .filter_map(|(id, after)| {
-            let before = was.remove(&id)?;
-            (before != after && !before.is_empty()).then_some(Moved { id, before, after })
+        .filter_map(|(id, n)| {
+            let w = was.remove(&id)?;
+            let placed = || match &maps {
+                _ if w.path != n.path => true,
+                Some(maps) => carried(maps, &w) != Some((n.start, n.end)),
+                None => true,
+            };
+            let reason = if run.stepped.contains(&id) && placed() {
+                MoveReason::Position
+            } else if w.block != n.block {
+                MoveReason::Block
+            } else if (&w.prefix, &w.quote, &w.suffix) != (&n.prefix, &n.quote, &n.suffix) {
+                MoveReason::Context
+            } else {
+                return None;
+            };
+            Some(Moved { id, before: w.quote, after: n.quote, reason })
         })
         .collect();
     out.sort_by(|a, b| a.id.cmp(&b.id));
     out
 }
 
-/// The text each anchor `ids` names covers, in `c` and its slots.
-fn quotes(c: &Content, ids: &HashSet<String>, out: &mut HashMap<String, String>) {
-    let mut want: Vec<&Anchor> = c.anchors.iter().filter(|a| ids.contains(&a.id)).collect();
+/// Where an anchor read in `site` lands across `maps`, as `apply` moves it.
+fn carried(maps: &Mapping, site: &Site) -> Option<(Usv, Usv)> {
+    let at = |p: Usv| {
+        site.path.iter().rev().fold(Pos::At(p), |inner, (island, slot)| Pos::In {
+            island: island.clone(),
+            slot: slot.clone(),
+            at: Box::new(inner),
+        })
+    };
+    let local = |r: MapResult| {
+        let mut p = r.pos;
+        loop {
+            match p {
+                Pos::At(p) => return p,
+                Pos::In { at, .. } => p = *at,
+            }
+        }
+    };
+    Some(match site.start == site.end {
+        true => {
+            let p = local(maps.map_point(&at(site.start)));
+            (p, p)
+        }
+        false => (local(maps.map(&at(site.start), Assoc::After)), local(maps.map(&at(site.end), Assoc::Before))),
+    })
+}
+
+/// An anchor as one value holds it: the slots it sits in, its range, the id
+/// of the block its start sits in, and its text and context.
+struct Site {
+    path: Vec<(String, String)>,
+    start: Usv,
+    end: Usv,
+    block: String,
+    prefix: String,
+    quote: String,
+    suffix: String,
+}
+
+/// The site of each anchor `ids` names, in `c`, at `path`, and its slots.
+fn sites(c: &Content, ids: &HashSet<String>, path: &[(String, String)], out: &mut HashMap<String, Site>) {
+    let want: Vec<&Anchor> = c.anchors.iter().filter(|a| ids.contains(&a.id)).collect();
     if !want.is_empty() {
-        let mut edges: Vec<Usv> = want.iter().flat_map(|a| [a.start, a.end]).collect();
+        let mut edges: Vec<Usv> = want.iter().flat_map(|a| [a.start.saturating_sub(CONTEXT), a.start, a.end, a.end + CONTEXT]).collect();
         edges.sort_unstable();
         edges.dedup();
-        let mut bytes = HashMap::with_capacity(edges.len());
+        let mut at = HashMap::with_capacity(edges.len());
         let mut next = edges.iter().peekable();
-        for (k, (b, _)) in c.text.char_indices().chain([(c.text.len(), ' ')]).enumerate() {
+        let mut breaks = 0;
+        for (k, (b, ch)) in c.text.char_indices().enumerate() {
             while next.next_if(|&&e| e == k).is_some() {
-                bytes.insert(k, b);
+                at.insert(k, (b, breaks));
             }
             if next.peek().is_none() {
                 break;
             }
+            breaks += usize::from(ch == '\n');
         }
-        want.sort_by_key(|a| a.start);
+        let end = (c.text.len(), breaks);
+        let read = |p: Usv| *at.get(&p).unwrap_or(&end);
         for a in want {
-            let (Some(&s), Some(&e)) = (bytes.get(&a.start), bytes.get(&a.end)) else { continue };
-            out.insert(a.id.clone(), c.text[s..e].to_string());
+            let (from, (s, k), (e, _), to) = (read(a.start.saturating_sub(CONTEXT)), read(a.start), read(a.end), read(a.end + CONTEXT));
+            out.insert(
+                a.id.clone(),
+                Site {
+                    path: path.to_vec(),
+                    start: a.start,
+                    end: a.end,
+                    block: c.blocks.get(k).map(|b| b.id.clone()).unwrap_or_default(),
+                    prefix: c.text[from.0..s].to_string(),
+                    quote: c.text[s..e].to_string(),
+                    suffix: c.text[e..to.0].to_string(),
+                },
+            );
         }
     }
     for island in &c.islands {
-        for slot in island.slots.values() {
-            quotes(slot, ids, out);
+        for (slot, inner) in &island.slots {
+            let mut deeper = path.to_vec();
+            deeper.push((island.id.clone(), slot.clone()));
+            sites(inner, ids, &deeper, out);
         }
     }
 }
@@ -1170,7 +1353,12 @@ mod wire {
                     quote,
                 ),
             ),
-            Step::Anchor(AnchorStep::Set { anchor, quote }) => one("anchor", quoting(anchor_value(anchor), quote)),
+            Step::Anchor(AnchorStep::Place { anchor, quote }) => one("anchor", quoting(anchor_value(anchor), quote)),
+            Step::Anchor(AnchorStep::Move { anchor, quote }) => {
+                let mut v = quoting(anchor_value(anchor), quote);
+                v["move"] = true.into();
+                one("anchor", v)
+            }
             Step::Anchor(AnchorStep::Remove { id }) => {
                 one("anchor", obj([("id", id.as_str().into()), ("remove", true.into())]))
             }
@@ -1216,10 +1404,14 @@ mod wire {
     }
 
     fn removing(v: &Value) -> Result<bool, ParseError> {
-        match v.get("remove") {
+        flag(v, "remove")
+    }
+
+    fn flag(v: &Value, key: &str) -> Result<bool, ParseError> {
+        match v.get(key) {
             None | Some(Value::Null) | Some(Value::Bool(false)) => Ok(false),
             Some(Value::Bool(true)) => Ok(true),
-            Some(_) => Err(shape("`remove` is not a boolean")),
+            Some(_) => Err(shape(format!("`{key}` is not a boolean"))),
         }
     }
 
@@ -1336,11 +1528,12 @@ mod wire {
                 }
             }
             "anchor" => {
-                only(body, "an anchor step", &["id", "start", "end", "quote", "remove"])?;
-                if removing(body)? {
-                    Step::Anchor(AnchorStep::Remove { id: str_key(body, "id")? })
-                } else {
-                    Step::Anchor(AnchorStep::Set { anchor: anchor_from_value(body)?, quote: opt_str(body, "quote")? })
+                only(body, "an anchor step", &["id", "start", "end", "quote", "remove", "move"])?;
+                match (removing(body)?, flag(body, "move")?) {
+                    (true, true) => return Err(shape("an anchor step names `remove` or `move`, not both")),
+                    (true, false) => Step::Anchor(AnchorStep::Remove { id: str_key(body, "id")? }),
+                    (false, true) => Step::Anchor(AnchorStep::Move { anchor: anchor_from_value(body)?, quote: opt_str(body, "quote")? }),
+                    (false, false) => Step::Anchor(AnchorStep::Place { anchor: anchor_from_value(body)?, quote: opt_str(body, "quote")? }),
                 }
             }
             "island" => match body.get("island") {

@@ -858,7 +858,7 @@ export class DocumentWriter {
 	/**
 	 * @param {string} markdown
 	 * @param {import('../core/wasm.js').BaseOptions} [opts]
-	 * @returns {import('../core/wasm.js').Revised}
+	 * @returns {import('../core/wasm.js').Receipt}
 	 */
 	reviseBody(markdown, opts) {
 		return this.#doc._revise({}, markdown, opts);
@@ -867,7 +867,7 @@ export class DocumentWriter {
 	 * @param {string} name
 	 * @param {string} text
 	 * @param {import('../core/wasm.js').BaseOptions} [opts]
-	 * @returns {import('../core/wasm.js').Revised}
+	 * @returns {import('../core/wasm.js').Receipt}
 	 */
 	reviseField(name, text, opts) {
 		return this.#doc._reviseField(this.#quill, name, text, opts);
@@ -946,7 +946,7 @@ export class CardWriter {
 	/**
 	 * @param {string} markdown
 	 * @param {import('../core/wasm.js').BaseOptions} [opts]
-	 * @returns {import('../core/wasm.js').Revised}
+	 * @returns {import('../core/wasm.js').Receipt}
 	 */
 	reviseBody(markdown, opts) {
 		return this.#doc._revise({ card: this.#index }, markdown, opts);
@@ -955,7 +955,7 @@ export class CardWriter {
 	 * @param {string} name
 	 * @param {string} text
 	 * @param {import('../core/wasm.js').BaseOptions} [opts]
-	 * @returns {import('../core/wasm.js').Revised}
+	 * @returns {import('../core/wasm.js').Receipt}
 	 */
 	reviseField(name, text, opts) {
 		return this.#doc._reviseField(this.#quill, { card: this.#index, field: name }, text, opts);

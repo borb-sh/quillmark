@@ -234,10 +234,9 @@ families:
   while the field still holds the string.
 - **`parse::dropped_construct` off a markdown write.** The diagnostic a parse
   adds, minted by `quillmark_core::document::dropped_construct`, also rides
-  the write that imported the markdown. A revise returns it on its `Revised`
-  receipt beside the `Delta`: unanchored from a `Card` verb, which does not
-  know its address, and at the body or field from the typed writer and WASM
-  `revise`. A whole-document revise (`Document::revise`, the writer's
+  the write that imported the markdown. A revise returns it among its
+  `Receipt`'s warnings, unanchored in Rust, and at the body or field once a
+  binding reads it through `Receipt::diagnostics`. A whole-document revise (`Document::revise`, the writer's
   `revise_document`) carries the parse's warnings, then each revised content
   field's at the field, on `DocumentRevised.warnings`. `add_card` returns it
   at the placed card's body, WASM `importMarkdown` and `rebase` beside the

@@ -96,7 +96,7 @@ A `Change` is a list of steps. Each step reads the value the step before it left
 | `setBlock` | `{id, kind?, attrs?, path?}` | Changes a block's kind, attributes or path. Indenting and outdenting are path changes. |
 | `container` | `{id, kind, attrs?}` or `{id, remove: true}` | Adds a container or sets an existing one's attributes, or removes one no path names. |
 | `mark` | `{start, end, type, attrs?, add, quote?}` | Adds or removes formatting over a range. |
-| `anchor` | `{id, start, end, quote?}` or `{id, remove: true}` | Places, moves or removes a comment anchor. |
+| `anchor` | `{id, start, end, quote?}`, `{id, start, end, quote?, move: true}` or `{id, remove: true}` | Places an anchor, moves one, or removes one. A placement of an id the value or any slot holds is refused, so two hosts minting one id collide loudly; a move or removal of an id its text does not hold is refused. |
 | `island` | `{id, props, slots?}` or `{at, island, block?}` | Replaces an island's props, or inserts an island with its slot. A slot the new props name and the island lacks takes its content from `slots`, which names no other slot; a slot they no longer name leaves. Deleting the slot in a splice removes the island. |
 | `nested` | `{island, slot, change}` | Applies a change inside one slot: a table cell or a footnote. |
 
@@ -107,7 +107,7 @@ Each step holds to what its writer read as far as its precondition reaches. A st
 - a splice holds its `delete` to the text at `at`;
 - a `mark` step and an `anchor` placement hold their range to `quote`, the text it covered when the writer read it;
 - an island insert holds `at` to `block`, the id of the block the writer read it in;
-- the id-addressed steps fail on a missing id.
+- the id-addressed steps fail on a missing id, an anchor move and removal included, and an anchor placement on a held one (`ApplyError::AnchorHeld` where its text or a slot in it holds the id, the whole value's validation where another slot does).
 
 A step whose object holds a key its kind does not define, a splice's `delet` or a mark's `qoute`, is `ParseError::UnknownKey` at every decoder, so a misspelled precondition never decodes as a step without it. The `attrs` and `props` a step carries stay open.
 
@@ -157,7 +157,13 @@ An island a change removes and inserts again under its id, a removal paired with
 
 A splice says which islands it deleted only in `removed`. A change mapped holds it on each splice that deletes a slot, as the normalized change does, and one without it is refused. A `Mapping` is a list of step maps with mirror links, each pairing a map with its inverse, so a position one map deleted and its mirror put back maps to where it was. A rebase maps a step through the inverse of its change's earlier steps, then the change it rebases over, then those steps rebased. `Mapping::map_point` maps a position as `apply` moves a point anchor, and `project` takes a mapping's maps inside one slot.
 
-Text deleted under a range anchor shrinks it to what survives. An anchor whose text is deleted entirely is removed and named in the receipt's `droppedAnchors`; a surviving anchor whose text a write rewrote is named in `movedAnchors`. An island removed by a splice, or a slot a props step no longer names, takes the anchors of its slots with it, and each is named in `droppedAnchors` with the island and slot that held it. Every anchor a change takes out of the value is named there, except one its own `anchor` step removed, which the writer asked for.
+Text deleted under a range anchor shrinks it to what survives. An anchor whose text is deleted entirely is removed and named in the receipt's `droppedAnchors`; a surviving anchor the write moved, a point included, is named in `movedAnchors` with its `reason` (below). An island removed by a splice, or a slot a props step no longer names, takes the anchors of its slots with it, and each is named in `droppedAnchors` with the island and slot that held it. Every anchor a change takes out of the value is named there, except one its own `anchor` step removed, which the writer asked for.
+
+A moved anchor's `reason` is the first of these that holds:
+
+- `position`: an `anchor` step put it other than where the write's text edits carry it, or in another slot;
+- `block`: its start sits in another block;
+- `context`: its text, or the `CONTEXT` (8) characters either side of it, read otherwise.
 
 ## Rebasing a change
 
@@ -167,18 +173,21 @@ Each step maps through the inverse of its change's earlier steps, then `over`, t
 
 | Step | Maps | Conflicts where |
 |---|---|---|
-| `splice` | the edges of its deletion inward; an insert as a point anchor | `over` deleted any of its deletion, or the text there no longer reads `delete`; an insert where `over` deleted the text on both sides; `over` changed an island it deletes, or the record of a block it deletes |
-| `mark`, range `anchor` | its edges inward, as `apply` moves a range anchor | `over` deleted the whole range, or the range no longer reads its `quote` |
-| point `anchor`, island insert | as `apply` moves a point anchor | an insert where `over` deleted the text on both sides, or `block` no longer holds `at` |
+| `splice` | the edges of its deletion inward; an insert as a point anchor | `over` deleted any of its deletion, or the text there no longer reads `delete`; an insert where `over` deleted the text on both sides; `over` changed an island it deletes, the record of a block it deletes, or the marks over the text it deletes |
+| `mark` | its edges inward, as `apply` moves a range anchor | `over` deleted the whole range, the range no longer reads its `quote`, or `over` changed the formatting of its type on a character of the range |
+| range `anchor` placement or move | its edges inward, as `apply` moves a range anchor | `over` deleted the whole range, the range no longer reads its `quote`, or an `anchor` step of `over` names the id |
+| point `anchor` placement or move, island insert | as `apply` moves a point anchor | an insert where `over` deleted the text on both sides, `block` no longer holds `at`, or an `anchor` step of `over` names the id |
 | `setBlock`, `container`, island props | unchanged | the id is gone or `over` removed it, or `over` changed what the step overwrites |
-| anchor removal | unchanged | the id is gone |
+| anchor removal | unchanged | the id is gone, or an `anchor` step of `over` names it |
 | `nested` | its change rebased over what `over` did in that slot | the slot is gone, a step inside conflicts, or `over` removed the island or the slot and the slot now reads otherwise |
 
 A step holds to what it overwrites as its writer read it, its own earlier steps included, and conflicts as `changed` where `over` changed that, rather than undoing `over`:
 
 - a `setBlock` holds the fields of the block's record it names, so a `setBlock` names only the fields it changes, as a diff's do;
 - a `container` step holds the container it sets or removes, and an island props step the props and the slots it drops;
-- a splice holds each island and block record it deletes, so a stale delete or move of a block `over` re-kinded conflicts where ProseMirror's would delete it.
+- a splice holds each island, block record and mark over the text it deletes, so a stale delete or move of a block `over` re-kinded conflicts where ProseMirror's would delete it, and a stale rewrite of a word `over` formatted conflicts rather than dropping the formatting; a rewrite of unformatted text lands;
+- a `mark` step holds the formatting of its type on each character of its range that both values hold, text `over` typed inside the range taking the step's;
+- an `anchor` step holds the anchor it names: a stale move or removal of one `over` removed is `missing` by itself, and one `over` placed, moved or removed conflicts, so a stale revise never brings back a comment someone resolved.
 
 Where `over` removed an island or slot, the edits in it are not in the mapping, so a `nested` step lands only where the slot reads as it did.
 
@@ -200,7 +209,12 @@ Each law is a property test over generated values and generated changes (`tests/
 4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes.
 5. Every `Change` yields a valid value or fails and changes nothing.
 6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported. A write-back reads as the merged state it repaired: by any number of peers where no repair inserts, since the value then holds no character or slot the state does not, and by one writer otherwise.
-7. Where `rebase(d, c, o)` succeeds, `apply(apply(d, o), rebase(d, c, o))` succeeds and leaves a valid value, which the rebased change's inverse takes back exactly, and which keeps what `o` did by id: each block kind and path, container, and island's props `o` changed, each block it changed, and each island or slot it changed that `c` drops without editing what `o` changed in it. `rebase(d, c, ∅) == c`. Two changes to text either side of a character neither touches, joining no blocks, rebase over each other and reach the same value either way round, holding the text each wrote, but for the id of a block both introduced, which the rebased one renames.
+7. Where `rebase(d, c, o)` succeeds, `apply(apply(d, o), rebase(d, c, o))` succeeds and leaves a valid value, which the rebased change's inverse takes back exactly. `rebase(d, c, ∅) == c`. The value keeps what `o` did:
+   - by id: each block kind and path, container, and island's props `o` changed, each block it changed, and each island or slot it changed that `c` drops without editing what `o` changed in it;
+   - `o`'s formatting on each character all three values hold whose formatting of that type `c` left alone;
+   - each anchor of the value's text an `anchor` step of `o` names, where the rebased change's own edits carry it.
+
+   Two changes to text either side of a character neither touches, joining no blocks, rebase over each other and reach the same value either way round, holding the text each wrote, but for the id of a block both introduced, which the rebased one renames.
 
 ## Writing a value
 
@@ -248,10 +262,14 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 
 ## Merge repair
 
-A single step cannot break the model, but two valid concurrent edits can merge into a state no step allows. `repair(raw) -> (Content, Repair[])` makes any such state valid (`src/repair.rs`). Repair is how a merged state reads: it is total and deterministic, so peers holding one merged state compute one value without writing anything. Writing a repair back into the shared state is optional, and who may write it back depends on what it writes:
+A single step cannot break the model, but two valid concurrent edits can merge into a state no step allows. `repair(raw) -> (Content, Repair[], Change)` makes any such state valid (`src/repair.rs`).
+
+Its `Change` takes the merged text to the value's: each character a rule deletes, inserts or rewrites as a splice, a slot's edits as a `nested` step, and a table's slots a rule removed or added as a props step. A position mapped through it lands where repair puts an anchor there, which a law holds (`tests/repair_laws.rs`), so a peer maps its caret, or lowers an exact change into the merged state's coordinates, through it.
+
+Repair is how a merged state reads: it is total and deterministic, so peers holding one merged state compute one value without writing anything. Writing a repair back into the shared state is optional, and who may write it back depends on what it writes:
 
 - A repair whose rules only delete or set an attribute may be written back by any peer. Two peers writing back one repair delete the same characters and records and set the same values, so their merge is one write-back, and it reads as the merged state did. A record minted for a `\n` that holds none, a split run's container and a re-minted id are sets too, each under an id derived from the ids involved.
-- A rule that inserts, `Repair::inserts` (`inserts: true` on the wire), is written back only by the session's single writer, a server or an elected leader: a split block's `\n` and record, the space a heading's hard break becomes, and a missing cell's empty slot. Two peers inserting at once each insert their own: text lands twice and stays, since the extra copy is valid, and a cell minted twice keeps one peer's slot under its id. Until the single writer writes it back, every peer reads it through repair, and any other peer writes back a report only when none of its repairs inserts.
+- A rule that inserts, `Repair::inserts` (`inserts: true` on the wire), is written back by a server where the session has one, and by no one otherwise: a split block's `\n` and record, the space a heading's hard break becomes, and a missing cell's empty slot. Two peers inserting at once each insert their own: text lands twice and stays, since the extra copy is valid, and a cell minted twice keeps one peer's slot under its id. Until a server writes it back, or for the session's life where none does, every peer reads the merged state through repair and maps through its change, and a peer writes back a report only when none of its repairs inserts.
 
 | Merged state | How it arises | Repair |
 |---|---|---|
@@ -267,6 +285,8 @@ A single step cannot break the model, but two valid concurrent edits can merge i
 The raw value is shaped as `Content` with two additions only repair reads. Its `islands` may be an object keyed by island id, with `slot_ids` naming the island each `U+FFFC` carries in slot order, `null` where it carries none; an `islands` array pairs with the slots in order. And an anchor placed as a range carries `range: true`, since a range collapsed to zero width cannot otherwise be told from a point. A v1 value, `lines[]` with no `blocks`, is read as `migrate::from_lines` lifts it.
 
 Beyond the table, repair is total over any value shaped as content: it keeps marks and anchors within their bounds (§ Validity), removes forbidden characters, mints a missing block record and drops an extra one, re-mints a bad or duplicate id, drops a slot under a bad key, mends a table grid a concurrent row and column edit broke, clips marks and anchors to the text, and turns a rule holding text or a code block holding an island into a paragraph. A fresh id is the ids involved joined by `-`, with a numeric suffix where that id is taken, so two peers writing back one repair write the same bytes.
+
+A heading's hard break becomes a space as a splice rewrites it, so a range anchor that starts or ends on the break shrinks off it, as `apply` moves one.
 
 ## The line form
 

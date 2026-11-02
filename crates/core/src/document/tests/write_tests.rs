@@ -143,7 +143,7 @@ fn a_slow_anchor_lands_on_its_text_over_live_typing() {
         doc.main_mut().apply(Target::Body, &key, None).unwrap();
     }
     assert_eq!(doc.main().body().text, "Q3: net Revenue grew 12%. fast\nShip v2");
-    let place = Change::new(vec![Step::Anchor(AnchorStep::Set {
+    let place = Change::new(vec![Step::Anchor(AnchorStep::Place {
         anchor: Anchor::new("c1".to_string(), 13, 16),
         quote: Some("12%".to_string()),
     })]);
@@ -543,7 +543,7 @@ fn anchored(body: &str, anchors: &[(&str, &str)]) -> crate::document::Document {
         .iter()
         .map(|(id, quote)| {
             let start = text[..text.find(quote).unwrap()].chars().count();
-            Step::Anchor(AnchorStep::Set { anchor: Anchor::new(*id, start, start + quote.chars().count()), quote: None })
+            Step::Anchor(AnchorStep::Place { anchor: Anchor::new(*id, start, start + quote.chars().count()), quote: None })
         })
         .collect();
     doc.main_mut().apply(Target::Body, &Change::new(steps), None).unwrap();
@@ -570,7 +570,8 @@ fn a_revise_and_a_replace_carry_an_anchor_through_one_word_diff() {
     assert_eq!(quote_of(&revised, "c1").as_deref(), Some("brown "));
     assert_eq!(quote_of(&revised, "c2").as_deref(), Some("dog"));
     assert_eq!(revised.main().body().anchors, replaced.main().body().anchors);
-    assert_eq!(receipt.moved_anchors.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["c1"]);
+    let moved: Vec<_> = receipt.moved_anchors.iter().map(|m| (m.id.as_str(), m.reason.name())).collect();
+    assert_eq!(moved, [("c1", "context"), ("c2", "context")]);
 }
 
 /// A replaced run's lines pair by best similarity, so a paragraph the writer
