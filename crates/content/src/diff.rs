@@ -79,10 +79,6 @@ fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>
     let mut rest = Vec::new();
     rest.extend(cur.blocks.iter().zip(&want.blocks).filter_map(|(have, need)| record_step(have, need)));
     for (have, need) in cur.islands.iter().zip(&want.islands) {
-        if have.props != need.props {
-            let slots = need.slots.iter().filter(|(k, _)| !have.slots.contains_key(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();
-            rest.push(Step::Island(IslandStep::Props { id: have.id.clone(), props: need.props.clone(), slots }));
-        }
         for (slot, inner) in &need.slots {
             if let Some(held) = have.slots.get(slot)
                 && held != inner
@@ -92,6 +88,10 @@ fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>
                     rest.push(Step::Nested { island: have.id.clone(), slot: slot.clone(), change });
                 }
             }
+        }
+        if have.props != need.props {
+            let slots = need.slots.iter().filter(|(k, _)| !have.slots.contains_key(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();
+            rest.push(Step::Island(IslandStep::Props { id: have.id.clone(), props: need.props.clone(), slots }));
         }
     }
     let ran = run(&mut cur, &rest);
