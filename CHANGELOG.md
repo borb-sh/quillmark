@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.134.1 - 2026-11-02
+
+- feat(wasm): export the repair, mapPos and wrap types from the runtime
+- fix(content): diff edits a table's cells before its props
+- feat(wasm): bind merge repair
+
 ## v0.134.0 - 2026-11-02
 
 Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Every
