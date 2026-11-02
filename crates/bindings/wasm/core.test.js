@@ -159,7 +159,7 @@ title: Draft
 ~~~
 
 # Body`)
-    doc.insertCard(makeCard('note', { author: 'Alice' }, 'A note body.'))
+    doc._uncheckedInsertCard(makeCard('note', { author: 'Alice' }, 'A note body.'))
 
     // getStored: value keyed by name; undefined when the field is absent.
     expect(doc.getStored({ card: 0, field: 'author' })).toBe('Alice')
@@ -185,9 +185,9 @@ title: Draft
 ~~~
 
 # Body`)
-    doc.insertCard({ kind: 'note', body: 'A' })
-    doc.insertCard({ kind: 'note', body: 'B' })
-    expect(() => doc.insertCard({ kind: 'note', stray: 'x', body: 'C' })).toThrow(/stray/)
+    doc._uncheckedInsertCard({ kind: 'note', body: 'A' })
+    doc._uncheckedInsertCard({ kind: 'note', body: 'B' })
+    expect(() => doc._uncheckedInsertCard({ kind: 'note', stray: 'x', body: 'C' })).toThrow(/stray/)
 
     // card(i) reads one whole card without materializing the cards array.
     expect(doc.card(1).kind).toBe('note')

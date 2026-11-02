@@ -227,7 +227,19 @@ export interface Card {
 }
 
 /**
- * A card written *into* a document, accepted by `Document.insertCard`. Like
+ * How a card is placed (`doc.unchecked.insertCard`, `writer.addCard`).
+ * `actor` names the writer, one per live session: a card spelling no `id`
+ * mints `{actor}-{token}`, so two clients placing cards from one document
+ * never mint one id; without it the id mints positionally. A card's actor is
+ * 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit; another throws
+ * `edit::invalid_actor`.
+ */
+export interface PlaceOptions {
+    actor?: string;
+}
+
+/**
+ * A card written *into* a document, accepted by `doc.unchecked.insertCard`. Like
  * `Card`, but `body` also takes a markdown `string`, and every field but `kind`
  * is optional (defaulting to no payload items and an empty body). A card
  * without an `id` is minted one where it is placed; one whose `id` is not a
@@ -259,7 +271,7 @@ export interface CardInput {
  * equal body there would pass the `base` check.
  *
  * On the `Addr`-taking verbs a **bare string** is shorthand for `{ field: name }`
- * (`doc.storeField("qty", 3)`); a bare number is *not* an addr.
+ * (`doc.removeField("qty")`); a bare number is *not* an addr.
  *
  * `doc.pathFor(addr)` mints the address as its canonical `DocPath` string, the
  * anchor `Diagnostic.path` carries and `session.locate` / `session.fieldBoxes`
@@ -1458,13 +1470,15 @@ impl Document {
         serialize_or_throw(&diags(self.parse_warnings.iter().cloned()), "warnings")
     }
 
-    /// Store a field verbatim at `addr`, deferring coercion to render; the typed
-    /// write is [`commitField`](Document::commit_field). A bare string is `Addr`
-    /// shorthand for `{ field }`; `{ card: 2, field: "qty" }` targets a
-    /// composable card. A body address throws:
-    /// write a body with `writer.reviseBody` / `replace`. Throws on an out-of-range card
-    /// or a malformed name.
-    #[wasm_bindgen(js_name = storeField)]
+    /// The ABI under `doc.unchecked.storeField`: store a field at `addr` with
+    /// no schema in play, deferring coercion to render; the typed write is
+    /// `writer.set`. A bare string is `Addr` shorthand for `{ field }`; `{
+    /// card: 2, field: "qty" }` targets a composable card. Each content value
+    /// in `value`, at any depth, decodes as a body write's does and stores in
+    /// its canonical form, throwing `edit::field_decode` where one does not. A
+    /// body address throws: write a body with `writer.reviseBody` / `replace`.
+    /// Throws on an out-of-range card or a malformed name.
+    #[wasm_bindgen(js_name = _uncheckedStoreField, skip_typescript)]
     pub fn store_field(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
@@ -1476,8 +1490,9 @@ impl Document {
         content::payload_in(&mut json, "storeField")?;
         let qv = quillmark_core::value::QuillValue::from_json(json);
         let base = self.addr_base(&addr);
-        self.addr_card_mut(&addr)?
-            .store_field(&field, qv)
+        self.inner
+            .unchecked()
+            .store_field(addr.card, &field, qv)
             .map_err(|e| edit_error_to_js(&e, &base))
     }
 
@@ -1725,7 +1740,7 @@ impl Document {
     /// having no field schema. A declared field is strict-committed, so a
     /// mismatch throws now rather than at render, and an undeclared name throws
     /// `edit::unknown_field` rather than falling to the opaque store — use
-    /// [`storeField`](Document::store_field) for that. Also throws
+    /// `doc.unchecked.storeField` for that. Also throws
     /// `edit::field_coercion_failed` / `edit::field_decode` /
     /// `edit::field_not_single_line` on a typed mismatch,
     /// `edit::invalid_field_name` on a malformed name, and
@@ -1800,8 +1815,10 @@ impl Document {
     /// leaves the document untouched. Field errors throw the same per-field
     /// bundle as [`commitFields`](Self::commit_fields); an invalid kind or body,
     /// or a bad position, throws a single-entry bundle keyed `$kind` / `$body`.
-    /// Returns the fields' `parse::dropped_construct` warnings, then the body
-    /// import's, anchored under the placed card.
+    /// The card's `$id` mints as `unchecked.insertCard` mints one, under
+    /// `opts.actor` where one is given. Returns the fields'
+    /// `parse::dropped_construct` warnings, then the body import's, anchored
+    /// under the placed card.
     #[wasm_bindgen(js_name = _addCard, skip_typescript, unchecked_return_type = "Diagnostic[]")]
     pub fn add_card(
         &mut self,
@@ -1812,7 +1829,9 @@ impl Document {
         >,
         #[wasm_bindgen(unchecked_optional_param_type = "string")] body: Option<String>,
         #[wasm_bindgen(unchecked_optional_param_type = "number")] at: Option<usize>,
+        #[wasm_bindgen(unchecked_optional_param_type = "PlaceOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
+        let actor = place_actor(&opts, "addCard")?;
         let batch = match fields {
             Some(f) => js_value_to_field_batch(&f, "addCard")?,
             None => Vec::new(),
@@ -1822,33 +1841,38 @@ impl Document {
         let warnings = quill
             .inner
             .writer(&mut self.inner)
-            .add_card(kind, batch, body.as_deref(), at)
+            .add_card(kind, batch, body.as_deref(), at, actor.as_deref())
             .map_err(|errs| edit_errors_to_js(errs, &quillmark_core::path::DocPath::new()))?;
         serialize_or_throw(&diags(warnings), "addCard")
     }
 
-    /// Insert a card: `at` absent appends, a number inserts at that index (in
-    /// `0..=cards.length`). Accepts any `CardInput`, including a card read back
-    /// out of a document. Throws if `card.kind` is not a valid kind name, if
-    /// `at` is out of range, or `edit::too_many_cards` if the document holds
-    /// 1,000 cards.
-    #[wasm_bindgen(js_name = insertCard)]
+    /// The ABI under `doc.unchecked.insertCard`: place a card whole, `at`
+    /// absent appending and a number inserting at that index (in
+    /// `0..=cards.length`), and answer its `$id`. Accepts any `CardInput`,
+    /// including a card read back out of a document; its fields' content
+    /// values decode as its body does. A card spelling no `id` mints one,
+    /// under `opts.actor` where one is given. Throws if `card.kind` is not a
+    /// valid kind name, if `at` is out of range, `edit::invalid_actor` for an
+    /// actor that cannot open a card id, or `edit::too_many_cards` if the
+    /// document holds 1,000 cards.
+    #[wasm_bindgen(js_name = _uncheckedInsertCard, skip_typescript)]
     pub fn insert_card(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "CardInput")] card: JsValue,
         #[wasm_bindgen(unchecked_optional_param_type = "number")] at: Option<usize>,
-    ) -> Result<(), JsValue> {
+        #[wasm_bindgen(unchecked_optional_param_type = "PlaceOptions")] opts: JsValue,
+    ) -> Result<String, JsValue> {
+        let actor = place_actor(&opts, "insertCard")?;
         let core_card = js_to_card(&card)?;
         // A kind error anchors at the target slot; an append has no slot yet, so
         // its kind error carries no anchor.
         let base = at.map_or_else(quillmark_core::path::DocPath::new, |i| {
             quillmark_core::path::DocPath::card(None, i)
         });
-        match at {
-            Some(index) => self.inner.insert_card(index, core_card),
-            None => self.inner.push_card(core_card),
-        }
-        .map_err(|e| edit_error_to_js(&e, &base))
+        self.inner
+            .unchecked()
+            .insert_card(at, core_card, actor.as_deref())
+            .map_err(|e| edit_error_to_js(&e, &base))
     }
 
     #[wasm_bindgen(js_name = removeCard, unchecked_return_type = "Card | undefined")]
@@ -2124,8 +2148,8 @@ impl ReadBase {
 /// The canonical form of `rt`, read without a document: the one spelling
 /// `replace` and every other content input path take. Marks are cut, unioned and
 /// sorted, anchors and containers ordered, an unused container dropped, island
-/// props normalized, and a table cell of several paragraphs joined with hard
-/// breaks, so the answer's `text` is `rt.text` but for those breaks. Throws
+/// props normalized, and a table cell or footnote note of several paragraphs
+/// joined with hard breaks, so the answer's `text` is `rt.text` but for those breaks. Throws
 /// where `rt` is not a valid value once normalized.
 #[wasm_bindgen(js_name = normalize, unchecked_return_type = "Content")]
 pub fn normalize(
@@ -2738,6 +2762,23 @@ fn card_to_js(card: &quillmark_core::document::Card) -> Result<JsValue, JsValue>
         }
     }
     serialize_or_throw(&wire, "card")
+}
+
+/// The `actor` a card placement's `PlaceOptions` name, if any.
+fn place_actor(opts: &JsValue, verb: &str) -> Result<Option<String>, JsValue> {
+    if opts.is_undefined() || opts.is_null() {
+        return Ok(None);
+    }
+    reject_unknown_keys(opts, &["actor"], "options", |k| {
+        format!("{verb}: options have unknown key `{k}`; a card placement takes `actor`")
+    })?;
+    let v = js_sys::Reflect::get(opts, &"actor".into()).unwrap_or(JsValue::UNDEFINED);
+    if v.is_undefined() {
+        return Ok(None);
+    }
+    v.as_string()
+        .map(Some)
+        .ok_or_else(|| WasmError::from(format!("{verb}: actor must be a string when given")).to_js_value())
 }
 
 fn js_to_card(value: &JsValue) -> Result<quillmark_core::document::Card, JsValue> {

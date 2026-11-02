@@ -6,9 +6,10 @@
 
 A `Document` is built and mutated in memory (no Markdown text involved)
 through validated constructors and mutators: `Document::new` (blank canvas),
-`Card::new`, `store_field` / `store_fields`, `push_card`. Every mutator enforces
+`Card::new`, `Card::store_field` / `store_fields`, and the document's
+`unchecked()` writes, `store_field` and `insert_card`. Every mutator enforces
 the same field-name, depth, kind, and field-count invariants the Markdown parser
-does, so a constructed document cannot be invalid — with no bypass, since
+does, and decodes each content value it is handed as a body write does, so a constructed document cannot be invalid — with no bypass, since
 `Payload`'s own mutation half is crate-internal, `card.payload()` is a read
 view, and a placed card is reached as a `CardMut` (every `Card` verb forwarded,
 no whole-card assignment) rather than a `&mut Card`. This is the
@@ -22,7 +23,7 @@ the authoring document serves LLM/MCP consumers.
 |---|---|---|
 | card-yaml Markdown | humans | `Quill::parse` (the bound input path; `Document::parse` is the quill-free transport one) |
 | authoring document (JSON) | LLMs / MCP | `authoring_schema()` → write → `Quill::from_authoring` |
-| structured mutators | programs | `Document::new` → `store_fields` / `push_card` |
+| structured mutators | programs | `Document::new` → `unchecked().store_field` / `unchecked().insert_card` |
 
 All three produce the same `Document`; render, validation, storage, and
 emission do not distinguish how it was built. `to_markdown()` emits canonical
@@ -95,10 +96,12 @@ to the write by typed commit (below).
 
 ## Two write disciplines: opaque store vs typed commit
 
-Document mutation is a data primitive that never requires a Quill. `store_field`
-/ `store_fields` (the opaque **store**) hold only a `$quill` *reference* and
-enforce the structural invariants above. They store the value verbatim,
-deferring coercion to render.
+Document mutation is a data primitive that never requires a Quill. The opaque
+**store**, `Document::unchecked()`'s `store_field` and `insert_card`, holds only
+a `$quill` *reference* and enforces the structural invariants above. It defers
+schema coercion to render, and stores each content value in its canonical
+form, as a body write does, so `==`, the stored bytes and the markdown export
+agree for a field as for a body.
 
 Typed commit is a schema-bound layer over that primitive: `Quill::writer(&mut doc)`
 binds the resolved schema, and its `set` / `set_all` resolve each field's `type`,
@@ -114,8 +117,8 @@ whole-form batch surfaces every typo at once.
 **Conform is the third stratum, and it is the typed commit run by the schema
 instead of by a caller.** `Quill::conform(&mut doc)` walks every declared
 content field through the same strict write `set` commits through, so a
-document that arrived through the opaque primitive (a parse, a stored row, a
-`store_field`) lands where the typed writer would have put it, whichever lane
+document that arrived through the opaque primitive (a parse, a stored row, an
+unchecked `store_field`) lands where the typed writer would have put it, whichever lane
 built it ([SCHEMAS.md](SCHEMAS.md) § "Content fields are stored per codec").
 `Quill::parse(md)` is parse-then-conform and the documented ingestion path.
 Where the writer refuses a value, conform leaves it authored and reports a
@@ -126,13 +129,13 @@ The primitive stays load-bearing: it is what lets a `Document` be constructed
 and `from_stored`'d with no bundle (standalone data), what quill-agnostic
 storage/migration infra writes through, what a store-now-validate-later editor
 uses to hold not-yet-conforming input, and the way to store a value opaquely on
-purpose. Reach for the opaque `store_*` for those; reach for the writer by
+purpose. Reach for `unchecked` for those; reach for the writer by
 default. `Quill::writer(&mut doc)` is the documented entry in every
 surface: `quill.writer(doc)` in WASM and Python alike (the schema-bound
 `DocumentWriter` / `Writer` with `set` / `set_all` / `revise_body` / `revise_field` /
 `add_card` / `remove_card` / `card(i)`); the quill owns the schema, so it is the factory. The
 `_commitField` / `_commitFields` / `_reviseField` verbs (addressed by `Addr`) are
-the stable ABI underneath it, and `storeField` remains the
+the stable ABI underneath it, and `doc.unchecked.storeField` remains the
 quill-free opaque store. See [BINDINGS.md](BINDINGS.md) for the write surface, the
 `store` / `set` / `apply·revise·replace` vocabulary rule (governing user-field
 writes), and the core-vs-bindings parity table.

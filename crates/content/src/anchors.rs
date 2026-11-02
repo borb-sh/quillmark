@@ -183,7 +183,7 @@ mod tests {
         let c = value(json!({
             "text": "one\u{2028}two\nthree \u{FFFC}", "blocks": [{"id": "b0", "kind": "para"}, {"id": "b1", "kind": "para"}],
             "anchors": [{"id": "a", "start": 0, "end": 7}, {"id": "p", "start": 10, "end": 10}],
-            "islands": [{"id": "f0", "type": "footnote", "props": {}, "slots": {"note": {
+            "islands": [{"id": "f0", "type": "x-box", "props": {}, "slots": {"note": {
                 "text": "a\u{2028}\nb", "blocks": [{"id": "b0", "kind": "para"}, {"id": "b1", "kind": "para"}],
                 "anchors": [{"id": "n", "start": 0, "end": 4}]}}}],
         }));
@@ -200,7 +200,7 @@ mod tests {
     fn a_selector_in_either_spelling_reattaches() {
         let stored = value(json!({
             "text": "one\u{2028}two\nthree \u{FFFC}", "blocks": [{"id": "b0", "kind": "para"}, {"id": "b1", "kind": "para"}],
-            "islands": [{"id": "f0", "type": "footnote", "props": {}, "slots": {"note": {
+            "islands": [{"id": "f0", "type": "x-box", "props": {}, "slots": {"note": {
                 "text": "ab\u{2028}\ncd", "blocks": [{"id": "b0", "kind": "para"}, {"id": "b1", "kind": "para"}]}}}],
         }));
         for (quote, note) in [("one\u{2028}two", "ab\u{2028}\ncd"), ("one\ntwo", "ab\n\n\ncd")] {

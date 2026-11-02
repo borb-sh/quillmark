@@ -386,7 +386,7 @@ fn a_write_lands_on_the_card_its_writer_read() {
         |doc| {
             let mut card = Card::new("note").unwrap();
             card.overwrite_body(quillmark_content::lines::import::from_markdown("Hello").unwrap().content);
-            doc.insert_card(1, card).unwrap();
+            doc.unchecked().insert_card(Some(1), card, None).unwrap();
         },
     ];
     for shuffle in shuffles {
@@ -630,7 +630,7 @@ fn a_remembered_hash_is_the_values_own() {
         let receipt = doc.main_mut().apply(target, &Change::new(vec![Step::Splice(Splice::new(0, String::new(), "x".to_string()))]), None).unwrap();
         assert_eq!(receipt.hash, content_hash(&doc.main().read(target).unwrap()));
     }
-    doc.main_mut().store_field("notes", crate::value::QuillValue::from_json(serde_json::json!("plain"))).unwrap();
+    doc.unchecked().store_field(None, "notes", crate::value::QuillValue::from_json(serde_json::json!("plain"))).unwrap();
     doc.main_mut().revise_body("Fresh body.").unwrap();
     for target in [Target::Body, notes] {
         assert_eq!(doc.main().hash_of(target).unwrap(), content_hash(&doc.main().read(target).unwrap()));

@@ -28,7 +28,7 @@ fn document() -> Document {
         crate::document::stored_over(None, &crate::document::import_body("a plain item").unwrap()),
         crate::document::stored_over(None, &anchored(&item, "worth a flag", "i1")),
     ]);
-    note.store_field("items", QuillValue::from_json(items))
+    doc.unchecked().store_field(Some(0), "items", QuillValue::from_json(items))
         .unwrap();
     doc
 }

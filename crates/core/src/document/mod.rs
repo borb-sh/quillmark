@@ -681,7 +681,7 @@ pub use dto::{
     STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, StorageError,
     StoredDocument, peek_storage_version,
 };
-pub use edit::{CardMut, EditError, revise_import};
+pub use edit::{CardMut, EditError, Unchecked, revise_import};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
 pub use merge::MergeConflict;
 pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
@@ -1034,7 +1034,7 @@ impl Document {
     ///
     /// The invariants are `debug_assert`s because no caller can break them.
     /// This is crate-internal; every public door that places a card gates it
-    /// ([`push_card`](Self::push_card) / [`insert_card`](Self::insert_card),
+    /// ([`Unchecked::insert_card`](crate::document::Unchecked::insert_card),
     /// [`set_card_kind`](Self::set_card_kind), parse, and
     /// `TryFrom<StoredDocument>` for external data, which checks all three and
     /// returns `StorageError::Malformed`), and a placed card is reachable only

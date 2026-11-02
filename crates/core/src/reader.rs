@@ -516,7 +516,7 @@ card_kinds:
             let mut w = crate::writer::TypedWriter::new(config, &mut doc);
             w.set("subject", "Hello **world**").unwrap();
             w.set("qty", "3").unwrap();
-            w.add_card("note", [("prose", "a *card*")], None, None)
+            w.add_card("note", [("prose", "a *card*")], None, None, None)
                 .unwrap();
         }
         doc
@@ -546,8 +546,7 @@ card_kinds:
 
         let mut authored = blank_doc();
         authored
-            .main_mut()
-            .store_field("qty", QuillValue::from_json(serde_json::json!("3")))
+            .unchecked().store_field(None, "qty", QuillValue::from_json(serde_json::json!("3")))
             .unwrap();
         assert_eq!(
             TypedReader::new(&config, &authored).get("qty").unwrap(),
@@ -561,8 +560,7 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         for name in ["subject", "note", "qty", "paragraphs"] {
-            doc.main_mut()
-                .store_field(name, QuillValue::from_json(serde_json::Value::Null))
+            doc.unchecked().store_field(None, name, QuillValue::from_json(serde_json::Value::Null))
                 .unwrap();
         }
         let view = TypedReader::new(&config, &doc);
@@ -599,8 +597,7 @@ card_kinds:
     fn richtext_field_holding_scalar_raises_mismatch() {
         let config = config();
         let mut doc = blank_doc();
-        doc.main_mut()
-            .store_field("subject", QuillValue::from_json(serde_json::json!(3)))
+        doc.unchecked().store_field(None, "subject", QuillValue::from_json(serde_json::json!(3)))
             .unwrap();
         let err = TypedReader::new(&config, &doc).get("subject").unwrap_err();
         assert!(
@@ -614,8 +611,7 @@ card_kinds:
     fn parse_lane_text_reads_through_the_literal_codec() {
         let config = config();
         let mut doc = blank_doc();
-        doc.main_mut()
-            .store_field(
+        doc.unchecked().store_field(None, 
                 "note",
                 QuillValue::from_json(serde_json::json!("a *literal* line")),
             )
@@ -633,8 +629,7 @@ card_kinds:
         let committed = seeded_doc(&config);
         let mut authored = blank_doc();
         authored
-            .main_mut()
-            .store_field(
+            .unchecked().store_field(None, 
                 "subject",
                 QuillValue::from_json(serde_json::json!("Hello **world**")),
             )
@@ -659,7 +654,7 @@ card_kinds:
         let mut doc = blank_doc();
         let text = serde_json::json!("a *literal* line");
         {
-            let mut card = doc.main_mut();
+            let card = doc.main_card_mut();
             card.store_field("subject", QuillValue::from_json(text.clone()))
                 .unwrap();
             card.store_field("note", QuillValue::from_json(text))
@@ -707,7 +702,7 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         {
-            let mut card = doc.main_mut();
+            let card = doc.main_card_mut();
             card.store_field(
                 "recipients",
                 QuillValue::from_json(serde_json::json!(["a *literal* line"])),
@@ -750,7 +745,7 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         {
-            let mut card = doc.main_mut();
+            let card = doc.main_card_mut();
             card.store_field(
                 "letterhead",
                 QuillValue::from_json(serde_json::json!({"motto": "Fly **fight**", "code": "9"})),
@@ -792,8 +787,7 @@ card_kinds:
 
     fn cui_doc() -> Document {
         let mut doc = blank_doc();
-        doc.main_mut()
-            .store_field(
+        doc.unchecked().store_field(None, 
                 "classification",
                 QuillValue::from_json(serde_json::json!({
                     "value": "CUI",
@@ -847,8 +841,7 @@ card_kinds:
     fn a_dormant_worlds_cell_reads_absent() {
         let config = config();
         let mut doc = blank_doc();
-        doc.main_mut()
-            .store_field(
+        doc.unchecked().store_field(None, 
                 "classification",
                 QuillValue::from_json(serde_json::json!("UNCLASSIFIED")),
             )
@@ -922,8 +915,7 @@ card_kinds:
     fn element_read_out_of_range_and_absent_field_return_none() {
         let config = config();
         let mut doc = blank_doc();
-        doc.main_mut()
-            .store_field(
+        doc.unchecked().store_field(None, 
                 "recipients",
                 QuillValue::from_json(serde_json::json!(["a"])),
             )
@@ -941,8 +933,7 @@ card_kinds:
     fn element_read_without_a_content_leaf_raises_not_content() {
         let config = config();
         let mut doc = blank_doc();
-        doc.main_mut()
-            .store_field("tags", QuillValue::from_json(serde_json::json!(["x"])))
+        doc.unchecked().store_field(None, "tags", QuillValue::from_json(serde_json::json!(["x"])))
             .unwrap();
         let view = TypedReader::new(&config, &doc);
         assert!(matches!(
@@ -1001,8 +992,7 @@ card_kinds:
     fn element_decode_failure_anchors_at_the_element() {
         let config = config();
         let mut doc = blank_doc();
-        doc.main_mut()
-            .store_field(
+        doc.unchecked().store_field(None, 
                 "paragraphs",
                 QuillValue::from_json(serde_json::json!(["ok", 3])),
             )
@@ -1028,9 +1018,7 @@ card_kinds:
     fn card_element_read_reaches_the_kind_schema() {
         let config = config();
         let mut doc = seeded_doc(&config);
-        doc.card_mut(0)
-            .unwrap()
-            .store_field("lines", QuillValue::from_json(serde_json::json!(["a *b*"])))
+        doc.unchecked().store_field(Some(0), "lines", QuillValue::from_json(serde_json::json!(["a *b*"])))
             .unwrap();
         let view = TypedReader::new(&config, &doc);
         assert_eq!(
@@ -1105,8 +1093,7 @@ card_kinds:
     fn a_content_free_composite_reads_verbatim() {
         let config = config();
         let mut doc = blank_doc();
-        doc.main_mut()
-            .store_field("tags", QuillValue::from_json(serde_json::json!(["x", "y"])))
+        doc.unchecked().store_field(None, "tags", QuillValue::from_json(serde_json::json!(["x", "y"])))
             .unwrap();
         assert_eq!(
             TypedReader::new(&config, &doc).get("tags").unwrap(),
@@ -1118,8 +1105,7 @@ card_kinds:
     fn a_composite_leaf_that_does_not_decode_raises_at_the_leaf() {
         let config = config();
         let mut doc = blank_doc();
-        doc.main_mut()
-            .store_field(
+        doc.unchecked().store_field(None, 
                 "paragraphs",
                 QuillValue::from_json(serde_json::json!(["ok", 3])),
             )

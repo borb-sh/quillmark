@@ -63,9 +63,7 @@ fn stored_with_items() -> Document {
         to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
         to_canonical_value(&anchored(&item, "flag", "i1")),
     ]);
-    doc.card_mut(0)
-        .unwrap()
-        .store_field("items", QuillValue::from_json(items))
+    doc.unchecked().store_field(Some(0), "items", QuillValue::from_json(items))
         .unwrap();
     doc
 }
@@ -154,8 +152,7 @@ fn an_omitted_ext_carries_when_the_card_aligns_by_text_or_the_kind_sequences_mat
 #[test]
 fn everything_else_lands_as_the_markdown_spells_it() {
     let mut doc = stored();
-    doc.main_mut()
-        .store_field("qty", QuillValue::from_json(serde_json::json!(3)))
+    doc.unchecked().store_field(None, "qty", QuillValue::from_json(serde_json::json!(3)))
         .unwrap();
     let incoming = "~~~\n$quill: other@1.2\n# kept comment\nsubject: plain now\nqty: 4\n~~~\n";
     let _ = doc.revise(incoming).unwrap();
@@ -246,8 +243,7 @@ fn an_anchor_in_content_stored_out_of_canonical_order_is_named_when_it_drops() {
         .rev()
         .collect();
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nBody.\n");
-    doc.main_mut()
-        .store_field("note", QuillValue::from_json(reordered.into()))
+    doc.unchecked().store_field(None, "note", QuillValue::from_json(reordered.into()))
         .unwrap();
 
     let receipt = doc.clone().revise(&doc.to_markdown()).unwrap();
@@ -375,8 +371,7 @@ fn a_revised_fields_nested_comments_stay() {
         "body": to_canonical_value(&crate::document::import_body("hello world").unwrap()),
         "note": "x",
     }]);
-    doc.main_mut()
-        .store_field("sections", QuillValue::from_json(sections))
+    doc.unchecked().store_field(None, "sections", QuillValue::from_json(sections))
         .unwrap();
     let markdown = doc
         .to_markdown()

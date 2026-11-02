@@ -65,14 +65,14 @@ def test_remove_card_then_insert_card_round_trips_fields():
     its fields intact: the one-Card-shape contract. Exercises the explicit
     quill/ext=None keys the dict carries against `deny_unknown_fields`."""
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.insert_card(make_card("note", {"author": "Alice"}, "Body"))
+    doc.unchecked.insert_card(make_card("note", {"author": "Alice"}, "Body"))
 
     removed = doc.remove_card(0)
     # The returned dict carries explicit None for the absent $ entries.
     assert removed["quill"] is None
     assert field(removed, "author") == "Alice"
 
-    doc.insert_card(removed)  # must not raise (deny_unknown_fields accepts the shape)
+    doc.unchecked.insert_card(removed)  # must not raise (deny_unknown_fields accepts the shape)
     assert len(doc.cards) == 1
     assert doc.cards[0]["kind"] == "note"
     assert field(doc.cards[0], "author") == "Alice"  # field survived the round-trip
@@ -84,11 +84,11 @@ def test_insert_card_accepts_content_dict_body():
     `cards()`/`remove_card` emit), not just a markdown string: exercises
     `py_dict_to_card`'s content-dict input path."""
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.insert_card({"kind": "note", "body": "**Bold** body."})
+    doc.unchecked.insert_card({"kind": "note", "body": "**Bold** body."})
     content_body = doc.cards[0]["body"]
     assert isinstance(content_body, dict)
 
-    doc.insert_card({"kind": "note", "body": content_body})
+    doc.unchecked.insert_card({"kind": "note", "body": content_body})
     assert doc.cards[1]["body"]["text"] == doc.cards[0]["body"]["text"]
 
 
@@ -106,11 +106,11 @@ def test_wire_refusal_carries_the_mutator_code():
         }
 
     with raises_edit_code("edit::invalid_kind_name"):
-        doc.insert_card(make_card("BadKind", {"x": 1}))
+        doc.unchecked.insert_card(make_card("BadKind", {"x": 1}))
     with raises_edit_code("edit::invalid_field_name"):
-        doc.insert_card(with_field("bad-name", 1))
+        doc.unchecked.insert_card(with_field("bad-name", 1))
     with raises_edit_code("parse::invalid_quill_reference"):
-        doc.insert_card({"kind": "note", "quill": "@nope"})
+        doc.unchecked.insert_card({"kind": "note", "quill": "@nope"})
 
 
 def test_a_composable_card_carries_its_id():
@@ -125,12 +125,40 @@ def test_a_composable_card_carries_its_id():
     assert f"$id: {card_id}\n" in doc.to_markdown()
     assert Document.from_markdown(doc.to_markdown()).cards[0]["id"] == card_id
 
-    doc.insert_card({**make_card("note", {}), "id": "chosen"})
+    doc.unchecked.insert_card({**make_card("note", {}), "id": "chosen"})
     assert doc.cards[1]["id"] == "chosen"
     with raises_edit_code("edit::duplicate_card_id"):
-        doc.insert_card({**make_card("note", {}), "id": card_id})
+        doc.unchecked.insert_card({**make_card("note", {}), "id": card_id})
     with raises_edit_code("edit::invalid_card_id"):
-        doc.insert_card({**make_card("note", {}), "id": "-x"})
+        doc.unchecked.insert_card({**make_card("note", {}), "id": "-x"})
+
+
+def test_a_live_client_places_a_card_under_its_actor():
+    """A card spelling no id mints under the placing writer's actor, and the
+    id it answers places the same card on a peer."""
+    a = Document.from_markdown(SIMPLE_MD)
+    b = a.clone()
+    minted = a.unchecked.insert_card(make_card("note", {}), actor="7")
+    assert minted == a.cards[0]["id"] and minted.startswith("7-c")
+    assert b.unchecked.insert_card(make_card("note", {}), actor="8") != minted
+    assert b.unchecked.insert_card({**make_card("note", {}), "id": minted}) == minted
+    with raises_edit_code("edit::invalid_actor"):
+        a.unchecked.insert_card(make_card("note", {}), actor="a:b")
+
+
+def test_a_field_holds_its_content_as_a_body_does():
+    """A content value stores in its canonical form, so key order leaves the
+    stored bytes and the markdown alone; one that does not decode is refused."""
+    content = Document.from_markdown(SIMPLE_MD).read()
+    anchored = {**content, "anchors": [{"id": "a1", "start": 0, "end": 4}]}
+    a = Document.from_markdown(SIMPLE_MD)
+    b = a.clone()
+    a.unchecked.store_field("blurb", dict(reversed(list(anchored.items()))))
+    b.unchecked.store_field("blurb", anchored)
+    assert a.equals(b) and a.to_stored() == b.to_stored()
+    assert "blurb: Body text." in a.to_markdown()
+    with raises_edit_code("edit::field_decode"):
+        a.unchecked.store_field("blurb", {**content, "marks": [{"type": "bold", "start": 0, "end": 99}]})
 
 
 def test_unknown_card_key_is_a_loud_error():
@@ -138,7 +166,7 @@ def test_unknown_card_key_is_a_loud_error():
     yielding a card missing it."""
     doc = Document.from_markdown(SIMPLE_MD)
     with pytest.raises(ValueError, match="stray"):
-        doc.insert_card({"kind": "note", "stray": 1})
+        doc.unchecked.insert_card({"kind": "note", "stray": 1})
     assert doc.cards == []
 
 
@@ -154,7 +182,7 @@ def test_negative_index_is_out_of_range():
     with raises_edit_code("edit::index_out_of_range"):
         doc.move_card(-1, 0)
     with raises_edit_code("edit::index_out_of_range"):
-        doc.insert_card({"kind": "note"}, at=-1)
+        doc.unchecked.insert_card({"kind": "note"}, at=-1)
     with raises_edit_code("edit::index_out_of_range"):
         doc.store_ext({}, card=-1)
     with raises_edit_code("edit::index_out_of_range"):
@@ -254,15 +282,15 @@ def test_a_mutation_sequence_keeps_its_order_and_its_invariants():
     def kinds():
         return [c["kind"] for c in doc.cards]
 
-    doc.insert_card(make_card("note", {"text": "hi"}, "Card body."))
+    doc.unchecked.insert_card(make_card("note", {"text": "hi"}, "Card body."))
     assert kinds() == ["note"]
     assert doc.cards[0]["body"]["text"] == "Card body."
 
-    doc.insert_card({"kind": "summary"})
-    doc.insert_card({"kind": "appendix"})
+    doc.unchecked.insert_card({"kind": "summary"})
+    doc.unchecked.insert_card({"kind": "appendix"})
     assert kinds() == ["note", "summary", "appendix"]
 
-    doc.insert_card({"kind": "intro"}, at=1)
+    doc.unchecked.insert_card({"kind": "intro"}, at=1)
     assert kinds() == ["note", "intro", "summary", "appendix"]
 
     doc.move_card(3, 0)
@@ -282,7 +310,7 @@ def test_to_markdown_general_round_trip():
 
     # Mutate: typed field + typed body + a quill-free card.
     quill.writer(doc).set("title", "New Title")
-    doc.insert_card(make_card("note", {"author": "Alice"}, "Hello"))
+    doc.unchecked.insert_card(make_card("note", {"author": "Alice"}, "Hello"))
     quill.writer(doc).revise_body("Updated body")
 
     doc2 = Document.from_markdown(doc.to_markdown())

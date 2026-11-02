@@ -176,7 +176,7 @@ a string until something writes it); the typed write remains their
 canonicalizer.
 
 A document that entered through the transport input path (`Document::parse`, a
-stored row, `store_field`) stays as authored until it is conformed. That is
+stored row, an unchecked `store_field` of a string) stays as authored until it is conformed. That is
 a named state, not a second stored form: it is readable, round-trippable,
 and one bound load away from converging.
 
@@ -344,9 +344,9 @@ only what it can (`island::table_spans`):
 A table or cell key holding a value outside its set is read as absent and
 rides untouched, as an unnamed key does. Markdown writes a table as a GFM pipe
 table or as HTML, whichever holds it
-([markdown-spec.md](../references/markdown-spec.md) §6.8). A cell is one
-paragraph, its lines parted by `U+2028`; a stored cell of several paragraphs
-reads joined with `U+2028` in 0.135, under `content::noncanonical_read`, and
+([markdown-spec.md](../references/markdown-spec.md) §6.8). A cell, like a
+footnote's note, is one paragraph, its lines parted by `U+2028`; a stored cell
+or note of several paragraphs reads joined with `U+2028` in 0.135, under `content::noncanonical_read`, and
 a later release refuses it ([CONTENT.md](CONTENT.md) § "Validity").
 
 Five rules bound the payload:
@@ -406,7 +406,7 @@ and markdown round-trip all follow from that.
 
 |                     | Block, container, island, slot, row, column `id`  | Anchor `id`                                        | Card `$id`                                          |
 | ------------------- | -------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------- |
-| Minted by           | Quillmark at import, migration and revise; the caller in a step | the caller                            | the author or caller, else Quillmark where the card is placed |
+| Minted by           | Quillmark at import, migration and revise; the caller in a step | the caller                            | the author or caller, else Quillmark where the card is placed, under the placing writer's actor |
 | Because             | content determines it: the nth part minted         | the referent is external; no content determines it | the card is the referent, and markdown can spell its id |
 | Unique across       | its kind within the `Content`; slots, rows and columns within their island | the `Content`, its slots included | the document's composable cards |
 | On collision        | a change that leaves one held twice refuses, and a step naming one held twice; `validate` refuses | the step refuses; `validate` refuses               | a parse re-mints and warns; a placing edit rejects; a load refuses |
@@ -523,16 +523,24 @@ is written, and never rewritten while its card lives.**
 
 - **Grammar.** 1 to 64 of `[A-Za-z0-9_-]`, opening with a letter or digit
   (`card_id::is_card_id`). `$id` on the main card is a parse error.
-- **Mint.** A card without a valid id takes `c` and five base32 letters of
-  SHA-256 over `quillmark/card-id\n{n}`, the first `n` whose token no card
-  holds (`card_id::Mint`). The sequence is a function of the document alone,
-  so equal markdown parses to equal ids and the never-ambient rule of
-  § Island-id determinism holds.
+- **Mint.** A card without a valid id takes a token, `c` and five base32
+  letters of SHA-256 over `quillmark/card-id\n{n}`, the first `n` whose id no
+  card holds (`card_id::Mint`). A parse, a load and a seed mint the token
+  alone, positionally, so equal markdown parses to equal ids. A placement
+  under a writer's actor (`Unchecked::insert_card`, the writer's `add_card`)
+  mints `{actor}-{token}`: an actor is 1 to 57 of `[A-Za-z0-9_-]` opening with
+  a letter or digit, so the id is a card id, no actor's id is a positional one
+  and two actors never mint one id. A live client places each card it inserts
+  under its actor and carries the `$id` the placement answers to its peers, so
+  two replicas never mint two ids for one card. The mint is a function of the
+  document and the writer's actor, so the never-ambient rule of § Island-id
+  determinism holds, narrowed as it is there: a live document's ids depend on
+  which actors placed its cards.
 - **Every input path normalizes the id.** A parse, a load and a placing edit each leave every
   composable card holding a distinct valid id. A parse keeps the first card
   spelling an id, re-mints a later duplicate or an id outside the grammar, and
   warns `parse::card_id_reminted` at the card. `insert_card` mints for a card
-  spelling none and refuses a bad or held one (`edit::invalid_card_id`,
+  spelling none, answering the id it placed, and refuses a bad or held one (`edit::invalid_card_id`,
   `edit::duplicate_card_id`). A load refuses a bad or duplicated stored id,
   and mints for a row written before `0.134.0`.
 - **Revise.** `Document::revise` pairs an incoming card spelling a stored

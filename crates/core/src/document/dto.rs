@@ -389,22 +389,31 @@ fn migrate_field(value: &mut serde_json::Value) {
 
 /// Each content value in a field's value, at any depth, read as a stored
 /// value is: one spelled otherwise than its canonical form is rewritten to
-/// it. True where one was.
-fn settle_field(value: &mut serde_json::Value) -> bool {
+/// it, and one that does not read refuses the load, as a body's does. True
+/// where one was rewritten.
+fn settle_field(value: &mut serde_json::Value) -> Result<bool, quillmark_content::wire::ParseError> {
     if quillmark_content::units::is_content_value(value) && !quillmark_content::wire::is_v1(value) {
-        return match ContentModel::from_value_lenient(value) {
-            Ok(read) if read.rewritten => {
-                *value = read.content.to_value();
-                true
-            }
-            _ => false,
-        };
+        let read = ContentModel::from_value_lenient(value)?;
+        if read.rewritten {
+            *value = read.content.to_value();
+        }
+        return Ok(read.rewritten);
     }
+    let mut any = false;
     match value {
-        serde_json::Value::Object(map) => map.values_mut().fold(false, |any, v| settle_field(v) | any),
-        serde_json::Value::Array(items) => items.iter_mut().fold(false, |any, v| settle_field(v) | any),
-        _ => false,
+        serde_json::Value::Object(map) => {
+            for v in map.values_mut() {
+                any |= settle_field(v)?;
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for v in items {
+                any |= settle_field(v)?;
+            }
+        }
+        _ => {}
     }
+    Ok(any)
 }
 
 impl From<&Payload> for PayloadV0_124_0 {
@@ -756,7 +765,9 @@ fn card_from_stored(mut card: CardV0_134_0) -> Result<(Card, Rewritten), Storage
     for item in &mut card.payload.items {
         if let PayloadItemV0_124_0::Field { key, value } = item {
             migrate_field(value);
-            if settle_field(value) {
+            let settled = settle_field(value)
+                .map_err(|e| StorageError::Malformed(format!("field `{key}` holds content that does not read: {e}")))?;
+            if settled {
                 rewritten.fields.push(key.clone());
             }
         }
@@ -1075,7 +1086,7 @@ This body and the metadata above are an indorsement card.
             .unwrap()
             .document;
         for _ in 0..MAX_CARD_COUNT {
-            doc.push_card(Card::new("note").unwrap()).unwrap();
+            doc.unchecked().insert_card(None, Card::new("note").unwrap(), None).unwrap();
         }
         let row = serde_json::to_value(&doc).unwrap();
         let loads = |row: serde_json::Value| -> Result<Document, String> {

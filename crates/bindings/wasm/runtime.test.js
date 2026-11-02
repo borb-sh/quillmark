@@ -563,7 +563,7 @@ card_kinds:
   it('getContentAt takes a mixed index/key path, on the document and on a card', () => {
     const quill = buildQuill()
     const doc = Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.')
-    doc.storeField('rows', [{}, { notes: 'a *note*' }])
+    doc.unchecked.storeField('rows', [{}, { notes: 'a *note*' }])
     quill.writer(doc).addCard('note', { lines: ['a *b*'] })
     const v = quill.reader(doc)
     expect(v.getContentAt('rows', [1, 'notes']).text).toBe('a note')

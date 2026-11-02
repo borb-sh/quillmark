@@ -253,8 +253,7 @@ fn non_conforming_value_rests_authored_with_a_diagnostic() {
 
     let mut legacy = doc;
     legacy
-        .main_mut()
-        .store_field(
+        .unchecked().store_field(None, 
             "subject",
             QuillValue::from_json(json!({ "prose": "older" })),
         )
@@ -291,7 +290,7 @@ fn conform_is_a_no_op_on_seeds() {
     );
     assert_eq!(card.body_markdown(), "overlaid **body**");
     let mut doc2 = quill.seed_document();
-    doc2.push_card(card).unwrap();
+    doc2.unchecked().insert_card(None, card, None).unwrap();
     let before2 = bytes(&doc2);
     quill.conform(&mut doc2).expect("conform");
     assert_eq!(bytes(&doc2), before2, "seed_card is already at rest");
@@ -345,7 +344,7 @@ card_kinds:
     );
 
     let mut doc = quill.seed_document();
-    doc.push_card(card).unwrap();
+    doc.unchecked().insert_card(None, card, None).unwrap();
     let before = bytes(&doc);
     let diags = quill.conform(&mut doc).expect("conform");
     assert!(diags.is_empty(), "{diags:?}");
