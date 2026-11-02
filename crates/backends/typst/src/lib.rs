@@ -914,7 +914,7 @@ mod tests {
             );
             Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
         };
-        let counts = |rt: &quillmark_content::lines::model::Normalized| {
+        let counts = |rt: &quillmark_content::lines::model::Lines| {
             let json =
                 serde_json::json!({ "prose": quillmark_content::lines::serial::to_canonical_value(rt) });
             let q = quill();
@@ -948,7 +948,7 @@ mod tests {
             "= Heading\n- bullet\n+ numbered\n1. dotted\n/ term: desc\n=\n-\n+\n1.\n/".to_string(),
             (0..10).map(para).collect(),
         );
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         assert_eq!(rt.validate(), Ok(()), "content invariants");
         assert_eq!(counts(&rt), [0, 0, 0, 0], "paragraph text stays literal");
 
@@ -965,7 +965,7 @@ mod tests {
             }])
         };
         let rt = Content::new("=\n-\n+\n1.\n/".to_string(), (0..5).map(item).collect());
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         assert_eq!(rt.validate(), Ok(()), "content invariants");
         assert_eq!(counts(&rt), [0, 1, 0, 0], "item text stays literal");
     }

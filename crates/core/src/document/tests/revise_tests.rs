@@ -1,4 +1,4 @@
-use quillmark_content::lines::model::{Mark, MarkKind, Normalized};
+use quillmark_content::lines::model::{Mark, MarkKind, Lines};
 use quillmark_content::lines::serial::to_canonical_value;
 
 use crate::document::{Codec, Document};
@@ -7,7 +7,7 @@ use crate::value::QuillValue;
 use super::parse;
 
 /// `content` with an anchor `id` over the first occurrence of `word`.
-pub(super) fn anchored(content: &Normalized, word: &str, id: &str) -> Normalized {
+pub(super) fn anchored(content: &Lines, word: &str, id: &str) -> Lines {
     let byte = content.text.find(word).expect("word in content");
     let start = content.text[..byte].chars().count();
     let end = start + word.chars().count();
@@ -15,10 +15,10 @@ pub(super) fn anchored(content: &Normalized, word: &str, id: &str) -> Normalized
     content
         .marks
         .push(Mark::new(start, end, MarkKind::Anchor { id: id.into() }));
-    content.into_normalized()
+    content.into_lines()
 }
 
-pub(super) fn anchor_ids(content: &Normalized) -> Vec<String> {
+pub(super) fn anchor_ids(content: &Lines) -> Vec<String> {
     content
         .marks
         .iter()
@@ -400,7 +400,7 @@ fn a_card_spelling_its_id_revises_its_stored_card() {
     let second = doc.cards()[1].id().unwrap().to_string();
     let md = format!(
         "~~~\n$quill: q\n~~~\n\n\
-~~~\n$kind: note\n$id: {second}\n~~~\n\nPears, rewritten from the ground up.\n\n\
+~~~\n$kind: note\n$id: {second}\n~~~\n\nRewritten from the ground up, a note on pears.\n\n\
 ~~~\n$kind: note\n$id: {first}\n~~~\n\nNothing like apples now.\n"
     );
     let receipt = doc.revise(&md).unwrap();
@@ -513,10 +513,10 @@ fn an_item_inserted_ahead_keeps_each_anchor_on_its_own_item() {
 
 /// `content` with its first island holding a `title` its markdown cannot
 /// spell, so an annotated read writes the island as its token.
-pub(super) fn titled(content: &Normalized) -> Normalized {
+pub(super) fn titled(content: &Lines) -> Lines {
     let mut content = content.clone().into_content();
     content.islands[0].props["title"] = "kept".into();
-    content.into_normalized()
+    content.into_lines()
 }
 
 /// The annotated read is two-way: a writer that moves a tag moves its anchor's

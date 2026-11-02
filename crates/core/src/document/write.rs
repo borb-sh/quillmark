@@ -264,8 +264,8 @@ impl Card {
             return Err(EditError::InvalidActor(actor.to_string()));
         }
         let read = self.reading(target, opts.base)?;
-        let over = read.since.as_ref().map(|since| &since.over);
-        let fill = |change: &Change| mint::fill(change, &[read.read(), &read.now], over, opts.actor).map_err(EditError::change);
+        let since = read.since.as_ref().map(|since| &since.change);
+        let fill = |change: &Change| mint::fill(change, &[read.read(), &read.now], since, opts.actor).map_err(EditError::change);
         let mut minted = BTreeMap::new();
         let (change, warnings, diffed) = match edit {
             Edit::Apply(change) => {
@@ -297,7 +297,7 @@ impl Card {
                     }
                 })?;
                 let change = match opts.actor {
-                    Some(actor) => mint::remint(&revision.change, read.read(), None, &[read.read(), &read.now], over, actor),
+                    Some(actor) => mint::remint(&revision.change, read.read(), None, &[read.read(), &read.now], since, actor),
                     None => revision.change,
                 };
                 (change, revision.warnings, true)
@@ -305,7 +305,7 @@ impl Card {
             Edit::Replace(content) => {
                 let change = diff::replace_holding(read.read(), &content, &read.now).map_err(|e| EditError::change(e.into()))?;
                 let change = match opts.actor {
-                    Some(actor) => mint::remint(&change, read.read(), Some(&content), &[read.read(), &read.now], over, actor),
+                    Some(actor) => mint::remint(&change, read.read(), Some(&content), &[read.read(), &read.now], since, actor),
                     None => change,
                 };
                 (change, Vec::new(), true)
@@ -327,6 +327,15 @@ impl Card {
         let rebased = read.since.is_some();
         let hash = self.land(target, read, applied.content, applied.applied)?;
         Ok(Receipt { applied: shown, hash, dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, rebased, minted, counted: Counted::Host })
+    }
+
+    /// [`revise`](Self::revise) with no base, its receipt counted in scalars
+    /// on the value it read, which [`Receipt::in_units`] converts.
+    pub(crate) fn revise_counted(&mut self, target: Target<'_>, markdown: &str) -> Result<Receipt, EditError> {
+        let before = self.read(target)?;
+        let mut receipt = self.write(target, Edit::Revise(markdown), WriteOptions::default())?;
+        receipt.counted = Counted::Content(Arc::new(before));
+        Ok(receipt)
     }
 
     /// Run `write`, which stores a new value at `target`, and answer its
@@ -464,7 +473,7 @@ struct Reading {
 /// The value a base names, and the change from it to the value now.
 struct Since {
     base: Content,
-    over: Change,
+    change: Change,
 }
 
 impl Reading {
@@ -476,7 +485,7 @@ impl Reading {
     /// `change`, made from the value `since` names, rebased over the change
     /// since: a conflict refused with `edit::rebase_conflict`.
     fn rebase(&self, target: Target<'_>, since: &Since, change: &Change) -> Result<Change, EditError> {
-        change::rebase(&since.base, change, &since.over).map_err(|e| match e {
+        change::rebase(&since.base, change, &since.change).map_err(|e| match e {
             RebaseError::Apply(e) => EditError::change(e),
             RebaseError::Conflict(c) => EditError::Base(BaseError::rebase_conflict(self.hash.clone().unwrap_or_default(), target.field().map(str::to_string), &c)),
         })
@@ -699,6 +708,6 @@ impl ChangeLog {
         if content_hash(&read) != base {
             return None;
         }
-        Some(Since { base: read, over: track.changes(from..) })
+        Some(Since { base: read, change: track.changes(from..) })
     }
 }

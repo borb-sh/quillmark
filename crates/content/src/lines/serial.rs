@@ -19,7 +19,7 @@
 
 use crate::lines::model::{
     canonicalize_keys, is_font_family_name, Container, Island, Line, LineKind, Mark,
-    MarkKind, Content, Normalized, Usv,
+    MarkKind, Content, Lines, Usv,
 };
 use serde_json::{Map, Value};
 use std::borrow::Cow;
@@ -57,12 +57,12 @@ impl std::fmt::Display for ParseError {
 }
 impl std::error::Error for ParseError {}
 
-impl Normalized {
+impl Lines {
     /// Serialize to canonical JSON bytes. Every object key comes out in
     /// ascending order at every depth, so the bytes do **not** depend on
     /// `serde_json`'s `preserve_order` feature in the consumer's crate graph.
     ///
-    /// On [`Normalized`] for the reason that token exists: canonical bytes need
+    /// On [`Lines`] for the reason that token exists: canonical bytes need
     /// canonical input, and the mint is where a caller's mark/island order
     /// settles.
     pub fn to_canonical_json(&self) -> String {
@@ -74,7 +74,7 @@ impl Content {
     /// Parse canonical JSON, normalize, and validate. Returns
     /// [`ParseError::Invalid`] for a content that violates its invariants, so
     /// storage cannot silently round-trip a malformed value.
-    pub fn from_canonical_json(s: &str) -> Result<Normalized, ParseError> {
+    pub fn from_canonical_json(s: &str) -> Result<Lines, ParseError> {
         let v: Value = serde_json::from_str(s).map_err(|e| ParseError::Json(e.to_string()))?;
         from_canonical_value(&v)
     }
@@ -126,11 +126,11 @@ impl Content {
 }
 
 /// The canonical form as a structural [`Value`]: the recursively key-sorted
-/// tree [`Normalized::to_canonical_json`] renders to bytes. A storage layer
+/// tree [`Lines::to_canonical_json`] renders to bytes. A storage layer
 /// embeds this as a nested object rather than an escaped string; serializing it
 /// with `serde_json` is byte-identical to that JSON, independent of the
 /// consumer's `preserve_order` feature.
-pub fn to_canonical_value(rt: &Normalized) -> Value {
+pub fn to_canonical_value(rt: &Lines) -> Value {
     let mut v = rt.to_value();
     // Scans and returns: the encoders emit their fixed keys in ascending order,
     // and every opaque bag under them was canonicalized by the mint. A key
@@ -152,7 +152,7 @@ fn sort_own_keys(m: Map<String, Value>) -> Map<String, Value> {
 /// Parse the canonical content form from a structural [`Value`], normalize, and
 /// validate: the [`Value`]-input counterpart to
 /// [`Content::from_canonical_json`].
-pub fn from_canonical_value(v: &Value) -> Result<Normalized, ParseError> {
+pub fn from_canonical_value(v: &Value) -> Result<Lines, ParseError> {
     seal(Content::from_value(v)?)
 }
 
@@ -209,8 +209,8 @@ fn respell_table(props: &mut Value) {
 
 /// Mint and check: the tail both wire lanes share, after the authored lane has
 /// read its own refusals off the decode.
-fn seal(rt: Content) -> Result<Normalized, ParseError> {
-    let rt = rt.into_normalized();
+fn seal(rt: Content) -> Result<Lines, ParseError> {
+    let rt = rt.into_lines();
     rt.validate().map_err(ParseError::Invalid)?;
     Ok(rt)
 }
@@ -648,7 +648,7 @@ fn reject_unwritable_url(url: Option<&str>, err: &'static str) -> Result<(), Par
 /// legacy-spelling rule on every axis the decode reads — line kinds,
 /// containers, prose marks, table-cell marks — and the writability rule on the
 /// urls the projection spells.
-pub fn from_authored_value(v: &Value) -> Result<Normalized, ParseError> {
+pub fn from_authored_value(v: &Value) -> Result<Lines, ParseError> {
     authored_lane_scan(v)?;
     seal(Content::from_value(v)?)
 }
@@ -1355,8 +1355,8 @@ mod tests {
         let mut two = one.clone();
         two.islands[0].props = serde_json::json!({"a": 2, "b": 1}); // keys reversed
         assert_eq!(
-            one.into_normalized().to_canonical_json(),
-            two.into_normalized().to_canonical_json()
+            one.into_lines().to_canonical_json(),
+            two.into_lines().to_canonical_json()
         );
     }
 
@@ -1459,7 +1459,7 @@ mod tests {
     #[test]
     fn canonical_json_bytes_are_frozen() {
         // If either string changes, the freeze changed: bump the schema version.
-        let rt = sample().into_normalized();
+        let rt = sample().into_lines();
         assert_eq!(
             rt.to_canonical_json(),
             r#"{"islands":[],"lines":[{"containers":[],"kind":"para"}],"marks":[{"end":5,"start":0,"type":"emph"},{"end":11,"start":6,"type":"strong"}],"text":"hello world"}"#
@@ -1487,7 +1487,7 @@ mod tests {
             kind: MarkKind::Link { url: "u".into() },
         }];
         assert_eq!(
-            rt.into_normalized().to_canonical_json(),
+            rt.into_lines().to_canonical_json(),
             concat!(
                 r#"{"islands":[],"lines":[{"attrs":{"level":2},"containers":"#,
                 r#"[{"attrs":{"ordered":true,"ordinal":0,"start":3},"container":"list_item"}],"#,

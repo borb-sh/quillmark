@@ -8,7 +8,7 @@ use quillmark_content::lines::island::IslandType;
 use quillmark_content::lines::delta::diff_import;
 use quillmark_content::lines::export::{to_markdown, to_markdown_annotated, to_markdown_checked, ExportLoss};
 use quillmark_content::lines::import::from_markdown;
-use quillmark_content::lines::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized};
+use quillmark_content::lines::model::{Content, Island, Line, LineKind, Mark, MarkKind, Lines};
 use serde_json::{json, Value};
 
 /// The mint's fixed point: normalizing again changes nothing.
@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 /// equality states the whole canonical form. Paired with `validate`, which
 /// reports what the mint cannot repair, it is the oracle over an accepted op:
 /// the two together cover the content's invariants.
-fn renormalized(rt: &Normalized) -> Content {
+fn renormalized(rt: &Lines) -> Content {
     let mut again = rt.clone().into_content();
     again.normalize();
     again
@@ -319,7 +319,7 @@ proptest! {
         let lines = (0..text.split('\n').count())
             .map(|i| Line::new(LineKind::Para).with_continues(i > 0))
             .collect();
-        let rt = Content::new(text.clone(), lines).into_normalized();
+        let rt = Content::new(text.clone(), lines).into_lines();
         prop_assume!(rt.validate().is_ok());
 
         let md = to_markdown(&rt);
@@ -355,7 +355,7 @@ proptest! {
         ];
         let rt = Content::new(text.clone(), vec![Line::new(LineKind::Para)])
             .with_marks(marks)
-            .into_normalized();
+            .into_lines();
         prop_assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
         prop_assert_eq!(&renormalized(&rt), &*rt, "the mint left a repairable shape");
 
@@ -401,7 +401,7 @@ proptest! {
             .chain(std::iter::once('a'))
             .collect();
         let n = text.chars().count();
-        let plain = Content::new(text.clone(), vec![Line::new(LineKind::Para)]).into_normalized();
+        let plain = Content::new(text.clone(), vec![Line::new(LineKind::Para)]).into_lines();
         prop_assume!(plain.validate().is_ok());
         prop_assume!(plain.len_usv() == n);
         // Require the mark-free text to be a fixed point already, so a later
@@ -416,7 +416,7 @@ proptest! {
             })
             .filter(|m| m.start < m.end)
             .collect();
-        let rt = plain.into_content().with_marks(marks).into_normalized();
+        let rt = plain.into_content().with_marks(marks).into_lines();
         prop_assert_eq!(rt.validate(), Ok(()), "editor marks left content invalid");
         prop_assert_eq!(&renormalized(&rt), &*rt, "editor marks left a repairable shape");
 
@@ -469,7 +469,7 @@ proptest! {
             // The id import mints for the first island, so re-import compares equal.
             .with_islands(vec![Island::new("isl-0".into(), IslandType::Image)
                 .with_props(json!({ "alt": alt, "url": img_url }))])
-            .into_normalized();
+            .into_lines();
         prop_assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
         prop_assert_eq!(&renormalized(&rt), &*rt, "the mint left a repairable shape");
         let md = to_markdown(&rt);
@@ -498,7 +498,7 @@ proptest! {
         shuffled.marks.reverse();
         prop_assert_eq!(
             rt.to_canonical_json(),
-            shuffled.into_normalized().to_canonical_json()
+            shuffled.into_lines().to_canonical_json()
         );
     }
 
@@ -511,7 +511,7 @@ proptest! {
         let end = 5 + a.chars().count();
         prop_assert_eq!(&base.text[start..end], a.as_str());
         base.marks.push(Mark::new(start, end, MarkKind::Anchor { id: "c1".into() }));
-        let base = base.into_normalized();
+        let base = base.into_lines();
 
         let new_md = format!("{b} keep {a} here");
         let (new_rt, _delta, _) = diff_import(&base, &new_md).unwrap();
@@ -538,7 +538,7 @@ proptest! {
             let end = if zero_width { start } else { (start + width).min(len) };
             rt.marks.push(Mark::new(start, end, MarkKind::Anchor { id: format!("{k}\"&<b>") }));
         }
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         prop_assert_eq!(rt.validate(), Ok(()), "anchored content invalid for {:?}", md);
 
         let plain = to_markdown(&rt);
@@ -613,7 +613,7 @@ proptest! {
         let marks: Vec<Mark> = raw.iter().map(|&(a, b, f)| Mark::new(a.min(b), a.max(b), family(f))).collect();
         let rt = Content::new("abcdefghijkl".into(), vec![Line::new(LineKind::Para)])
             .with_marks(marks.clone())
-            .into_normalized();
+            .into_lines();
         prop_assert_eq!(per_char(&rt.marks, 12), per_char(&marks, 12), "normalize changed a family");
         prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
         prop_assert_eq!(&renormalized(&rt), &*rt, "the mint left a repairable shape");
@@ -708,7 +708,7 @@ proptest! {
             .max(row_cells.iter().map(Vec::len).max().unwrap_or(0));
         prop_assume!(cols >= 1);
 
-        let rt = table_content(aligns.clone(), header_cells, row_cells).into_normalized();
+        let rt = table_content(aligns.clone(), header_cells, row_cells).into_lines();
         prop_assert_eq!(rt.validate(), Ok(()), "normalized table invalid");
         prop_assert_eq!(&renormalized(&rt), &*rt, "the table mint is not a fixed point");
 
@@ -754,7 +754,7 @@ proptest! {
             vec![json!({"text": "h", "marks": []})],
             vec![vec![json!({"text": text, "marks": marks})]],
         )
-        .into_normalized();
+        .into_lines();
         prop_assert_eq!(rt.validate(), Ok(()), "normalized table invalid");
         prop_assert_eq!(&renormalized(&rt), &*rt, "the table mint is not a fixed point");
 
@@ -804,9 +804,9 @@ proptest! {
                 vec![json!({"text": "h", "marks": []})],
                 vec![vec![json!({"text": commas, "marks": wire})]],
             )
-            .into_normalized();
+            .into_lines();
             let twin2 = from_markdown(&to_markdown(&twin)).unwrap().content;
-            let marks_of = |rt: &Normalized| {
+            let marks_of = |rt: &Lines| {
                 let mut marks = quillmark_content::lines::serial::parse_cell(&rt.islands[0].props["rows"][0][0]).1;
                 // Off the twin's `,` where the cell holds a `\n`, as a stored edge is.
                 for m in &mut marks {
@@ -1038,7 +1038,7 @@ mod model {
         rt.lines.truncate(1);
         rt.marks.push(Mark::new(0, 6, MarkKind::Anchor { id: "c1".into() }));
         rt.marks.push(Mark::new(7, 12, MarkKind::Anchor { id: "c1".into() }));
-        let v2 = from_lines(&rt.into_normalized());
+        let v2 = from_lines(&rt.into_lines());
         assert_eq!(v2.validate(), Ok(()));
         assert_eq!(v2.text, "before\n\u{FFFC}\nafter");
         assert_eq!(v2.anchors.len(), 1);

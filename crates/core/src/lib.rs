@@ -35,6 +35,6 @@ pub mod value;
 pub mod version;
 pub mod writer;
 
-/// The canonical content model, the pre-built value the document mutators
-/// accept, and the canonical-form token every content read answers in.
-pub use quillmark_content::lines::model::{Content, Normalized};
+/// The content model: the value every body and content field holds, and what
+/// every content read answers and every content write takes.
+pub use quillmark_content::model::Content;

@@ -567,8 +567,8 @@ impl QuillConfig {
                 }
             }
             FieldType::Text { multiline } => {
-                let mut plain_check = |rt: quillmark_content::lines::model::Normalized| -> Result<
-                    quillmark_content::lines::model::Normalized,
+                let mut plain_check = |rt: quillmark_content::lines::model::Lines| -> Result<
+                    quillmark_content::lines::model::Lines,
                     CoercionError,
                 > {
                     if !rt.is_plain() {
@@ -598,7 +598,7 @@ impl QuillConfig {
                     }
                     Ok(rt)
                 };
-                let commit = |old: Option<&serde_json::Value>, rt: &quillmark_content::lines::model::Normalized| {
+                let commit = |old: Option<&serde_json::Value>, rt: &quillmark_content::lines::model::Lines| {
                     QuillValue::from_json(crate::document::stored_as(old, rt, quillmark_content::model::Codec::Plain))
                 };
                 if json_value.is_object() {
@@ -2002,7 +2002,7 @@ impl QuillConfig {
                 match value {
                     serde_json::Value::Null => true,
                     serde_json::Value::String(md) => crate::document::import_body(md)
-                        .is_ok_and(|body| body == quillmark_content::lines::model::Normalized::empty()),
+                        .is_ok_and(|body| body == quillmark_content::lines::model::Lines::empty()),
                     _ => false,
                 }
             } else {

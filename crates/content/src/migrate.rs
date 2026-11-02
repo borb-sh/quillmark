@@ -154,7 +154,7 @@ fn object(v: serde_json::Value) -> serde_json::Value {
 /// The content as the line form spells it: each hard break a `\n` opening a
 /// continuation line, each list and item one list-item container with its
 /// ordinal, adjacent runs told apart by `instance`, anchors as anchor marks.
-pub fn to_lines(c: &Content) -> line::Normalized {
+pub fn to_lines(c: &Content) -> line::Lines {
     let text: String = c.text.chars().map(|ch| if ch == HARD_BREAK { '\n' } else { ch }).collect();
     let kinds: HashMap<&str, (usize, &ContainerKind)> =
         c.containers.iter().enumerate().map(|(n, k)| (k.id.as_str(), (n, &k.kind))).collect();
@@ -211,5 +211,5 @@ pub fn to_lines(c: &Content) -> line::Normalized {
         .iter()
         .map(|i| line::Island::new(i.id.clone(), i.island_type.clone()).with_props(crate::table::to_line_props(i)))
         .collect();
-    line::Content::new(text, lines).with_marks(marks).with_islands(islands).into_normalized()
+    line::Content::new(text, lines).with_marks(marks).with_islands(islands).into_lines()
 }

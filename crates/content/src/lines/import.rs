@@ -61,7 +61,7 @@
 //!   reported.
 
 use crate::lines::model::{
-    Container, Island, Line, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT,
+    Container, Island, Line, LineKind, Mark, MarkKind, Content, Lines, ISLAND_SLOT,
 };
 use crate::lines::carrier;
 use crate::lines::html;
@@ -102,14 +102,14 @@ impl std::error::Error for ImportError {}
 /// content has no place for, dropped. One per construct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportWarning {
-    pub construct: Dropped,
+    pub construct: DroppedConstruct,
     pub count: usize,
 }
 
 /// A construct an import drops. Its [`Display`](std::fmt::Display) is the
 /// name `parse::dropped_construct` reports it under, given with each variant.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Dropped {
+pub enum DroppedConstruct {
     /// A raw tag outside the carrier, or a `qm-anchor` reported with the
     /// markdown its HTML block drops: its lowercase name (`span`, `u`).
     Tag(String),
@@ -157,35 +157,35 @@ pub enum Dropped {
     Bidi,
 }
 
-impl Dropped {
+impl DroppedConstruct {
     /// Whether this reports a `qm-anchor` tag or a `qm-island` token, which
     /// [`from_markdown_unresolved`] drops silently.
     pub fn is_held_tag(&self) -> bool {
         match self {
-            Dropped::Element(element) => element == carrier::ISLAND,
-            Dropped::ElementAttr { element, .. } => carrier::RESERVED.contains(&element.as_str()),
+            DroppedConstruct::Element(element) => element == carrier::ISLAND,
+            DroppedConstruct::ElementAttr { element, .. } => carrier::RESERVED.contains(&element.as_str()),
             _ => false,
         }
     }
 }
 
-impl std::fmt::Display for Dropped {
+impl std::fmt::Display for DroppedConstruct {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use carrier::PREFIX;
         match self {
-            Dropped::Tag(name) | Dropped::BadName(name) => f.write_str(name),
-            Dropped::Element(name) => write!(f, "{PREFIX}{name}"),
-            Dropped::ElementAttr { element, attr } => write!(f, "{PREFIX}{element}[{attr}]"),
-            Dropped::Footnote => f.write_str("footnote"),
-            Dropped::FootnoteSize => f.write_str("footnote:size"),
-            Dropped::NoteBlock(block) => write!(f, "footnote[{block}]"),
-            Dropped::Math => f.write_str("math"),
-            Dropped::Bidi => f.write_str("bidi"),
-            Dropped::Table => f.write_str("table"),
-            Dropped::TableRow => f.write_str("table:row"),
-            Dropped::TableText => f.write_str("table:text"),
-            Dropped::TableSize => f.write_str("table:size"),
-            Dropped::TableAttr { tag, attr } => write!(f, "{tag}[{attr}]"),
+            DroppedConstruct::Tag(name) | DroppedConstruct::BadName(name) => f.write_str(name),
+            DroppedConstruct::Element(name) => write!(f, "{PREFIX}{name}"),
+            DroppedConstruct::ElementAttr { element, attr } => write!(f, "{PREFIX}{element}[{attr}]"),
+            DroppedConstruct::Footnote => f.write_str("footnote"),
+            DroppedConstruct::FootnoteSize => f.write_str("footnote:size"),
+            DroppedConstruct::NoteBlock(block) => write!(f, "footnote[{block}]"),
+            DroppedConstruct::Math => f.write_str("math"),
+            DroppedConstruct::Bidi => f.write_str("bidi"),
+            DroppedConstruct::Table => f.write_str("table"),
+            DroppedConstruct::TableRow => f.write_str("table:row"),
+            DroppedConstruct::TableText => f.write_str("table:text"),
+            DroppedConstruct::TableSize => f.write_str("table:size"),
+            DroppedConstruct::TableAttr { tag, attr } => write!(f, "{tag}[{attr}]"),
         }
     }
 }
@@ -195,7 +195,7 @@ impl std::fmt::Display for Dropped {
 #[derive(Debug, Clone, PartialEq)]
 #[must_use = "carries the import's warnings; read `.warnings` or bind it"]
 pub struct Imported {
-    pub content: Normalized,
+    pub content: Lines,
     pub warnings: Vec<ImportWarning>,
 }
 
@@ -223,7 +223,7 @@ pub(crate) fn options() -> Options {
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let (content, warnings) = import(markdown, Tags::Cold)?;
     Ok(Imported {
-        content: content.into_normalized(),
+        content: content.into_lines(),
         warnings,
     })
 }
@@ -234,7 +234,7 @@ pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
 pub fn from_markdown_unresolved(markdown: &str) -> Result<Imported, ImportError> {
     let (content, warnings) = import(markdown, Tags::Unresolved)?;
     Ok(Imported {
-        content: content.into_normalized(),
+        content: content.into_lines(),
         warnings,
     })
 }
@@ -244,7 +244,7 @@ pub fn from_markdown_unresolved(markdown: &str) -> Result<Imported, ImportError>
 #[must_use = "carries the import's warnings and pins; read them or bind it"]
 pub struct Against {
     /// The content, each token's island in it and no anchor.
-    pub content: Normalized,
+    pub content: Lines,
     /// [`from_markdown`]'s warnings, with each tag and token reported in
     /// place of a token's drop.
     pub warnings: Vec<ImportWarning>,
@@ -284,7 +284,7 @@ pub fn from_markdown_against(markdown: &str, stored: &Content) -> Result<Against
     let islands = stored.islands.iter().map(|i| (i.id.clone(), i.clone())).collect();
     let (mut content, warnings) = import(markdown, Tags::Against { anchors, islands })?;
     content.split_block_islands();
-    let mut content = content.into_normalized().into_content();
+    let mut content = content.into_lines().into_content();
     let mut pins = Vec::new();
     content.marks.retain(|m| match &m.kind {
         MarkKind::Anchor { id } => {
@@ -294,7 +294,7 @@ pub fn from_markdown_against(markdown: &str, stored: &Content) -> Result<Against
         _ => true,
     });
     Ok(Against {
-        content: content.into_normalized(),
+        content: content.into_lines(),
         warnings,
         pins,
     })
@@ -310,7 +310,7 @@ fn import(markdown: &str, tags: Tags) -> Result<(Content, Vec<ImportWarning>), I
     let mut at = 0;
     for c in markdown.chars() {
         if crate::lines::normalize::is_bidi_char(c) {
-            dropped.add(Dropped::Bidi, at);
+            dropped.add(DroppedConstruct::Bidi, at);
         } else if c != '\r' {
             at += c.len_utf8();
         }
@@ -329,7 +329,7 @@ fn import(markdown: &str, tags: Tags) -> Result<(Content, Vec<ImportWarning>), I
 /// segments is a within-paragraph break ([`Line::continues`] `true`); a blank
 /// line is a paragraph boundary. The text is stored verbatim, so the round trip
 /// is byte-exact however structure is later re-derived.
-pub fn from_plaintext(s: &str) -> Normalized {
+pub fn from_plaintext(s: &str) -> Lines {
     // Boundary cleanup so the content invariants hold; clean plaintext passes
     // through untouched.
     let text: String = s
@@ -355,7 +355,7 @@ pub fn from_plaintext(s: &str) -> Normalized {
         marks: Vec::new(),
         islands: Vec::new(),
     }
-    .into_normalized()
+    .into_lines()
 }
 
 /// A flat inline accumulator: `text` plus `marks` over local USV offsets, with
@@ -513,10 +513,10 @@ impl Inline {
     /// still open drops as unclosed.
     fn drop_open(&mut self, dropped: &mut Drops) {
         for (_, at) in self.underlines.drain(..).flatten() {
-            dropped.add(Dropped::Tag("u".into()), at);
+            dropped.add(DroppedConstruct::Tag("u".into()), at);
         }
         for span in self.fonts.drain(..).flatten() {
-            dropped.add(Dropped::Element(carrier::SPAN.into()), span.at);
+            dropped.add(DroppedConstruct::Element(carrier::SPAN.into()), span.at);
         }
     }
 
@@ -882,7 +882,7 @@ impl Builder {
                     self.swallowed(name, at);
                     continue;
                 }
-                Fixed::Dropped(construct, at) => {
+                Fixed::DroppedConstruct(construct, at) => {
                     match self.note.as_mut() {
                         Some(note) => note.dropped.add(construct, at),
                         None => self.dropped.add(construct, at),
@@ -893,7 +893,7 @@ impl Builder {
                     match self.note.as_mut() {
                         Some(note) => {
                             note.nested += 1;
-                            self.dropped.add(Dropped::Footnote, at);
+                            self.dropped.add(DroppedConstruct::Footnote, at);
                         }
                         None => self.note = Some(NoteAcc { label, at, ..NoteAcc::default() }),
                     }
@@ -1168,7 +1168,7 @@ impl Builder {
             return;
         }
         *open += 1;
-        dropped.add(Dropped::Element(name), at);
+        dropped.add(DroppedConstruct::Element(name), at);
     }
 
     /// One anchor tag or island token. A revise pins a prose anchor its
@@ -1184,7 +1184,7 @@ impl Builder {
         let report = match &self.tags {
             Tags::Unresolved => return,
             Tags::Cold if element == carrier::ANCHOR => return,
-            Tags::Cold => Some(Dropped::Element(element)),
+            Tags::Cold => Some(DroppedConstruct::Element(element)),
             Tags::Against { islands, .. } if element == carrier::ISLAND => {
                 match id.and_then(|id| islands.get(id)) {
                     Some(island) if prose => {
@@ -1195,8 +1195,8 @@ impl Builder {
                         self.mint_island(island_type, props);
                         None
                     }
-                    Some(_) => Some(Dropped::Element(element)),
-                    None => Some(Dropped::ElementAttr { element, attr: "ref".into() }),
+                    Some(_) => Some(DroppedConstruct::Element(element)),
+                    None => Some(DroppedConstruct::ElementAttr { element, attr: "ref".into() }),
                 }
             }
             Tags::Against { anchors, .. } => match id {
@@ -1208,7 +1208,7 @@ impl Builder {
                     }
                     None
                 }
-                _ => Some(Dropped::ElementAttr { element, attr: "ref".into() }),
+                _ => Some(DroppedConstruct::ElementAttr { element, attr: "ref".into() }),
             },
         };
         if let Some(construct) = report {
@@ -1286,7 +1286,7 @@ impl Builder {
             *open -= 1;
             return;
         }
-        dropped.add(Dropped::Element(name), at);
+        dropped.add(DroppedConstruct::Element(name), at);
     }
 
     /// A tight list item's inline content arrives with no `Paragraph` start to
@@ -1436,7 +1436,7 @@ impl Builder {
     fn note_table(&mut self, table: crate::lines::html_table::Table) -> Result<(), ImportError> {
         use crate::lines::html_table::Slot;
         if let Some(note) = self.note.as_mut() {
-            note.dropped.add(Dropped::NoteBlock("table"), note.at);
+            note.dropped.add(DroppedConstruct::NoteBlock("table"), note.at);
         }
         for row in table.rows {
             if let Some(note) = self.note.as_mut() {
@@ -1504,7 +1504,7 @@ impl Builder {
             _ => None,
         };
         if let Some(block) = structure {
-            note.dropped.add(Dropped::NoteBlock(block), note.at);
+            note.dropped.add(DroppedConstruct::NoteBlock(block), note.at);
         }
         match event {
             Event::End(TagEnd::FootnoteDefinition) if note.nested > 0 => note.nested -= 1,
@@ -1567,7 +1567,7 @@ impl Builder {
         note.inline.drop_open(&mut note.dropped);
         let key = UniCase::new(note.label);
         if self.notes.contains_key(&key) {
-            return self.dropped.add(Dropped::Footnote, note.at);
+            return self.dropped.add(DroppedConstruct::Footnote, note.at);
         }
         let props = crate::lines::serial::cell_to_value(&note.inline.text, &note.inline.marks);
         let chars = note.inline.text.chars().count();
@@ -1578,10 +1578,10 @@ impl Builder {
     /// every definition is read. Anywhere else it drops.
     fn note_ref(&mut self, label: String, at: usize) {
         if let Some(note) = self.note.as_mut() {
-            return note.dropped.add(Dropped::Footnote, at);
+            return note.dropped.add(DroppedConstruct::Footnote, at);
         }
         if self.table.is_some() || self.image_depth > 0 {
-            return self.dropped.add(Dropped::Footnote, at);
+            return self.dropped.add(DroppedConstruct::Footnote, at);
         }
         self.ensure_open(LineKind::Para);
         self.inline.push_raw(ISLAND_SLOT);
@@ -1595,7 +1595,7 @@ impl Builder {
         if let Some(note) = self.note.as_mut() {
             note.fill();
             note.inline.push_text(source);
-            return note.dropped.add(Dropped::Math, at);
+            return note.dropped.add(DroppedConstruct::Math, at);
         }
         let cell = self.table.as_mut().and_then(|acc| acc.cell.as_mut());
         if self.image_depth > 0 || cell.is_some() || !crate::lines::export::tex_is_writable(&crate::lines::serial::settle_tex(tex), display) {
@@ -1607,7 +1607,7 @@ impl Builder {
                     self.inline.push_text(source);
                 }
             }
-            return self.dropped.add(Dropped::Math, at);
+            return self.dropped.add(DroppedConstruct::Math, at);
         }
         self.ensure_open(LineKind::Para);
         self.inline.push_raw(ISLAND_SLOT);
@@ -1670,7 +1670,7 @@ impl Builder {
                 }
                 held => {
                     if held.is_some() {
-                        self.dropped.add(Dropped::FootnoteSize, at);
+                        self.dropped.add(DroppedConstruct::FootnoteSize, at);
                     }
                     self.unslot(index, &format!("[^{}]", label.into_inner()));
                 }
@@ -1682,7 +1682,7 @@ impl Builder {
         for note in std::mem::take(&mut self.notes).into_values() {
             match note.used {
                 true => self.dropped.absorb(note.dropped),
-                false => self.dropped.add(Dropped::Footnote, note.at),
+                false => self.dropped.add(DroppedConstruct::Footnote, note.at),
             }
         }
         self.inline.drop_open(&mut self.dropped);
@@ -1791,7 +1791,7 @@ enum Fixed<'a> {
     /// markdown with them, at the block's byte offset.
     Swallowed(String, usize),
     /// A construct the fixer dropped, at its byte offset.
-    Dropped(Dropped, usize),
+    DroppedConstruct(DroppedConstruct, usize),
     /// A footnote definition's start, at its byte offset.
     NoteDef { label: String, at: usize },
     /// A footnote reference, at its byte offset.
@@ -1822,7 +1822,7 @@ impl Fixed<'_> {
             Fixed::Carrier(tag) => Fixed::Carrier(CarrierTag { at: tag.at + by, ..tag }),
             Fixed::Underline(UTag::Open { at }) => Fixed::Underline(UTag::Open { at: at + by }),
             Fixed::Swallowed(name, at) => Fixed::Swallowed(name, at + by),
-            Fixed::Dropped(construct, at) => Fixed::Dropped(construct, at + by),
+            Fixed::DroppedConstruct(construct, at) => Fixed::DroppedConstruct(construct, at + by),
             Fixed::NoteDef { label, at } => Fixed::NoteDef { label, at: at + by },
             Fixed::NoteRef { label, at } => Fixed::NoteRef { label, at: at + by },
             Fixed::Math { tex, display, source, at } => Fixed::Math { tex, display, source, at: at + by },
@@ -1880,13 +1880,13 @@ impl CarrierTag {
 /// its element, a `qm-*` name outside the grammar as its bad name, and any
 /// other tag by its name. `qm-anchor`, Quillmark's own read-only spelling of
 /// an anchor, is written to be dropped and reports nothing.
-pub(crate) fn dropped_tag(name: &str) -> Option<Dropped> {
+pub(crate) fn dropped_tag(name: &str) -> Option<DroppedConstruct> {
     let lower = name.to_ascii_lowercase();
     Some(match carrier::element(name) {
         Some(element) if element == carrier::ANCHOR => return None,
-        Some(element) => Dropped::Element(element),
-        None if lower.starts_with(carrier::PREFIX) => Dropped::BadName(lower),
-        None => Dropped::Tag(lower),
+        Some(element) => DroppedConstruct::Element(element),
+        None if lower.starts_with(carrier::PREFIX) => DroppedConstruct::BadName(lower),
+        None => DroppedConstruct::Tag(lower),
     })
 }
 
@@ -1894,12 +1894,12 @@ pub(crate) fn dropped_tag(name: &str) -> Option<Dropped> {
 /// of its first occurrence.
 #[derive(Default)]
 struct Drops {
-    entries: Vec<(Dropped, usize, usize)>,
-    index: HashMap<Dropped, usize>,
+    entries: Vec<(DroppedConstruct, usize, usize)>,
+    index: HashMap<DroppedConstruct, usize>,
 }
 
 impl Drops {
-    fn add(&mut self, construct: Dropped, at: usize) {
+    fn add(&mut self, construct: DroppedConstruct, at: usize) {
         match self.index.get(&construct) {
             Some(&k) => {
                 let (_, count, first) = &mut self.entries[k];
@@ -2013,7 +2013,7 @@ where
         let (family, refused) = carrier::span::read(&carrier::decode_attrs(&tag.attrs));
         for attr in refused {
             let element = carrier::SPAN.to_string();
-            self.held.push_back(Fixed::Dropped(Dropped::ElementAttr { element, attr }, at));
+            self.held.push_back(Fixed::DroppedConstruct(DroppedConstruct::ElementAttr { element, attr }, at));
         }
         match family {
             Some(family) if !tag.self_closing => SpanTag::Open { at, family },
@@ -2027,7 +2027,7 @@ where
     /// Hand on what an opening tag reports where it drops.
     fn drop_tag(&mut self, tag: &html::Tag, at: usize) {
         if let Some(construct) = dropped_tag(tag.name).filter(|_| !tag.closing) {
-            self.held.push_back(Fixed::Dropped(construct, at));
+            self.held.push_back(Fixed::DroppedConstruct(construct, at));
         }
     }
 
@@ -2098,7 +2098,7 @@ where
                 lines.get(k).map_or(at, |&(block, src)| src + (off - block))
             };
             let (tables, drops) = crate::lines::html_table::scan(&text, source, &mut self.cells);
-            self.held.extend(drops.into_iter().map(|(construct, at)| Fixed::Dropped(construct, at)));
+            self.held.extend(drops.into_iter().map(|(construct, at)| Fixed::DroppedConstruct(construct, at)));
             self.held.extend(tables.into_iter().map(Fixed::HtmlTable));
             self.held.push_back(Fixed::Event(Event::End(TagEnd::HtmlBlock)));
             return;
@@ -2110,8 +2110,8 @@ where
             self.held.push_back(match carrier::wrapper(first.name).filter(|_| first.closing) {
                 Some(name) => Fixed::Swallowed(name, at),
                 None => {
-                    let anchor = Dropped::Tag(first.name.to_ascii_lowercase());
-                    Fixed::Dropped(dropped_tag(first.name).unwrap_or(anchor), at)
+                    let anchor = DroppedConstruct::Tag(first.name.to_ascii_lowercase());
+                    Fixed::DroppedConstruct(dropped_tag(first.name).unwrap_or(anchor), at)
                 }
             });
         }
@@ -2156,7 +2156,7 @@ where
             }
             Event::Start(Tag::Table(aligns)) if aligns.len() > self.cells => {
                 self.skip_through(TagEnd::Table);
-                Fixed::Dropped(Dropped::TableSize, range.start)
+                Fixed::DroppedConstruct(DroppedConstruct::TableSize, range.start)
             }
             Event::Start(Tag::Table(aligns)) => {
                 self.grid = Some((aligns.len(), aligns.len(), false));
@@ -2165,7 +2165,7 @@ where
             Event::Start(Tag::TableRow) if self.grid.is_some_and(|(cols, n, _)| n + cols > self.cells) => {
                 self.skip_through(TagEnd::TableRow);
                 let (_, _, cut) = self.grid.as_mut()?;
-                return (!std::mem::replace(cut, true)).then_some(Fixed::Dropped(Dropped::TableSize, range.start));
+                return (!std::mem::replace(cut, true)).then_some(Fixed::DroppedConstruct(DroppedConstruct::TableSize, range.start));
             }
             Event::Start(Tag::TableRow) => {
                 if let Some((cols, n, _)) = self.grid.as_mut() {
@@ -2259,13 +2259,13 @@ pub(crate) mod tests {
     use super::*;
     use crate::lines::model::LineKind;
 
-    fn imp(md: &str) -> Normalized {
+    fn imp(md: &str) -> Lines {
         let rt = from_markdown(md).unwrap().content;
         assert_eq!(rt.validate(), Ok(()), "invariants for {md:?}");
         rt
     }
 
-    fn imp_plain(s: &str) -> Normalized {
+    fn imp_plain(s: &str) -> Lines {
         let rt = from_plaintext(s);
         assert_eq!(rt.validate(), Ok(()), "invariants for {s:?}");
         rt
@@ -2296,7 +2296,7 @@ pub(crate) mod tests {
     /// `prose_drops_a_stray_slot_before_flanking_is_read` below. A stray
     /// `ISLAND_SLOT` is an invariant violation the mint does not repair —
     /// `validate` reports it — so a codec that admitted one would hand out a
-    /// `Normalized` that is not, and `imp_plain` would say so. The drop is also
+    /// `Lines` that is not, and `imp_plain` would say so. The drop is also
     /// why this codec's fixed point names the character it excludes. A CRLF
     /// collapses to LF beside it.
     #[test]
@@ -2711,7 +2711,7 @@ pub(crate) mod tests {
     /// `[X]` reads as done, and every line of an item carries its marker.
     #[test]
     fn a_task_marker_is_its_items_checked() {
-        let checked = |rt: &Normalized| -> Vec<Vec<Option<bool>>> {
+        let checked = |rt: &Lines| -> Vec<Vec<Option<bool>>> {
             rt.lines
                 .iter()
                 .map(|l| {
@@ -2925,7 +2925,7 @@ pub(crate) mod tests {
         };
         assert_eq!(
             imported.to_canonical_json(),
-            editor.into_normalized().to_canonical_json()
+            editor.into_lines().to_canonical_json()
         );
     }
 
@@ -3070,7 +3070,7 @@ pub(crate) mod tests {
             .collect()
     }
 
-    fn table_rows(rt: &Normalized) -> Vec<Vec<String>> {
+    fn table_rows(rt: &Lines) -> Vec<Vec<String>> {
         let [island] = rt.islands.as_slice() else {
             panic!("one island expected: {:?}", rt.islands);
         };
@@ -3190,7 +3190,7 @@ pub(crate) mod tests {
         }
     }
 
-    fn grid(rt: &Normalized) -> serde_json::Value {
+    fn grid(rt: &Lines) -> serde_json::Value {
         let [island] = rt.islands.as_slice() else {
             panic!("one island expected: {:?}", rt.islands);
         };
@@ -3408,7 +3408,7 @@ pub(crate) mod tests {
             let rows = |isl: &Island| 1 + isl.props["rows"].as_array().map_or(0, Vec::len);
             imported.content.islands.iter().map(|isl| rows(isl) * isl.props["aligns"].as_array().map_or(0, Vec::len)).sum()
         };
-        let sized = |imported: &Imported| imported.warnings.iter().any(|w| w.construct == Dropped::TableSize);
+        let sized = |imported: &Imported| imported.warnings.iter().any(|w| w.construct == DroppedConstruct::TableSize);
         let html = format!("<table>{}</table>\n\n", "<tr><td colspan=1000>".repeat(100));
         let pipe = format!("{}|\n{}|\n{}\n", "|a".repeat(1000), "|-".repeat(1000), "|x|\n".repeat(99));
         for md in [html.repeat(5), pipe.repeat(3), format!("{html}{pipe}{html}")] {
@@ -3685,7 +3685,7 @@ pub(crate) mod tests {
         assert_eq!(dropped(&lf), [("qm-keep", 1), ("span", 1)]);
     }
 
-    fn container_tags(rt: &Normalized) -> Vec<Vec<&'static str>> {
+    fn container_tags(rt: &Lines) -> Vec<Vec<&'static str>> {
         rt.lines.iter().map(|l| l.containers.iter().map(Container::tag).collect()).collect()
     }
 

@@ -265,7 +265,7 @@ mod tests {
             .content
             .into_content();
         content.marks.push(Mark::new(0, 10, MarkKind::Underline));
-        let content = content.into_normalized();
+        let content = content.into_lines();
         let json = quillmark_content::lines::serial::to_canonical_value(&content);
         let schema = crate::quill::FieldSchema::new(
             "intro".to_string(),
@@ -315,7 +315,7 @@ mod tests {
         let mut payload = Payload::from_index_map(Default::default());
         payload.set_quill("memo@1.2.3".parse().unwrap());
         payload.set_kind("main");
-        let card = Card::from_parts(payload, quillmark_content::lines::model::Normalized::empty());
+        let card = Card::from_parts(payload, quillmark_content::lines::model::Lines::empty());
 
         let wire = CardWire::from(&card);
         assert_eq!(wire.quill.as_deref(), Some("memo@1.2.3"));
@@ -419,7 +419,7 @@ mod tests {
 
         assert_eq!(
             with_body(JsonValue::Null).unwrap().body_lines(),
-            &quillmark_content::lines::model::Normalized::empty()
+            &quillmark_content::lines::model::Lines::empty()
         );
         assert_eq!(
             Codec::Richtext.project(with_body(json!("hi *there*")).unwrap().body_lines()),

@@ -47,11 +47,11 @@ use std::borrow::Cow;
 use crate::lines::anchor::{AnchorSite, Surface};
 use crate::lines::island::IslandType;
 use crate::lines::model::{
-    Container, Island, LineKind, Mark, MarkKind, Content, Normalized, Usv, ISLAND_SLOT,
+    Container, Island, LineKind, Mark, MarkKind, Content, Lines, Usv, ISLAND_SLOT,
 };
 
 /// Render a content to markdown.
-pub fn to_markdown(rt: &Normalized) -> String {
+pub fn to_markdown(rt: &Lines) -> String {
     let rt = &*block_islands_alone(rt);
     let segments = line_segments(rt);
     let line_marks = line_marks(rt, &segments);
@@ -102,7 +102,7 @@ pub enum ExportLoss {
 /// construct the projection does not spell is named. Anchors are not
 /// compared, the projection carrying none. Costs an import and a diff beyond
 /// [`to_markdown`].
-pub fn to_markdown_checked(rt: &Normalized) -> Exported {
+pub fn to_markdown_checked(rt: &Lines) -> Exported {
     let markdown = to_markdown(rt);
     let back = match crate::lines::import::from_markdown(&markdown) {
         Ok(imported) => imported.content,
@@ -200,7 +200,7 @@ pub struct AnchorRead {
 /// Where a line's tags change what it imports to, they move to its end, each
 /// with `at="line"` so a revise pins nothing by it, and where that changes it
 /// too, the line holds none.
-pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
+pub fn to_markdown_annotated(rt: &Lines) -> Annotated {
     let rt = &*block_islands_alone(rt);
     let segments = line_segments(rt);
     let line_marks = line_marks(rt, &segments);
@@ -248,13 +248,13 @@ pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
 /// The literal codec's annotated read: [`to_plaintext`], which spells no tag,
 /// and every anchor listed as [`to_markdown_annotated`] lists it, so a revise
 /// carries each by the diff.
-pub fn to_plaintext_annotated(rt: &Normalized) -> Annotated {
+pub fn to_plaintext_annotated(rt: &Lines) -> Annotated {
     Annotated { markdown: to_plaintext(rt), anchors: anchors_where(rt, |_| true) }
 }
 
 /// The anchors [`to_markdown_annotated`] lists for `rt` whose id `keep`
 /// holds, in its order, read without projecting `rt`.
-pub fn anchors_where(rt: &Normalized, keep: impl Fn(&str) -> bool) -> Vec<AnchorRead> {
+pub fn anchors_where(rt: &Lines, keep: impl Fn(&str) -> bool) -> Vec<AnchorRead> {
     let rt = &*block_islands_alone(rt);
     let found: Vec<AnchorSite> = rt.anchor_sites().into_iter().filter(|site| keep(&site.id)).collect();
     if found.is_empty() {
@@ -276,7 +276,7 @@ pub fn anchors_where(rt: &Normalized, keep: impl Fn(&str) -> bool) -> Vec<Anchor
 /// `rt` as the projection writes it: each block-only island's slot that shares
 /// its line broken onto a line of its own
 /// ([`Content::split_block_islands`]), marks and anchors moved with the text.
-fn block_islands_alone(rt: &Normalized) -> Cow<'_, Normalized> {
+fn block_islands_alone(rt: &Lines) -> Cow<'_, Lines> {
     if !rt.islands.iter().any(|i| i.island_type.block_only()) {
         return Cow::Borrowed(rt);
     }
@@ -286,7 +286,7 @@ fn block_islands_alone(rt: &Normalized) -> Cow<'_, Normalized> {
     }
     let mut broken = rt.clone().into_content();
     broken.split_block_islands();
-    Cow::Owned(broken.into_normalized())
+    Cow::Owned(broken.into_lines())
 }
 
 /// The read of `site`, and the index of the line it sits on where that is in
@@ -491,7 +491,7 @@ impl<'a> Frame<'a> {
 /// deeper lines are grouped by their `depth`-th container and open a level of
 /// their own, which [`close_container`] prefixes on the way back out.
 ///
-/// A frame stack, not recursion, for the reason [`Normalized`] states: the
+/// A frame stack, not recursion, for the reason [`Lines`] states: the
 /// token says canonical, not valid, so a container path reaching here nests
 /// past [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH) freely, and a call
 /// frame per level aborts the process where this returns a projection.
@@ -812,7 +812,7 @@ pub fn island_reads_back(isl: &Island) -> bool {
         marks: Vec::new(),
         islands: vec![Island { props: props.clone(), ..isl.clone() }],
     }
-    .into_normalized();
+    .into_lines();
     let Ok(back) = crate::lines::import::from_markdown(&to_markdown(&alone)) else {
         return false;
     };
@@ -2011,7 +2011,7 @@ mod tests {
     /// export∘import is the identity on the content.
     /// A content built by hand, as a client writing `Content` directly builds
     /// one, normalized the way every write lane normalizes it.
-    fn stored(text: &str, containers: Vec<Vec<Container>>) -> Normalized {
+    fn stored(text: &str, containers: Vec<Vec<Container>>) -> Lines {
         let lines = containers
             .into_iter()
             .map(|c| {
@@ -2020,12 +2020,12 @@ mod tests {
                 l
             })
             .collect();
-        let rt = Content::new(text.to_string(), lines).into_normalized();
+        let rt = Content::new(text.to_string(), lines).into_lines();
         rt.validate().expect("stored content validates");
         rt
     }
 
-    /// The lane [`Normalized`] does not close: a Rust embedder hand-builds a
+    /// The lane [`Lines`] does not close: a Rust embedder hand-builds a
     /// content nested past `MAX_NESTING_DEPTH`, which `normalize` cannot repair
     /// and no mint rejects.
     #[test]
@@ -2033,7 +2033,7 @@ mod tests {
         const DEPTH: usize = 10_000;
         let mut line = Line::new(LineKind::Para);
         line.containers = vec![Container::Quote { instance: 0 }; DEPTH];
-        let rt = Content::new("x".to_string(), vec![line]).into_normalized();
+        let rt = Content::new("x".to_string(), vec![line]).into_lines();
         assert!(rt.validate().is_err(), "the shape `validate` refuses");
         assert_eq!(to_markdown(&rt), format!("{}x", "> ".repeat(DEPTH)));
     }
@@ -2049,7 +2049,7 @@ mod tests {
                 Mark::new(0, 1, MarkKind::Strong),
                 Mark::new(0, 1, MarkKind::Strike),
             ])
-            .into_normalized();
+            .into_lines();
         rt.validate().expect("validates");
         assert_eq!(to_markdown(&rt), "~~**x**~~");
         assert_eq!(from_markdown("**~~x~~**").unwrap().content, rt);
@@ -2098,7 +2098,7 @@ mod tests {
             vec![Line::new(LineKind::Para), Line::new(LineKind::Heading { level: 2 })],
         )
         .with_islands(vec![note("\n# x\ny\n", "isl-0"), note("1. z", "isl-1"), note("", "isl-2")])
-        .into_normalized();
+        .into_lines();
         rt.validate().expect("validates");
         assert_eq!(crate::lines::serial::parse_cell(&rt.islands[0].props).0, "# x\ny");
         let md = to_markdown(&rt);
@@ -2116,7 +2116,7 @@ mod tests {
         let rt = Content::new("a\u{FFFC}b".into(), vec![Line::new(LineKind::Para)])
             .with_marks(vec![Mark::new(0, 3, MarkKind::Link { url: "u".into() })])
             .with_islands(vec![note("n", "isl-0")])
-            .into_normalized();
+            .into_lines();
         let md = to_markdown(&rt);
         assert_eq!(md, "[a](u)[^1]<!---->[b](u)\n\n[^1]: n");
         let back = from_markdown(&md).unwrap().content;
@@ -2138,7 +2138,7 @@ mod tests {
         for (text, islands, md) in cases {
             let rt = Content::new((*text).into(), vec![Line::new(LineKind::Para)])
                 .with_islands(islands.clone())
-                .into_normalized();
+                .into_lines();
             assert_eq!(to_markdown(&rt), *md, "{text:?}");
             assert_eq!(from_markdown(md).unwrap().content, rt, "{md:?}");
         }
@@ -2148,7 +2148,7 @@ mod tests {
                 "aligns": ["none"],
                 "rows": [],
             }))])
-            .into_normalized();
+            .into_lines();
         let md = to_markdown(&cell);
         assert!(md.starts_with("| \\$a\\$ |"), "{md:?}");
         assert_eq!(from_markdown(&md).unwrap().content, cell);
@@ -2189,7 +2189,7 @@ mod tests {
     /// that mints them.
     #[test]
     fn adjacent_sibling_containers_project_and_return() {
-        let cases: &[(Normalized, &str)] = &[
+        let cases: &[(Lines, &str)] = &[
             // Two one-item lists, which weld into one without a discriminator
             // with an unnumbered continuation paragraph.
             (stored("a\nb", vec![li(0, 0), li(0, 1)]), "- a\n\n+ b"),
@@ -2238,14 +2238,14 @@ mod tests {
     fn alternate_markers_do_not_collide_with_a_rule() {
         let mut rt = stored("a\n\nb", vec![li(0, 0), li(0, 1), li(1, 1)]).into_content();
         rt.lines[1].kind = LineKind::Rule;
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         rt.validate().expect("validates");
         assert_eq!(to_markdown(&rt), "- a\n\n+ ***\n\n+ b");
         assert_eq!(from_markdown(&to_markdown(&rt)).unwrap().content, rt);
 
         let mut rt = stored("a\n\nb", vec![oli(0, 0), oli(0, 1), oli(1, 1)]).into_content();
         rt.lines[1].kind = LineKind::Rule;
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         assert_eq!(to_markdown(&rt), "1. a\n\n1) ***\n\n2) b");
         assert_eq!(from_markdown(&to_markdown(&rt)).unwrap().content, rt);
     }
@@ -2305,7 +2305,7 @@ mod tests {
     fn code_mark_over_island_slot_keeps_the_island() {
         let mut rt = from_markdown("a ![x](y.png) b").unwrap().content.into_content();
         rt.marks.push(Mark { start: 0, end: 5, kind: MarkKind::Code });
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         assert_eq!(rt.validate(), Ok(()));
         let md = to_markdown(&rt);
         assert_eq!(md, "`a `![x](y.png)` b`");
@@ -2331,13 +2331,13 @@ mod tests {
                 props: serde_json::Value::Null,
             }],
         }
-        .into_normalized();
+        .into_lines();
         assert_eq!(to_plaintext(&rt), "see  here");
     }
 
     /// A single-paragraph content with hand-placed `marks`: the free-overlap
     /// shapes an editor produces but markdown import never does.
-    fn marked(text: &str, marks: Vec<Mark>) -> Normalized {
+    fn marked(text: &str, marks: Vec<Mark>) -> Lines {
         let rt = Content {
             text: text.to_string(),
             lines: vec![Line {
@@ -2348,7 +2348,7 @@ mod tests {
             marks,
             islands: vec![],
         }
-        .into_normalized();
+        .into_lines();
         assert_eq!(rt.validate(), Ok(()), "content invariants");
         rt
     }
@@ -2385,7 +2385,7 @@ mod tests {
         let mut cell = imported.into_content();
         cell.islands[0].props["rows"][0][0]["marks"] =
             serde_json::json!([{ "start": 0, "end": 1, "type": "anchor", "attrs": { "id": "c1" } }]);
-        assert_eq!(to_markdown_checked(&cell.into_normalized()).losses, vec![], "a cell's anchor is no loss");
+        assert_eq!(to_markdown_checked(&cell.into_lines()).losses, vec![], "a cell's anchor is no loss");
     }
 
     /// One deterministic fixed-point smoke per construct `properties.rs` fuzzes,
@@ -2482,7 +2482,7 @@ mod tests {
     fn leading_ordered_marker_escaped() {
         let mut rt = from_markdown("x").unwrap().content.into_content();
         rt.text = "1. not a list".into();
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         let md = to_markdown(&rt);
         let back = from_markdown(&md).unwrap().content;
         assert_eq!(back.lines[0].kind, LineKind::Para);
@@ -2516,11 +2516,11 @@ mod tests {
 
     /// One Para block over the `\n`-separated lines of `text`, joined by hard
     /// breaks: the shape that puts a line under a paragraph line.
-    fn hard_break_block(text: &str) -> Normalized {
+    fn hard_break_block(text: &str) -> Lines {
         let lines = (0..text.split('\n').count())
             .map(|i| Line::new(LineKind::Para).with_continues(i > 0))
             .collect();
-        let rt = Content::new(text.to_string(), lines).into_normalized();
+        let rt = Content::new(text.to_string(), lines).into_lines();
         assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
         rt
     }
@@ -2558,7 +2558,7 @@ mod tests {
             }
             let mut rt = stored(text, vec![vec![]]).into_content();
             rt.lines[0].kind = LineKind::Heading { level: 2 };
-            let rt = rt.into_normalized();
+            let rt = rt.into_lines();
             let md = to_markdown(&rt);
             assert_eq!(
                 &from_markdown(&md).unwrap().content,
@@ -2622,7 +2622,7 @@ mod tests {
                 })),
             ],
         }
-        .into_normalized();
+        .into_lines();
         assert_eq!(rt.validate(), Ok(()), "table island invalid");
         let md = to_markdown(&rt);
         assert_eq!(&from_markdown(&md).unwrap().content, &rt, "cell edges lost: {md:?}");
@@ -2692,7 +2692,7 @@ mod tests {
         }
     }
 
-    fn grid_table(props: serde_json::Value) -> Normalized {
+    fn grid_table(props: serde_json::Value) -> Lines {
         with_islands(&ISLAND_SLOT.to_string(), vec![Island::new("isl-0".into(), IslandType::Table).with_props(props)])
     }
 
@@ -2813,14 +2813,14 @@ mod tests {
 
     /// A content of one Para line holding `text`, whose slots the `islands`
     /// back: the shape a wire island op mints.
-    fn with_islands(text: &str, islands: Vec<Island>) -> Normalized {
+    fn with_islands(text: &str, islands: Vec<Island>) -> Lines {
         let rt = Content {
             text: text.to_string(),
             lines: vec![Line::new(LineKind::Para)],
             marks: vec![],
             islands,
         }
-        .into_normalized();
+        .into_lines();
         assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
         rt
     }
@@ -2846,7 +2846,7 @@ mod tests {
             marks: vec![Mark::new(2, 6, MarkKind::Strong)],
             islands: vec![table()],
         }
-        .into_normalized();
+        .into_lines();
         assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
         assert_eq!(rt.text, format!("a{ISLAND_SLOT}bold"), "the mint moved text");
 
@@ -2858,7 +2858,7 @@ mod tests {
 
         let mut anchored = rt.clone().into_content();
         anchored.marks.push(anchor(2, 6, "c1"));
-        let read = to_markdown_annotated(&anchored.into_normalized());
+        let read = to_markdown_annotated(&anchored.into_lines());
         assert_eq!(read.markdown.replace(&tag("c1"), ""), md);
         assert!(read.markdown.contains(&format!("{}**bold**", tag("c1"))), "{:?}", read.markdown);
         assert_eq!(read.anchors[0].line, "bold");
@@ -2877,7 +2877,7 @@ mod tests {
             marks: vec![],
             islands: vec![table()],
         }
-        .into_normalized();
+        .into_lines();
         assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
         assert!(!rt.lines[1].continues);
 
@@ -2901,7 +2901,7 @@ mod tests {
             marks: vec![Mark::new(1, 2, MarkKind::Strong)],
             islands: vec![image()],
         }
-        .into_normalized();
+        .into_lines();
         let md = to_markdown(&over_slot);
         assert_eq!(md, "a![a](u)b");
         let back = from_markdown(&md).unwrap().content;
@@ -2915,7 +2915,7 @@ mod tests {
             marks: vec![Mark::new(0, 1, MarkKind::Strong)],
             islands: vec![image()],
         }
-        .into_normalized();
+        .into_lines();
         let md = to_markdown(&before_slot);
         assert_eq!(md, "**a**![a](u)b");
         assert_eq!(from_markdown(&md).unwrap().content, before_slot);
@@ -2964,7 +2964,7 @@ mod tests {
             end: 14,
             kind: MarkKind::Anchor { id: "c1".into() },
         });
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         let md = to_markdown(&rt);
         let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.text, "comment target here");
@@ -2980,7 +2980,7 @@ mod tests {
     }
 
     /// The read imports as the plain projection does, anchors gone.
-    fn reads_as_plain(read: &Annotated, rt: &Normalized) {
+    fn reads_as_plain(read: &Annotated, rt: &Lines) {
         let plain = from_markdown(&to_markdown(rt)).unwrap().content;
         assert!(plain.marks.iter().all(|m| !matches!(m.kind, MarkKind::Anchor { .. })));
         assert_eq!(from_markdown(&read.markdown).unwrap().content, plain, "{:?}", read.markdown);
@@ -3060,7 +3060,7 @@ mod tests {
         rt.marks.extend([anchor(3, 3, "code"), anchor(10, 10, "table"), anchor(14, 14, "empty")]);
         rt.islands[0].props["rows"][0][0]["marks"] =
             serde_json::json!([{"attrs": {"id": "cell"}, "end": 1, "start": 0, "type": "anchor"}]);
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         assert_eq!(rt.validate(), Ok(()));
         assert_eq!(rt.islands[0].props["rows"][0][0]["marks"][0]["type"], "anchor");
 
@@ -3079,7 +3079,7 @@ mod tests {
         let mut rt = from_markdown("# a \\#").unwrap().content.into_content();
         assert_eq!(rt.text, "a #");
         rt.marks.extend([anchor(2, 2, "before"), anchor(3, 3, "after")]);
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         let read = to_markdown_annotated(&rt);
         assert_eq!(read.markdown, format!("# a {}\\#{}", tag("before"), tag("after")));
         reads_as_plain(&read, &rt);
@@ -3337,7 +3337,7 @@ mod tests {
                     url: "a\nb".into(),
                 },
             )])
-            .into_normalized();
+            .into_lines();
         let back = from_markdown(&to_markdown(&rt)).expect("re-imports").content;
         assert_eq!(to_markdown(&back), to_markdown(&rt), "one round trip settles it");
         assert_eq!(back.text, "t x", "the display text did not leak");
@@ -3352,7 +3352,7 @@ mod tests {
             .with_props(serde_json::json!({"alt": "a", "url": "u\rv"}));
         let rt = Content::new(format!("x{ISLAND_SLOT}"), vec![Line::new(LineKind::Para)])
             .with_islands(vec![isl])
-            .into_normalized();
+            .into_lines();
         let back = from_markdown(&to_markdown(&rt)).expect("re-imports").content;
         assert_eq!(back.islands.len(), 1, "the island survived");
         assert_eq!(back.islands[0].props["url"], "u%0Dv");

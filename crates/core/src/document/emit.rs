@@ -15,7 +15,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
 use quillmark_content::lines::export::to_markdown_annotated;
-use quillmark_content::lines::model::Normalized;
+use quillmark_content::lines::model::Lines;
 use serde_json::Value as JsonValue;
 use serde_saphyr::SerializerOptions;
 
@@ -136,13 +136,13 @@ fn emit_card(out: &mut String, card: &Card, at: &DocPath, anchors: Option<&Ancho
 }
 
 /// `content`'s annotated markdown, its anchors pushed at `path`.
-fn annotated(content: &Normalized, path: &DocPath, anchors: &Anchors) -> String {
+fn annotated(content: &Lines, path: &DocPath, anchors: &Anchors) -> String {
     annotated_as(super::Codec::Richtext, content, path, anchors)
 }
 
 /// [`annotated`] under `codec`: a `text` value reads as its literal text, its
 /// anchors listed and no tag spelled.
-fn annotated_as(codec: super::Codec, content: &Normalized, path: &DocPath, anchors: &Anchors) -> String {
+fn annotated_as(codec: super::Codec, content: &Lines, path: &DocPath, anchors: &Anchors) -> String {
     let read = match codec {
         super::Codec::Richtext => to_markdown_annotated(content),
         super::Codec::Text => quillmark_content::lines::export::to_plaintext_annotated(content),
@@ -429,7 +429,7 @@ pub(super) fn project_content_field(value: &JsonValue) -> Option<String> {
 }
 
 /// The content `value` is, when [`project_content_field`] projects it.
-pub(super) fn canonical_content(value: &JsonValue) -> Option<Normalized> {
+pub(super) fn canonical_content(value: &JsonValue) -> Option<Lines> {
     if !value.is_object() {
         return None;
     }

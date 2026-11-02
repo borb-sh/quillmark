@@ -4,7 +4,7 @@
 
 use crate::lines::carrier;
 use crate::lines::html;
-use crate::lines::import::Dropped;
+use crate::lines::import::DroppedConstruct;
 use crate::lines::island::{cell_alignment, is_weight, table_rows, table_spans, TableLayout, CELL_VALIGNS, TABLE_ALIGNS};
 use pulldown_cmark::{CowStr, Event, Parser, Tag as PTag, TagEnd};
 use serde_json::{Map, Value};
@@ -138,7 +138,7 @@ struct RawTable {
 /// cell drops alone, and so does text outside every cell. A `<table>` the
 /// block ends before its `</table>`, or that another `<table>` interrupts,
 /// closes there.
-pub(crate) fn scan(text: &str, at: impl Fn(usize) -> usize, budget: &mut usize) -> (Vec<Table>, Vec<(Dropped, usize)>) {
+pub(crate) fn scan(text: &str, at: impl Fn(usize) -> usize, budget: &mut usize) -> (Vec<Table>, Vec<(DroppedConstruct, usize)>) {
     let s = run(text, at, *budget);
     *budget = s.budget;
     (s.tables, s.drops)
@@ -215,7 +215,7 @@ fn run<F: Fn(usize) -> usize>(text: &str, at: F, budget: usize) -> Scan<'_, F> {
             }
         }
         if s.cell.is_none() && !b[i].is_ascii_whitespace() && !std::mem::replace(&mut stray, true) {
-            s.drops.push((Dropped::TableText, (s.at)(i)));
+            s.drops.push((DroppedConstruct::TableText, (s.at)(i)));
         }
         i += 1;
     }
@@ -229,7 +229,7 @@ struct Scan<'a, F> {
     /// The slots the block's tables may still take.
     budget: usize,
     tables: Vec<Table>,
-    drops: Vec<(Dropped, usize)>,
+    drops: Vec<(DroppedConstruct, usize)>,
     /// The offset past each `</table>` that closes a table.
     ends: Vec<usize>,
     table: Option<RawTable>,
@@ -263,7 +263,7 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
                 }
                 self.close_table(i, false);
             }
-            (_, false) if self.table.is_none() => self.drops.push((Dropped::Tag(name.into()), at)),
+            (_, false) if self.table.is_none() => self.drops.push((DroppedConstruct::Tag(name.into()), at)),
             (_, true) if self.table.is_none() => {}
             ("thead" | "tbody" | "tfoot", closing) => {
                 self.close_row(i);
@@ -317,7 +317,7 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
             }
         }
         for attr in dropped.into_iter().filter(|a| !PRESENTATIONAL.contains(&a.as_str())) {
-            self.drops.push((Dropped::TableAttr { tag: tag_name.into(), attr }, at));
+            self.drops.push((DroppedConstruct::TableAttr { tag: tag_name.into(), attr }, at));
         }
     }
 
@@ -366,7 +366,7 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
             return;
         };
         if cut {
-            self.drops.push((Dropped::Table, raw.at));
+            self.drops.push((DroppedConstruct::Table, raw.at));
         }
         if let Some(table) = resolve(raw, self.budget, &mut self.drops) {
             self.budget -= table.rows.len() * table.aligns.len();
@@ -385,7 +385,7 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
 /// normalization to settle. A row too short pads, reported. The rows from the
 /// first that takes the grid past `budget` slots drop, reported. `None` for a
 /// table holding no cell within that.
-fn resolve(raw: RawTable, budget: usize, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
+fn resolve(raw: RawTable, budget: usize, drops: &mut Vec<(DroppedConstruct, usize)>) -> Option<Table> {
     let mut groups = raw.groups;
     if !groups.iter().any(|g| g.kind == Group::Head)
         && let Some(first) = groups.first_mut().filter(|g| g.kind == Group::Body)
@@ -439,7 +439,7 @@ fn resolve(raw: RawTable, budget: usize, drops: &mut Vec<(Dropped, usize)>) -> O
         }
         let wide = covers.iter().rposition(|&n| n > 0).map_or(cols, |k| cols.max(k + 1));
         if past || row.cut || (r + 1).saturating_mul(wide) > budget {
-            drops.push((Dropped::TableSize, row.at));
+            drops.push((DroppedConstruct::TableSize, row.at));
             break;
         }
         cols = wide;
@@ -455,7 +455,7 @@ fn resolve(raw: RawTable, budget: usize, drops: &mut Vec<(Dropped, usize)>) -> O
         .into_iter()
         .map(|(at, cells, reach)| {
             if reach < cols {
-                drops.push((Dropped::TableRow, at));
+                drops.push((DroppedConstruct::TableRow, at));
             }
             let mut slots = vec![Slot::Empty; cols];
             for (x, cell) in cells {

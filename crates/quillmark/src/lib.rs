@@ -34,7 +34,7 @@
 // The python and wasm bindings sit lower, on core's wire and addressing seam,
 // and name `quillmark-core` directly.
 pub use quillmark_core::{
-    Content, Normalized,
+    Content,
     backend::{Backend, FontFace},
     document::{
         AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, Base, BaseError, Card, Document,
