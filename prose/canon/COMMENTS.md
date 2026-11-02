@@ -28,7 +28,7 @@ Core makes the anchor a reliable handle: it reads what each anchor is attached t
 
 - `path` is the `DocPath` of the body or content value holding it.
 - `card_id` is the `$id` of the composable card `path` names, and none on the main card ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#card-id-identity)).
-- `quote` is the anchored text as stored: an inline island is its `U+FFFC` slot and a line break its `\n`. A point's quote is empty.
+- `quote` is the anchored text as stored: an inline island is its `U+FFFC` slot, a hard break its `U+2028` and a block break its `\n`, in the prose and in a cell alike. A write's `droppedAnchors` and `movedAnchors` spell it the same way. A point's quote is empty.
 - `prefix` and `suffix` are up to 32 Unicode scalar values of stored text on each side, cut at the value's edges, or a cell's edges for an anchor in one.
 
 A quote spanning an inline island (a footnote reference) includes its slot character, and is found again only where a slot sits.
@@ -44,6 +44,7 @@ The read is pure and cheap enough to run before every markdown write.
 4. A point (an empty quote) counts at each position where the prefix and the suffix both agree.
 5. Where the caller passes the write's delta for the path, a match must overlap text that write inserted, the discipline `revise` keeps, and only the prose counts, since a delta spans the prose alone. Without one, the context rule alone decides.
 6. Exactly one counting place over the prose and every cell: attach there. None or several: orphan. No nearest match, no partial quote, no edit distance.
+7. A selector stored before 0.135 spells a hard break as `\n` and a cell's block break as two; where the stored spelling counts nowhere, the rule runs once more over each surface spelled that way.
 7. An id already live anywhere in the document, a cell's anchor included, is not re-added. It is answered as reattached with the selector the first value holding it reads.
 8. Each id is answered once: of selectors sharing an id, the first is answered and the rest are left out of the receipt.
 

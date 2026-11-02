@@ -7,8 +7,7 @@
 
 use crate::draft::{Draft, HeldTwice};
 use crate::ids::is_id;
-use crate::lines::anchor::{AnchorContext, anchor_contexts};
-use crate::migrate::to_lines;
+use crate::lines::anchor::AnchorContext;
 use crate::model::{
     Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Usv, check_block, check_island,
     check_mark_kind, is_text_char, normalized_marks,
@@ -264,7 +263,7 @@ pub fn lost_anchors(before: &Content, after: &Content, keep: impl Fn(&str) -> bo
     if was.is_empty() {
         return Vec::new();
     }
-    anchor_contexts(&to_lines(before))
+    crate::anchors::anchor_contexts(before)
         .into_iter()
         .filter_map(|context| {
             let slot = was.remove(&context.id)?;

@@ -215,6 +215,7 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 - Block records, containers, marks, anchors and islands follow as their own steps; an anchor `after` holds in another place, the prose or a cell, moves there. A block or island `after` holds in another place keeps its id, moved up or down.
 
 - It refuses an `after` that is not a valid value, and reaches every valid one step-wise.
+- `revise(c, annotated(c))` changes nothing, for every valid `c` the model reaches, markdown-born or not (`tests/change_laws.rs`).
 
 ## Merge repair
 
@@ -241,6 +242,8 @@ Beyond the table, repair is total over any value shaped as content: it removes f
 ## The line form
 
 The renderers and the markdown codecs read the line form under the `lines` module, one line per block with marks and islands inline. `migrate::to_lines` lowers a value to it and `migrate::from_lines` lifts a v1 value, minting ids deterministically; a markdown import runs through the line form and lifts ([CONVERT.md](CONVERT.md), [PARITY.md](PARITY.md)).
+
+The line form is a faithful view of a value but for what `to_markdown_checked` names as its loss, which a law holds over generated values (`tests/change_laws.rs`): an `x-` block lowers to a paragraph and an `x-` mark drops (`Loss::ExtBlock`, `Loss::ExtMark`), and a slot's text is spelled with a block break as two line breaks, so a hard break beside a block break or at the slot's edge reads back otherwise (`Loss::SlotBreaks`). What it loses, a content write's revise keeps (§ "Writing a value"), and the anchor contexts and receipts read the stored text, not the line form.
 
 | v1 | The model |
 |---|---|

@@ -7,11 +7,13 @@
 //! [`markdown`] is the projection at the edges, read and written through the
 //! line form in [`lines`], which the renderers also read; [`migrate`] moves
 //! values between the two. [`change`] is the one way a value is edited,
+//! [`anchors`] reads each anchor's context and re-attaches a dropped one,
 //! [`mapping`] carries positions across changes, [`rebase`] moves a change
 //! made from one value past another made from it, [`gestures`] is the change
 //! of each editing gesture, and [`repair`] makes valid a state two concurrent
 //! edits merged into.
 
+pub mod anchors;
 pub mod change;
 pub mod diff;
 mod draft;

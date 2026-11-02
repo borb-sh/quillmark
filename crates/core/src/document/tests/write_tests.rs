@@ -586,3 +586,17 @@ fn an_inserted_look_alike_paragraph_takes_no_id_or_anchor_from_the_edited_one() 
     assert_eq!(body.blocks[2].id, edited, "{:?}", body.blocks);
     assert_eq!(body.block_at(body.anchors[0].start), 2);
 }
+
+/// One receipt spells anchor text one way, as stored: a dropped anchor's
+/// quote and a moved anchor's `before` both hold a hard break as `U+2028`,
+/// as the selector `anchor_contexts` read before the write did.
+#[test]
+fn a_receipt_spells_a_dropped_and_a_moved_anchor_as_stored() {
+    let mut doc = anchored("Alpha\\\nbeta gamma\\\ndelta.\n", &[("c1", "Alpha\u{2028}beta"), ("c2", "gamma\u{2028}delta")]);
+    let read = doc.anchor_contexts();
+    assert_eq!(read[0].quote, "Alpha\u{2028}beta");
+    let receipt = doc.main_mut().revise(Target::Body, "gamma\\\ndelt.", None).unwrap();
+    assert_eq!(receipt.dropped_anchors.iter().map(|d| d.context.quote.as_str()).collect::<Vec<_>>(), ["Alpha\u{2028}beta"]);
+    assert_eq!(receipt.dropped_anchors[0].context, read[0].context());
+    assert_eq!(receipt.moved_anchors.iter().map(|m| (m.id.as_str(), m.before.as_str())).collect::<Vec<_>>(), [("c2", "gamma\u{2028}delta")]);
+}

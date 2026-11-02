@@ -393,8 +393,8 @@ export interface DocumentAnchor {
  * An anchor's context at its address (`anchorContexts`, `anchorContext`,
  * `reattach`): the text-quote selector a host stores beside a comment thread.
  * `path` is the body or content value's `DocPath` string. `quote` is the
- * anchored text as stored, an inline island its `U+FFFC` slot and a line break
- * its `\n`, empty for a point; `prefix` and `suffix` are up to 32 scalar values
+ * anchored text as stored, an inline island its `U+FFFC` slot, a hard break
+ * its `U+2028` and a block break its `\n`, empty for a point; `prefix` and `suffix` are up to 32 scalar values
  * of stored text on each side, cut at the value's edges or a cell's. `cardId` is the `$id`
  * of the card `path` names, absent on the main card: `reattach` finds the card
  * by it wherever the card now sits, and orphans the selector where no card of
