@@ -7,18 +7,18 @@
 
 use crate::change::{ApplyError, Change, ContainerStep, SetBlock, Splice, Step};
 use crate::ids::PLACEHOLDER;
-use crate::model::{Block, Container, ContainerKind, Content, HARD_BREAK, MarkKind, Usv};
+use crate::model::{Block, Container, ContainerKind, Content, HARD_BREAK, MarkKind, Scalar};
 
-/// One gesture, as a write takes it: [`change`](Self::change) builds its
+/// One structural edit, as a write takes it: [`change`](Self::change) builds its
 /// change from the value its writer read.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Gesture {
+pub enum StructuralEdit {
     /// [`split_block`]: the new block `id`, or a placeholder where absent.
-    SplitBlock { at: Usv, id: Option<String> },
+    SplitBlock { at: Scalar, id: Option<String> },
     /// [`join_blocks`].
     JoinBlocks { id: String },
     /// [`delete_range`].
-    DeleteRange { start: Usv, end: Usv },
+    DeleteRange { start: Scalar, end: Scalar },
     /// [`indent`].
     Indent { first: String, last: String },
     /// [`outdent`].
@@ -27,33 +27,33 @@ pub enum Gesture {
     Wrap { first: String, last: String, with: Wrap },
 }
 
-impl Gesture {
-    /// The gesture's change on `content`.
+impl StructuralEdit {
+    /// The edit's change on `content`.
     pub fn change(&self, content: &Content) -> Result<Change, ApplyError> {
         match self {
-            Gesture::SplitBlock { at, id } => split_block(content, *at, id.as_deref()),
-            Gesture::JoinBlocks { id } => join_blocks(content, id),
-            Gesture::DeleteRange { start, end } => delete_range(content, *start, *end),
-            Gesture::Indent { first, last } => indent(content, first, last),
-            Gesture::Outdent { first, last } => outdent(content, first, last),
-            Gesture::Wrap { first, last, with } => wrap(content, first, last, with),
+            StructuralEdit::SplitBlock { at, id } => split_block(content, *at, id.as_deref()),
+            StructuralEdit::JoinBlocks { id } => join_blocks(content, id),
+            StructuralEdit::DeleteRange { start, end } => delete_range(content, *start, *end),
+            StructuralEdit::Indent { first, last } => indent(content, first, last),
+            StructuralEdit::Outdent { first, last } => outdent(content, first, last),
+            StructuralEdit::Wrap { first, last, with } => wrap(content, first, last, with),
         }
     }
 
-    /// The gesture with its offsets, counted in `u` over `content`'s text,
+    /// The edit with its offsets, counted in `u` over `content`'s text,
     /// as scalar offsets; `Stale` where one falls inside a character or past
     /// the text.
-    pub fn to_scalars(&self, content: &Content, u: impl crate::units::Units) -> Result<Gesture, ApplyError> {
-        let at = |n: Usv| crate::units::to_scalars(u, &content.text, n).ok_or(ApplyError::Stale { step: 0 });
+    pub fn to_scalars(&self, content: &Content, u: impl crate::units::Units) -> Result<StructuralEdit, ApplyError> {
+        let at = |n: Scalar| crate::units::to_scalars(u, &content.text, n).ok_or(ApplyError::Stale { step: 0 });
         Ok(match self {
-            Gesture::SplitBlock { at: n, id } => Gesture::SplitBlock { at: at(*n)?, id: id.clone() },
-            Gesture::DeleteRange { start, end } => Gesture::DeleteRange { start: at(*start)?, end: at(*end)? },
+            StructuralEdit::SplitBlock { at: n, id } => StructuralEdit::SplitBlock { at: at(*n)?, id: id.clone() },
+            StructuralEdit::DeleteRange { start, end } => StructuralEdit::DeleteRange { start: at(*start)?, end: at(*end)? },
             g => g.clone(),
         })
     }
 }
 
-/// The `n`th placeholder a gesture puts.
+/// The `n`th placeholder a structural edit puts.
 fn placeholder(n: usize) -> String {
     format!("{PLACEHOLDER}{n}")
 }
@@ -65,7 +65,7 @@ fn placeholder(n: usize) -> String {
 /// opens the block; anywhere else it is what follows `at`. A split at the start
 /// of the first block moves its text to `new_id`, since no `\n` opens it.
 /// `Stale` where `at` is past the text.
-pub fn split_block(content: &Content, at: Usv, new_id: Option<&str>) -> Result<Change, ApplyError> {
+pub fn split_block(content: &Content, at: Scalar, new_id: Option<&str>) -> Result<Change, ApplyError> {
     let ranges = content.block_ranges();
     let k = ranges.iter().position(|&(s, e)| s <= at && at <= e).ok_or(ApplyError::Stale { step: 0 })?;
     let (start, end) = ranges[k];
@@ -97,14 +97,14 @@ pub fn join_blocks(content: &Content, id: &str) -> Result<Change, ApplyError> {
 /// before `at`, or else the one after. A `\n` or a hard break holds no mark,
 /// so at a block's or a line's start only a family carries over. In canonical
 /// order; `Stale` where `at` is past the text.
-pub fn inherited_marks(content: &Content, at: Usv) -> Result<Vec<MarkKind>, ApplyError> {
-    if at > content.len_usv() {
+pub fn inherited_marks(content: &Content, at: Scalar) -> Result<Vec<MarkKind>, ApplyError> {
+    if at > content.len_scalars() {
         return Err(ApplyError::Stale { step: 0 });
     }
     let mut around = content.text.chars().skip(at.saturating_sub(1));
     let before = if at > 0 { around.next() } else { None };
     let after = around.next();
-    let held = |i: Usv, c: Option<char>| -> Vec<&MarkKind> {
+    let held = |i: Scalar, c: Option<char>| -> Vec<&MarkKind> {
         match c {
             Some(c) if c != '\n' && c != HARD_BREAK => {
                 content.marks.iter().filter(|m| m.start <= i && i < m.end).map(|m| &m.kind).collect()
@@ -142,8 +142,8 @@ pub fn inherited_marks(content: &Content, at: Usv) -> Result<Vec<MarkKind>, Appl
 /// the block whose text survives keeps its shape, as ProseMirror's delete
 /// does. The joined block keeps the first block's id. `Stale` where the range
 /// is past the text or reversed.
-pub fn delete_range(content: &Content, start: Usv, end: Usv) -> Result<Change, ApplyError> {
-    if start > end || end > content.len_usv() {
+pub fn delete_range(content: &Content, start: Scalar, end: Scalar) -> Result<Change, ApplyError> {
+    if start > end || end > content.len_scalars() {
         return Err(ApplyError::Stale { step: 0 });
     }
     if start == end {

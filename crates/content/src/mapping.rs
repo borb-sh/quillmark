@@ -5,7 +5,7 @@
 //! [`MapResult`] is where a position lands and what around it went.
 
 use crate::change::{ApplyError, Assoc, Change, IslandStep, Step};
-use crate::model::{ISLAND_SLOT, Island, Pos, Usv};
+use crate::model::{ISLAND_SLOT, Island, Pos, Scalar};
 use crate::table::Table;
 use crate::units::{Scalars, Units};
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,7 +31,7 @@ pub struct MapResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Recover {
     /// The offset into the text a replacement deleted.
-    Offset(Usv),
+    Offset(Scalar),
     /// The position as it was, inside an island or slot the step removed.
     Pos(Pos),
     /// Inside a slot: the recovery at map `index` of its mapping.
@@ -61,7 +61,7 @@ pub enum StepMap {
     Identity,
     /// `deleted` units at `at` replaced by `inserted`, removing the islands
     /// `removed` and adding `added`, by id.
-    Replace { at: Usv, deleted: usize, inserted: usize, removed: Vec<String>, added: Vec<String> },
+    Replace { at: Scalar, deleted: usize, inserted: usize, removed: Vec<String>, added: Vec<String> },
     /// The slots of `island` a props step removed and added.
     Slots { island: String, removed: Slots, added: Slots },
     /// A change inside one slot.
@@ -215,7 +215,7 @@ enum Bias {
 /// and at the end of a deletion right of what replaced it. The recovery is
 /// kept at a deletion's end, so a mirror puts the point back after the text
 /// it followed.
-fn point(p: Usv, at: Usv, d: usize, m: usize) -> MapResult {
+fn point(p: Scalar, at: Scalar, d: usize, m: usize) -> MapResult {
     if d > 0 && p == at.saturating_add(d) {
         return MapResult { recover: Some(Recover::Offset(d)), ..replace(p, at, d, m, Assoc::After) };
     }
@@ -224,7 +224,7 @@ fn point(p: Usv, at: Usv, d: usize, m: usize) -> MapResult {
 
 /// Offset `p` across `d` units at `at` replaced by `m`. A position at either
 /// edge of the replaced text, or inside it, keeps to the `assoc` side.
-fn replace(p: Usv, at: Usv, d: usize, m: usize, assoc: Assoc) -> MapResult {
+fn replace(p: Scalar, at: Scalar, d: usize, m: usize, assoc: Assoc) -> MapResult {
     let end = at.saturating_add(d);
     if p < at {
         return kept(Pos::At(p));
@@ -312,7 +312,7 @@ pub struct Mapping {
 /// nothing at the end of every text.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Span {
-    at: Usv,
+    at: Scalar,
     deleted: usize,
     inserted: usize,
 }
@@ -321,7 +321,7 @@ impl Span {
     fn of(map: &StepMap) -> Span {
         match map {
             StepMap::Replace { at, deleted, inserted, .. } => Span { at: *at, deleted: *deleted, inserted: *inserted },
-            _ => Span { at: Usv::MAX, deleted: 0, inserted: 0 },
+            _ => Span { at: Scalar::MAX, deleted: 0, inserted: 0 },
         }
     }
 }

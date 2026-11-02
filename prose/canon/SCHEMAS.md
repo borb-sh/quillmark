@@ -769,7 +769,7 @@ What a read does not carry, and what a write does to it:
 |---|---|
 | identity anchors, content-only marks | lost on the written value position, which is a cold import |
 | nested YAML comments | cleared on the written value position, as every write path clears them |
-| the author's exact markdown | export canonicalizes: mark nesting, escaping, trailing whitespace. The *document* round-trips, not the string a consumer sent |
+| the author's exact markdown | the export's own spelling ([CONTENT.md](CONTENT.md) § "What markdown keeps"). The *document* round-trips, not the string a consumer sent |
 | `default:` values, blanks | never read (sparse) |
 
 `$ext` is the consumer's own card key ([PROGRAMMATIC.md](PROGRAMMATIC.md)

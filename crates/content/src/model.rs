@@ -4,14 +4,14 @@
 //! whose slots hold content of their own.
 
 use crate::ids::is_id;
-use crate::lines::island::IslandType;
+pub use crate::lines::island::IslandType;
 use crate::lines::model::{self as line, is_font_family_name};
 use crate::lines::normalize::{is_bidi_char, is_line_separator};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// A position counted in Unicode scalar values.
-pub type Usv = usize;
+pub type Scalar = usize;
 
 /// The slot an island occupies in the text.
 pub const ISLAND_SLOT: char = '\u{FFFC}';
@@ -105,8 +105,8 @@ pub enum ContainerKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mark {
-    pub start: Usv,
-    pub end: Usv,
+    pub start: Scalar,
+    pub end: Scalar,
     pub kind: MarkKind,
 }
 
@@ -129,8 +129,8 @@ pub enum MarkKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Anchor {
     pub id: String,
-    pub start: Usv,
-    pub end: Usv,
+    pub start: Scalar,
+    pub end: Scalar,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -144,7 +144,7 @@ pub struct Island {
 /// A position: an offset into a field's text, or one inside an island's slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pos {
-    At(Usv),
+    At(Scalar),
     In { island: String, slot: String, at: Box<Pos> },
 }
 
@@ -234,13 +234,13 @@ impl MarkKind {
 }
 
 impl Mark {
-    pub fn new(start: Usv, end: Usv, kind: MarkKind) -> Self {
+    pub fn new(start: Scalar, end: Scalar, kind: MarkKind) -> Self {
         Mark { start, end, kind }
     }
 }
 
 impl Anchor {
-    pub fn new(id: impl Into<String>, start: Usv, end: Usv) -> Self {
+    pub fn new(id: impl Into<String>, start: Scalar, end: Scalar) -> Self {
         Anchor { id: id.into(), start, end }
     }
 
@@ -301,7 +301,7 @@ impl Island {
 }
 
 impl Pos {
-    pub fn at(n: Usv) -> Pos {
+    pub fn at(n: Scalar) -> Pos {
         Pos::At(n)
     }
 }
@@ -325,7 +325,7 @@ pub enum Invariant {
     NestingTooDeep { block: String, depth: usize, max: usize },
     BadHeadingLevel(u8),
     BadLang(String),
-    BadMark { start: Usv, end: Usv, len: Usv },
+    BadMark { start: Scalar, end: Scalar, len: Scalar },
     BadMarkValue,
     BadAnchor { id: String },
     BadIsland { id: String, reason: &'static str },
@@ -416,7 +416,7 @@ pub fn is_text_char(c: char) -> bool {
 }
 
 /// `marks` over `chars` in the canonical form: cut at each `\n` and
-/// [`HARD_BREAK`], settled and sorted.
+/// [`HARD_BREAK`], merged and sorted.
 pub(crate) fn normalized_marks(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
     let mut ext = Vec::new();
     let mut known: Vec<line::Mark> = Vec::with_capacity(marks.len());
@@ -486,12 +486,12 @@ impl Content {
         Content { codec, ..Content::empty() }
     }
 
-    pub fn len_usv(&self) -> Usv {
+    pub fn len_scalars(&self) -> Scalar {
         self.text.chars().count()
     }
 
     /// Each block's `[start, end)` in the text, its `\n` excluded.
-    pub fn block_ranges(&self) -> Vec<(Usv, Usv)> {
+    pub fn block_ranges(&self) -> Vec<(Scalar, Scalar)> {
         let mut out = Vec::with_capacity(self.blocks.len());
         let mut start = 0;
         let mut i = 0;
@@ -508,7 +508,7 @@ impl Content {
 
     /// The index of the block whose text holds offset `pos`, its end
     /// included.
-    pub fn block_at(&self, pos: Usv) -> usize {
+    pub fn block_at(&self, pos: Scalar) -> usize {
         self.text.chars().take(pos).filter(|&c| c == '\n').count()
     }
 
@@ -591,9 +591,9 @@ impl Content {
         self.islands.iter_mut().find(|i| i.id == island)?.slots.get_mut(slot)
     }
 
-    /// The canonical form: marks cut at each `\n` and [`HARD_BREAK`], settled
+    /// The canonical form: marks cut at each `\n` and [`HARD_BREAK`], merged
     /// and sorted; anchors sorted; containers in first-use order, unused ones
-    /// dropped; island props key-sorted and settled; slots likewise.
+    /// dropped; island props key-sorted and normalized; slots likewise.
     pub fn normalize(&mut self) {
         self.normalize_marks();
         self.sort_anchors();
@@ -662,7 +662,7 @@ impl Content {
 
     fn check_bounds_counting(&self, anchors: &mut usize) -> Result<(), Invariant> {
         let breaks = break_offsets(&self.text);
-        let len = self.len_usv();
+        let len = self.len_scalars();
         let max = crate::max_marks(len);
         let marks = mark_spans(&breaks, self.marks.iter().map(|m| (m.start, m.end)));
         if marks > max {
@@ -685,7 +685,7 @@ impl Content {
     pub fn check(&self) -> Result<(), Invariant> {
         let mut slots = 0usize;
         let mut segments = 1usize;
-        let mut len: Usv = 0;
+        let mut len: Scalar = 0;
         for c in self.text.chars() {
             if !is_text_char(c) {
                 return Err(Invariant::ForbiddenChar(c));
@@ -824,8 +824,8 @@ impl Content {
     }
 
     /// Refuses a value [`normalize`](Self::normalize) would rewrite: marks not
-    /// cut, settled and sorted, anchors not sorted, containers out of
-    /// first-use order or one no path names, and island props a settle would
+    /// cut, merged and sorted, anchors not sorted, containers out of
+    /// first-use order or one no path names, and island props a normalize would
     /// change, in the text and in every slot. Run after
     /// [`validate`](Self::validate), whose ranges it reads.
     pub fn check_canonical(&self) -> Result<(), Invariant> {
@@ -965,8 +965,8 @@ fn check_ext(name: &str, attrs: &JsonMap<String, JsonValue>, what: &'static str)
 /// cut at each `\n` and [`HARD_BREAK`], one name and attributes unioned where
 /// they touch, an empty one dropped.
 fn settle_ext(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
-    let breaks: Vec<Usv> = chars.iter().enumerate().filter(|(_, c)| is_break(**c)).map(|(i, _)| i).collect();
-    let mut groups: BTreeMap<(String, String), (MarkKind, Vec<(Usv, Usv)>)> = BTreeMap::new();
+    let breaks: Vec<Scalar> = chars.iter().enumerate().filter(|(_, c)| is_break(**c)).map(|(i, _)| i).collect();
+    let mut groups: BTreeMap<(String, String), (MarkKind, Vec<(Scalar, Scalar)>)> = BTreeMap::new();
     for m in marks {
         let entry = groups.entry(m.kind.sort_key()).or_insert_with(|| (m.kind.clone(), Vec::new()));
         let mut start = m.start;
@@ -981,7 +981,7 @@ fn settle_ext(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
     for (kind, mut ranges) in groups.into_values() {
         ranges.retain(|(s, e)| s < e);
         ranges.sort_unstable();
-        let mut held: Option<(Usv, Usv)> = None;
+        let mut held: Option<(Scalar, Scalar)> = None;
         for (s, e) in ranges {
             match &mut held {
                 Some(cur) if s <= cur.1 => cur.1 = cur.1.max(e),
@@ -1005,13 +1005,13 @@ fn is_break(c: char) -> bool {
 }
 
 /// The offset of each `\n` and [`HARD_BREAK`] in `text`.
-pub(crate) fn break_offsets(text: &str) -> Vec<Usv> {
+pub(crate) fn break_offsets(text: &str) -> Vec<Scalar> {
     text.chars().enumerate().filter(|&(_, c)| is_break(c)).map(|(i, _)| i).collect()
 }
 
 /// How many marks `ranges` settle into at most: each one more than the
 /// `breaks` it spans, found by binary search.
-pub(crate) fn mark_spans(breaks: &[Usv], ranges: impl Iterator<Item = (Usv, Usv)>) -> usize {
+pub(crate) fn mark_spans(breaks: &[Scalar], ranges: impl Iterator<Item = (Scalar, Scalar)>) -> usize {
     ranges
         .map(|(s, e)| breaks.partition_point(|&b| b < e).saturating_sub(breaks.partition_point(|&b| b < s)) + 1)
         .fold(0usize, usize::saturating_add)

@@ -256,7 +256,7 @@ pub struct Against {
 /// starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pin {
-    pub at: crate::lines::model::Usv,
+    pub at: crate::lines::model::Scalar,
     pub id: String,
 }
 
@@ -358,13 +358,13 @@ pub fn from_plaintext(s: &str) -> Lines {
     .into_lines()
 }
 
-/// A flat inline accumulator: `text` plus `marks` over local USV offsets, with
+/// A flat inline accumulator: `text` plus `marks` over local scalar offsets, with
 /// the content char-filtering baked in. Serves both a prose line's inline
 /// content (embedded in the [`Builder`]) and a table cell's isolated content.
 #[derive(Default)]
 struct Inline {
     text: String,
-    /// USV position = char count of [`Self::text`].
+    /// scalar position = char count of [`Self::text`].
     pos: usize,
     marks: Vec<Mark>,
     /// `(kind, start)` for each mark opened but not yet closed.
@@ -1319,7 +1319,7 @@ impl Builder {
 
     /// Route one table event: structural events shape the accumulator, inline
     /// events build the open cell with the same [`Inline`] machinery prose uses.
-    /// A cell is flat inline, so its marks are USV offsets into its own text.
+    /// A cell is flat inline, so its marks are scalar offsets into its own text.
     fn table_event(&mut self, event: &Event) {
         let Some(acc) = self.table.as_mut() else {
             return;
@@ -3041,7 +3041,7 @@ pub(crate) mod tests {
     #[test]
     fn astral_positions_are_usv() {
         let rt = imp("a😀**b**");
-        // 'a'(0) '😀'(1) 'b'(2): strong over "b" is 2..3 in USV.
+        // 'a'(0) '😀'(1) 'b'(2): strong over "b" is 2..3 in scalar.
         assert_eq!(rt.text, "a😀b");
         assert!(rt
             .marks

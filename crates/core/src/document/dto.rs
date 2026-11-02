@@ -391,7 +391,7 @@ fn migrate_field(value: &mut serde_json::Value) {
 /// value is: one spelled otherwise than its canonical form is rewritten to
 /// it, and one that does not read refuses the load, as a body's does. True
 /// where one was rewritten.
-fn settle_field(value: &mut serde_json::Value) -> Result<bool, quillmark_content::wire::ParseError> {
+fn canonicalize_field(value: &mut serde_json::Value) -> Result<bool, quillmark_content::wire::ParseError> {
     if quillmark_content::units::is_content_value(value) && !quillmark_content::wire::is_v1(value) {
         let read = ContentModel::from_value_lenient(value)?;
         if read.rewritten {
@@ -403,12 +403,12 @@ fn settle_field(value: &mut serde_json::Value) -> Result<bool, quillmark_content
     match value {
         serde_json::Value::Object(map) => {
             for v in map.values_mut() {
-                any |= settle_field(v)?;
+                any |= canonicalize_field(v)?;
             }
         }
         serde_json::Value::Array(items) => {
             for v in items {
-                any |= settle_field(v)?;
+                any |= canonicalize_field(v)?;
             }
         }
         _ => {}
@@ -678,7 +678,7 @@ fn append_block(mut dst: Content, mut src: Content) -> Content {
     if void(&dst) {
         return src;
     }
-    let offset = dst.len_usv() + 1;
+    let offset = dst.len_scalars() + 1;
 
     let held: HashSet<&str> = dst.islands.iter().map(|i| i.id.as_str()).collect();
     let taken: HashSet<String> = dst
@@ -765,9 +765,9 @@ fn card_from_stored(mut card: CardV0_134_0) -> Result<(Card, Rewritten), Storage
     for item in &mut card.payload.items {
         if let PayloadItemV0_124_0::Field { key, value } = item {
             migrate_field(value);
-            let settled = settle_field(value)
+            let changed = canonicalize_field(value)
                 .map_err(|e| StorageError::Malformed(format!("field `{key}` holds content that does not read: {e}")))?;
-            if settled {
+            if changed {
                 rewritten.fields.push(key.clone());
             }
         }

@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use quillmark_content::change::{self, Change, Dropped, Moved, RebaseError, Step};
 use quillmark_content::diff;
-use quillmark_content::gestures::{Gesture, Wrap};
+use quillmark_content::structural::{StructuralEdit, Wrap};
 use quillmark_content::ids::is_actor;
 use quillmark_content::mint;
 use quillmark_content::lines::import::ImportWarning;
@@ -91,7 +91,7 @@ pub enum Edit<'a> {
     Apply(Change),
     /// A structural edit's change on the value the base names, its offsets into it;
     /// the ids it opens are placeholders the write fills.
-    Gesture(Gesture),
+    Structural(StructuralEdit),
     /// The value rewritten as markdown: the anchors and islands whose `qm-*`
     /// tags it keeps stay put, and the rest keeps what a word-aligned diff
     /// keeps.
@@ -191,39 +191,39 @@ impl Card {
     }
 
     /// Enter at `at`: [`write`](Self::write) of
-    /// [`Gesture::SplitBlock`], the new block `id` or one the write mints.
+    /// [`StructuralEdit::SplitBlock`], the new block `id` or one the write mints.
     pub fn split_block<'o>(&mut self, target: Target<'_>, at: usize, id: Option<&str>, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Gesture(Gesture::SplitBlock { at, id: id.map(str::to_string) }), opts)
+        self.write(target, Edit::Structural(StructuralEdit::SplitBlock { at, id: id.map(str::to_string) }), opts)
     }
 
     /// Backspace at the start of block `id`: [`write`](Self::write) of
-    /// [`Gesture::JoinBlocks`].
+    /// [`StructuralEdit::JoinBlocks`].
     pub fn join_blocks<'o>(&mut self, target: Target<'_>, id: &str, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Gesture(Gesture::JoinBlocks { id: id.to_string() }), opts)
+        self.write(target, Edit::Structural(StructuralEdit::JoinBlocks { id: id.to_string() }), opts)
     }
 
     /// Deleting `[start, end)`: [`write`](Self::write) of
-    /// [`Gesture::DeleteRange`].
+    /// [`StructuralEdit::DeleteRange`].
     pub fn delete_range<'o>(&mut self, target: Target<'_>, start: usize, end: usize, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Gesture(Gesture::DeleteRange { start, end }), opts)
+        self.write(target, Edit::Structural(StructuralEdit::DeleteRange { start, end }), opts)
     }
 
     /// Tab over the blocks `first` to `last`: [`write`](Self::write) of
-    /// [`Gesture::Indent`].
+    /// [`StructuralEdit::Indent`].
     pub fn indent<'o>(&mut self, target: Target<'_>, first: &str, last: &str, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Gesture(Gesture::Indent { first: first.to_string(), last: last.to_string() }), opts)
+        self.write(target, Edit::Structural(StructuralEdit::Indent { first: first.to_string(), last: last.to_string() }), opts)
     }
 
     /// Shift-Tab over the blocks `first` to `last`: [`write`](Self::write)
-    /// of [`Gesture::Outdent`].
+    /// of [`StructuralEdit::Outdent`].
     pub fn outdent<'o>(&mut self, target: Target<'_>, first: &str, last: &str, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Gesture(Gesture::Outdent { first: first.to_string(), last: last.to_string() }), opts)
+        self.write(target, Edit::Structural(StructuralEdit::Outdent { first: first.to_string(), last: last.to_string() }), opts)
     }
 
     /// Wrapping the blocks `first` to `last`: [`write`](Self::write) of
-    /// [`Gesture::Wrap`].
+    /// [`StructuralEdit::Wrap`].
     pub fn wrap<'o>(&mut self, target: Target<'_>, first: &str, last: &str, with: Wrap, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Gesture(Gesture::Wrap { first: first.to_string(), last: last.to_string(), with }), opts)
+        self.write(target, Edit::Structural(StructuralEdit::Wrap { first: first.to_string(), last: last.to_string(), with }), opts)
     }
 
     /// The block holding offset `at` of the value at `target`, its index and
@@ -231,7 +231,7 @@ impl Card {
     /// is past the text.
     pub fn locate(&self, target: Target<'_>, at: usize) -> Result<Located, EditError> {
         let content = self.read(target)?;
-        if at > content.len_usv() {
+        if at > content.len_scalars() {
             return Err(EditError::change(change::ApplyError::Stale { step: 0 }));
         }
         let index = content.block_at(at);
@@ -250,7 +250,7 @@ impl Card {
     }
 
     /// [`write`](Self::write) for a host counting offsets in `u`: an
-    /// [`Edit::Apply`]'s change, an [`Edit::Gesture`]'s offsets and the
+    /// [`Edit::Apply`]'s change, an [`Edit::Structural`]'s offsets and the
     /// receipt's `applied` are in `u`.
     pub fn write_in<'o>(&mut self, target: Target<'_>, edit: Edit<'_>, opts: impl Into<WriteOptions<'o>>, u: impl Units) -> Result<Receipt, EditError> {
         self.write_with(target, edit, opts.into(), Some(u))
@@ -276,12 +276,12 @@ impl Card {
                     None => (filled.change, Vec::new(), false),
                 }
             }
-            Edit::Gesture(gesture) => {
-                let gesture = match u {
-                    Some(u) => gesture.to_scalars(read.read(), u).map_err(EditError::change)?,
-                    None => gesture,
+            Edit::Structural(edit) => {
+                let edit = match u {
+                    Some(u) => edit.to_scalars(read.read(), u).map_err(EditError::change)?,
+                    None => edit,
                 };
-                let filled = fill(&gesture.change(read.read()).map_err(EditError::change)?)?;
+                let filled = fill(&edit.change(read.read()).map_err(EditError::change)?)?;
                 minted = filled.minted;
                 (filled.change, Vec::new(), false)
             }

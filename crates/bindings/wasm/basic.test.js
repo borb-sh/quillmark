@@ -807,7 +807,7 @@ describe('Document apply: the write primitive', () => {
     expect(doc.read({}).text).toBe('hello brave world')
   })
 
-  it('the editing gestures write on the document in UTF-16 offsets and answer receipts', () => {
+  it('the structural edits write on the document in UTF-16 offsets and answer receipts', () => {
     const doc = blankDoc()
     doc.replace({}, importMarkdown('😀 ab\n\n- one\n- two').content)
     const base = doc.hash({})

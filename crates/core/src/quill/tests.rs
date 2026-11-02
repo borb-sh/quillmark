@@ -1645,7 +1645,7 @@ fn single_line_coercion_takes_one_block_and_folds_or_refuses_more() {
     let folded = |value: &str| {
         let coerced =
             coerce("    f:\n      type: text\n", serde_json::json!(value)).expect("folds");
-        let content = quillmark_content::model::Content::lines_from_value(&coerced).expect("content");
+        let content = quillmark_content::migrate::lines_from_value(&coerced).expect("content");
         assert!(content.is_inline(), "{value:?}");
         quillmark_content::lines::export::to_plaintext(&content)
     };
@@ -1680,7 +1680,7 @@ fn text_field_caches_literal_content() {
         .default_content
         .as_ref()
         .expect("default_content cached");
-    let rt = quillmark_content::model::Content::lines_from_value(content.as_json()).unwrap();
+    let rt = quillmark_content::migrate::lines_from_value(content.as_json()).unwrap();
     assert!(rt.is_plain(), "cached text content is plain");
     assert_eq!(
         quillmark_content::lines::export::to_plaintext(&rt),
@@ -1695,7 +1695,7 @@ fn text_field_caches_literal_content() {
 fn text_coercion_imports_verbatim_and_refuses_marks() {
     const FIELD: &str = "    f:\n      type: text\n      multiline: true\n";
     let value = coerce(FIELD, serde_json::json!("*not bold* text")).expect("text coerces");
-    let rt = quillmark_content::model::Content::lines_from_value(&value).unwrap();
+    let rt = quillmark_content::migrate::lines_from_value(&value).unwrap();
     assert!(rt.marks.is_empty(), "no marks: delimiters stayed literal");
     assert_eq!(
         quillmark_content::lines::export::to_plaintext(&rt),

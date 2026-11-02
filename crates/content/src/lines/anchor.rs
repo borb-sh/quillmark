@@ -8,15 +8,15 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::lines::delta::MIN_MOVE;
-use crate::lines::model::{Content, Mark, MarkKind, Lines, Usv, ISLAND_SLOT};
+use crate::lines::model::{Content, Mark, MarkKind, Lines, Scalar, ISLAND_SLOT};
 
 /// Context read on each side of an anchor, in Unicode scalar values.
-pub const ANCHOR_CONTEXT_USV: usize = 32;
+pub const ANCHOR_CONTEXT_SCALARS: usize = 32;
 
 /// Context that must agree on each side for a match. A context the field's
 /// edge cut shorter agrees as far as it reaches, so text written past that
 /// edge since the read does not orphan the anchor.
-pub const ANCHOR_AGREE_USV: usize = 8;
+pub const ANCHOR_AGREE_SCALARS: usize = 8;
 
 /// A quote shorter than this is too weak to place: the floor `revise` applies
 /// to a moved anchor. A quote made of island slots alone is under it and is
@@ -35,10 +35,10 @@ pub struct AnchorContext {
     /// The anchored text as stored, island slots and line breaks included;
     /// empty for a point.
     pub quote: String,
-    /// Up to [`ANCHOR_CONTEXT_USV`] scalar values of stored text before the
+    /// Up to [`ANCHOR_CONTEXT_SCALARS`] scalar values of stored text before the
     /// anchor, cut at the field's start.
     pub prefix: String,
-    /// Up to [`ANCHOR_CONTEXT_USV`] scalar values of stored text after the
+    /// Up to [`ANCHOR_CONTEXT_SCALARS`] scalar values of stored text after the
     /// anchor, cut at the field's end.
     pub suffix: String,
 }
@@ -95,8 +95,8 @@ pub struct AnchorSite {
     pub id: String,
     pub surface: Surface,
     /// The range in the surface's own text.
-    pub start: Usv,
-    pub end: Usv,
+    pub start: Scalar,
+    pub end: Scalar,
 }
 
 impl Content {
@@ -106,8 +106,8 @@ impl Content {
     /// inverted or past its surface's text, which
     /// [`validate`](Content::validate) or the cell model refuses, is left out.
     pub fn anchor_sites(&self) -> Vec<AnchorSite> {
-        let len = self.len_usv();
-        let mut sites: Vec<(Usv, AnchorSite)> = self
+        let len = self.len_scalars();
+        let mut sites: Vec<(Scalar, AnchorSite)> = self
             .marks
             .iter()
             .filter_map(|m| match &m.kind {
@@ -203,8 +203,8 @@ fn contexts_where(rt: &Lines, keep: impl Fn(&str) -> bool) -> Vec<AnchorContext>
             Some(AnchorContext {
                 id: site.id,
                 quote: chars[start..end].iter().collect(),
-                prefix: chars[start.saturating_sub(ANCHOR_CONTEXT_USV)..start].iter().collect(),
-                suffix: chars[end..(end + ANCHOR_CONTEXT_USV).min(chars.len())].iter().collect(),
+                prefix: chars[start.saturating_sub(ANCHOR_CONTEXT_SCALARS)..start].iter().collect(),
+                suffix: chars[end..(end + ANCHOR_CONTEXT_SCALARS).min(chars.len())].iter().collect(),
             })
         })
         .collect()
@@ -216,8 +216,8 @@ fn contexts_where(rt: &Lines, keep: impl Fn(&str) -> bool) -> Vec<AnchorContext>
 ///   slots alone: an anchor over a table's slot is placed on its context, the
 ///   way a point is.
 /// - Of every occurrence of the quote in the stored text, one counts where the
-///   text before it ends with the last [`ANCHOR_AGREE_USV`] of `prefix` and the
-///   text after it starts with the first [`ANCHOR_AGREE_USV`] of `suffix`. A
+///   text before it ends with the last [`ANCHOR_AGREE_SCALARS`] of `prefix` and the
+///   text after it starts with the first [`ANCHOR_AGREE_SCALARS`] of `suffix`. A
 ///   shorter `prefix` or `suffix` was cut at the field's edge and agrees
 ///   whole, wherever the field's edge now sits.
 /// - An empty quote is a point: a position where the prefix and the suffix
@@ -236,8 +236,8 @@ fn contexts_where(rt: &Lines, keep: impl Fn(&str) -> bool) -> Vec<AnchorContext>
 pub fn locate(
     rt: &Lines,
     ctx: &AnchorContext,
-    inserted: Option<&[(Usv, Usv)]>,
-) -> Option<(Usv, Usv)> {
+    inserted: Option<&[(Scalar, Scalar)]>,
+) -> Option<(Scalar, Scalar)> {
     match locate_site(rt, ctx, inserted)? {
         (Surface::Prose, start, end) => Some((start, end)),
         _ => None,
@@ -251,12 +251,12 @@ pub fn locate(
 pub fn locate_site(
     rt: &Lines,
     ctx: &AnchorContext,
-    inserted: Option<&[(Usv, Usv)]>,
-) -> Option<(Surface, Usv, Usv)> {
+    inserted: Option<&[(Scalar, Scalar)]>,
+) -> Option<(Surface, Scalar, Scalar)> {
     locate_among(&searched(rt, inserted), ctx, inserted)
 }
 
-fn searched(rt: &Lines, inserted: Option<&[(Usv, Usv)]>) -> Vec<(Surface, Vec<char>)> {
+fn searched(rt: &Lines, inserted: Option<&[(Scalar, Scalar)]>) -> Vec<(Surface, Vec<char>)> {
     match inserted {
         Some(_) => vec![(Surface::Prose, rt.text.chars().collect())],
         None => rt.surfaces(),
@@ -266,8 +266,8 @@ fn searched(rt: &Lines, inserted: Option<&[(Usv, Usv)]>) -> Vec<(Surface, Vec<ch
 fn locate_among(
     surfaces: &[(Surface, Vec<char>)],
     ctx: &AnchorContext,
-    inserted: Option<&[(Usv, Usv)]>,
-) -> Option<(Surface, Usv, Usv)> {
+    inserted: Option<&[(Scalar, Scalar)]>,
+) -> Option<(Surface, Scalar, Scalar)> {
     let mut hits = surfaces
         .iter()
         .filter_map(|(surface, text)| locate_in(text, ctx, inserted).map(|(start, end)| (*surface, start, end)));
@@ -280,7 +280,7 @@ impl Content {
     pub fn reattach(
         &mut self,
         ctxs: &[AnchorContext],
-        inserted: Option<&[(Usv, Usv)]>,
+        inserted: Option<&[(Scalar, Scalar)]>,
         live: &HashSet<&str>,
     ) -> Reattached<AnchorContext> {
         let mut rt = std::mem::replace(self, Content::empty()).into_lines();
@@ -306,7 +306,7 @@ impl Lines {
     pub fn reattach(
         &mut self,
         ctxs: &[AnchorContext],
-        inserted: Option<&[(Usv, Usv)]>,
+        inserted: Option<&[(Scalar, Scalar)]>,
         live: &HashSet<&str>,
     ) -> Reattached<AnchorContext> {
         let mut answered = HashSet::new();
@@ -360,16 +360,16 @@ impl Lines {
     }
 }
 
-pub(crate) fn locate_in(text: &[char], ctx: &AnchorContext, inserted: Option<&[(Usv, Usv)]>) -> Option<(Usv, Usv)> {
+pub(crate) fn locate_in(text: &[char], ctx: &AnchorContext, inserted: Option<&[(Scalar, Scalar)]>) -> Option<(Scalar, Scalar)> {
     let quote: Vec<char> = ctx.quote.chars().collect();
     let prefix: Vec<char> = ctx.prefix.chars().collect();
     let suffix: Vec<char> = ctx.suffix.chars().collect();
     let n = text.len();
-    let touches = |(a, b): (Usv, Usv)| inserted.is_none_or(|spans| spans.iter().any(|&(s, e)| a < e && b > s));
+    let touches = |(a, b): (Scalar, Scalar)| inserted.is_none_or(|spans| spans.iter().any(|&(s, e)| a < e && b > s));
     let agrees = |i: usize, j: usize| agrees_before(&text[..i], &prefix) && agrees_after(&text[j..], &suffix);
     let mut hits = Vec::new();
     if quote.is_empty() {
-        let (before, after) = (prefix.len().min(ANCHOR_AGREE_USV), suffix.len().min(ANCHOR_AGREE_USV));
+        let (before, after) = (prefix.len().min(ANCHOR_AGREE_SCALARS), suffix.len().min(ANCHOR_AGREE_SCALARS));
         for p in before..=n.saturating_sub(after) {
             if agrees(p, p) && touches((p - before, p + after)) {
                 hits.push((p, p));
@@ -397,11 +397,11 @@ pub(crate) fn locate_in(text: &[char], ctx: &AnchorContext, inserted: Option<&[(
 }
 
 fn agrees_before(before: &[char], prefix: &[char]) -> bool {
-    before.ends_with(&prefix[prefix.len().saturating_sub(ANCHOR_AGREE_USV)..])
+    before.ends_with(&prefix[prefix.len().saturating_sub(ANCHOR_AGREE_SCALARS)..])
 }
 
 fn agrees_after(after: &[char], suffix: &[char]) -> bool {
-    after.starts_with(&suffix[..suffix.len().min(ANCHOR_AGREE_USV)])
+    after.starts_with(&suffix[..suffix.len().min(ANCHOR_AGREE_SCALARS)])
 }
 
 #[cfg(test)]
@@ -417,20 +417,20 @@ mod tests {
         from_markdown(markdown).unwrap().content
     }
 
-    fn with_anchor(rt: Lines, start: Usv, end: Usv, id: &str) -> Lines {
+    fn with_anchor(rt: Lines, start: Scalar, end: Scalar, id: &str) -> Lines {
         let mut rt = rt.into_content();
         rt.marks.push(Mark::new(start, end, MarkKind::Anchor { id: id.into() }));
         rt.into_lines()
     }
 
-    fn span(rt: &Content, id: &str) -> Option<(Usv, Usv)> {
+    fn span(rt: &Content, id: &str) -> Option<(Scalar, Scalar)> {
         rt.marks.iter().find_map(|m| match &m.kind {
             MarkKind::Anchor { id: i } if i == id => Some((m.start, m.end)),
             _ => None,
         })
     }
 
-    fn text(rt: &Content, (start, end): (Usv, Usv)) -> String {
+    fn text(rt: &Content, (start, end): (Scalar, Scalar)) -> String {
         rt.text.chars().skip(start).take(end - start).collect()
     }
 
@@ -520,7 +520,7 @@ mod tests {
     #[test]
     fn a_slot_alone_is_not_placed_where_its_context_disagrees_or_twice() {
         let two = content("Intro line here.\n\n| a |\n|---|\n| 1 |\n\nMiddle.\n\n| a |\n|---|\n| 2 |\n\nOutro line here.");
-        let slots: Vec<Usv> = two.text.char_indices().filter(|&(_, c)| c == ISLAND_SLOT).map(|(i, _)| i).collect();
+        let slots: Vec<Scalar> = two.text.char_indices().filter(|&(_, c)| c == ISLAND_SLOT).map(|(i, _)| i).collect();
         let first = with_anchor(two.clone(), slots[0], slots[0] + 1, "t");
         let ctx = anchor_contexts(&first).remove(0);
         assert_eq!(locate(&two, &ctx, None), Some((slots[0], slots[0] + 1)));

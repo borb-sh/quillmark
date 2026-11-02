@@ -46,7 +46,7 @@ fn document() -> impl Strategy<Value = Content> {
             md.push_str("\n\n[^n]: a note");
         }
         let mut c = from_markdown(&md).unwrap().content;
-        let len = c.len_usv();
+        let len = c.len_scalars();
         if len > 3 {
             c.anchors.push(Anchor::new("c-0", 1, len.min(4)));
             c.anchors.push(Anchor::new("c-1", 2, 2));
@@ -395,7 +395,7 @@ proptest! {
     #[test]
     fn repairs_change_maps_each_anchor_where_repair_puts_it(d in document(), ds in damages(), spread in 2usize..5) {
         let mut raw = Raw::from(&d);
-        let len = d.len_usv();
+        let len = d.len_scalars();
         for k in (0..len).step_by(spread) {
             let end = (k + spread).min(len);
             raw.anchors.push(RawAnchor { anchor: Anchor::new(format!("g-{k}"), k, end), range: k < end });

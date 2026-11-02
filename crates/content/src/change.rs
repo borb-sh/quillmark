@@ -9,7 +9,7 @@ use crate::draft::{Draft, HeldTwice};
 use crate::ids::is_id;
 use crate::lines::anchor::AnchorContext;
 use crate::model::{
-    Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Usv, break_offsets, check_block,
+    Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Scalar, break_offsets, check_block,
     check_island, check_mark_kind, is_text_char, mark_spans, normalized_marks,
 };
 pub use crate::mapping::{MapResult, Mapping};
@@ -19,11 +19,13 @@ use crate::units::{Scalars, Units, split_at};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+/// An edit of a value: steps applied in turn, all or none.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Change {
     pub steps: Vec<Step>,
 }
 
+/// One step of a [`Change`], reading the value the step before it left.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
     Splice(Splice),
@@ -38,7 +40,7 @@ pub enum Step {
 /// Replaces `delete`, which must be the text at `at`, with `insert`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Splice {
-    pub at: Usv,
+    pub at: Scalar,
     pub delete: String,
     pub insert: String,
     /// The formatting the inserted text carries, offsets into `insert`.
@@ -85,7 +87,7 @@ pub enum MarkStep {
     /// A keyed kind replaces whatever value the range held.
     Add { mark: Mark, quote: Option<String> },
     /// Clears every mark of the type over the range, whatever its value.
-    Remove { start: Usv, end: Usv, tag: String, quote: Option<String> },
+    Remove { start: Scalar, end: Scalar, tag: String, quote: Option<String> },
 }
 
 /// `quote` is as a mark step's.
@@ -109,7 +111,7 @@ pub enum IslandStep {
     /// Inserts the island's slot character at `at`. `block` is the id of the
     /// block the writer read `at` in: one that holds `at` no longer is
     /// [`ApplyError::Stale`].
-    Insert { at: Usv, island: Island, block: Option<String> },
+    Insert { at: Scalar, island: Island, block: Option<String> },
 }
 
 /// Which side of an insertion at a position the position keeps to.
@@ -242,7 +244,7 @@ impl MoveReason {
 
 /// The characters on each side of an anchor its context reads, as many as
 /// `reattach` holds a selector's prefix and suffix to.
-pub const CONTEXT: Usv = 8;
+pub const CONTEXT: Scalar = 8;
 
 impl AnchorStep {
     /// The id of the anchor the step names.
@@ -265,11 +267,13 @@ impl Change {
 }
 
 impl Splice {
-    pub fn new(at: Usv, delete: impl Into<String>, insert: impl Into<String>) -> Self {
+    pub fn new(at: Scalar, delete: impl Into<String>, insert: impl Into<String>) -> Self {
         Splice { at, delete: delete.into(), insert: insert.into(), ..Splice::default() }
     }
 }
 
+/// Run `change` on `before`, all or none: the value it leaves, the change in
+/// its normalized form and what it dropped, or the first step that fails.
 pub fn apply(before: &Content, change: &Change) -> Result<Applied, ApplyError> {
     Ok(applying(before, change, false)?.0)
 }
@@ -313,7 +317,7 @@ fn applying(before: &Content, change: &Change, undo: bool) -> Result<(Applied, C
 /// the text it produced, as scalar ranges into `after`. The change counts in
 /// `u`; a range whose edge falls inside a character or past `after` is left
 /// out.
-pub fn inserted_spans(change: &Change, after: &str, u: impl Units) -> Vec<(Usv, Usv)> {
+pub fn inserted_spans(change: &Change, after: &str, u: impl Units) -> Vec<(Scalar, Scalar)> {
     let mut spans: Vec<(usize, usize)> = Vec::new();
     for step in &change.steps {
         let Step::Splice(s) = step else { continue };
@@ -480,7 +484,7 @@ impl Run {
         let end = at.checked_add(dn).filter(|&end| end <= d.len()).ok_or(ApplyError::Stale { step: n })?;
         let (k0, k1) = (d.block_at(at), d.block_at(end));
         let (ws, text, marks) = d.window(k0, k1);
-        let from = crate::usv::char_to_byte(&text, at - ws);
+        let from = crate::units::char_to_byte(&text, at - ws);
         if text.get(from..from + s.delete.len()) != Some(s.delete.as_str()) {
             return Err(ApplyError::Stale { step: n });
         }
@@ -584,7 +588,7 @@ impl Run {
     /// Moves the anchors across a splice of `dn` characters at `at` by `m`,
     /// and answers a step putting back each one the splice's inverse would
     /// not, quoting the text it reads now.
-    fn shift_anchors(&mut self, d: &mut Draft, at: Usv, dn: Usv, m: Usv) -> Undo {
+    fn shift_anchors(&mut self, d: &mut Draft, at: Scalar, dn: Scalar, m: Scalar) -> Undo {
         let end = at + dn;
         let split = d.c.anchors.partition_point(|a| a.start <= end);
         for a in &mut d.c.anchors[split..] {
@@ -785,7 +789,7 @@ fn island_index(c: &Content, id: &str, n: usize) -> Result<usize, ApplyError> {
 }
 
 /// The marks over `[at, end)`, as offsets into it.
-fn clipped(marks: &[Mark], at: Usv, end: Usv) -> Vec<Mark> {
+fn clipped(marks: &[Mark], at: Scalar, end: Scalar) -> Vec<Mark> {
     marks
         .iter()
         .filter_map(|mk| {
@@ -799,7 +803,7 @@ fn clipped(marks: &[Mark], at: Usv, end: Usv) -> Vec<Mark> {
 /// [`max_marks`](crate::max_marks): its `held` marks over the window at `at`
 /// replaced by `marks` over `text`, each counted once per block and line it
 /// spans, as settling them can leave them.
-fn within_marks(d: &Draft, held: usize, at: Usv, text: &str, marks: &[Mark], len: Usv) -> Result<(), Invariant> {
+fn within_marks(d: &Draft, held: usize, at: Scalar, text: &str, marks: &[Mark], len: Scalar) -> Result<(), Invariant> {
     let breaks = break_offsets(text);
     let spans = mark_spans(&breaks, marks.iter().map(|m| (m.start - at, m.end - at)));
     let total = (d.mark_count() - held).saturating_add(spans);
@@ -812,7 +816,7 @@ fn within_marks(d: &Draft, held: usize, at: Usv, text: &str, marks: &[Mark], len
 
 /// `marks`, at offsets into the value, over `text`, which starts at `at`,
 /// in the canonical form.
-fn settled(at: Usv, text: &str, marks: Vec<Mark>) -> Vec<Mark> {
+fn settled(at: Scalar, text: &str, marks: Vec<Mark>) -> Vec<Mark> {
     let chars: Vec<char> = text.chars().collect();
     let local = marks.into_iter().map(|m| Mark::new(m.start - at, m.end - at, m.kind)).collect();
     normalized_marks(&chars, local).into_iter().map(|m| Mark::new(m.start + at, m.end + at, m.kind)).collect()
@@ -820,7 +824,7 @@ fn settled(at: Usv, text: &str, marks: Vec<Mark>) -> Vec<Mark> {
 
 /// A range anchor's start binds to the character after it; a point binds
 /// left, and collapses to the deletion's start when its text goes.
-fn map_start(p: Usv, at: Usv, dn: Usv, m: Usv, point: bool) -> Usv {
+fn map_start(p: Scalar, at: Scalar, dn: Scalar, m: Scalar, point: bool) -> Scalar {
     if point {
         return map_point(p, at, dn, m);
     }
@@ -828,7 +832,7 @@ fn map_start(p: Usv, at: Usv, dn: Usv, m: Usv, point: bool) -> Usv {
 }
 
 /// A range anchor's end binds to the character before it.
-fn map_end(p: Usv, at: Usv, dn: Usv, m: Usv, point: bool) -> Usv {
+fn map_end(p: Scalar, at: Scalar, dn: Scalar, m: Scalar, point: bool) -> Scalar {
     if point {
         return map_point(p, at, dn, m);
     }
@@ -841,7 +845,7 @@ fn map_end(p: Usv, at: Usv, dn: Usv, m: Usv, point: bool) -> Usv {
     }
 }
 
-fn map_point(p: Usv, at: Usv, dn: Usv, m: Usv) -> Usv {
+fn map_point(p: Scalar, at: Scalar, dn: Scalar, m: Scalar) -> Scalar {
     if p <= at {
         p
     } else if p < at + dn {
@@ -917,7 +921,7 @@ fn container(c: &mut Content, s: &ContainerStep) -> Result<Step, ApplyError> {
 
 /// The text over `[start, end)`, held to `quote` where the step gives one:
 /// `None` where the range is past the text and no quote is given.
-fn quoted(d: &Draft, start: Usv, end: Usv, quote: &Option<String>, n: usize) -> Result<Option<String>, ApplyError> {
+fn quoted(d: &Draft, start: Scalar, end: Scalar, quote: &Option<String>, n: usize) -> Result<Option<String>, ApplyError> {
     let held = (start <= end && end <= d.len()).then(|| d.slice(start, end));
     match quote {
         Some(q) if held.as_ref() != Some(q) => Err(ApplyError::Stale { step: n }),
@@ -925,7 +929,7 @@ fn quoted(d: &Draft, start: Usv, end: Usv, quote: &Option<String>, n: usize) -> 
     }
 }
 
-fn clear(marks: &mut Vec<Mark>, start: Usv, end: Usv, tag: &str) {
+fn clear(marks: &mut Vec<Mark>, start: Scalar, end: Scalar, tag: &str) {
     let mut out = Vec::with_capacity(marks.len() + 1);
     for mk in marks.drain(..) {
         if mk.kind.tag() != tag || mk.end <= start || mk.start >= end {
@@ -943,7 +947,7 @@ fn clear(marks: &mut Vec<Mark>, start: Usv, end: Usv, tag: &str) {
 }
 
 /// `step` with its quote filled in from `over`, the text it reads.
-fn quoting(step: Step, over: impl Fn(Usv, Usv) -> String) -> Step {
+fn quoting(step: Step, over: impl Fn(Scalar, Scalar) -> String) -> Step {
     match step {
         Step::Mark(MarkStep::Add { mark, quote: None }) => {
             let quote = Some(over(mark.start, mark.end));
@@ -982,8 +986,8 @@ pub(crate) fn mark_fixups(now: &[Mark], want: &[Mark]) -> Vec<Step> {
 
 /// The spans over the marks one sorted list holds and the other does not,
 /// those that overlap or touch joined.
-fn differing(a: &[&Mark], b: &[&Mark]) -> Vec<(Usv, Usv)> {
-    let mut gone: Vec<(Usv, Usv)> = Vec::new();
+fn differing(a: &[&Mark], b: &[&Mark]) -> Vec<(Scalar, Scalar)> {
+    let mut gone: Vec<(Scalar, Scalar)> = Vec::new();
     let (mut i, mut j) = (0, 0);
     while i < a.len() || j < b.len() {
         let at = match (a.get(i), b.get(j)) {
@@ -1048,8 +1052,8 @@ fn moved_anchors(before: &Content, after: &Content, applied: &Change, run: &Run)
 }
 
 /// Where an anchor read in `site` lands across `maps`, as `apply` moves it.
-fn carried(maps: &Mapping, site: &Site) -> Option<(Usv, Usv)> {
-    let at = |p: Usv| {
+fn carried(maps: &Mapping, site: &Site) -> Option<(Scalar, Scalar)> {
+    let at = |p: Scalar| {
         site.path.iter().rev().fold(Pos::At(p), |inner, (island, slot)| Pos::In {
             island: island.clone(),
             slot: slot.clone(),
@@ -1078,8 +1082,8 @@ fn carried(maps: &Mapping, site: &Site) -> Option<(Usv, Usv)> {
 /// of the block its start sits in, and its text and context.
 struct Site {
     path: Vec<(String, String)>,
-    start: Usv,
-    end: Usv,
+    start: Scalar,
+    end: Scalar,
     block: String,
     prefix: String,
     quote: String,
@@ -1090,7 +1094,7 @@ struct Site {
 fn sites(c: &Content, ids: &HashSet<String>, path: &[(String, String)], out: &mut HashMap<String, Site>) {
     let want: Vec<&Anchor> = c.anchors.iter().filter(|a| ids.contains(&a.id)).collect();
     if !want.is_empty() {
-        let mut edges: Vec<Usv> = want.iter().flat_map(|a| [a.start.saturating_sub(CONTEXT), a.start, a.end, a.end + CONTEXT]).collect();
+        let mut edges: Vec<Scalar> = want.iter().flat_map(|a| [a.start.saturating_sub(CONTEXT), a.start, a.end, a.end + CONTEXT]).collect();
         edges.sort_unstable();
         edges.dedup();
         let mut at = HashMap::with_capacity(edges.len());
@@ -1106,7 +1110,7 @@ fn sites(c: &Content, ids: &HashSet<String>, path: &[(String, String)], out: &mu
             breaks += usize::from(ch == '\n');
         }
         let end = (c.text.len(), breaks);
-        let read = |p: Usv| *at.get(&p).unwrap_or(&end);
+        let read = |p: Scalar| *at.get(&p).unwrap_or(&end);
         for a in want {
             let (from, (s, k), (e, _), to) = (read(a.start.saturating_sub(CONTEXT)), read(a.start), read(a.end), read(a.end + CONTEXT));
             out.insert(

@@ -23,7 +23,7 @@ Each term below means one thing across `prose/canon`. The last column lists the 
 | incarnation | One life of a block record, container or island under an id, from the step that puts it to the step that removes it. An id put back after a removal is a new incarnation, and a step aimed at the old one does not land on it (§ "Rebasing a change"). | |
 | scalar | A Unicode scalar value, the unit every stored offset counts. A binding converts its host's units at its boundary. | "USV*" |
 | canonical form | The one spelling `normalize` gives a valid value. A write takes a value only in it (§ Validity). | "settl*" |
-| stored form | The shape a field is stored in once a schema-aware write lands it: `Quill::conform`, the typed writer or the seeder. It is what `toStored` writes ([SCHEMAS.md](SCHEMAS.md) § "Content fields are stored per codec"). | "resting*", "rests as", "at rest" |
+| stored form | The shape a field is stored in once a schema-aware write lands it: `Quill::conform`, the typed writer or the seeder. It is what `toStored` writes ([SCHEMAS.md](SCHEMAS.md) § "Content fields are stored per codec"). | "resting*", "rests", "rests as", "at rest" |
 | input path | A way a document or a value enters the engine. The bound input path (`quill.parse`, `quill.conform`, `quill.writer`) conforms what it takes; the transport input path (`Document::parse`, a stored row) holds it as authored. | "door*" |
 | write path | A way a value is written: the typed writer (`quill.writer`), the content write on `Document` (`apply`, `revise`, `replace`), or the schema-free `unchecked` store. The verb names the path ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive"). | "lane*" |
 | structural edit | `split_block`, `join_blocks`, `delete_range`, `indent`, `outdent` and `wrap`: verbs that build a change from the value and write it. `inherited_marks` is a read beside them. | "gesture*" |
@@ -99,7 +99,7 @@ Each axis is a closed set, and a name outside it is `ParseError::UnknownName` at
 - a container whose blocks are not one contiguous run, that sits under two different parent paths, or that no block's path names;
 - a heading holding a hard break, a rule holding text, a code block holding an island, and a block-only island (a table) sharing its block with anything else;
 - an island whose props do not read as its type's (a table whose grid names a row, column or cell no slot backs, or a slot no cell names), and a table of more than `MAX_TABLE_CELLS` cells;
-- a mark or anchor past the text, an empty mark, a slot holding anything but paragraphs in no container, and a table cell holding more than one paragraph (`Invariant::BreakInCell`);
+- a mark or anchor past the text, an empty mark, a slot holding anything but paragraphs in no container, and a table cell or a footnote's note holding more than one paragraph (`Invariant::BreakInCell`);
 - a `codec: "plain"` value holding a mark, an island, a container or a block other than a paragraph (`Invariant::NotPlain`), so no step formats a plain value and repair flattens one that a merge formatted;
 - more marks on one text, a field's or a slot's, than `max_marks` of its length: `MARKS_BASE` (64) and `MARKS_PER_CHAR` (4) per character, and more than `MAX_ANCHORS` (100 000) anchors over the value and its slots.
 
@@ -114,7 +114,7 @@ Normalizing spends the mark bound before validating can refuse: a mark crosses a
 
 So a value decodes only from the bytes it encodes to, up to the wire's own spelling of an empty key (absent or empty reads as one), and decoding then encoding is the identity on every value a write accepts. `diff::replace` and `Card::replace` refuse the same values a decode does. `normalize` is the producer's verb: a producer that builds a value by hand normalizes it before it writes it.
 
-**A stored value reads leniently, for 0.135 only.** The read of a value already stored (`Content::from_value_lenient`: a stored row's body and fields, a field a document holds, the renderers' read) checks the bounds, joins a table cell or a footnote's note of several paragraphs with `U+2028`, normalizes and validates, and says whether it rewrote anything. `Document::from_stored` warns `content::noncanonical_read` at each body or field it rewrote, so a host stores the row again ([ERROR.md](ERROR.md) § "Warning flow"). 0.135 reads leniently; a later release refuses a stored value the write's decode refuses, and drops the warning.
+**A stored value reads leniently.** The read of a value already stored (`Content::from_value_lenient`: a stored row's body and fields, a field a document holds, the renderers' read) checks the bounds, joins a table cell or a footnote's note of several paragraphs with `U+2028`, normalizes and validates, and says whether it rewrote anything. `Document::from_stored` warns `content::noncanonical_read` at each body or field it rewrote, so a host stores the row again ([ERROR.md](ERROR.md) § "Warning flow").
 
 ## Ids
 
@@ -125,7 +125,7 @@ Blocks, containers, islands, slots, table rows and table columns have structural
 - A record a change puts may carry a placeholder in place of its id: `?` and an id, such as `"?1"`, which other steps of the change may name. No id opens with `?`. The write that lands the change mints an id for each placeholder and names it in the receipt's `minted`, `{"?1": "ann:b4"}`; a placeholder put twice, or named and never put, refuses the change.
 - A write fills a placeholder past every id the value it lands on, the value its base names and the writes since hold, never consulting the log, so a stale write's placeholder takes an id no write since holds and its rebase renames nothing, and a freed id is never minted again by it (§ "Writing a value").
 
-The cost is stated: a live document's bytes depend on which actor typed, so equal content no longer means equal bytes across a cold import and a live session; determinism holds for import, migration and revise ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Island-id determinism"). A rebase renames an id two writers both introduced, as two writers with one actor or none do (§ "Rebasing a change"). Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
+The cost is stated: a live document's bytes depend on which actor typed, so equal content does not mean equal bytes across a cold import and a live session; determinism holds for import, migration and revise ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Island-id determinism"). A rebase renames an id two writers both introduced, as two writers with one actor or none do (§ "Rebasing a change"). Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
 
 ## Changes
 
@@ -165,7 +165,7 @@ Enter at the start of a block keeps the text on its id when the producer inserts
 An editor lowers a transaction in two ways, both exact. The structural keys go through the structural edits, which are verbs on the document:
 
 - `split_block`, `join_blocks`, `delete_range`, `indent`, `outdent` and `wrap` on `Card` (`doc.splitBlock(addr, at, opts)` and the rest in WASM) build the edit's change from the value the base names and write it as `apply` does, rebase, log and receipt included.
-- A record a structural edit opens takes a placeholder, `?0` first, which the write fills under the writer's actor; `split_block` takes the new block's id or mints one. The `gestures` module holds the same changes as functions over a value.
+- A record a structural edit opens takes a placeholder, `?0` first, which the write fills under the writer's actor; `split_block` takes the new block's id or mints one. The `structural` module holds the same changes as functions over a value, and an editor that lowers through them builds no container path.
 - `locate(addr, offset)` answers the block holding an offset, its index and its container path, so an editor builds no path of its own.
 
 Text edits go through `diff_range(before, after, from, to)` (`diffRange(before, after, {from, to})`), the exact lowering of a range an editor already knows, ProseMirror's `ReplaceStep`:
@@ -177,11 +177,11 @@ Text edits go through `diff_range(before, after, from, to)` (`diffRange(before, 
 
 `diff` stays for a writer with no steps (§ "Writing a value").
 
-`apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The growth defaults are for producers, and the read `gestures::inherited_marks(content, at)` states them, for a producer that asks: `strong`, `emph`, `underline` and `strike` grow at their end, `code`, `link` and an `x-` mark at neither edge, and `font_family` at both, the family before `at` winning over the one after. A `\n` and a hard break hold no mark, so at a block's or a line's start only a family grows. Anchors never grow: a range keeps its edges, and a point stays left of text typed at it.
+`apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The growth defaults are for producers, and the read `structural::inherited_marks(content, at)` states them, for a producer that asks: `strong`, `emph`, `underline` and `strike` grow at their end, `code`, `link` and an `x-` mark at neither edge, and `font_family` at both, the family before `at` winning over the one after. A `\n` and a hard break hold no mark, so at a block's or a line's start only a family grows. Anchors never grow: a range keeps its edges, and a point stays left of text typed at it.
 
 A collab session merges marks by Yjs's rules, not by these defaults. Where one peer formats a range while another types at its edge, client order decides whether the typed text takes the mark, so a session's merge can differ from a rebase of the same two edits.
 
-The structural edits build their changes the same way, so an editor that lowers through them builds no container path. A container a structural edit opens is a placeholder its write fills.
+What each structural edit does to the blocks it reaches:
 
 - `delete_range` deletes a range. Where it runs from a block's start into a later block, the block that keeps the text takes the kind, attributes and path of the block the range ends in, as ProseMirror's delete does, and keeps the first block's id.
 - `indent` (Tab) nests the items of the innermost list holding a range under the item before them, joining that item's list where it ends in one and else opening a list of their own list's kind.
@@ -356,7 +356,7 @@ Markdown is a projection of a value, not its storage, so `from_markdown(to_markd
 
 ## The line form
 
-The renderers and the markdown codecs read the line form under the `lines` module, one line per block with marks and islands inline. It is private to them: hidden from the documented surface, and no document API takes or answers it. `migrate::to_lines` lowers a value to it and `migrate::from_lines` lifts a v1 value, minting ids deterministically; a markdown import runs through the line form and lifts ([CONVERT.md](CONVERT.md)). A card lowers its body when the line form is first read, not on each write, so a write no renderer reads pays nothing for it.
+The renderers and the markdown codecs read the line form under the `lines` module, one line per block with marks and islands inline; core's revise, merge and align reach it too. It is internal to the workspace: hidden from the documented surface, and no public API takes or answers it. `migrate::to_lines` lowers a value to it and `migrate::from_lines` lifts a v1 value, minting ids deterministically; a markdown import runs through the line form and lifts ([CONVERT.md](CONVERT.md)). A card lowers its body when the line form is first read, not on each write, so a write no renderer reads pays nothing for it.
 
 The line form is a faithful view of a value but for what `to_markdown_checked` names as its loss, which a law holds over generated values (`tests/change_laws.rs`), and the anchor contexts and receipts read the stored text, not the line form.
 

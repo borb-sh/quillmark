@@ -3,7 +3,7 @@
 //! so a step reads and rewrites only the blocks it touches and finds them by
 //! binary search.
 
-use crate::model::{Block, Content, ISLAND_SLOT, Mark, Usv};
+use crate::model::{Block, Content, ISLAND_SLOT, Mark, Scalar};
 use std::collections::HashMap;
 
 pub(crate) struct Draft {
@@ -12,10 +12,10 @@ pub(crate) struct Draft {
     pub(crate) c: Content,
     segs: Vec<Seg>,
     /// The offset each block's text starts at.
-    starts: Vec<Usv>,
-    len: Usv,
+    starts: Vec<Scalar>,
+    len: Scalar,
     /// The offset of each island's slot, in slot order.
-    slots: Vec<Usv>,
+    slots: Vec<Scalar>,
     /// Each block id's index, `None` for an id held twice; unset while the
     /// records have changed since it was built.
     ids: Option<HashMap<String, Option<usize>>>,
@@ -27,7 +27,7 @@ pub(crate) struct Draft {
 /// One block's text and the marks over it, at offsets into it.
 struct Seg {
     text: String,
-    len: Usv,
+    len: Scalar,
     marks: Vec<Mark>,
 }
 
@@ -91,7 +91,7 @@ impl Draft {
         self.c
     }
 
-    pub(crate) fn len(&self) -> Usv {
+    pub(crate) fn len(&self) -> Scalar {
         self.len
     }
 
@@ -101,21 +101,21 @@ impl Draft {
     }
 
     /// The index of the block whose text holds offset `p`, its end included.
-    pub(crate) fn block_at(&self, p: Usv) -> usize {
+    pub(crate) fn block_at(&self, p: Scalar) -> usize {
         self.starts.partition_point(|&s| s <= p).saturating_sub(1)
     }
 
-    pub(crate) fn block_end(&self, k: usize) -> Usv {
+    pub(crate) fn block_end(&self, k: usize) -> Scalar {
         self.starts[k] + self.segs[k].len
     }
 
     /// How many island slots sit before offset `p`.
-    pub(crate) fn slots_before(&self, p: Usv) -> usize {
+    pub(crate) fn slots_before(&self, p: Scalar) -> usize {
         self.slots.partition_point(|&s| s < p)
     }
 
     /// The text over `[start, end)`, which must lie within the text.
-    pub(crate) fn slice(&self, start: Usv, end: Usv) -> String {
+    pub(crate) fn slice(&self, start: Scalar, end: Scalar) -> String {
         let (k0, k1) = (self.block_at(start), self.block_at(end));
         let mut out = String::new();
         for k in k0..=k1 {
@@ -132,7 +132,7 @@ impl Draft {
 
     /// Blocks `k0` through `k1`: where their text starts, the text with the
     /// `\n` between them, and the marks over it at offsets into the value.
-    pub(crate) fn window(&self, k0: usize, k1: usize) -> (Usv, String, Vec<Mark>) {
+    pub(crate) fn window(&self, k0: usize, k1: usize) -> (Scalar, String, Vec<Mark>) {
         let mut text = String::new();
         let mut marks = Vec::new();
         for k in k0..=k1 {
@@ -237,7 +237,7 @@ impl Draft {
 
 impl Seg {
     /// The byte offset of the `n`th character.
-    fn byte(&self, n: Usv) -> usize {
+    fn byte(&self, n: Scalar) -> usize {
         if self.len == self.text.len() {
             return n;
         }
@@ -247,8 +247,8 @@ impl Seg {
 
 /// Whether each mark lies inside one block and the marks run in order.
 fn marks_within_blocks(c: &Content) -> bool {
-    let mut ends: Vec<Usv> = c.text.chars().enumerate().filter(|&(_, ch)| ch == '\n').map(|(i, _)| i).collect();
-    ends.push(c.len_usv());
+    let mut ends: Vec<Scalar> = c.text.chars().enumerate().filter(|&(_, ch)| ch == '\n').map(|(i, _)| i).collect();
+    ends.push(c.len_scalars());
     let mut last = (0, 0);
     c.marks.iter().all(|m| {
         let k = ends.partition_point(|&e| e < m.start);

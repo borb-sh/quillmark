@@ -602,7 +602,7 @@ impl QuillConfig {
                     QuillValue::from_json(crate::document::stored_as(old, rt, quillmark_content::model::Codec::Plain))
                 };
                 if json_value.is_object() {
-                    let rt = quillmark_content::model::Content::lines_from_value(json_value).map_err(|e| {
+                    let rt = quillmark_content::migrate::lines_from_value(json_value).map_err(|e| {
                         CoercionError::uncoercible(
                             path,
                             "<object>",
@@ -2838,9 +2838,9 @@ impl QuillConfig {
             return Err(errors);
         }
 
-        settle_groups(&mut main);
+        order_groups(&mut main);
         for card in &mut card_kinds {
-            settle_groups(card);
+            order_groups(card);
         }
         warnings.extend(Self::field_after_object("main", &main));
         for card in &card_kinds {
@@ -2876,10 +2876,10 @@ fn uses_groups(card: &CardSchema) -> bool {
             .any(|field| field.ui.as_ref().is_some_and(|ui| ui.group.is_some()))
 }
 
-/// Settle a loaded card's groups: fields in display order (ungrouped first,
+/// Order a loaded card's groups: fields in display order (ungrouped first,
 /// then each group's in registry order), and a registry entry no field names
 /// dropped.
-fn settle_groups(card: &mut CardSchema) {
+fn order_groups(card: &mut CardSchema) {
     let Some(GroupRegistry(registry)) = card.ui.as_mut().and_then(|ui| ui.groups.take()) else {
         return;
     };

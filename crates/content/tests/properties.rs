@@ -35,7 +35,7 @@ fn clean_word() -> impl Strategy<Value = String> {
 }
 
 // `plain_word` carries inline-special and astral chars as *literal text*, so
-// escaping and USV bounds are exercised by the round-trip. The first char stays
+// escaping and scalar bounds are exercised by the round-trip. The first char stays
 // alphanumeric so a block marker never *leads* the token (`- >` would make
 // pulldown build a nested block); the tail carries `&` and the block-marker
 // chars.
@@ -403,7 +403,7 @@ proptest! {
         let n = text.chars().count();
         let plain = Content::new(text.clone(), vec![Line::new(LineKind::Para)]).into_lines();
         prop_assume!(plain.validate().is_ok());
-        prop_assume!(plain.len_usv() == n);
+        prop_assume!(plain.len_scalars() == n);
         // Require the mark-free text to be a fixed point already, so a later
         // mismatch is mark-induced rather than an orthogonal markdown limit.
         prop_assume!(from_markdown(&to_markdown(&plain)).unwrap().content.text == plain.text);
@@ -532,7 +532,7 @@ proptest! {
         spans in prop::collection::vec((0usize..4096, 0usize..8, any::<bool>()), 1..5),
     ) {
         let mut rt = from_markdown(&md).unwrap().content.into_content();
-        let len = rt.len_usv();
+        let len = rt.len_scalars();
         for (k, &(at, width, zero_width)) in spans.iter().enumerate() {
             let start = at % (len + 1);
             let end = if zero_width { start } else { (start + width).min(len) };

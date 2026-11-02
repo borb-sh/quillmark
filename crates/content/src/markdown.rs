@@ -1,7 +1,9 @@
-//! Markdown at the edges: [`from_markdown`] is the one import and
-//! [`to_markdown`] with [`to_markdown_annotated`] the one export, plain or
-//! annotated; the plain export drops every anchor and the annotated one spells
-//! them for a revise to read back.
+//! Text at the edges, one import and one export per codec. The rich codec
+//! imports with [`from_markdown`] and exports with [`to_markdown`], plain, or
+//! [`to_markdown_annotated`], which spells every anchor for a revise to read
+//! back. The plain codec imports with [`from_plaintext`] ([`plain`] under
+//! [`Codec::Plain`]) and exports with [`to_plaintext`]. [`to_text`] and
+//! [`to_text_annotated`] export under the value's own codec.
 
 use crate::lines;
 use crate::lines::export::ExportLoss;
@@ -10,7 +12,7 @@ pub use crate::lines::import::{DroppedConstruct, ImportError, ImportWarning};
 use crate::migrate::{from_lines, to_lines};
 use crate::ids::prefix;
 use crate::model::{Block, BlockKind, Codec, Content, HARD_BREAK, ISLAND_SLOT, MarkKind};
-use crate::model::Usv;
+use crate::model::Scalar;
 
 /// A markdown import: the content and what the markdown spelled that it
 /// could not carry.
@@ -31,8 +33,12 @@ pub struct Exported {
 /// One part of a content its markdown does not carry as itself.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Loss {
-    /// What the line form reports, in its positions, which are the content's.
-    Line(ExportLoss),
+    /// A mark the markdown writes over other text, `now`, or not at all.
+    Mark { kind: MarkKind, start: Scalar, end: Scalar, now: Option<(Scalar, Scalar)> },
+    /// An island that reads back with other props, or not at all.
+    Island { id: String },
+    /// The text or its blocks read back otherwise.
+    Text,
     /// A slot whose text the line form spells otherwise: a hard break where
     /// markdown reads a paragraph break (two in a row, or one ending a
     /// paragraph another follows), or one at the slot's edge.
@@ -41,7 +47,7 @@ pub enum Loss {
     ExtBlock { id: String, name: String },
     /// An `x-` mark, which markdown does not write. Positions are the
     /// content's, or the slot's where `slot` names one.
-    ExtMark { start: Usv, end: Usv, name: String, slot: Option<(String, String)> },
+    ExtMark { start: Scalar, end: Scalar, name: String, slot: Option<(String, String)> },
 }
 
 /// The import: `markdown` read cold, its ids minted positionally and no
@@ -103,9 +109,20 @@ pub fn to_markdown(c: &Content) -> String {
     lines::export::to_markdown(&to_lines(c))
 }
 
+/// [`to_markdown`] and each part of `c` it does not spell as itself, read
+/// back through [`from_markdown`]. Costs an import beyond the export.
 pub fn to_markdown_checked(c: &Content) -> Exported {
     let lines::export::Exported { markdown, losses } = lines::export::to_markdown_checked(&to_lines(c));
-    let mut losses: Vec<Loss> = losses.into_iter().map(Loss::Line).collect();
+    let mut losses: Vec<Loss> = losses
+        .into_iter()
+        .filter_map(|loss| match loss {
+            ExportLoss::Mark { kind, start, end, now } => {
+                MarkKind::from_line(&kind).map(|kind| Loss::Mark { kind, start, end, now })
+            }
+            ExportLoss::Island { index, .. } => c.islands.get(index).map(|i| Loss::Island { id: i.id.clone() }),
+            ExportLoss::Text => Some(Loss::Text),
+        })
+        .collect();
     let ext_marks = |c: &Content, slot: Option<(String, String)>| {
         c.marks
             .iter()

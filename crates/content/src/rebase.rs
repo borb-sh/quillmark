@@ -9,7 +9,7 @@ use crate::change::{AnchorStep, ApplyError, Assoc, Change, ContainerStep, Island
 use crate::draft::Draft;
 use crate::ids::{Minter, prefix};
 use crate::mapping::{MapResult, Mapping, StepMap, moved_islands};
-use crate::model::{Anchor, Content, Mark, MarkKind, Pos, Usv};
+use crate::model::{Anchor, Content, Mark, MarkKind, Pos, Scalar};
 use crate::units::Scalars;
 use std::collections::{HashMap, HashSet};
 
@@ -481,7 +481,7 @@ fn reformats(step: &Step, was: &Draft, now: &Draft, through: &Tail) -> bool {
 }
 
 /// The mark of type `tag` on each character of `[start, end)` in `d`.
-fn formatting(d: &Draft, start: Usv, end: Usv, tag: &str) -> Vec<Option<MarkKind>> {
+fn formatting(d: &Draft, start: Scalar, end: Scalar, tag: &str) -> Vec<Option<MarkKind>> {
     if start >= end {
         return Vec::new();
     }
@@ -503,7 +503,7 @@ impl Tail<'_> {
     }
 }
 
-fn offset(r: &MapResult) -> Usv {
+fn offset(r: &MapResult) -> Scalar {
     match r.pos {
         Pos::At(p) => p,
         Pos::In { .. } => unreachable!("a level's offset maps to an offset"),
@@ -511,7 +511,7 @@ fn offset(r: &MapResult) -> Usv {
 }
 
 /// An insert at `at`, mapped as a point anchor.
-fn insert_at(at: Usv, maps: &Tail) -> Result<Usv, Reason> {
+fn insert_at(at: Scalar, maps: &Tail) -> Result<Scalar, Reason> {
     let r = maps.map_point(&Pos::At(at));
     if r.deleted_across {
         return Err(Reason::Deleted);
@@ -520,7 +520,7 @@ fn insert_at(at: Usv, maps: &Tail) -> Result<Usv, Reason> {
 }
 
 /// A range's edges mapped inward; a range deleted entirely is gone.
-fn range(start: Usv, end: Usv, maps: &Tail) -> Result<(Usv, Usv), Reason> {
+fn range(start: Scalar, end: Scalar, maps: &Tail) -> Result<(Scalar, Scalar), Reason> {
     let (a, b) = (offset(&maps.map(&Pos::At(start), Assoc::After)), offset(&maps.map(&Pos::At(end), Assoc::Before)));
     if b <= a {
         return Err(Reason::Deleted);

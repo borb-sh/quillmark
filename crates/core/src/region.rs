@@ -43,7 +43,7 @@ pub struct RenderedRegion {
     pub page: usize,
     /// `[x0, y0, x1, y1]`, PDF points, bottom-left origin.
     pub rect: [f32; 4],
-    /// The content slice this box covers: USV `[start, end)` into the field's
+    /// The content slice this box covers: scalar `[start, end)` into the field's
     /// `Content`, `None` for a scalar's or a date's ink, a claim or a widget.
     /// Omitted from the wire when `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -62,7 +62,7 @@ impl RenderedRegion {
         }
     }
 
-    /// Set [`span`](Self::span), the USV `[start, end)` this box covers.
+    /// Set [`span`](Self::span), the scalar `[start, end)` this box covers.
     pub fn with_span(mut self, span: [usize; 2]) -> Self {
         self.span = Some(span);
         self
@@ -485,7 +485,7 @@ pub enum HitGranularity {
 }
 
 /// A resolved point → content position: the schema field a click landed in and
-/// the USV offset into that field's `Content`. The forward
+/// the scalar offset into that field's `Content`. The forward
 /// [`position_at`](crate::session::LiveSession::position_at) direction, paired
 /// with [`locate`](crate::session::LiveSession::locate) (content position →
 /// caret rect).
@@ -501,7 +501,7 @@ pub struct ContentHit {
     /// The content field's schema path (same address space as
     /// [`RenderedRegion::field`]).
     pub field: String,
-    /// USV offset into the field's `Content`.
+    /// scalar offset into the field's `Content`.
     pub pos: usize,
     /// `None` when the backend does not report it. Omitted from the wire when
     /// `None`.

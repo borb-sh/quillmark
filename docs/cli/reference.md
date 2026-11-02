@@ -48,7 +48,7 @@ The file must open with a `~~~` block containing a `$quill:` key identifying the
 - `-o <PATH>` / `--output <PATH>`: Output file path (default: input filename with format extension, e.g. `input.pdf`; `example.<format>` when no Markdown file is given)
 - `-f <FORMAT>` / `--format <FORMAT>`: Output format: `pdf`, `svg`, `png` (default: the `-o` extension when it names one of these, else `pdf`). A `-f` that disagrees with such an extension is refused (`-f png -o out.pdf`); an `-o` extension naming no format is written as given.
 - `--ppi <PPI>`: Pixels per inch for `png` output (default: `144`); `pdf` and `svg` ignore it
-- `--output-data <DATA_FILE>`: Write the compiled, blank-filled JSON data to a file. This is the data before the backend lowers it: a `richtext` value appears as a content object (`{text, lines, marks, islands}`) and a date as its string, where a Typst plate receives content and a `datetime`.
+- `--output-data <DATA_FILE>`: Write the compiled, blank-filled JSON data to a file. This is the data before the backend lowers it: a `richtext` value appears as a content object (`{text, blocks, containers, marks, islands}`) and a date as its string, where a Typst plate receives content and a `datetime`.
 - `--today <YYYY-MM-DD>`: The render date: what a `today` date field and a plate's `datetime.today()` render as (default: the local date)
 - `--font <FONT_FILE>`: A font file for the engine's font library, repeatable: what an app supplies as its own fonts. Each is a `.ttf`, `.otf`, `.ttc` or `.otc`; any other fails the command with `engine::font_unsupported`. A render reads the quill's own fonts before the file's.
 - `--quiet`: Suppress warnings and the output-destination line; errors still print

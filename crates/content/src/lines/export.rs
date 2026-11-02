@@ -47,7 +47,7 @@ use std::borrow::Cow;
 use crate::lines::anchor::{AnchorSite, Surface};
 use crate::lines::island::IslandType;
 use crate::lines::model::{
-    Container, Island, LineKind, Mark, MarkKind, Content, Lines, Usv, ISLAND_SLOT,
+    Container, Island, LineKind, Mark, MarkKind, Content, Lines, Scalar, ISLAND_SLOT,
 };
 
 /// Render a content to markdown.
@@ -86,9 +86,9 @@ pub enum ExportLoss {
     /// Positions are the content's.
     Mark {
         kind: MarkKind,
-        start: Usv,
-        end: Usv,
-        now: Option<(Usv, Usv)>,
+        start: Scalar,
+        end: Scalar,
+        now: Option<(Scalar, Scalar)>,
     },
     /// The island at this index reads back with other props, or not at all.
     Island { index: usize, island_type: IslandType },
@@ -119,7 +119,7 @@ pub fn to_markdown_checked(rt: &Lines) -> Exported {
         losses.push(ExportLoss::Text);
     }
     let to_stored = (!same_text).then(|| crate::lines::delta::diff(&back.text, &rt.text));
-    let held: Vec<(Usv, Usv, &MarkKind)> = back
+    let held: Vec<(Scalar, Scalar, &MarkKind)> = back
         .marks
         .iter()
         .filter(|m| !matches!(m.kind, MarkKind::Anchor { .. }))
@@ -214,7 +214,7 @@ pub fn to_markdown_annotated(rt: &Lines) -> Annotated {
         tokens: &[],
     };
     let sites = rt.anchor_sites();
-    let mut tags: Vec<Vec<(Usv, &str)>> = vec![Vec::new(); segments.len()];
+    let mut tags: Vec<Vec<(Scalar, &str)>> = vec![Vec::new(); segments.len()];
     let mut anchors = Vec::with_capacity(sites.len());
     for site in &sites {
         let (at, read) = anchor_read(&plain, site);
@@ -367,7 +367,7 @@ struct Ctx<'a> {
     line_marks: &'a [Vec<usize>],
     /// Per line, the anchor tags it holds at line-local positions, in
     /// `(position, id)` order; empty for the plain projection.
-    tags: &'a [Vec<(Usv, &'a str)>],
+    tags: &'a [Vec<(Scalar, &'a str)>],
     /// Per island, whether it is spelled as its `qm-island` token: one
     /// [`island_reads_back`] refuses, in an annotated read. Empty for the
     /// plain projection.
@@ -380,9 +380,9 @@ struct Ctx<'a> {
 /// [`line_segments`] recomputes whole.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Segment {
-    /// USV index of the line's first char.
+    /// scalar index of the line's first char.
     pub start: usize,
-    /// USV index one past the line's last char (its `\n`, or the content end).
+    /// scalar index one past the line's last char (its `\n`, or the content end).
     pub end: usize,
     /// Byte offset of `start` in the content text.
     pub byte_start: usize,
@@ -1111,7 +1111,7 @@ fn list_marker_punct(chars: &[char]) -> Option<usize> {
 /// in `points`. A line whose tags change what it imports to holds them at its
 /// end instead, and none where that changes it too: each spelling is read
 /// back as the net reads one, inside `,…,`.
-fn annotate(md: String, points: &[usize], tags: &[(Usv, &str)]) -> String {
+fn annotate(md: String, points: &[usize], tags: &[(Scalar, &str)]) -> String {
     let reads = |line: &str| {
         crate::lines::import::from_markdown(&format!(",{line},"))
             .ok()
@@ -1570,7 +1570,7 @@ fn render_marked_core(
     // position after it, so the same pass records where each char lands:
     // `kept[i]` is char `i`'s position in the probe, `kept[n]` the end.
     let mut expected = String::with_capacity(n);
-    let mut kept: Vec<Usv> = Vec::with_capacity(n + 1);
+    let mut kept: Vec<Scalar> = Vec::with_capacity(n + 1);
     let mut at = 1;
     for (i, &c) in chars.iter().enumerate() {
         kept.push(at);

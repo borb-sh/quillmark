@@ -7,7 +7,7 @@
 use proptest::prelude::*;
 
 use crate::lines::anchor::{
-    anchor_contexts, locate, AnchorContext, ANCHOR_AGREE_USV, ANCHOR_CONTEXT_USV, MIN_ANCHOR_QUOTE,
+    anchor_contexts, locate, AnchorContext, ANCHOR_AGREE_SCALARS, ANCHOR_CONTEXT_SCALARS, MIN_ANCHOR_QUOTE,
 };
 use crate::lines::island::IslandType;
 use crate::lines::model::{Content, Island, Line, LineKind, Mark, MarkKind, Lines, ISLAND_SLOT};
@@ -47,8 +47,8 @@ fn field_and_selector() -> impl Strategy<Value = (String, AnchorContext)> {
             let (i, j) = (a.min(b), a.max(b));
             let mut parts = [
                 chars[i..j].to_vec(),
-                chars[i.saturating_sub(ANCHOR_CONTEXT_USV)..i].to_vec(),
-                chars[j..(j + ANCHOR_CONTEXT_USV).min(chars.len())].to_vec(),
+                chars[i.saturating_sub(ANCHOR_CONTEXT_SCALARS)..i].to_vec(),
+                chars[j..(j + ANCHOR_CONTEXT_SCALARS).min(chars.len())].to_vec(),
             ];
             if let Some((part, at, c)) = change {
                 let part = &mut parts[part];
@@ -70,7 +70,7 @@ fn counted(text: &[char], ctx: &AnchorContext, inserted: Option<&[(usize, usize)
     if !quote.is_empty() && quote.len() < MIN_ANCHOR_QUOTE && !quote.iter().all(|&c| c == ISLAND_SLOT) {
         return Vec::new();
     }
-    let (before, after) = (prefix.len().min(ANCHOR_AGREE_USV), suffix.len().min(ANCHOR_AGREE_USV));
+    let (before, after) = (prefix.len().min(ANCHOR_AGREE_SCALARS), suffix.len().min(ANCHOR_AGREE_SCALARS));
     let agrees_before = |i: usize| i >= before && text[i - before..i] == prefix[prefix.len() - before..];
     let agrees_after = |j: usize| text.len() - j >= after && text[j..j + after] == suffix[..after];
     let overlaps = |(a, b): (usize, usize)| inserted.is_none_or(|spans| spans.iter().any(|&(s, e)| a < e && b > s));
@@ -117,7 +117,7 @@ proptest! {
         let spans: Vec<(usize, usize)> = spans.into_iter().map(|(s, n)| (s, s + n)).collect();
         for inserted in [None, Some(spans.as_slice())] {
             if let Some((start, end)) = locate(&rt, &ctx, inserted) {
-                prop_assert!(start <= end && end <= rt.len_usv());
+                prop_assert!(start <= end && end <= rt.len_scalars());
                 prop_assert_eq!(rt.text.chars().skip(start).take(end - start).collect::<String>(), ctx.quote.clone());
             }
         }
@@ -130,7 +130,7 @@ proptest! {
         b in 0usize..61,
     ) {
         let mut rt = content(&field).into_content();
-        let len = rt.len_usv();
+        let len = rt.len_scalars();
         rt.marks.push(Mark::new(a.min(b).min(len), a.max(b).min(len), MarkKind::Anchor { id: "c".into() }));
         let rt = rt.into_lines();
         prop_assume!(rt.validate().is_ok());
