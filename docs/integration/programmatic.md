@@ -12,7 +12,7 @@ Markdown authoring, the [authoring document](llm-authoring.md) (for LLMs), and t
 
 ## The typed writer
 
-`quill.writer(doc)` is the schema-bound front door. It resolves each field's declared type, coerces the value (`"3"` → `3`, a Markdown string → richtext content), and fails at the write on a mismatch. A name the schema does not declare is a typo (`edit::unknown_field`), not a silent fallback. `set_all` and `add_card` are atomic: on any bad field nothing is applied, and the raised error carries one diagnostic per offending field, so a whole-form batch surfaces every problem at once.
+`quill.writer(doc)` is the schema-bound input path. It resolves each field's declared type, coerces the value (`"3"` → `3`, a Markdown string → richtext content), and fails at the write on a mismatch. A name the schema does not declare is a typo (`edit::unknown_field`), not a silent fallback. `set_all` and `add_card` are atomic: on any bad field nothing is applied, and the raised error carries one diagnostic per offending field, so a whole-form batch surfaces every problem at once.
 
 === "Python"
 
@@ -53,7 +53,7 @@ Markdown authoring, the [authoring document](llm-authoring.md) (for LLMs), and t
 
 `quill.reader(doc)` is the read twin: `reader.get(name)` returns each field in the values form (every content leaf as its codec's text, a `richtext` leaf as Markdown, everything else as stored) with schema authority, so an undeclared name raises `edit::unknown_field` rather than reading back nothing. A read never coerces: `qty: "3"` reads `"3"` until a write canonicalizes it; `reader.resolve()` (JavaScript) is the coerced, blank-filled render view.
 
-`reader.get_content(name)` (`getContent` in JavaScript) is the same read at the other end of the codec, returning the field's content corpus rather than its projection. Reach for it when you hold a content editor: a content field rests as a corpus when the typed writer committed it and as the authored string when a Markdown parse produced it, and this read decodes both through the codec the declared type names. A type that is not a content leaf raises `edit::field_not_content`: an `integer` has no corpus, and an `array<richtext>` carries content without having one.
+`reader.get_content(name)` (`getContent` in JavaScript) is the same read at the other end of the codec, returning the field's content corpus rather than its projection. Reach for it when you hold a content editor: a content field is stored as a corpus when the typed writer committed it and as the authored string when a Markdown parse produced it, and this read decodes both through the codec the declared type names. A type that is not a content leaf raises `edit::field_not_content`: an `integer` has no corpus, and an `array<richtext>` carries content without having one.
 
 ## Addressing cards for re-render
 

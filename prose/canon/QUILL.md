@@ -126,7 +126,7 @@ Identity resolution:
 
 ## The example document
 
-The quill's example is derived from its `Quill.yaml`: the `example:` its slots
+The quill's example is derived from its `Quill.yaml`: the `example:` its value positions
 declare and the `body.example` its kinds declare, committed over the seeded
 document by `Quill::example_document`
 ([SCHEMAS.md](SCHEMAS.md) § "The example document"). It is a filled-in page for
@@ -187,7 +187,7 @@ seeded documents. A quill outside that directory reaches the contract through
 - Malformed `quill.ui` / `main.ui` / `card_kinds.<name>.ui` blocks error with `quill::invalid_ui` rather than being silently discarded; one spelling `title` is hinted to the card's own `title:`.
 - A `ui.layout: table` column that is not a leaf errors with `quill::table_column_not_leaf`, naming the column: declaring the key contracts the shape the control needs, leaving an editor only the capability decline ([SCHEMAS.md](SCHEMAS.md#schema-emission)).
 - Malformed `main.body` / `card_kinds.<name>.body` blocks, `enabled` being the one key, error with `quill::invalid_body`.
-- A card declaring more than `MAX_FIELD_COUNT` (1000) fields errors with `quill::too_many_fields`: seeding builds one card-yaml block per card schema, so the block's cap is the schema's to meet. Counted per card over declared fields alone — nested `properties`, array `items`, and `variants:` cells ride inside the field declaring them.
+- A card declaring more than `MAX_FIELD_COUNT` (1000) fields errors with `quill::too_many_fields`: seeding builds one card-yaml block per card schema, so the block's cap is the schema's to meet. Counted per card over declared fields alone — nested `properties`, array `items`, and `variants:` value positions ride inside the field declaring them.
 
 Errors flow through `RenderError` (a non-empty `Vec<Diagnostic>`) and surface to bindings as a structured array (`err.diagnostics` in WASM, `.diagnostics` attribute in Python).
 
@@ -213,7 +213,7 @@ it in `RenderError`. Either way the `Quill` carries no backend: rendering goes
 through the `Engine` (`engine.render` / `engine.open`).
 
 Advisory diagnostics ride the loaded quill rather than the constructor's return
-value, so both doors keep them and a host reads them when it likes:
+value, so both constructors keep them and a host reads them when it likes:
 `Quill::warnings()`, `quill.warnings` in WASM and Python.
 
 `FileTreeNode` exposes the file and directory reads over the bundle. Paths use

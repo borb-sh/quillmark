@@ -31,12 +31,12 @@ Supported field types:
 | `integer` | Integer-only numeric value |
 | `boolean` | `true` / `false` |
 | `array` | Ordered list; requires an `items:` element schema (e.g. `items: { type: text }` for a list of lines, `items: { type: object, properties: … }` for a typed table). Optional `max:`, the element count past which the surplus leaves the page ([Cardinality](#cardinality)) |
-| `matrix` | A vocabulary someone ticks; requires a `members:` roster, and `open: true` admits items a document adds. A cell whose value is the set of held items: each held id maps to an object of the field's `properties:` (the columns), and an unheld member is absent. See [Matrix](#matrix) |
+| `matrix` | A vocabulary someone ticks; requires a `members:` roster, and `open: true` admits items a document adds. A value position whose value is the set of held items: each held id maps to an object of the field's `properties:` (the columns), and an unheld member is absent. See [Matrix](#matrix) |
 | `object` | Structured map; requires `properties:` |
 | `date` | A strict calendar date `YYYY-MM-DD`, or the keyword `today` ([The render date](#the-render-date-today)). Rejects any time component (a time-bearing string is a `datetime`, not a truncated date). The common case in documents, so it is the unmarked date type. Stored verbatim; lowers to a native Typst `datetime(year:, month:, day:)`, with `qm.ink(dict, key, ..)` for a click-to-edit rendering (see `PLATE_DATA.md`) |
 | `datetime` | A strict offset-less wall-clock datetime `YYYY-MM-DDThh:mm[:ss]`, seconds optional (zero-filled). Rejects timezone offsets (`Z`, `±HH:MM`), the space separator, fractional seconds, and a bare date (which is a `date`). An offset is **rejected, never dropped**: Quillmark does no zone math, keeping wall-clock semantics end to end. Stored verbatim; lowers the same way over the six-component `datetime(year:, .., second:)` |
-| `text` | Open **unformatted** text over the same canonical content (`Content`) as `richtext` (same media type, nav, and regions) but a **literal** codec (`from_plaintext`/`to_plaintext`): delimiters stay literal, no markup, verbatim round-trip. One line; `multiline: true` admits line breaks. Constrained mark-/island-free (`Content::is_plain`); a formatted wire content is rejected (`validation::not_plain`), not stripped. **Rests as a content object spelling `codec: "plain"`**, which the content model holds to plainness itself ([CONTENT.md](CONTENT.md) § "The value") and emit projects back to the literal string. A plate receives that content object, exactly as for `richtext` (no backend reads the `text` annotation), and a plate that computes with the value takes its `str` through `qm.str(..)` ([PLATE_DATA.md](PLATE_DATA.md)), every character recovered because the value carries no marks, whitespace normalized |
-| `richtext` | Rich **formatted** prose over a canonical content (`Content`); markdown is a projection of it. One paragraph (exactly one `Para` line, no container, no islands); `multiline: true` admits block structure (paragraphs, lists, containers). A `richtext` spells `multiline:` either way, `true` or `false`, and its absence is a load error. The pre-richtext `markdown` spelling and the retired `type: richtext(inline)` token are schema load errors (`quill::field_parse_error`). **Rests as the canonical content object** |
+| `text` | Open **unformatted** text over the same canonical content (`Content`) as `richtext` (same media type, nav, and regions) but a **literal** codec (`from_plaintext`/`to_plaintext`): delimiters stay literal, no markup, verbatim round-trip. One line; `multiline: true` admits line breaks. Constrained mark-/island-free (`Content::is_plain`); a formatted wire content is rejected (`validation::not_plain`), not stripped. **Stored as a content object spelling `codec: "plain"`**, which the content model holds to plainness itself ([CONTENT.md](CONTENT.md) § "The value") and emit projects back to the literal string. A plate receives that content object, exactly as for `richtext` (no backend reads the `text` annotation), and a plate that computes with the value takes its `str` through `qm.str(..)` ([PLATE_DATA.md](PLATE_DATA.md)), every character recovered because the value carries no marks, whitespace normalized |
+| `richtext` | Rich **formatted** prose over a canonical content (`Content`); markdown is a projection of it. One paragraph (exactly one `Para` line, no container, no islands); `multiline: true` admits block structure (paragraphs, lists, containers). A `richtext` spells `multiline:` either way, `true` or `false`, and its absence is a load error. The pre-richtext `markdown` spelling and the retired `type: richtext(inline)` token are schema load errors (`quill::field_parse_error`). **Stored as the canonical content object** |
 
 `multiline` is the one line-shape key: coercion, `validate`, the editor and
 acroform all read it, and it is valid only on `text` and `richtext`. The codec
@@ -46,10 +46,10 @@ names the replacement: `type: plaintext` (now `text`), `type: string` (now
 `text`, read as a `str` through `qm.str`), `inline:` (one line is the default)
 and `ui.multiline` (now the field's `multiline:`).
 
-### Optional cells
+### Optional value positions
 
-A trailing `?` on a cell's type token (`integer?`, `boolean?`, `text?`,
-`enum?`, `date?`, `richtext?`, `array?`, …) makes the cell **optional**: left
+A trailing `?` on a value position's type token (`integer?`, `boolean?`, `text?`,
+`enum?`, `date?`, `richtext?`, `array?`, …) makes the value position **optional**: left
 unanswered, it renders `none` rather than its type's blank. The `?` moves the
 render floor and nothing else.
 
@@ -60,21 +60,21 @@ render floor and nothing else.
 | `type: t?` | `none` | a `t` or `none` |
 
 - **Exclusive with `default:`** (`quill::optional_default`). A default answers
-  for an unanswered cell, so the cell would never render `none`.
-- **A cell only.** `object` and a variant-bearing `enum` are namespaces with no
-  rung of their own (`quill::optional_namespace`); their cells take the `?`
-  instead. A `matrix` is a cell, so `matrix?` renders an unanswered one `none`.
+  for an unanswered value position, so the value position would never render `none`.
+- **A value position only.** `object` and a variant-bearing `enum` are namespaces with no
+  source of their own (`quill::optional_namespace`); their value positions take the `?`
+  instead. A `matrix` is a value position, so `matrix?` renders an unanswered one `none`.
 - **An authored value is an answer**, `0`, `false`, `""` and `[]` included. An
   `enum?`'s `""` is the exception: it is the blank's own spelling, so it renders
   `none`.
 - **The wire admits `null`.** The transform schema projects `type: [t, "null"]`,
   and an `enum?` lists `null` beside its blank. The declaration view keeps
-  the `?`, and the authoring schema admits `null` on every cell
+  the `?`, and the authoring schema admits `null` on every value position
   ([AUTHORING.md](AUTHORING.md#the-schema)).
 - **A plate guards `none` only where a schema says `?`.** Printing `none`
   places nothing and `+` absorbs it; arithmetic, comparison, `if` and `for`
   reject it, so those branch on `!= none` first.
-- **An editor offers a way back to unanswered** on an optional cell:
+- **An editor offers a way back to unanswered** on an optional value position:
   `removeField`, the one unset verb ([Native validation](#native-validation)).
 
 ### Enum variants
@@ -93,9 +93,9 @@ classification:
       category:      { type: text, default: "" }
 ```
 
-`variants:` is the one key that changes a field's **resting shape**: the field
-rests as `{value: <member>, …the member's fields}` at every projection, where a
-variantless enum rests as a bare string. A document authors it as the container,
+`variants:` is the one key that changes a field's **stored form**: the field
+is stored as `{value: <member>, …the member's fields}` at every projection, where a
+variantless enum is stored as a bare string. A document authors it as the container,
 and the bare scalar (`classification: CUI`) is accepted as the spelling of a
 world carrying no variant answers — coercion normalizes both, so one shape
 reaches every surface downstream. `value` is reserved
@@ -109,7 +109,7 @@ could not say:
   shorten to what they mean.
 - **A UI signal.** `variants:` is keyed by member on the declaration view
   ([`Quill::schema`](#schema-emission)), so an editor shows and retires
-  cells as the discriminant changes instead of hard-coding the rule.
+  value positions as the discriminant changes instead of hard-coding the rule.
 
 **The wire carries exactly the live world, and totality is per-world.** The
 render floor emits `value` plus the selected member's fields — blank-filled as
@@ -121,10 +121,10 @@ guard, and outside it there is nothing to guard. The blank owns no field set, so
 an unanswered discriminant renders `{value: ""}` and the empty-document contract
 is untouched.
 
-**A stranded value is carried, not dropped.** An authored cell whose variant is
+**A stranded value is kept, not dropped.** An authored value position whose variant is
 out of play stays in the document and draws the non-fatal
 `validation::out_of_variant`; the render floor omits it. Dropping it at coercion
-would spend the author's answers on the ordinary editor gesture — choose CUI,
+would spend the author's answers on the ordinary editor round trip — choose CUI,
 fill the block, flip to UNCLASSIFIED to compare, flip back — and gating render
 would hand them an undraftable document. Only the wire is strict.
 
@@ -139,7 +139,7 @@ The ceiling is deliberate and enforced at load rather than discovered at render:
 | a variant field named `value` | `quill::variant_reserved_field_name` |
 | a name two variants declare *differently* | `quill::variant_field_collision` |
 
-A variant cell carries any type a card field may — prose, dates and containers included. Every surface reaches it through the same dispatcher a card field uses — coercion through `conform_value`, validation through `validate_value`, the render floor through `resolve_value`, lowering through the schema-node walk ([PLATE_DATA.md](PLATE_DATA.md)), the content read through `get_content_at` — so it behaves as a card-level field of that type does. What a cell does not carry is a `ui.group` (it sits in its discriminant's) or `variants:` of its own.
+A variant value position takes any type a card field may — prose, dates and containers included. Every surface reaches it through the same dispatcher a card field uses — coercion through `conform_value`, validation through `validate_value`, the render floor through `resolve_value`, lowering through the schema-node walk ([PLATE_DATA.md](PLATE_DATA.md)), the content read through `get_content_at` — so it behaves as a card-level field of that type does. What a value position does not carry is a `ui.group` (it sits in its discriminant's) or `variants:` of its own.
 
 **Where a world may open.** Every other container's shape is a function of the
 schema; a variant's is a function of the schema *and* the discriminant. The
@@ -148,8 +148,8 @@ live world — and the wire carries whichever one the document selects. Four
 things hold because that gap is exactly one level deep:
 
 - `variant_field` resolves a name by a flat scan across the worlds, which is
-  what lets `quill::variant_field_collision` guarantee one name is one cell.
-- A form binds once at open, so a cell is *unconditionally addressable* while
+  what lets `quill::variant_field_collision` guarantee one name is one value position.
+- A form binds once at open, so a value position is *unconditionally addressable* while
   only *conditionally live*.
 - A plate branches once over `values ∪ blank` and needs no guard inside that
   branch.
@@ -164,26 +164,26 @@ leaves the gap one level. A card's `header.classification` reads and binds as
 Every other position would deepen the gap instead, and each is refused at load:
 an array element, whose liveness would vary per index against a form bound once;
 a matrix column, inside a grid the page prints in full; and another variant's
-cell, which would make the plate's one branch a tree and the strand diagnostic a
+value position, which would make the plate's one branch a tree and the strand diagnostic a
 chain. The ban is **sticky** — an object inside any of them inherits it, rather
 than laundering a world into a position that cannot hold one.
 
 Two limits follow from the container shape and are accepted, not worked around:
-[`resolve()`](#the-resolved-value-view-resolve) reports **one** rung for the whole
+[`resolve()`](#the-resolved-value-view-resolve) reports **one** source for the whole
 container — the strongest that contributed — as it does for a typed dictionary;
 and a field set **shared** across
-several members is spelled by repeating it or sharing a YAML anchor, since a
+several members is spelled by repeating it or sharing a YAML alias, since a
 variant keys on one member.
 
-A cell is addressable one step down, exactly as a typed dictionary's property is
+A value position is addressable one step down, exactly as a typed dictionary's property is
 ([PLATE_DATA.md](PLATE_DATA.md#schema-addresses)): `classification.poc` binds a
 `qm.form-field` widget, a `qm.region` claim or an acroform widget, and
 `classification.value` the discriminant. Addressing is against the *schema*, so a
-cell is bindable in every world — a form is built once and the document selects
+value position is bindable in every world — a form is built once and the document selects
 its world later. The whole container is not bindable: its value is the container
 object, which no widget coerces.
 
-A repeated name is one **cell** of the container, not one per world: the coercion
+A repeated name is one **value position** of the container, not one per world: the coercion
 lookup and the transform schema both key on the name alone, never the
 discriminant. So every variant declaring a name must declare it identically —
 `quill::variant_field_collision` rejects disagreement at load, rather than letting
@@ -216,18 +216,18 @@ qualifications:
     detail: { type: text, default: "" }
 ```
 
-**A cell holding the held set.** Which members are held is the document's
+**A value position holding the held set.** Which members are held is the document's
 answer, as an array's length is, so the matrix is a
-[cell](#cells-and-namespaces). Its value maps each held id to an `object` of
+[value position](#value-positions-and-namespaces). Its value maps each held id to an `object` of
 the columns, and an unheld member is absent. Its blank is `{}`, nothing held;
 a `default:` is the set an unanswered document holds, and `matrix?` renders an
-unanswered one `none` ([Optional cells](#optional-cells)). An authored `{}` is
+unanswered one `none` ([Optional value positions](#optional-value-positions)). An authored `{}` is
 an answer, so it outranks a default. Each held member is a namespace over the
-columns, whose cells cut the ordinary ladder.
+columns, whose value positions cut the ordinary ladder.
 
 **Members.** Ids are snake_case identifiers
 (`quill::invalid_matrix_member`); titles are display. Ids are what the wire, the
-address and the document speak. The roster is a mapping, so it has one slot per
+address and the document speak. The roster is a mapping, so it has one key per
 id exactly as the stored value does and a duplicate is unspellable on both
 sides. The roster is the matrix's domain, not its shape, as `values:` is an
 enum's: which ids a value may hold, and what the page prints for each. No column
@@ -252,7 +252,7 @@ itself, read through the boolean coercion.
   one fails to load (`quill::seed_held_stored`, `quill::default_held_stored`,
   `quill::example_held_stored`).
 - Unticking removes the member, and its answers with it.
-- The typed write rests an empty mapping as `true`.
+- The typed write stores an empty mapping as `true`.
 - A key the matrix admits as neither a member nor an added item is refused as
   an out-of-domain enum member is (`validation::enum_violation`).
 - A roster member's `title` is the roster's, so one a document stores warns
@@ -260,7 +260,7 @@ itself, read through the boolean coercion.
 
 **Open.** `open: true` admits an **added item**: a key spelled as a member id
 whose mapping carries a `title`. It is held by being present, carries the
-columns a roster member does, and its `title` is a one-line `text` cell. The domain is
+columns a roster member does, and its `title` is a one-line `text` value position. The domain is
 the roster plus those keys, so an untitled key or one no id spells is
 `enum_violation`, whose `open` arg carries the hint toward the added spelling.
 
@@ -287,7 +287,7 @@ roster, which a plate reads through the helper rather than a copy of its own
 and its columns address one step down, `qualifications.flight_cc.detail`: a
 region on the Typst backend, a widget on acroform, where the member's address
 binds a checkbox its presence checks. An editor ticks by writing the member and
-unticks by removing it. An added item's cells address under its id
+unticks by removing it. An added item's value positions address under its id
 (`qualifications.wing_ig.title`). The member step is judged on the schema
 alone, as an index step is, so an unheld member's address resolves
 ([PLATE_DATA.md](PLATE_DATA.md#schema-addresses)).
@@ -299,7 +299,7 @@ quill's maximal fixture.
 
 **Implementation.** The loader derives two object schemas from the columns: a
 roster member's (`FieldSchema::member`) and an open matrix's added item's, a
-`title` cell besides (`FieldSchema::added_item`). `FieldSchema::matrix_member`
+`title` value position besides (`FieldSchema::added_item`). `FieldSchema::matrix_member`
 picks one for a stored key and `FieldSchema::matrix_member_at` for an address
 step; coercion, validation, composition, the unknown-key and cardinality walks,
 and the values-form read each resolve a key through them. The transform schema
@@ -309,7 +309,7 @@ the member schema, whose `additionalProperties` is the added item, and whose
 
 ### Cardinality
 
-`max:` is the count of what a cell holds, in the cell's own unit: elements on
+`max:` is the count of what a value position holds, in the value position's own unit: elements on
 an `array`, characters on a `text` or `richtext`. The sibling `type:` names the
 unit, which is why one key serves both. It is never a value bound: a number's
 magnitude is a domain, not a capacity, and a bound on one would be another key
@@ -339,27 +339,27 @@ whitespace, as none. No normalization runs.
 
 | Surface | Over the cap |
 |---|---|
-| `validate`, render | warns `validation::over_length` at the cell's own path, args `{max, actual}`, at every depth; an array's elements are capped by their `items:` |
+| `validate`, render | warns `validation::over_length` at the value position's own path, args `{max, actual}`, at every depth; an array's elements are capped by their `items:` |
 | load | a `default:` past a cap at any depth is `quill::default_over_length` (`quill::default_over_max` for elements), an `example:` `quill::example_over_length` (`quill::example_over_max`); a seed is `quill::seed_over_length` |
 | typed write | accepts the value |
 | plate | receives the value verbatim; whether it fits is the plate's judgement |
 | `acroform` | writes the cap as the widget's `/MaxLen`, except where the drawn value is past it in UTF-16 units, the viewer's count, where a viewer would cut stored text |
 | transform and authoring schemas | `quillmark:maxLength`, and `quillmark:maxItems` for an array's cap, naming the unit so a wire consumer never reads the type; JSON Schema's own `maxLength` and `maxItems` assert, and a cap never refuses |
 
-There is no `min:`. `min: 1` is `required:` by another name, and no cell is
+There is no `min:`. `min: 1` is `required:` by another name, and no value position is
 required: an unanswered one renders its `default:` or its blank
 ([`default`](#default)). It would also contradict a
 sibling `default: []`.
 
-### Content fields rest per codec
+### Content fields are stored per codec
 
-A content field's **resting form** is the shape it is stored in once anything
+A content field's **stored form** is the shape it is stored in once anything
 schema-aware has written it: the typed writer, the seeder, or `Quill::conform`
-(the bound door, [BINDINGS.md](BINDINGS.md)). Every content field rests as the
+(the bound input path, [BINDINGS.md](BINDINGS.md)). Every content field is stored as the
 canonical content object, which holds what a string cannot (anchors, block and
 island ids, content-only marks), and the object names its codec:
 
-| Codec | Rest | Emit |
+| Codec | Stored form | Emit |
 |---|---|---|
 | `richtext` | the canonical content object, no `codec` key | its markdown, lossy where markdown cannot spell a part |
 | `text` | the canonical content object spelling `codec: "plain"` | its literal text, verbatim |
@@ -381,7 +381,7 @@ field's value and leaves a `richtext` field's unspelled, whatever the stored
 object said, so a declared type change between the two rewrites the key with
 the value ([§ A declared type change rewrites stored values](#a-declared-type-change-rewrites-stored-values)).
 
-Rest is enforced only for a **declared content field**: one whose type tree
+The stored form is enforced only for a **declared content field**: one whose type tree
 bears a content leaf (`field_contains_content`), and its whole subtree conforms
 with it. Non-content-typed fields keep their authored shorthands; the typed
 write remains their canonicalizer.
@@ -390,7 +390,7 @@ write remains their canonicalizer.
 only when the field itself is one.** `reader.get_content(name)` answers for a
 whole-field leaf; `reader.get_content_at(name, path)` walks the same `items` /
 `properties` / `variants` axis conform walks, reaching an `array<richtext>`
-element, an `object`'s content property, a leaf under both, or a variant's cell.
+element, an `object`'s content property, a leaf under both, or a variant's value position.
 `reader.get(name)` projects the same subtree in one read, exporting at every
 leaf it reaches: an `array<richtext>` reads as an array of markdown strings, and
 a mixed `object` reads its content property as text beside its verbatim
@@ -398,17 +398,17 @@ scalars. A field whose type tree bears no content leaf reads as stored, the walk
 being the identity on it, and a present-null reads `null` at every type. That
 is the [values form](#the-values-form).
 Without it the caller reads the stored element and decides for itself what the
-bytes mean, which is the judgement the resting form exists to remove. The caller
-also has less to decide with: the codec is a schema fact, and a value resting as
-authored, a string, does not carry it.
+bytes mean, which is the judgement the stored form exists to remove. The caller
+also has less to decide with: the codec is a schema fact, and a value stored as
+authored, a string, does not hold it.
 
 ### A declared type change rewrites stored values
 
-Changing a field's declared type reinterprets every stored value in that field at the next bound load: `Quill::conform` derives rest from the current schema and value, holding no record of the type a value was written under, so the reinterpretation is unconditional and carries no diagnostic.
+Changing a field's declared type reinterprets every stored value in that field at the next bound load: `Quill::conform` derives the stored form from the current schema and value, holding no record of the type a value was written under, so the reinterpretation is unconditional and carries no diagnostic.
 
 The mechanism is deliberate. A type change migrates a deployed corpus with no migration script, and read-repair is the documented convergence path ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Byte-stability").
 
-Scalar → content is the lossy direction: the stored string enters the codec's import, markup delimiters are consumed as structure, and the authored text is not recoverable. A `subject` holding `Cost * Benefit Analysis *DRAFT*` rests verbatim under `text`; under `richtext` it rests as content whose text is `Cost * Benefit Analysis DRAFT` carrying an emph mark, the literal asterisks gone.
+Scalar → content is the lossy direction: the stored string enters the codec's import, markup delimiters are consumed as structure, and the authored text is not recoverable. A `subject` holding `Cost * Benefit Analysis *DRAFT*` is stored verbatim under `text`; under `richtext` it is stored as content whose text is `Cost * Benefit Analysis DRAFT` carrying an emph mark, the literal asterisks gone.
 
 **A declared type change is therefore a new quill version**, the rule [VERSIONING.md](VERSIONING.md) § "Ref Immutability" states for any content behind a canonical ref. Nothing enforces it: `check_quill_reference` compares the document's `$quill` name and selector against the loaded quill, and an in-place schema edit at the same version leaves both matching, so a document pinned to `name@0.2.0` conforms against a schema it was never authored under and the mismatch is unrepresentable.
 
@@ -442,7 +442,7 @@ main:
 
 The legacy spelling, a `ui.groups` registry on the card and a `ui.group`
 reference on each field, frames card-level fields without nesting them. It
-loads with a `quill::deprecated_groups` warning and settles at load: ungrouped
+loads with a `quill::deprecated_groups` warning and normalizes at load: ungrouped
 fields first, then each group's in registry order, whatever order they were
 declared in, with a registry entry no field names dropped. The registry's own checks are `quill::unknown_group`,
 `quill::implicit_group`, `quill::duplicate_group`, `quill::invalid_group_id`,
@@ -462,11 +462,11 @@ before judging it, so a type has one predicate. **A fatal `validation::*`
 diagnostic means the document does not render.** The pairing holds in both
 directions: a value the floor refuses carries one.
 
-The value a document rests at is a separate question from the value the floor
-builds. `letterhead_caption: HEADQUARTERS` rests as the authored scalar and is
+The value a document stores is a separate question from the value the floor
+builds. `letterhead_caption: HEADQUARTERS` is stored as the authored scalar and is
 valid, because the floor wraps it: a bare scalar is a spelling of a one-element
-list, and the schema is what disambiguates it. Landing a document at a canonical
-resting form is `Quill::conform`'s job, not validation's.
+list, and the schema is what disambiguates it. Landing a document at its
+stored form is `Quill::conform`'s job, not validation's.
 
 Conforming runs per node, so an element the floor refuses does not mistype its
 siblings: `counts: [true, "abc"]` under `integer` items is one mismatch, at
@@ -503,7 +503,7 @@ Coercion rules per type:
   paragraph for `richtext`. The empty content satisfies it, so a blank or
   blank-filled field passes. A one-line `text` drops its trailing whitespace
   first (`trim_line_end`), so the newline a clip-chomped YAML `|` keeps is no
-  second line and the value rests without it. The constraint is checked in
+  second line and the value is stored without it. The constraint is checked in
   three places: coercion (`CoercionError` for a document value; at render, a
   `richtext` one only), validation (`validation::not_single_line`, the
   `TypeMismatch` fatality class, as a backstop for a content that bypassed
@@ -515,10 +515,10 @@ Coercion rules per type:
   turns each interior line break into a space, the length held so a rendered
   region's offsets index the stored value, and warns
   `validation::line_break_folded`; `render` and `validate` admit the value,
-  and the stored value is untouched. The strict door refuses it: a typed write
+  and the stored value is untouched. The strict input path refuses it: a typed write
   fails `edit::field_not_single_line`, `Quill::conform` warns
   `conform::field_not_single_line` and leaves it as authored, and a seed fails
-  `quill::seed_not_single_line`. A stranded variant cell does not render and
+  `quill::seed_not_single_line`. A stranded variant value position does not render and
   draws no fold warning. A `richtext` holding a second block has no fold.
 - **`text` coercion and enforcement.** A `text` value rides the same
   content as `richtext`, differing only at the codec:
@@ -555,7 +555,7 @@ Coercion rules per type:
   ambiguous literal. The same strictness rejects a
   container-shaped literal on a variant-bearing enum
   (`quill::default_type_mismatch`): the container is a *document*
-  spelling, and a schema literal names the discriminant alone; the cells inside
+  spelling, and a schema literal names the discriminant alone; the value positions inside
   a world carry their literals on their own declarations
 
 ## Native validation
@@ -605,17 +605,17 @@ Every field value comes from one of a small set of **sources**, ordered by
 *commitment*: how strongly the value claims to be the real answer. This is the
 **commitment ladder**:
 
-The ladder is cut per **cell**, not per field: see
-[Cells and namespaces](#cells-and-namespaces) for which shapes are which, and
+The ladder is cut per **value position**, not per field: see
+[Value positions and namespaces](#value-positions-and-namespaces) for which shapes are which, and
 what follows for literals and for absence.
 
-| Rung | Source | Persisted into a `Document`? | Renders? |
+| Rank | Source | Persisted into a `Document`? | Renders? |
 |---|---|---|---|
 | top | authored value | yes: it *is* the document content | yes |
 | | `default:` | **never** by Quillmark: lives in the schema, interpolated only into the ephemeral render projection | yes: the fidelity value |
 | floor | the field's `blank` (`blank`) | never ([Non-persist invariant](#blank-filled-render)) | last resort |
 
-An `example:` is on no rung: it answers no cell, so no render, `resolve()` or
+An `example:` is no source: it answers no value position, so no render, `resolve()` or
 blank-fill reads it, and it reaches a document only through the
 [example document](#the-example-document), which nobody keeps.
 
@@ -629,7 +629,7 @@ unset field's value until an edit commits it. What a consumer writes is ordinary
 consumer committed it, not Quillmark.
 
 No surface owns a precedence *policy*; each **projection cuts the same ladder**
-at a different rung, and the per-rung producers are shared (`blank` for the
+at a different source, and the per-source producers are shared (`blank` for the
 floor; field ordering is declaration order, carried by the schema's ordered
 field maps rather than a sort key):
 
@@ -639,56 +639,56 @@ field maps rather than a sort key):
 | seeding | kind `seed:` › absent | (deferred to render floor) | committed `Document`: [Document seeding](#document-seeding) |
 | add-card (into a document) | the `$seed` overlay's block, else the kind's `seed:` block › absent | (deferred to render floor) | a new composable `Card`: [Document seeding](#document-seeding) |
 | example document | `example:` › kind `seed:` › absent | (deferred to render floor) | a committed `Document` nobody keeps: [The example document](#the-example-document) |
-| editor (consumer-side) | authored › `default:` › blank, resolved per field and **tagged with its source rung** | blank | Quillmark's [`resolve()`](#the-resolved-value-view-resolve) resolved-value view: value and source rung per field |
+| editor (consumer-side) | authored › `default:` › blank, resolved per field and **tagged with its source** | blank | Quillmark's [`resolve()`](#the-resolved-value-view-resolve) resolved-value view: value and source per field |
 | values (`reader.get()`) | authored only, as stored: an absent field stays absent, a scalar shorthand stays a shorthand | **none**: an absent field reads absent | the [values form](#the-values-form): the field's value with content leaves as their codec's text |
 | authoring (`to_authoring`) | the values cut, over every field and card | **none** | the [authoring document](AUTHORING.md): the values form lifted to the whole document |
 
-### Cells and namespaces
+### Value positions and namespaces
 
-A **cell** holds a value and cuts the ladder for it. A **namespace** holds cells,
+A **value position** holds a value and cuts the ladder for it. A **namespace** holds value positions,
 and its value is what they compose to. The split decides where a literal may be
 declared and how absence travels:
 
 | Shape | Kind | Why |
 |---|---|---|
-| every leaf | cell | it is the value |
-| `array` | cell | `items` fixes the element type, never the **arity**: `default: [{…}]` says what no element declaration can |
-| `matrix` | cell | the roster fixes the domain, never which members are held: `default: {}` and `default: {dco: true}` say what no column declaration can ([Matrix](#matrix)) |
-| `enum` discriminant | cell | the member is a leaf choice |
-| `object` with `properties` | namespace | the schema fixes the keys, so nothing in the value is absent from its cells |
+| every leaf | value position | it is the value |
+| `array` | value position | `items` fixes the element type, never the **arity**: `default: [{…}]` says what no element declaration can |
+| `matrix` | value position | the roster fixes the domain, never which members are held: `default: {}` and `default: {dco: true}` say what no column declaration can ([Matrix](#matrix)) |
+| `enum` discriminant | value position | the member is a leaf choice |
+| `object` with `properties` | namespace | the schema fixes the keys, so nothing in the value is absent from its value positions |
 | a variant's field set | namespace | same, once the discriminant selects the world |
 
 Two rules follow, and between them the plate is total at every depth:
 
-- **A literal is declared where its cell is.** A `default:` or `example:` on a
+- **A literal is declared where its value position is.** A `default:` or `example:` on a
   typed dictionary is a load error (`quill::default_on_namespace`,
   `quill::example_on_namespace`) naming the properties that hold it, as a container-shaped literal on a variant-bearing
   enum already is (`quill::default_type_mismatch`). The container spelling is a
-  *second* declaration of a fact the cells already carry, free to disagree with
+  *second* declaration of a fact the value positions already carry, free to disagree with
   a property's own `default:`. Schema literals are
   strict where document payloads are lenient ([Type coercion](#type-coercion)),
   so this is the same strictness, not a new kind.
-- **Absence is inherited, not terminal.** An absent namespace makes every cell
-  below it absent, and each cell then cuts its own ladder — so a property's
+- **Absence is inherited, not terminal.** An absent namespace makes every value position
+  below it absent, and each value position then cuts its own ladder — so a property's
   `default:` is reached whether or not the document authored the container above
-  it, at any depth. Resolution is therefore a **descent**: the rung supplies a
-  cell's *entry*, and the same composition runs over it whichever rung it came
+  it, at any depth. Resolution is therefore a **descent**: the source supplies a
+  value position's *entry*, and the same composition runs over it whichever source it came
   from. A partial element inside an `array` `default:` is completed against
   `items` exactly as an authored element is, and writing `contact: {}` is a
   no-op rather than an edit that changes the render.
 
-A namespace has no rung of its own, so what
+A namespace has no source of its own, so what
 [`resolve()`](#the-resolved-value-view-resolve) reports for one is derived: see
 that section.
 
 The consumer-side `Document`-payload × schema join is a **non-goal**:
 [`resolve()`](#the-resolved-value-view-resolve) supersedes it. The
-editor reads value and source rung from one core call rather than re-cutting
+editor reads value and source from one core call rather than re-cutting
 the ladder in consumer code. Diagnostics stay `Quill::validate`'s
 (a consumer merges them with its own diagnostic producers regardless), and schema
 guidance (labels, descriptions, groups) reads from `Quill::schema`.
 
-One seam is deliberate, not uniform: `blank` is a property of the field
+One exception is deliberate: `blank` is a property of the field
 rather than a member of the type's domain — an `enum`'s blank is `""`, outside
 `values:` (there is no empty enum member). It is detailed below.
 
@@ -697,21 +697,21 @@ rather than a member of the type's domain — an `enum`'s blank is `""`, outside
 `reader.resolve()` (core `TypedReader::resolve`, over the `Quill::resolve`
 producer) cuts the render ladder into
 observable data: for every declared field, the value `compile_data` would emit
-into the plate, tagged with its source rung (`authored` / `default` / `blank`):
+into the plate, tagged with its source (`authored` / `default` / `blank`):
 byte-for-byte with the plate on every fixture. The shape is nested: a `main`
 card and a `cards` list, each card's `fields` an ordered array of `{ name,
 value, source }` rows in declaration order: order is structural, not object-key
 order. The card body is a `body` sibling on the card, not a row in `fields`:
 present iff the kind enables a body (`enabled: false` undeclares it, so `body` is
 `null`), its source only ever `authored` (non-blank) or `blank` (blank).
-Source is one **top-level** rung per field; a nested blank-fill inside an authored
+Source is reported once per field, at the **top level**; a nested blank-fill inside an authored
 dict or array is a projection detail of the value, not a per-subpath source. The
-rung is therefore coarser the deeper a field nests, and a container authored at
+source is therefore coarser the deeper a field nests, and a container authored at
 all reads `authored` however much of it the document left to the floor.
 
 The coarseness is recoverable, because **the ladder is per-address local**:
 `resolve_value_sourced` descends a present container with the property's own
-value against the property's own schema node, so a nested rung is a function of
+value against the property's own schema node, so a nested source is a function of
 those two and never of the container's. A surface holding both derives it. Two
 positions are not derivable that way, and are what a per-subpath view would be
 for: a **content**-typed `default:`, whose plate form is the `Content` imported
@@ -728,12 +728,11 @@ site (the Tier-1 cut, [BINDINGS.md](BINDINGS.md)).
 
 ### The values form
 
-A document has three forms, one per question. **Stored** is the at-rest
-value, verbatim and quill-free ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)).
+A document has three forms, one per question. **Stored** is the stored form, verbatim and quill-free ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)).
 **Values** is stored with every content leaf decoded to its codec's text, so a
 consumer edits plain values. **Resolved**
 ([`resolve()`](#the-resolved-value-view-resolve)) is values blank-filled and
-render-coerced, each cell tagged with its rung. The
+render-coerced, each value position tagged with its source. The
 [authoring document](AUTHORING.md) is the values form lifted to the whole
 document, the JSON a model reads and writes. `reader.get()` answers what the
 document *carries*; `reader.resolve()` answers what the render projection
@@ -746,7 +745,7 @@ document *carries*; `reader.resolve()` answers what the render projection
 codec's text — `richtext` markdown, `text` literal — at **every depth the
 field's type tree reaches**: an `array<richtext>` is an array of markdown
 strings, a mixed `object` projects its content property and passes its scalars
-verbatim, a variant carries its discriminant verbatim and each cell through its
+verbatim, a variant carries its discriminant verbatim and each value position through its
 own codec. A present-null rides as `null` at every type, apart from
 authored-empty.
 
@@ -756,10 +755,10 @@ decodes under neither encoding raises `edit::field_decode`; the verbatim
 `payload().get` is the read that opens a document too dirty to project, and the
 load that admitted it already warned.
 
-`set` writes one cell of the form and `set_all` a batch, every field resolving
+`set` writes one value position of the form and `set_all` a batch, every field resolving
 before any is applied, so a consumer submitting a whole form sees every typo in
-one pass. Both **canonicalize what they write**: a cell keeps its authored
-shorthand until that cell is written. A content cell written through either is
+one pass. Both **canonicalize what they write**: a value position keeps its authored
+shorthand until that value position is written. A content value position written through either is
 a cold import — anchors on it do not survive, and `revise_field` is the write
 that keeps them.
 
@@ -768,10 +767,10 @@ What a read does not carry, and what a write does to it:
 
 | Not carried | Written back |
 |---|---|
-| identity anchors, content-only marks | lost on the written cell, which is a cold import |
-| nested YAML comments | cleared on the written cell, as every write path clears them |
+| identity anchors, content-only marks | lost on the written value position, which is a cold import |
+| nested YAML comments | cleared on the written value position, as every write path clears them |
 | the author's exact markdown | export canonicalizes: mark nesting, escaping, trailing whitespace. The *document* round-trips, not the string a consumer sent |
-| `default:` rungs, blanks | never read (sparse) |
+| `default:` values, blanks | never read (sparse) |
 
 `$ext` is the consumer's own card key ([PROGRAMMATIC.md](PROGRAMMATIC.md)
 § "Addressing cards for re-render") and no field write reaches it: it has its
@@ -784,23 +783,23 @@ survives every write through this lane.
 it be *well-formed* ([What blocks a render](#what-blocks-a-render)); an absent or
 present-null cell renders and draws no diagnostic (see
 [Native validation](#native-validation)). No field is required and no verdict
-sits beside the render: what an unanswered cell shows is the quill's
+sits beside the render: what an unanswered value position shows is the quill's
 `default:`, blank or `?`.
 
 The render path
 (`QuillConfig::compile_data` and the ladder it cuts, `ladder_sourced`, both in
 core's `quill::compose`; the engine calls it) uses **blank-filled render**:
-every absent schema **cell** is resolved by precedence: an authored value, else
+every absent schema **value position** is resolved by precedence: an authored value, else
 the `default:`, else the field's blank (`blank`, defined below): in the
 plate-JSON projection that feeds the backend **only, never in the persisted
 document**.
 
 The fill is **total at every depth**, which is what lets a plate read a declared
 address directly rather than through a guarded accessor
-([PLATE_DATA.md](PLATE_DATA.md)). Totality does not depend on which rung supplied
+([PLATE_DATA.md](PLATE_DATA.md)). Totality does not depend on which source supplied
 a value, or on how much of a container the document authored: absence is
-inherited and each cell cuts its own ladder
-([Cells and namespaces](#cells-and-namespaces)), so a declared address is present
+inherited and each value position cuts its own ladder
+([Value positions and namespaces](#value-positions-and-namespaces)), so a declared address is present
 whether its container was written, left out, or filled from an `array`
 `default:`.
 
@@ -825,7 +824,7 @@ domain.** It is both the render floor and the value a reader recognizes as
 | `integer`, `number` | `0` |
 | `boolean` | `false` |
 | `enum` with `variants:` | `{value: ""}` — the container holding the blank |
-| any optional cell (`t?`) | `null`, lowered to Typst `none` ([Optional cells](#optional-cells)) |
+| any optional value position (`t?`) | `null`, lowered to Typst `none` ([Optional value positions](#optional-value-positions)) |
 
 Nothing forces an enum's blank to sit inside `values:`, and putting it there
 destroys it: the floor would return a real choice nobody made, and a cosmetic
@@ -843,7 +842,7 @@ fails to load), while the transform schema is the *wire* contract and emits
 `enum: ["", …values]`, so a standard JSON-Schema validator accepts what
 Quillmark accepts. A consumer's picker keeps unset a real, re-selectable option,
 never a vanishing placeholder. Unset is `removeField`, the one unset verb; a
-stored `""` is an [answer](#optional-cells) and outranks a `default:`.
+stored `""` is an [answer](#optional-value-positions) and outranks a `default:`.
 `ui.blank_title` labels the blank wherever a consumer draws it.
 
 **At `integer`, `number` and `boolean` the blank reads as an answer**, and so
@@ -852,8 +851,8 @@ does any `object` or `array` over them, since their blank is the recursive one:
 `false`. A uniform wire `none` for those types would be type-*absent* rather than
 type-*minimal*, and Typst arithmetic and comparison reject it, which would cost
 every plate the totality the floor exists to buy. So the floor stays
-type-minimal, and a cell whose plate must see "unanswered" declares it:
-`type: integer?` renders `none` ([Optional cells](#optional-cells)).
+type-minimal, and a value position whose plate must see "unanswered" declares it:
+`type: integer?` renders `none` ([Optional value positions](#optional-value-positions)).
 
 `blank` is the shared producer behind the render floor: for authored, blank, and
 seeded documents alike (see [QUILL.md](QUILL.md#the-plate-contract)).
@@ -873,16 +872,16 @@ wherever a `date` value is, authored or declared as a `default:`, at any depth.
 It is not a `datetime` value.
 
 Core never reads a clock. The date is a required input to the compile,
-supplied by the host at every door that turns a document into plate data:
+supplied by the host at every input path that turns a document into plate data:
 `compile_data` / `compile_checked`, `Quill::resolve` / `reader.resolve`, and
-`Engine::open` / `Engine::render`. A `today` cell and a Typst plate's
+`Engine::open` / `Engine::render`. A `today` value position and a Typst plate's
 `datetime.today()` both render it. A session keeps the date it was opened with
 for every `update`.
 
 - **It stores as written.** `reader.get()`, storage and the authoring
   document carry `today`; a document never holds the day it was rendered.
-- **`resolve` reports it under its own rung.** The value is the rendered date,
-  the source is the rung that wrote `today` (`authored` or `default`).
+- **`resolve` reports it under its own source.** The value is the rendered date,
+  the source is the one that wrote `today` (`authored` or `default`).
 - **Floating is a per-document choice.** `default: today` floats every document
   that leaves the field unset; an authored `today` floats one document; a
   written date pins it.
@@ -899,9 +898,9 @@ other than a well-formed answer falls in one of three classes:
 
 | Class | Input | Render | Signal |
 |---|---|---|---|
-| Unanswered | a declared cell left absent or present-null | blank-fills it | none |
-| Malformed | markup the grammar cannot read, or a value that will not read as its declared cell's type | fails | `parse::*` errors; `validation::type_mismatch`, `enum_violation`, `format_violation`, `coercion_failed`, `not_single_line`, `not_plain`, `held_stored` |
-| Unclaimed | input no declaration reads | renders; no declared cell reads it | a warning naming the input |
+| Unanswered | a declared value position left absent or present-null | blank-fills it | none |
+| Malformed | markup the grammar cannot read, or a value that will not read as its declared value position's type | fails | `parse::*` errors; `validation::type_mismatch`, `enum_violation`, `format_violation`, `coercion_failed`, `not_single_line`, `not_plain`, `held_stored` |
+| Unclaimed | input no declaration reads | renders; no declared value position reads it | a warning naming the input |
 | Folded | a line break inside a one-line `text` value | renders it as a space | `validation::line_break_folded` |
 
 The `validation::*` severity is the class: an `Error` is malformed, a `Warning`
@@ -910,7 +909,7 @@ coercion the floor makes on a value its type refuses, and it guesses no
 meaning: every character renders, a break as a space. No render reads
 `$seed`, so every check on it warns, a malformed overlay value included.
 
-**Malformed is fatal because the plate is total.** A declared cell always holds
+**Malformed is fatal because the plate is total.** A declared value position always holds
 a value ([Blank-filled render](#blank-filled-render)), so a value Quillmark
 cannot read leaves it only substitutes, and each asserts something false. The
 blank says nobody answered. A `default:` says the author accepted it. A guessed
@@ -928,7 +927,7 @@ missing its kind line or code fenced with tildes, and reading it as either is a
 guess. An undeclared kind is different: the block says it is a card, and only
 the schema does not know the name.
 
-**Unclaimed renders because it displaces nothing.** Every declared cell still
+**Unclaimed renders because it displaces nothing.** Every declared value position still
 resolves from its own ladder, so the page asserts nothing the author did not
 write. What it loses is the author's intent, and a typo is the usual cause. So
 the input warns: a render that ignored it otherwise looks identical to one that
@@ -938,7 +937,7 @@ read it.
 |---|---|---|
 | a card whose `$kind` the quill does not declare | `validation::unknown_card` | in `$cards`, fields verbatim, `$kind` as authored, no `$body` |
 | body prose under `body.enabled: false` | `validation::body_disabled` | absent |
-| a variant cell outside the selected world | `validation::out_of_variant` | absent ([Enum variants](#enum-variants)) |
+| a variant value position outside the selected world | `validation::out_of_variant` | absent ([Enum variants](#enum-variants)) |
 | elements past an array's `max:` | `validation::cardinality` | verbatim; the plate's own rule leaves the surplus off the page ([Cardinality](#cardinality)) |
 | characters past a text field's `max:` | `validation::over_length` | verbatim ([Cardinality](#cardinality)) |
 | a `$seed` overlay naming no declared kind or field, or a `$body` its kind disables | `validation::seed_unknown_kind`, `seed_unknown_field` | absent, as `$seed` always is |
@@ -946,7 +945,7 @@ read it.
 | a key the schema does not declare at its position, at any depth of a claimed card | `validation::unknown_field` | verbatim; absent inside a variant container, and a `$path` key absent from a Typst plate's data, which spells each typed dictionary's address with it |
 
 `validation::unknown_field` names the likeliest fix. A key one world of a
-sibling variant declares is that world's cell written beside its discriminant
+sibling variant declares is that world's value position written beside its discriminant
 rather than under it, so the hint says to nest it (args `container`,
 `variant`). Otherwise a declared name the document leaves unwritten, within a
 third of the key's length in edits and ignoring case, is the likely typo
@@ -965,7 +964,7 @@ claims keeps its place in `$cards`, so the array stays index-aligned with the
 document. A plate reads such input only through a total accessor and falls
 through on a kind it does not know ([PLATE_DATA.md](PLATE_DATA.md#data-shape)).
 `$body` is schema-defined and a variant's wire is closed, so the prose and
-cells in the table marked absent do not cross.
+value positions in the table marked absent do not cross.
 
 ## Document seeding
 
@@ -987,13 +986,13 @@ card, so the load refuses it (`quill::seed_redundant`); a seeded blank is the
 persisted blank the [Non-persist invariant](#blank-filled-render) forbids.
 Starter content for the document itself lives in a template's own body.
 
-**Seed-commits-rest.** A seeded content value — a seed's content field, and
-its `$body` — commits its codec's resting form (a richtext field and
+**Seed-commits-stored.** A seeded content value — a seed's content field, and
+its `$body` — commits its codec's stored form (a richtext field and
 the body the canonical content, a text field its literal string), so a
-seeded document is at rest from birth: `conform` of one is a byte no-op, and a
+seeded document is in its stored form from birth: `conform` of one is a byte no-op, and a
 seed → store → load → conform cycle cannot move a hash on a document nobody
 edited. An overlay field commits through the same strict write the typed writer
-uses, which is what makes the seeder and the bound door agree rather than
+uses, which is what makes the seeder and the bound input path agree rather than
 merely coincide.
 
 Content literals are imported once at quill load into a `#[serde(skip)]`
@@ -1025,7 +1024,7 @@ violation in a `default:` is a load error there.
   value is committed as ordinary authored content, indistinguishable from
   hand-authored input; whether it came from seeding or later authoring is not
   recorded, and correctness and renderability do not depend on the distinction.
-  The commitment *rung* is a separate axis, reported on read: the
+  The commitment *source* is a separate axis, reported on read: the
   [`resolve()`](#the-resolved-value-view-resolve) projection tags each
   field `authored` / `default` / `blank`, and a seeded value reads as
   `authored`, being document content.
@@ -1069,7 +1068,7 @@ Both levels are checked by one walker, as the document values `seed_card`
 commits, so a seeded card draws no diagnostic `validate` would raise on it:
 
 - every key names a field of the kind or is `$body`, at every depth, and no
-  cell sits outside its variant world;
+  value position sits outside its variant world;
 - `$body` is markdown that imports, and needs the kind's body enabled;
 - each value passes its field's type, enum, content and `max:` checks.
 
@@ -1097,21 +1096,21 @@ is the `overlay = None` case.
 
 `Quill::example_document` is the quill filled in with made-up values, to show
 it in use: the seeded document with every declared `example:` committed as its
-cell's value and each kind's `body.example` as its body. It commits through
-`seed_card`'s write, so it is at rest from birth as a seeded document is. Nobody
+value position's value and each kind's `body.example` as its body. It commits through
+`seed_card`'s write, so it is in its stored form from birth as a seeded document is. Nobody
 keeps it: starter content someone keeps is a template.
 
 - **An example outranks a seed.** A kind's `seed:` is a prompt and an
-  `example:` a sample, so where both name a cell the example commits; a seeded
-  cell no example names keeps its seed, and the body takes `body.example` over
+  `example:` a sample, so where both name a value position the example commits; a seeded
+  value position no example names keeps its seed, and the body takes `body.example` over
   the seed's `$body`.
-- **A slot declaring none composes one from below.** A typed dictionary commits
+- **A value position declaring none composes one from below.** A typed dictionary commits
   its properties' examples, an array one element from its `items`, a typed
   table one row from its columns, and a matrix its roster's first member held
-  with its columns' examples. A slot's own example wins over what its children
+  with its columns' examples. A value position's own example wins over what its children
   compose, so a table's rows replace its columns'.
 - **A world opens on the discriminant's example.** A variant-bearing enum's
-  example selects its world, and that world's cells commit theirs; with no
+  example selects its world, and that world's value positions commit theirs; with no
   example, the world is the `default:`'s, and the blank opens none.
 - **`None` where nothing commits.** A quill declaring no example, or only ones
   no world opens, has no example document. A root `example.md` is an ordinary
@@ -1127,7 +1126,7 @@ every value in it is the quill author's own ([CLI.md](CLI.md)).
 
 - Field types, constraints, and `enum`/`default`/`example` annotations
 - `title` on fields and cards: a literal label, which the authoring schema carries beside the description, and which no `ui` key carries, since `ui` never reaches the authoring schema
-- `ui` hints on fields (`group`, `compact`, `blank_title`, `layout`) and on cards (`groups`), as settled at load ([Grouping](#grouping)). Field display order is not a hint: it is the key order of the emitted `fields`/`properties` maps (declaration order)
+- `ui` hints on fields (`group`, `compact`, `blank_title`, `layout`) and on cards (`groups`), as normalized at load ([Grouping](#grouping)). Field display order is not a hint: it is the key order of the emitted `fields`/`properties` maps (declaration order)
 - `body` blocks on cards (`enabled`, `description`, `example`)
 - `seed` on a card kind that declares one, in the `$seed.<kind>` shape
 
@@ -1172,7 +1171,7 @@ The type-gated keys:
     inert on it by design, and a consumer that cannot draw the control — a width
     that will not hold the columns, a cell renderer that will not take a block —
     falls back to its own choice for the type. Shape is not among its reasons:
-    the contract already settled it.
+    the contract already decided it.
 
   `flat` is valid only on an `object`, and not on an array's element, whose row
   has no field list around it; `quill::invalid_ui` names the field anywhere
@@ -1192,30 +1191,30 @@ The type-gated keys:
 
 ### `default`
 
-A slot declares one value, its `default`: the value the *majority* of authors
+A value position declares one value, its `default`: the value the *majority* of authors
 want. Because most authors want it, the field can be omitted entirely: at
 render time the default fills any field the document leaves out (an authored
 value always wins: `ladder_sourced` in core's `quill::compose`). The authoring
-schema carries it as the slot's JSON Schema `default`. A blank `default:` (`""`,
+schema carries it as the value position's JSON Schema `default`. A blank `default:` (`""`,
 `[]`, `{}`) renders exactly as no default does; `0` and `false` are values.
 Whether an author should answer a field is its `description`'s to say.
 
-A slot's `title` and `description` are text, not values: `title` labels it and
+A value position's `title` and `description` are text, not values: `title` labels it and
 `description` guides it, a format hint included (`description: Name as signed,
-as in FIRST M. LAST, Capt, USAF.`). A sample value is the slot's
+as in FIRST M. LAST, Capt, USAF.`). A sample value is the value position's
 [`example`](#example). A card kind's [`seed:`](#kind-seeds-and-document-overlays)
-is not the slot's: it is content written into each new card, and a placeholder
+is not the value position's: it is content written into each new card, and a placeholder
 there prints until someone replaces it.
 
-`default:` means only the value an unanswered cell renders; a `?` on the type
-moves that floor to `none` ([Optional cells](#optional-cells)). The schema asks
-nothing further of a cell: no declaration makes one required, and no diagnostic
+`default:` means only the value an unanswered value position renders; a `?` on the type
+moves that floor to `none` ([Optional value positions](#optional-value-positions)). The schema asks
+nothing further of a value position: no declaration makes one required, and no diagnostic
 names an unanswered one. Null ≡ absent holds on every surface. There is no
 `required:` key; an unknown key is a load error (`quill::field_parse_error`).
 
 ### `example`
 
-A slot declares at most one `example`: a made-up value of its type, showing
+A value position declares at most one `example`: a made-up value of its type, showing
 what an answer looks like. It is checked at load exactly as `default` is, under
 its own codes: type coercion (`quill::example_type_mismatch`), enum membership
 (`quill::example_not_in_enum`), format (`quill::example_format_violation`), a
@@ -1223,12 +1222,12 @@ stored tick (`quill::example_held_stored`), `max:`
 (`quill::example_over_max`, `quill::example_over_length`) and content import
 (`quill::richtext_example_import`). A typed dictionary refuses one
 (`quill::example_on_namespace`), and a variant-bearing enum's is its
-discriminant alone. It may sit beside a `default`, and on an optional cell.
+discriminant alone. It may sit beside a `default`, and on an optional value position.
 
-An `example` never answers a cell: the ladder stays authored › `default:` ›
+An `example` never answers a value position: the ladder stays authored › `default:` ›
 blank, and no document commits it but the
 [example document](#the-example-document). `schema()` emits it after
-`default`, and the authoring schema as the slot's `examples`.
+`default`, and the authoring schema as the value position's `examples`.
 
 A card's `body` block takes two keys beside `enabled`: `description`, text
 saying what the body holds, and `example`, markdown that imports without a drop

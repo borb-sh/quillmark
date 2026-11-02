@@ -189,7 +189,7 @@ A bound field's kind is derived from the **capability of the resolved schema fie
 | array of the above (scalar or prose) | **text**: elements joined with newlines |
 | `object`, `matrix`, or array of objects | **load error** `acroform::unbindable_field` |
 
-A container has no widget shape of its own; the cells inside it do, and each binds at its own address. A matrix member's own address is its tick, a checkbox at `qualifications.flight_cc` checked when the document holds the member, and its columns are text widgets beside it (`qualifications.flight_cc.detail`). An open matrix fails to load (`quill::open_matrix_unsupported`): a form has no widget for an item a document adds.
+A container has no widget shape of its own; the value positions inside it do, and each binds at its own address. A matrix member's own address is its tick, a checkbox at `qualifications.flight_cc` checked when the document holds the member, and its columns are text widgets beside it (`qualifications.flight_cc.detail`). An open matrix fails to load (`quill::open_matrix_unsupported`): a form has no widget for an item a document adds.
 
 A text widget bound to a `text` or `richtext` field declaring `max:` carries it as `/MaxLen`, so a viewer stops input at the cap. A value already past the cap stamps without `/MaxLen`, since a viewer would otherwise cut the value the document holds. The widget counts as a viewer does, in UTF-16 units of the drawn text, so a value under the cap that holds a character outside the Basic Multilingual Plane, such as an emoji, can also stamp without it. `validate` warns `validation::over_length` on a value past the cap either way. A scalar array's `max:` counts elements, so the joined widget carries none.
 
@@ -287,7 +287,7 @@ pub struct RenderedRegion {
     pub field: String,            // schema field path
     pub page: usize,              // 0-based
     pub rect: [f32; 4],           // [x0, y0, x1, y1], PDF pt, bottom-left origin
-    pub span: Option<[usize; 2]>, // USV [start, end) of the covered content; None for a scalar/widget
+    pub span: Option<[usize; 2]>, // scalar [start, end) of the covered content; None for a scalar/widget
 }
 ```
 

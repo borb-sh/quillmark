@@ -1,5 +1,5 @@
-//! Conform-on-load: the bound door that lands a document at its canonical
-//! rest (`prose/canon/SCHEMAS.md` § "Content fields rest per codec").
+//! Conform-on-load: the bound input path that lands a document at its stored
+//! form (`prose/canon/SCHEMAS.md` § "Content fields are stored per codec").
 //!
 //! The walk is the typed write driven by the schema instead of by a caller:
 //! every content-bearing field goes through the same [`resolve_field_write`]

@@ -151,7 +151,7 @@ reachable elsewhere. A malformed `quill` string carries
 wherever a reference is parsed. And `edit::invalid_payload` names a malformed
 item list rather than a malformed field (a duplicate key, a field count past the
 §8 bound, a `$` entry twice, a comment spanning lines). Three of the four reach
-this door alone; the count also reaches an addressed mutator, because it is the
+this input path alone; the count also reaches an addressed mutator, because it is the
 one invariant a caller holding a `(name, value)` pair cannot check for itself —
 so `storeField` on a full card refuses under the code the wire already spells
 for it, anchored at the card that is full.
@@ -213,7 +213,7 @@ families:
     blank line or another `<table>`;
   - `table:row` for an HTML table's row too short for its grid,
     `table:text` for text outside every cell, and `table:size` for a
-    table's rows past the `MAX_TABLE_CELLS` slots a document's tables share;
+    table's rows past the `MAX_TABLE_CELLS` cells a document's tables share;
   - `<tag>[<attr>]` for one attribute of an HTML table's tag that drops,
     such as `td[nowrap]` or `table[widths]`;
   - `footnote` for a footnote definition nothing references, a second
@@ -265,12 +265,12 @@ families:
   `text` where the text or its blocks read back otherwise. A `*`,
   `_` or `~~` mark is written over its text without the whitespace at its
   edges, and names its full range here.
-- **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
+- **`conform::*`: stored-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each
   is the `edit::*` diagnostic that write would have raised, re-namespaced and
   demoted to `Severity::Warning` with its `args` and `path` intact: the value
-  rests as authored rather than being refused or silently retyped, so the state
+  stays as authored rather than being refused or silently retyped, so the state
   is repairable. The walk is stateless, so a repeat conform re-emits the
   identical set. Its scope is the content fields: a field whose type tree bears
   no content leaf never enters the walk, so a scalar the strict write would
@@ -630,7 +630,7 @@ Every `conform::*` row is reachable only through the content-field walk, so the 
 
 `validation::*`, `edit::*`, and `parse::*` are the codes an end user meets, and the table covers them. The rest carry no args, which is the domain's shape rather than a phase of the work:
 
-- **`quill::*`** is quill-authoring. Its reader is a template author debugging `Quill.yaml`, the one audience for whom canonical English is the deliverable. Three of its codes are `format!`-built per slot besides.
+- **`quill::*`** is quill-authoring. Its reader is a template author debugging `Quill.yaml`, the one audience for whom canonical English is the deliverable. Three of its codes are `format!`-built per literal key (`default:`, `example:`) besides.
 - **`typst::*`** is a closed set (`error_mapping.rs`), but a coarse one: the compile codes classify a Typst diagnostic without taking it apart, so the detail stays in the message that carries it.
 
 Because those codes carry no args, every consumer template falls back on them by the rule above. That is what makes a surface covering a third of the codes total rather than partial.

@@ -25,7 +25,7 @@ them.
   the config and finds the backend's own files as `open` does, a Typst plate
   or an acroform `Form.yaml` bound against the schema and `form.pdf`.
 - **`check` is the document's verdict, `validate` the quill's.** `check` parses
-  each `MARKDOWN_FILE` through the bound door (`Quill::parse`) and prints the
+  each `MARKDOWN_FILE` through the bound input path (`Quill::parse`) and prints the
   parse warnings and every `Quill::validate` diagnostic, under the file's path.
   Without `--regions` it compiles nothing, so a plate failure is `render`'s to
   find; a construct the backend declines draws `backend::declined_construct`.

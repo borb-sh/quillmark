@@ -1561,7 +1561,7 @@ impl QuillConfig {
 
     /// Refuse a `?` the cell cannot honour: beside a `default:`, which answers
     /// for an unanswered cell so it never renders `none`, and on a namespace,
-    /// which has no rung of its own to leave unanswered.
+    /// which has no source of its own to leave unanswered.
     fn validate_optional(schema: &FieldSchema, owner_label: &str, errors: &mut Vec<Diagnostic>) {
         if !schema.optional {
             return;

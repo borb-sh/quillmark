@@ -28,7 +28,7 @@ for human authors.
   `fields.kind` and nothing is reserved at the field level.
 - A field's value is its values form: a `richtext` leaf is Markdown, a `text`
   leaf its literal string, and every other value is as stored, at every depth.
-- A variant-bearing enum is its container `{value, …the world's cells}`, as it
+- A variant-bearing enum is its container `{value, …the world's value positions}`, as it
   is in YAML; the bare discriminant is the shorthand coercion accepts.
 - `$quill`, `$ext` and `$seed` never appear. The quill is the request's, and
   the import stamps it.
@@ -55,12 +55,12 @@ there is the null ≡ absent case.
 schema is the same builder under `SchemaCodec::Content`, so both read one
 per-field projection and differ only where the codec does:
 
-| | `Content` (plate seam) | `Text` (authoring) |
+| | `Content` (plate) | `Text` (authoring) |
 |---|---|---|
 | `richtext` leaf | `{type: object, contentMediaType: application/quillmark-content+json}` | `{type: string, contentMediaType: text/markdown}` |
 | `text` leaf | the content object plus `quillmark:plain` | `{type: string}` |
-| `null` | admitted on an optional cell | admitted on every cell |
-| variant-bearing enum | one object, every world's cells flattened | `oneOf`: one branch per world, its `value` a `const`, one branch for the worldless members and the blank, the bare discriminant, `null` |
+| `null` | admitted on an optional value position | admitted on every value position |
+| variant-bearing enum | one object, every world's value positions flattened | `oneOf`: one branch per world, its `value` a `const`, one branch for the worldless members and the blank, the bare discriminant, `null` |
 | undeclared keys | admitted | refused: `additionalProperties: false` on every object |
 | annotations | none | `title`, `description`, `default`, `examples` from `example:` |
 | envelope | `properties` with `$body`, `$defs.<kind>_card` | `{fields, body, cards}`, each kind a `$defs.<kind>` with `kind` a `const` |
@@ -74,7 +74,7 @@ reads as no card or no body validates. A variant-bearing enum's `default:` and
 member admits `true` and `false` beside its member object, as the values form
 holds a ticked member with no columns as `true`.
 
-**Closed to the writer, open at rest.** The envelope, each card, `fields`,
+**Closed to the writer, open in storage.** The envelope, each card, `fields`,
 every typed dictionary, every variant world and every closed matrix refuse a
 key the quill does not declare, so a model that misspells or invents a field
 fails the schema rather than landing a key nothing reads. An open matrix's
@@ -110,7 +110,7 @@ field rides out verbatim, and the schema refuses it there.
 `Quill::from_authoring(&value)` is the JSON twin of
 [`Quill::parse`](BINDINGS.md): it builds the document the value describes
 under this quill's `$quill` (`name@MAJOR.MINOR`), then conforms it, so the
-result rests as a parsed document does.
+result is stored as a parsed document is.
 
 - **Shape is refused.** A value that is not the envelope (a non-object, an
   unknown key, a card with no `kind`, a non-string body, an empty field name)
@@ -140,7 +140,7 @@ therefore diffs against the canonical export, not the model's string.
 Two documents bind a plate ([QUILL.md](QUILL.md#the-plate-contract)): the
 **empty document** (`Quill::empty_document`) and the **seeded document**
 (`Quill::seed_document`). The **example document**
-(`Quill::example_document`) fills every cell an `example:` answers. None is an
+(`Quill::example_document`) fills every value position an `example:` answers. None is an
 LLM surface of its own: a model reads the schema and, to edit, the export of
 the document at hand.
 

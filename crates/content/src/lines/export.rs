@@ -3102,7 +3102,7 @@ mod tests {
     /// Every tag on a line moves to its end where a tag in place would change
     /// what the line imports to, marked `at="line"`, and none is written where
     /// the end changes it too. The lines and points here are hand-made, so
-    /// each rung is met.
+    /// each case is met.
     #[test]
     fn a_line_its_tags_would_change_holds_them_at_its_end_or_not_at_all() {
         // `!` and `[x](u)` parted by a tag are text and a link, not an image.

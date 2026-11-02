@@ -189,7 +189,7 @@ class Document:
     ) -> Receipt: ...
 
 # A content value: `text` (a `\n` opens a block, U+2028 is a hard break, U+FFFC
-# an island's slot), `blocks`, and the optional `containers`, `marks`,
+# an island's character), `blocks`, and the optional `containers`, `marks`,
 # `anchors`, `islands` and `codec`, which a `text` field's value spells
 # `"plain"`. Offsets count code points.
 Content = dict[str, Any]

@@ -7,9 +7,40 @@
 
 One content value per card body, `richtext` field or `text` field: flat text, explicit blocks and containers, range marks, comment anchors, and islands that hold rich text of their own. Every structural part has an id and nothing derived is stored. Every edit is a `Change` that applies, inverts and composes, and a value two concurrent edits merged into an invalid state repairs deterministically.
 
+## Glossary
+
+Each term below means one thing across `prose/canon`. The last column lists the words and senses retired for it; `scripts/check-canon.mjs` fails on any of them anywhere in canon outside this table, a trailing `*` standing for any word ending.
+
+| Term | Meaning | Retired |
+|---|---|---|
+| block | One `\n`-separated segment of a value's text and its record in `blocks`: kind, attributes and container path. | |
+| container | A list, list item or quote. A block's path names the containers it sits in, outermost first. | |
+| mark | Formatting over a range `[start, end)` of a value's text: `strong`, `link` and the rest of the mark axis. | "punctuation mark" |
+| anchor | A comment handle over a range or a point of a value's text, under an id the host mints ([COMMENTS.md](COMMENTS.md)). | "YAML anchor" |
+| island | A table, image, footnote, equation or `x-` island, held at one `U+FFFC` in the text, its island character, with props and slots. | "slot character" |
+| slot | A nested `Content` an island holds under an id: a table cell's content, a footnote's `note`, an `x-` island's own. Only an island has slots. | "slot count", "slot order", "field slot", "card slot" |
+| cell | One row and column of a table. Its content is a slot holding one paragraph. | "optional cell*", "variant cell*", "content cell*", "declared cell*", "unanswered cell*", "cells and namespaces" |
+| incarnation | One life of a block record, container or island under an id, from the step that puts it to the step that removes it. An id put back after a removal is a new incarnation, and a step aimed at the old one does not land on it (§ "Rebasing a change"). | |
+| scalar | A Unicode scalar value, the unit every stored offset counts. A binding converts its host's units at its boundary. | "USV*" |
+| canonical form | The one spelling `normalize` gives a valid value. A write takes a value only in it (§ Validity). | "settl*" |
+| stored form | The shape a field is stored in once a schema-aware write lands it: `Quill::conform`, the typed writer or the seeder. It is what `toStored` writes ([SCHEMAS.md](SCHEMAS.md) § "Content fields are stored per codec"). | "resting*", "rests as", "at rest" |
+| input path | A way a document or a value enters the engine. The bound input path (`quill.parse`, `quill.conform`, `quill.writer`) conforms what it takes; the transport input path (`Document::parse`, a stored row) holds it as authored. | "door*" |
+| structural edit | `split_block`, `join_blocks`, `delete_range`, `indent`, `outdent` and `wrap`: verbs that build a change from the value and write it. `inherited_marks` is a read beside them. | "gesture*" |
+| source | Where a resolved field value came from: authored, `default:` or blank ([SCHEMAS.md](SCHEMAS.md) § "Value sources and projections"). | "rung*" |
+
+Five verbs make a value or a document valid, each for its own caller:
+
+| Verb | Takes | A host calls it |
+|---|---|---|
+| `normalize` | a `Content` | to put a value it built by hand in canonical form before writing it |
+| `validate` | a `Content` | to ask whether a value holds to § Validity; every write does it too |
+| `repair` | a merged state | to read a collab state two peers merged (§ "Merge repair") |
+| `conform` | a `Document` and its quill | to land a document from the transport input path in its stored form |
+| `migrate` | a stored row or a v1 value | never: a read of an earlier storage version runs it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Legacy schemas") |
+
 ## The value
 
-A short field as it is stored. A `\n` opens a block, `U+2028` is a hard break inside a block, and `U+FFFC` is the slot an island occupies.
+A short field as it is stored. A `\n` opens a block, `U+2028` is a hard break inside a block, and `U+FFFC` is an island character, the one character an island occupies.
 
 ```json
 {
@@ -36,8 +67,8 @@ A short field as it is stored. A `\n` opens a block, `U+2028` is a hard break in
 - **Containers** are lists, list items and quotes. Nesting lives only in the blocks' paths, so a container can never dangle from a missing parent or sit in a cycle. A list holds `ordered` and `start` and an item holds `checked`; an item's number is computed when read.
 - **Marks** are formatting over `[start, end)`. Same-kind marks union. `link` and `font_family` are keyed: a character holds at most one url and one family.
 - **Anchors** are comment handles with a host-minted id, kept apart from marks. A point is an anchor with `start == end`.
-- **Islands** are tables, images, footnotes and equations, one per slot in slot order. A table's cells and a footnote's note are slots, each a nested `Content`: a cell is one paragraph, its lines parted by hard breaks (`U+2028`), and a note and an `x-` island's slot are paragraphs. Rows, columns and slots carry ids, so an anchor in a cell stays in its slot wherever the row moves.
-- **`codec`** is `"plain"` on a `text` field's value and absent on every other. A plain value is read and written as its literal text: markdown projects it verbatim, a revise reads its input as text, and its annotated read spells no tag ([SCHEMAS.md](SCHEMAS.md) § "Content fields rest per codec"). Any other name is `ParseError::UnknownName` with axis `codec`. The key is part of the canonical bytes, and a change, which applies to the value it was made from, never sets it.
+- **Islands** are tables, images, footnotes and equations, one per island character in text order. A table's cells and a footnote's note are slots, each a nested `Content`: a cell is one paragraph, its lines parted by hard breaks (`U+2028`), and a note and an `x-` island's slot are paragraphs. Rows, columns and slots have ids, so an anchor in a cell stays in its slot wherever the row moves.
+- **`codec`** is `"plain"` on a `text` field's value and absent on every other. A plain value is read and written as its literal text: markdown projects it verbatim, a revise reads its input as text, and its annotated read spells no tag ([SCHEMAS.md](SCHEMAS.md) § "Content fields are stored per codec"). Any other name is `ParseError::UnknownName` with axis `codec`. The key is part of the canonical bytes, and a change, which applies to the value it was made from, never sets it.
 
 Offsets are Unicode scalar values in storage. Each binding speaks its host's units at its boundary and converts inside ([BINDINGS.md](BINDINGS.md) § "Content offsets").
 
@@ -61,8 +92,8 @@ Each axis is a closed set, and a name outside it is `ParseError::UnknownName` at
 `Content::validate` is what every stored value holds to, and what every change leaves. It refuses:
 
 - a `\r`, a bidi control, or a line separator other than `U+2028` in the text;
-- a block count other than the segment count, or an island count other than the slot count;
-- a block, container or island id that is empty, longer than 128 scalar values, or holds whitespace, a control or a slot, an anchor id that is empty (the rest of an anchor id is the host's), and an id held twice: blocks, containers and islands each in their scope, anchors once over the value and every slot;
+- a block count other than the segment count, or an island count other than the island-character count;
+- a block, container or island id that is empty, longer than 128 scalar values, or holds whitespace, a control or an island character, an anchor id that is empty (the rest of an anchor id is the host's), and an id held twice: blocks, containers and islands each in their scope, anchors once over the value and every slot;
 - a path naming a missing container, a path whose kinds do not nest (an item only right after a list, a list only right before an item), or one nesting past `MAX_NESTING_DEPTH` (12);
 - a container whose blocks are not one contiguous run, that sits under two different parent paths, or that no block's path names;
 - a heading holding a hard break, a rule holding text, a code block holding an island, and a block-only island (a table) sharing its block with anything else;
@@ -71,13 +102,13 @@ Each axis is a closed set, and a name outside it is `ParseError::UnknownName` at
 - a `codec: "plain"` value holding a mark, an island, a container or a block other than a paragraph (`Invariant::NotPlain`), so no step formats a plain value and repair flattens one that a merge formatted;
 - more marks on one text, a field's or a slot's, than `max_marks` of its length: `MARKS_BASE` (64) and `MARKS_PER_CHAR` (4) per character, and more than `MAX_ANCHORS` (100 000) anchors over the value and its slots.
 
-Normalizing spends the mark bound before validating can refuse: a mark crosses as many blocks as it spans, and `x-` marks of distinct attributes never union, so marks times blocks of them come out of a value that names each once. The decoder (`Content::from_value`) therefore checks the bound first, counting each mark once per `\n` and `U+2028` it spans plus one, the most it can be cut into (`Content::check_bounds`), and so does a change: a step whose marks would pass the bound refuses before it settles them, as `Invariant::TooManyMarks`. Repair keeps the marks in order up to the bound and the anchors in reading order up to theirs, and reports the rest.
+Normalizing spends the mark bound before validating can refuse: a mark crosses as many blocks as it spans, and `x-` marks of distinct attributes never union, so marks times blocks of them come out of a value that names each once. The decoder (`Content::from_value`) therefore checks the bound first, counting each mark once per `\n` and `U+2028` it spans plus one, the most it can be cut into (`Content::check_bounds`), and so does a change: a step whose marks would pass the bound refuses before it normalizes them, as `Invariant::TooManyMarks`. Repair keeps the marks in order up to the bound and the anchors in reading order up to theirs, and reports the rest.
 
-`Content::normalize` gives the one canonical form: marks cut at each `\n` and `U+2028`, unioned and sorted; anchors sorted; containers in the order paths first name them, an unused one dropped; island props key-sorted and settled (a table's layout keys absent at their defaults and `head` clamped to its rows, an equation's `tex` settled and `display` absent at `false`). A value's wire form (the `wire` module) writes every object's keys in ascending order and omits a key whose value is empty, so equal values serialize to equal bytes.
+`Content::normalize` gives the one canonical form: marks cut at each `\n` and `U+2028`, unioned and sorted; anchors sorted; containers in the order paths first name them, an unused one dropped; island props key-sorted and normalized (a table's layout keys absent at their defaults and `head` clamped to its rows, an equation's `tex` trimmed and `display` absent at `false`). A value's wire form (the `wire` module) writes every object's keys in ascending order and omits a key whose value is empty, so equal values serialize to equal bytes.
 
 **One spelling per value.** The decoder a write reads through (`Content::from_value`, and every binding's `Content` input) checks the bounds, then validates the value as decoded, then refuses one `normalize` would rewrite or drop (`Content::check_canonical`):
 
-- a mark not cut, settled or sorted, an `x-` mark over only a break among them, an anchor or container out of order, or island props a settle would change, as `Invariant::NotCanonical` naming the part;
+- a mark not cut, resolved or sorted, an `x-` mark over only a break among them, an anchor or container out of order, or island props `normalize` would change, as `Invariant::NotCanonical` naming the part;
 - a reversed or empty mark and an unused container, which are already invalid.
 
 So a value decodes only from the bytes it encodes to, up to the wire's own spelling of an empty key (absent or empty reads as one), and decoding then encoding is the identity on every value a write accepts. `diff::replace` and `Card::replace` refuse the same values a decode does. `normalize` is the producer's verb: a producer that builds a value by hand normalizes it before it writes it.
@@ -86,7 +117,7 @@ So a value decodes only from the bytes it encodes to, up to the wire's own spell
 
 ## Ids
 
-Blocks, containers, islands, slots, table rows and table columns carry structural ids. Quillmark mints every one, by one rule (`ids`, `mint`):
+Blocks, containers, islands, slots, table rows and table columns have structural ids. Quillmark mints every one, by one rule (`ids`, `mint`):
 
 - Import, migration and a write with no actor mint positionally, `{prefix}{n}` past the highest number the values in play hold under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A revise, as an LLM writer makes it, passes no actor.
 - A live client mints through the engine under its actor: a write given `actor` mints `{actor}:{prefix}{n}` the same way. An actor is an id of at most 64 scalar values holding no `:`, one per session, so two clients writing from one value never mint one id and their merge needs no repair. No positional id holds a `:`, and a repair's `a-b` or a diff's `{id}-{n}` holds one only where it derives from an actor's.
@@ -106,7 +137,7 @@ A `Change` is a list of steps. Each step reads the value the step before it left
 | `container` | `{id, kind, attrs?}` or `{id, remove: true}` | Adds a container or sets an existing one's attributes, or removes one no path names. |
 | `mark` | `{start, end, type, attrs?, add, quote?}` | Adds or removes formatting over a range. |
 | `anchor` | `{id, start, end, quote?}`, `{id, start, end, quote?, move: true}` or `{id, remove: true}` | Places an anchor, moves one, or removes one. A placement of an id the value or any slot holds is refused, so two hosts minting one id collide loudly; a move or removal of an id its text does not hold is refused. |
-| `island` | `{id, props, slots?}` or `{at, island, block?}` | Replaces an island's props, or inserts an island with its slot. A slot the new props name and the island lacks takes its content from `slots`, which names no other slot; a slot they no longer name leaves. Deleting the slot in a splice removes the island. |
+| `island` | `{id, props, slots?}` or `{at, island, block?}` | Replaces an island's props, or inserts an island with its island character. A slot the new props name and the island lacks takes its content from `slots`, which names no other slot; a slot they no longer name leaves. Deleting the island character in a splice removes the island. |
 | `nested` | `{island, slot, change}` | Applies a change inside one slot: a table cell or a footnote. |
 
 `apply` runs the steps in one pass. Each step holds what it touched to what `validate` asks of it, its inserted text, records, marks and islands, and the value the last step leaves is validated once, whole. Block and island ids are unique only there: between steps a change may hold one twice, as a move does when it inserts the copy before it deletes the original, and a step that names an id held twice is `ApplyError::BadStep`, since it cannot say which it means.
@@ -130,10 +161,10 @@ A split inserts a `\n` whose record names the right half; the left half keeps it
 
 Enter at the start of a block keeps the text on its id when the producer inserts the `\n` ahead of the one that opens the block, so the new record names the empty block before it. No `\n` carries the first block's record, so no splice reaches its id: Enter at the start of the first block moves its text to the new record, and `diff` and `replace` keep the stored first id.
 
-An editor lowers a transaction in two ways, both exact. The structural keys go through the gestures, which are verbs on the document:
+An editor lowers a transaction in two ways, both exact. The structural keys go through the structural edits, which are verbs on the document:
 
-- `split_block`, `join_blocks`, `delete_range`, `indent`, `outdent` and `wrap` on `Card` (`doc.splitBlock(addr, at, opts)` and the rest in WASM) build the gesture's change from the value the base names and write it as `apply` does, rebase, log and receipt included.
-- A record a gesture opens carries a placeholder, `?0` first, which the write fills under the writer's actor; `split_block` takes the new block's id or mints one. `gestures` holds the same changes as functions over a value.
+- `split_block`, `join_blocks`, `delete_range`, `indent`, `outdent` and `wrap` on `Card` (`doc.splitBlock(addr, at, opts)` and the rest in WASM) build the edit's change from the value the base names and write it as `apply` does, rebase, log and receipt included.
+- A record a structural edit opens takes a placeholder, `?0` first, which the write fills under the writer's actor; `split_block` takes the new block's id or mints one. The `gestures` module holds the same changes as functions over a value.
 - `locate(addr, offset)` answers the block holding an offset, its index and its container path, so an editor builds no path of its own.
 
 Text edits go through `diff_range(before, after, from, to)` (`diffRange(before, after, {from, to})`), the exact lowering of a range an editor already knows, ProseMirror's `ReplaceStep`:
@@ -141,15 +172,15 @@ Text edits go through `diff_range(before, after, from, to)` (`diffRange(before, 
 - `from` and `to` are offsets into `before`; `after` holds the same text before `from`, and from `to + after.len - before.len` on the text `before` holds from `to`.
 - The change is one splice over the characters of that range that differ, so typing one letter into a word is a one-character splice, never coarser than the range. Where the records beside it place an inserted `\n` on the other side of an equal one, as Enter at a block's start does, the splice slides to meet them.
 - Records, containers, marks, anchors and islands follow as `diff`'s do, so applying it reaches what `diff` reaches.
-- A range the two values do not agree outside, in text or in the id a `\n` or slot carries, is not the change's range, and the change is `diff`'s.
+- A range the two values do not agree outside, in text or in the id a `\n` or island character holds, is not the change's range, and the change is `diff`'s.
 
 `diff` stays for a writer with no steps (§ "Writing a value").
 
-`apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The growth defaults are for producers, and `gestures::inherited_marks(content, at)` states them, for a producer that asks: `strong`, `emph`, `underline` and `strike` grow at their end, `code`, `link` and an `x-` mark at neither edge, and `font_family` at both, the family before `at` winning over the one after. A `\n` and a hard break hold no mark, so at a block's or a line's start only a family carries over. Anchors never grow: a range keeps its edges, and a point stays left of text typed at it.
+`apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The growth defaults are for producers, and the read `gestures::inherited_marks(content, at)` states them, for a producer that asks: `strong`, `emph`, `underline` and `strike` grow at their end, `code`, `link` and an `x-` mark at neither edge, and `font_family` at both, the family before `at` winning over the one after. A `\n` and a hard break hold no mark, so at a block's or a line's start only a family grows. Anchors never grow: a range keeps its edges, and a point stays left of text typed at it.
 
 A collab session merges marks by Yjs's rules, not by these defaults. Where one peer formats a range while another types at its edge, client order decides whether the typed text takes the mark, so a session's merge can differ from a rebase of the same two edits.
 
-The structural gestures build their changes the same way, so an editor that lowers through them builds no container path. A container a gesture opens is a placeholder its write fills.
+The structural edits build their changes the same way, so an editor that lowers through them builds no container path. A container a structural edit opens is a placeholder its write fills.
 
 - `delete_range` deletes a range. Where it runs from a block's start into a later block, the block that keeps the text takes the kind, attributes and path of the block the range ends in, as ProseMirror's delete does, and keeps the first block's id.
 - `indent` (Tab) nests the items of the innermost list holding a range under the item before them, joining that item's list where it ends in one and else opening a list of their own list's kind.
@@ -158,21 +189,21 @@ The structural gestures build their changes the same way, so an editor that lowe
 
 Tab then Shift-Tab over the same blocks puts the value back.
 
-`mapping` carries a position across a change, after ProseMirror's maps. A `StepMap` reads off one step what it does to positions, and `map_pos` answers a `MapResult`: where the position lands, and whether the characters before it, after it, on its `assoc` side, or across it were deleted. A position always lands:
+`mapping` maps a position across a change, after ProseMirror's maps. A `StepMap` reads off one step what it does to positions, and `map_pos` answers a `MapResult`: where the position lands, and whether the characters before it, after it, on its `assoc` side, or across it were deleted. A position always lands:
 
 - one inside deleted text on the deletion's `assoc` edge;
-- one inside an island a splice deleted on the island's slot in the text that held it;
+- one inside an island a splice deleted on the island's character in the text that held it;
 - one in a slot a props step removed at its own address, since the step does not say where its island sits.
 
 An island a change removes and inserts again under its id, a removal paired with the next insert of that id or the other way round and the slots going as they came, as `diff` and `replace` move one, is moved rather than deleted across the two: a position in its slots keeps its address.
 
-A splice says which islands it deleted only in `removed`. A change mapped holds it on each splice that deletes a slot, as the normalized change does, and one without it is refused. A `Mapping` is a list of step maps with mirror links, each pairing a map with its inverse, so a position one map deleted and its mirror put back maps to where it was. A rebase maps a step through the inverse of its change's earlier steps, then the change it rebases over, then those steps rebased. `Mapping::map_point` maps a position as `apply` moves a point anchor, and `project` takes a mapping's maps inside one slot.
+A splice says which islands it deleted only in `removed`. A change mapped holds it on each splice that deletes an island character, as the normalized change does, and one without it is refused. A `Mapping` is a list of step maps with mirror links, each pairing a map with its inverse, so a position one map deleted and its mirror put back maps to where it was. A rebase maps a step through the inverse of its change's earlier steps, then the change it rebases over, then those steps rebased. `Mapping::map_point` maps a position as `apply` moves a point anchor, and `project` takes a mapping's maps inside one slot.
 
 Text deleted under a range anchor shrinks it to what survives. An anchor whose text is deleted entirely is removed and named in the receipt's `droppedAnchors`; a surviving anchor the write moved, a point included, is named in `movedAnchors` with its `reason` (below). An island removed by a splice, or a slot a props step no longer names, takes the anchors of its slots with it, and each is named in `droppedAnchors` with the island and slot that held it. Every anchor a change takes out of the value is named there, except one its own `anchor` step removed, which the writer asked for.
 
 A moved anchor's `reason` is the first of these that holds:
 
-- `position`: an `anchor` step put it other than where the write's text edits carry it, or in another slot;
+- `position`: an `anchor` step put it other than where the write's text edits move it, or in another slot;
 - `block`: its start sits in another block;
 - `context`: its text, or the `CONTEXT` (8) characters either side of it, read otherwise.
 
@@ -219,11 +250,11 @@ Each law is a property test over generated values and generated changes (`tests/
 3. `map_pos(c, p)` agrees with `apply`: the two edges of a character both say it was deleted, or land around it afterwards in the same order, a character inside a nested slot included, and one in an island the change moves keeps its place. A change's maps followed by their mirrored inverses take every position home.
 4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes. `parse` refuses a value `normalize` would change, and the lenient read of it reaches one `parse` accepts (`tests/properties.rs`).
 5. Every `Change` yields a valid value or fails and changes nothing.
-6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported. A write-back reads as the merged state it repaired: by any number of peers where no repair inserts, since the value then holds no character or slot the state does not, and by one writer otherwise.
+6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported. A write-back reads as the merged state it repaired: by any number of peers where no repair inserts, since the value then holds no character or island the state does not, and by one writer otherwise.
 7. Where `rebase(d, c, o)` succeeds, `apply(apply(d, o), rebase(d, c, o))` succeeds and leaves a valid value, which the rebased change's inverse takes back exactly. `rebase(d, c, ∅) == c`. The value keeps what `o` did:
    - by id: each block kind and path, container, and island's props `o` changed, each block it changed, and each island or slot it changed that `c` drops without editing what `o` changed in it;
    - `o`'s formatting on each character all three values hold whose formatting of that type `c` left alone;
-   - each anchor of the value's text an `anchor` step of `o` names, where the rebased change's own edits carry it.
+   - each anchor of the value's text an `anchor` step of `o` names, where the rebased change's own edits move it.
 
    Two changes to text either side of a character neither touches, joining no blocks, rebase over each other and reach the same value either way round, holding the text each wrote, but for the id of a block both introduced, which the rebased one renames.
 
@@ -233,11 +264,11 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 
 | Write | Builds the change from | Anchors |
 |---|---|---|
-| `apply(target, change, opts)` | the caller's steps, an editor's transaction lowered, or a gesture's | move exactly as the steps move text |
+| `apply(target, change, opts)` | the caller's steps, an editor's transaction lowered, or a structural edit's | move exactly as the steps move text |
 | `revise(target, markdown, opts)` | a writer's markdown: the `qm-*` tags of `annotated(target)` it keeps, then a word-aligned diff, rebased over what the read does not spell | kept by the tags kept, otherwise by the diff; drift reported |
-| `replace(target, content, opts)` | a whole value, through the same diff | each anchor the value does not name carried where the diff keeps its text; the rest reported |
+| `replace(target, content, opts)` | a whole value, through the same diff | each anchor the value does not name kept where the diff keeps its text; the rest reported |
 
-**A revise keeps what its read does not spell.** Markdown spells less than a valid value can hold: an editor's empty paragraph, formatting a link's text does not carry, two hard breaks in a row in a cell, a table past the import's budget. So a revise does not diff the writer's markdown against the value cold (`diff::revise_keeping`):
+**A revise keeps what its read does not spell.** Markdown spells less than a valid value can hold: an editor's empty paragraph, formatting a link's text does not hold, two hard breaks in a row in a cell, a table past the import's budget. So a revise does not diff the writer's markdown against the value cold (`diff::revise_keeping`):
 
 - It imports `annotated(target)` under the value's ids (`read`), and takes the change from `read` to the value (`over`), exactly what the read lost.
 - It revises `read` with the writer's markdown, and rebases that change over `over`. What the read lost and the writer left alone rides back in. An edit over it lands as written where the rebase maps it, and refuses with `edit::rebase_conflict` where it rewrites what the read re-spelled.
@@ -261,10 +292,10 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 - A write the log did not see, such as a typed writer's revise, breaks the chain, and the log forgets what came before it.
 - A card keeps the hash each write left on its body or field, which the next write reads as the value's hash instead of hashing it again; a write with no base hashes nothing before it applies. Any other write to the body or the payload forgets it.
 
-`diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line and then by word, and a revise carries its anchors through the same diff, but for one whose tag the writer kept, which stands where the tag does.
+`diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line and then by word, and a revise keeps its anchors through the same diff, but for one whose tag the writer kept, which stands where the tag does.
 
 - The lines of a rewritten run pair by their best total word similarity, so an inserted line that resembles an edited one takes neither its record nor its anchors.
-- A paired line diffs by word at UAX #29 word boundaries, each punctuation mark a word of its own, so a rewritten word changes as a whole and a range over it drops rather than riding its scattered letters, and a changed full stop leaves the word before it.
+- A paired line diffs by word at UAX #29 word boundaries, each punctuation character a word of its own, so a rewritten word changes as a whole and a range over it drops rather than riding its scattered letters, and a changed full stop leaves the word before it.
 - An inserted or deleted block brings the `\n` that opens it, so its neighbours keep their records.
 - Block records, containers, marks, anchors and islands follow as their own steps; an anchor `after` holds in another place, the prose or a cell, moves there. A block or island `after` holds in another place keeps its id, moved up or down.
 
@@ -290,14 +321,14 @@ Repair is how a merged state reads: it is total and deterministic, so peers hold
 | A path names a missing container | One peer removes a list while another adds an item to it | The id leaves the path |
 | One container under two paths | One peer indents a two-block item while another adds a block to it | Every block of the container takes the path prefix of its first block |
 | One container over two runs | A block lands between items of one list, in no container | The later run gets a fresh container, its id derived from the original id and the run's first block id |
-| A slot names no island record, or a record no slot names | Concurrent deletion and edit of a table | The slot's character is removed; the orphan record is removed |
-| Two slots name one island | A concurrent copy of a slot | The first keeps it; the second holds a copy under a derived id |
-| Text beside a block island | Two peers type on either side of a table's slot | The block splits at the island's edges; the first piece keeps the record, as a split's left half does, and each later piece takes a fresh id |
+| An island character names no island record, or a record no island character names | Concurrent deletion and edit of a table | The island character is removed; the orphan record is removed |
+| Two island characters name one island | A concurrent copy of an island character | The first keeps it; the second holds a copy under a derived id |
+| Text beside a block island | Two peers type on either side of a table's island character | The block splits at the island's edges; the first piece keeps the record, as a split's left half does, and each later piece takes a fresh id |
 | A range anchor at zero width | Its text was deleted while another peer moved it | Dropped and reported |
 | A table cell naming no slot of its own | A concurrent row insert and column insert | The cell gets an empty slot, its id the row and column ids joined |
 | A table cell of several paragraphs | A merge that splits a block inside a cell | Each `\n` in the cell becomes `U+2028` and the cell keeps its first record |
 
-The raw value is shaped as `Content` with two additions only repair reads. Its `islands` may be an object keyed by island id, with `slot_ids` naming the island each `U+FFFC` carries in slot order, `null` where it carries none; an `islands` array pairs with the slots in order. And an anchor placed as a range carries `range: true`, since a range collapsed to zero width cannot otherwise be told from a point. A v1 value, `lines[]` with no `blocks`, is read as `migrate::from_lines` lifts it.
+The raw value is shaped as `Content` with two additions only repair reads. Its `islands` may be an object keyed by island id, with `slot_ids` naming the island each `U+FFFC` holds in text order, `null` where it holds none; an `islands` array pairs with the island characters in order. And an anchor placed as a range holds `range: true`, since a range collapsed to zero width cannot otherwise be told from a point. A v1 value, `lines[]` with no `blocks`, is read as `migrate::from_lines` lifts it.
 
 Beyond the table, repair is total over any value shaped as content: it keeps marks and anchors within their bounds (§ Validity), removes forbidden characters, mints a missing block record and drops an extra one, re-mints a bad or duplicate id, drops a slot under a bad key, mends a table grid a concurrent row and column edit broke, clips marks and anchors to the text, and turns a rule holding text or a code block holding an island into a paragraph. A fresh id is the ids involved joined by `-`, with a numeric suffix where that id is taken, so two peers writing back one repair write the same bytes.
 

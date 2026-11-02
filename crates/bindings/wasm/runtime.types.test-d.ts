@@ -248,7 +248,7 @@ void undo;
 const siblingUrl: Step = { mark: { start: 0, end: 1, add: true, type: 'link', url: 'https://x' } };
 void siblingUrl;
 
-// ── The gate is the only door ───────────────────────────────────────
+// ── The gate is the only way in ─────────────────────────────────────
 // The guarantee `init` exists to hold: a value needing the WASM instance is
 // reachable through the gate and nowhere else. A static export of one would
 // type-check at every call site that forgot to await, and a floating promise is

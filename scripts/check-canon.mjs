@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Canon spine lint: enforces the doc spine and the link invariants specified
-// in prose/README.md. Zero dependencies, no arguments.
+// in prose/README.md, and that a CONTENT.md glossary term is used in no other
+// sense in prose/canon. Zero dependencies, no arguments.
 //
-// Every rule here is a gate, and every gate catches a dead link or a dead
-// anchor: rot no reader would notice. Taste is the writer's job and the
-// reviewer's. A check that can only warn does not belong.
+// Every rule here is a gate, and every gate catches rot no reader would
+// notice: a dead link, a dead anchor, or a retired word back in canon. Taste
+// is the writer's job and the reviewer's. A check that can only warn does not
+// belong.
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join, posix } from 'node:path';
 
@@ -127,6 +129,44 @@ for (const name of mdFiles('prose/references')) {
 for (const file of [...mdFiles('prose/canon').map((n) => join('prose/canon', n)), ...walkDocs('docs')])
   for (const [n, line] of proseLines(readFileSync(file, 'utf8')))
     if (line.length > HARD) fail(file, `line ${n} is ${line.length} chars (max ${HARD}): one claim per sentence; split the clauses into bullets or a table`);
+
+// The glossary in CONTENT.md pins each term to one sense, and its Retired
+// column lists the quoted words and collocations that name a term's old or
+// second sense. None of them appears in canon outside the glossary's own
+// table; fenced code and inline code, where an identifier keeps its name, are
+// excluded. A trailing `*` matches any word ending.
+const GLOSSARY = 'prose/canon/CONTENT.md';
+if (existsSync(GLOSSARY)) {
+  const lines = readFileSync(GLOSSARY, 'utf8').split('\n');
+  const start = lines.indexOf('## Glossary');
+  if (start < 0) fail(GLOSSARY, 'has no `## Glossary` section');
+  const head = lines.findIndex((l, i) => i > start && /^\|\s*Term\s*\|/.test(l));
+  const rows = [];
+  for (let i = head + 2; head > start && lines[i]?.startsWith('|'); i++) rows.push(i);
+  const retired = rows.flatMap((i) => {
+    const cells = lines[i].split('|').slice(1, -1);
+    const term = cells[0].trim();
+    return [...(cells.at(-1) ?? '').matchAll(/"([^"]+)"/g)].map(([, w]) => {
+      const stem = w.replace(/\*$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[ -]/g, '[\\s-]+');
+      return { term, word: w, re: new RegExp(`\\b${stem}${w.endsWith('*') ? '\\w*' : '\\b'}`, 'i') };
+    });
+  });
+  if (head > start && !retired.length) fail(GLOSSARY, 'glossary lists no retired words');
+  const skip = new Set(rows);
+  for (const name of mdFiles('prose/canon')) {
+    const file = join('prose/canon', name);
+    let fenced = false;
+    readFileSync(file, 'utf8')
+      .split('\n')
+      .forEach((line, i) => {
+        if (/^\s*(```|~~~)/.test(line)) return void (fenced = !fenced);
+        if (fenced || (file === GLOSSARY && skip.has(i))) return;
+        const prose = line.replace(/`[^`]*`/g, '');
+        for (const { term, word, re } of retired)
+          if (re.test(prose)) fail(file, `line ${i + 1} uses "${word}", retired by the glossary's \`${term}\` (CONTENT.md § Glossary)`);
+      });
+  }
+}
 
 if (problems.length) {
   for (const p of problems) console.error(`check-canon: ${p}`);

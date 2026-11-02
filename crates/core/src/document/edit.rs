@@ -1406,7 +1406,7 @@ impl Card {
     /// [`store_field`](Self::store_field), which defers coercion to render.
     ///
     /// The resting form each `type` commits to is
-    /// `prose/canon/SCHEMAS.md` § "Content fields rest per codec". Stricter than
+    /// `prose/canon/SCHEMAS.md` § "Content fields are stored per codec". Stricter than
     /// the render floor: a cross-type value the floor would coerce (`1` → `true`)
     /// fails here. `null` passes through unchanged, under the null ≡ absent rule.
     ///
