@@ -179,8 +179,8 @@ over its keys: read `receipt["warnings"]`.
   `invert` reads those inverses back, and a receipt lowers the value or
   compares anchors only where something was dropped or rewritten. A
   4000-step change to 288k characters applies in 26 ms, where it took 96 s,
-  and inverts in 30 ms, where it took 496 s; a revise of it takes 0.1 s and
-  a rebase 0.2 s, where they took 294 s and 396 s. An inverse's mark steps
+  and inverts in 30 ms, where it took 496 s; applying its `diff` takes
+  0.1 s and a rebase 0.2 s, where they took 294 s and 396 s. An inverse's mark steps
   restore each run of marks that differs, not one range over all of them.
   `tests/speed.rs` is the gate, run in CI in a release build.
 - perf(content): **converting a change or value to UTF-16 finds each
