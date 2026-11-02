@@ -254,31 +254,41 @@ fn replace(p: Usv, at: Usv, d: usize, m: usize, assoc: Assoc) -> MapResult {
     }
 }
 
-/// Each island id `change` only moves: every step that removes it paired
-/// with the next that inserts it, or the other way round, with the slots it
-/// went with. A position in its slots keeps its address.
-pub(crate) fn moved_islands(change: &Change) -> BTreeSet<&str> {
-    let mut seen: BTreeMap<&str, Vec<(bool, &Island)>> = BTreeMap::new();
-    for step in &change.steps {
+/// The steps of `steps` that only move an island, each with the island's
+/// id: a step removing it paired with the next step inserting it, or the
+/// other way round, the slots going as they came. A position in its slots
+/// keeps its address across the two.
+pub(crate) fn moved_islands<'a>(steps: impl IntoIterator<Item = &'a Step>) -> BTreeSet<(usize, &'a str)> {
+    let mut seen: BTreeMap<&str, Vec<(usize, bool, &Island)>> = BTreeMap::new();
+    for (n, step) in steps.into_iter().enumerate() {
         match step {
             Step::Splice(s) => {
                 for i in s.removed.iter().flat_map(|r| &r.islands) {
-                    seen.entry(i.id.as_str()).or_default().push((false, i));
+                    seen.entry(i.id.as_str()).or_default().push((n, false, i));
                 }
                 for i in &s.islands {
-                    seen.entry(i.id.as_str()).or_default().push((true, i));
+                    seen.entry(i.id.as_str()).or_default().push((n, true, i));
                 }
             }
-            Step::Island(IslandStep::Insert { island, .. }) => seen.entry(island.id.as_str()).or_default().push((true, island)),
+            Step::Island(IslandStep::Insert { island, .. }) => seen.entry(island.id.as_str()).or_default().push((n, true, island)),
             _ => {}
         }
     }
-    seen.into_iter()
-        .filter(|(_, events)| {
-            events.len() % 2 == 0 && events.chunks(2).all(|pair| pair[0].0 != pair[1].0 && pair[0].1.slots == pair[1].1.slots)
-        })
-        .map(|(id, _)| id)
-        .collect()
+    let mut out = BTreeSet::new();
+    for (id, events) in seen {
+        let mut k = 0;
+        while k < events.len() {
+            match events.get(k + 1) {
+                Some(&(m, put, b)) if put != events[k].1 && b.slots == events[k].2.slots => {
+                    out.insert((events[k].0, id));
+                    out.insert((m, id));
+                    k += 2;
+                }
+                _ => k += 1,
+            }
+        }
+    }
+    out
 }
 
 /// A list of step maps, a position mapped through each in turn. A mirror
@@ -322,8 +332,8 @@ impl Mapping {
     }
 
     /// The map of each step of `change`, in order: [`StepMap::of`] each, an
-    /// island the change moves left out of the islands each removes and adds,
-    /// so a position in its slots keeps its address.
+    /// island two steps only move left out of the islands their maps remove
+    /// and add, so a position in its slots keeps its address.
     pub fn from_change(change: &Change) -> Result<Mapping, ApplyError> {
         Mapping::from_change_in(change, Scalars)
     }
@@ -341,13 +351,11 @@ impl Mapping {
                 })
             })
             .collect::<Result<_, _>>()?;
-        let moved = moved_islands(change);
-        if !moved.is_empty() {
-            for map in &mut maps {
-                if let StepMap::Replace { removed, added, .. } = map {
-                    removed.retain(|id| !moved.contains(id.as_str()));
-                    added.retain(|id| !moved.contains(id.as_str()));
-                }
+        let moved = moved_islands(&change.steps);
+        for (n, map) in maps.iter_mut().enumerate() {
+            if let StepMap::Replace { removed, added, .. } = map {
+                removed.retain(|id| !moved.contains(&(n, id.as_str())));
+                added.retain(|id| !moved.contains(&(n, id.as_str())));
             }
         }
         let spans = maps.iter().map(Span::of).collect();

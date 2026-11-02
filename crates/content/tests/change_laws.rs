@@ -470,8 +470,8 @@ proptest! {
 
     /// Each character either goes, which the two edges around it both say,
     /// or keeps its place: the edges land around it, and the survivors keep
-    /// their order. One in a slot the change leaves as it was, its island
-    /// moved or not, keeps its place.
+    /// their order. One in a slot the change neither edits nor leaves
+    /// otherwise, its island moved or not, keeps its place.
     #[test]
     fn a_mapped_position_lands_on_its_character(d in document(), ops in ops()) {
         let c = change_for(&d, &ops);
@@ -482,7 +482,8 @@ proptest! {
             let r = map_pos(&after.applied, &next(&p), Assoc::Before).unwrap();
             prop_assert_eq!(q.deleted, r.deleted, "{:?} under {:?}", p, c);
             if let Pos::In { island, slot, .. } = &p {
-                let kept = after.content.slot(island, slot).is_some_and(|now| Some(now) == d.slot(island, slot));
+                let edited = c.steps.iter().any(|s| matches!(s, Step::Nested { island: i, slot: k, .. } if i == island && k == slot));
+                let kept = !edited && after.content.slot(island, slot).is_some_and(|now| Some(now) == d.slot(island, slot));
                 prop_assert!(!(kept && q.deleted), "{:?} in a slot the change kept, under {:?}", p, c);
             }
             if q.deleted {
