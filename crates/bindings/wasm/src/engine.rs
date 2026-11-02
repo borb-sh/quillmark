@@ -765,8 +765,8 @@ impl Quill {
 
     /// Parse `markdown` and conform it against this quill: the primary ingestion
     /// path, and the bound twin of the schema-free `Document.fromMarkdown`. The
-    /// returned document rests at its canonical form (a `richtext` field as a
-    /// content object, a `text` field as its literal string), so `getStored`
+    /// returned document rests at its canonical form (a content field as a
+    /// content object, a `text` field's under `codec: "plain"`), so `getStored`
     /// answers by the field's declared codec, not by how the document was built.
     ///
     /// Parse warnings and the `conform::*` diagnostics both land on
@@ -1178,9 +1178,8 @@ impl Document {
     /// absent field is `undefined` — and only an out-of-range `addr.card` throws
     /// `edit::index_out_of_range`.
     ///
-    /// A content field at rest has one stored form per codec: a `richtext` field
-    /// holds the canonical content object, a `text` field its literal
-    /// string. A document from the bound door (`quill.parse` / `quill.conform`)
+    /// A content field at rest holds the canonical content object, a `text`
+    /// field's spelling `codec: "plain"`. A document from the bound door (`quill.parse` / `quill.conform`)
     /// is at rest; one from the transport door may rest as authored until it is
     /// conformed, and this read reports what is there. For the `Content` either
     /// way use `reader.getContent`.
@@ -1655,8 +1654,8 @@ impl Document {
     }
 
     /// The ABI under `writer.hashAt`: the body's hash, or a field's through its
-    /// schema (a `richtext` field its content however it rests, a `text` field
-    /// its literal text, any other type its stored value), the `baseHash` the
+    /// schema (a `richtext` or `text` field its content however it rests, any
+    /// other type its stored value), the `baseHash` the
     /// writer's `reviseBody` / `reviseField` check. An undeclared name throws
     /// `edit::unknown_field`, an out-of-range card throws.
     #[wasm_bindgen(js_name = _hashAt, skip_typescript)]

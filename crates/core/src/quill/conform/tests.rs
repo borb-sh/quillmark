@@ -1,4 +1,5 @@
 mod properties;
+mod text_comments;
 
 use serde_json::json;
 
@@ -134,23 +135,23 @@ fn rest_is_per_codec_at_every_depth() {
 
     assert!(payload.get("subject").unwrap().as_json().is_object());
     assert_eq!(
-        payload.get("note").unwrap().as_json(),
-        &json!("a *literal* line"),
-        "text rests as the literal string, escapes and all"
+        crate::quill::text_of(payload.get("note").unwrap().as_json()),
+        "a *literal* line",
+        "text rests as a plain content, its text literal"
     );
     assert_eq!(payload.get("qty").unwrap().as_json(), &json!(3));
 
     let tags = payload.get("tags").unwrap().as_json();
     assert!(tags.as_array().unwrap().iter().all(|e| e.is_object()));
     let meta = payload.get("meta").unwrap().as_json();
-    assert_eq!(meta.get("label").unwrap(), &json!("keep *this*"));
+    assert_eq!(crate::quill::text_of(meta.get("label").unwrap()), "keep *this*");
     assert!(meta.get("blurb").unwrap().is_object());
 
     let card = &doc.cards()[0];
     assert!(card.payload().get("prose").unwrap().as_json().is_object());
     assert_eq!(
-        card.payload().get("caption").unwrap().as_json(),
-        &json!("raw *text*")
+        crate::quill::text_of(card.payload().get("caption").unwrap().as_json()),
+        "raw *text*"
     );
 }
 
@@ -285,8 +286,8 @@ fn conform_is_a_no_op_on_seeds() {
         .seed_card("entry", Some(&overlay))
         .expect("kind exists");
     assert_eq!(
-        card.payload().get("caption").unwrap().as_json(),
-        &json!("overlaid *text*")
+        crate::quill::text_of(card.payload().get("caption").unwrap().as_json()),
+        "overlaid *text*"
     );
     assert_eq!(card.body_markdown(), "overlaid **body**");
     let mut doc2 = quill.seed_document();
@@ -421,9 +422,9 @@ Body.
         .revise_field("note", r"a \*b\* line, revised")
         .expect("revise");
     assert_eq!(
-        doc.main().payload().get("note").unwrap().as_json(),
-        &json!(r"a \*b\* line, revised"),
-        "and an edit rests as the literal string, escapes intact"
+        crate::quill::text_of(doc.main().payload().get("note").unwrap().as_json()),
+        r"a \*b\* line, revised",
+        "and an edit rests as plain content, escapes intact"
     );
 }
 

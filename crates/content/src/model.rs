@@ -39,6 +39,35 @@ pub struct Content {
     pub anchors: Vec<Anchor>,
     /// One per [`ISLAND_SLOT`], in slot order.
     pub islands: Vec<Island>,
+    pub codec: Codec,
+}
+
+/// How a field's value is authored and projected. A [`Codec::Plain`] value
+/// holds only paragraphs in no container, with no mark and no island, and
+/// projects as its literal text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Codec {
+    #[default]
+    Rich,
+    Plain,
+}
+
+impl Codec {
+    /// The wire name, `None` for [`Codec::Rich`], which the wire leaves
+    /// unspelled.
+    pub fn name(self) -> Option<&'static str> {
+        match self {
+            Codec::Rich => None,
+            Codec::Plain => Some("plain"),
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Codec> {
+        match name {
+            "plain" => Some(Codec::Plain),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -284,6 +313,9 @@ pub enum Invariant {
     BadIsland { id: String, reason: &'static str },
     JsonTooDeep { what: &'static str, max: usize },
     TableTooLarge { cells: usize, max: usize },
+    /// A [`Codec::Plain`] value holding what only a rich one may: a mark, an
+    /// island, a container, or a block other than a paragraph.
+    NotPlain,
     /// A text holding more marks than [`max_marks`](crate::max_marks) of its
     /// length, a mark counted once per block and line it spans before it is
     /// cut at each.
@@ -329,6 +361,7 @@ impl std::fmt::Display for Invariant {
             Invariant::BadIsland { id, reason } => write!(f, "island `{id}`: {reason}"),
             Invariant::JsonTooDeep { what, max } => write!(f, "{what} nest past {max} levels"),
             Invariant::TableTooLarge { cells, max } => write!(f, "a table of {cells} cells is past the limit of {max}"),
+            Invariant::NotPlain => write!(f, "a plain value holds a mark, an island, a container or a block other than a paragraph"),
             Invariant::TooManyMarks { marks, max } => write!(f, "{marks} marks over a text that holds at most {max}"),
             Invariant::TooManyAnchors { anchors, max } => write!(f, "{anchors} anchors, past the limit of {max}"),
             Invariant::BadSlot { island, slot } => {
@@ -416,7 +449,13 @@ impl Content {
             marks: Vec::new(),
             anchors: Vec::new(),
             islands: Vec::new(),
+            codec: Codec::Rich,
         }
+    }
+
+    /// [`empty`](Self::empty) under `codec`.
+    pub fn empty_as(codec: Codec) -> Self {
+        Content { codec, ..Content::empty() }
     }
 
     pub fn len_usv(&self) -> Usv {
@@ -566,6 +605,9 @@ impl Content {
     pub fn validate(&self) -> Result<(), Invariant> {
         self.check()?;
         self.check_relations()?;
+        if self.codec == Codec::Plain && !self.is_plain() {
+            return Err(Invariant::NotPlain);
+        }
         let mut ids = HashSet::new();
         self.check_anchor_ids(&mut ids)?;
         match ids.len() > crate::MAX_ANCHORS {

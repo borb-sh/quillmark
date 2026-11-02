@@ -10,12 +10,12 @@ use crate::lines::island::IslandType;
 use crate::lines::model::json_depth_exceeds;
 use crate::lines::normalize::is_bidi_char;
 use crate::model::{
-    Anchor, Block, BlockKind, Container, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT,
+    Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT,
     Invariant, Island, Mark, NOTE_SLOT, Usv, is_lang, is_text_char,
 };
 use crate::table::{Row, Table};
 use crate::wire::{
-    ParseError, anchor_from_value, array, block_from_value, container_from_value, is_v1,
+    ParseError, anchor_from_value, array, block_from_value, codec_from_value, container_from_value, is_v1,
     mark_from_value, shape, str_key,
 };
 use serde_json::{Map, Value, json};
@@ -34,6 +34,7 @@ pub struct Raw {
     /// `None` where a slot carries none.
     pub slot_ids: Vec<Option<String>>,
     pub islands: BTreeMap<String, RawIsland>,
+    pub codec: Codec,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -165,6 +166,7 @@ impl From<&Content> for Raw {
                     range: !a.is_point(),
                 })
                 .collect(),
+            codec: c.codec,
             slot_ids: c.islands.iter().map(|i| Some(i.id.clone())).collect(),
             islands: c
                 .islands
@@ -239,6 +241,7 @@ fn decode(v: &Value) -> Result<Raw, ParseError> {
         anchors,
         slot_ids: Vec::new(),
         islands: BTreeMap::new(),
+        codec: codec_from_value(v)?,
     };
     match v.get("islands") {
         None | Some(Value::Null) => {}
@@ -389,6 +392,7 @@ fn field(raw: Raw, out: &mut Vec<Repair>) -> Content {
         mut anchors,
         slot_ids,
         islands,
+        codec,
     } = raw;
     let mut text: Vec<char> = text.chars().collect();
     for a in &mut anchors {
@@ -608,6 +612,7 @@ fn field(raw: Raw, out: &mut Vec<Repair>) -> Content {
         marks,
         anchors,
         islands: kept,
+        codec,
     }
 }
 
@@ -1133,6 +1138,6 @@ fn flatten(mut c: Content) -> Content {
         b.kind = BlockKind::Para;
         b.path.clear();
     }
-    c.marks.retain(|m| m.start < m.end);
+    c.marks.retain(|m| m.start < m.end && c.codec == Codec::Rich);
     c
 }

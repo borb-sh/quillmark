@@ -60,7 +60,7 @@ def test_writer_add_card_transactional_and_positioned():
     ed = quill.writer(doc)
     ed.add_card("quotes", {"author": "First"}, "A quote body.")
     ed.add_card("quotes", {"author": "Second"}, at=0)
-    assert [field(c, "author") for c in doc.cards] == ["Second", "First"]
+    assert [field(c, "author")["text"] for c in doc.cards] == ["Second", "First"]
     with raises_edit_code("edit::unknown_field"):
         ed.add_card("quotes", {"stray": "x"})
     with raises_edit_code("edit::index_out_of_range"):
@@ -82,7 +82,7 @@ def test_card_selector_targets_the_composable_card_on_both_lanes():
     assert v.body_markdown(card=0) == "A quote body."
 
     ed.set("author", "Issa", card=0)
-    assert field(doc.cards[0], "author") == "Issa"
+    assert field(doc.cards[0], "author")["text"] == "Issa"
     assert v.get("author", card=0) == "Issa"
 
     with raises_edit_code("edit::unknown_field"):

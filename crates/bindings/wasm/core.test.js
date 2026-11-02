@@ -100,7 +100,7 @@ describe('@quillmark/wasm/core surface', () => {
 
     const doc = quill.exampleDocument()
     expect(doc.quillRef).toBe('core_test@1.0')
-    expect(field(doc.main, 'title')).toBe('A made-up title')
+    expect(field(doc.main, 'title').text).toBe('A made-up title')
     expect(doc.toMarkdown()).toContain('Made-up prose.')
     expect(quill.schema.main.fields.title.example).toBe('A made-up title')
     expect(quill.schema.main.body.example).toBe('Made-up prose.')
@@ -134,7 +134,7 @@ card_kinds:
     expect(doc.main.seed?.missing).toBeUndefined()
 
     // seedCard commits the overlay; omitting it commits no field.
-    expect(field(quill.seedCard('note', overlay), 'author')).toBe('Custom Author')
+    expect(field(quill.seedCard('note', overlay), 'author').text).toBe('Custom Author')
     expect(quill.seedCard('note').payloadItems).toEqual([])
     // Total over the kind axis: an undeclared kind is undefined, not a throw.
     expect(quill.seedCard('missing')).toBeUndefined()

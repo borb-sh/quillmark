@@ -8,7 +8,7 @@ use crate::lines::island::IslandType;
 use crate::lines::model::{is_font_family_name, sort_keys_owned};
 use crate::lines::serial as v1;
 use crate::model::{
-    Anchor, Block, BlockKind, Container, ContainerKind, Content, Invariant, Island, Mark, MarkKind, Pos,
+    Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, Invariant, Island, Mark, MarkKind, Pos,
 };
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -146,6 +146,9 @@ mod canon {
                 m.serialize_entry("anchors", &Each(&c.anchors, OfAnchor))?;
             }
             m.serialize_entry("blocks", &Each(&c.blocks, OfBlock))?;
+            if let Some(codec) = c.codec.name() {
+                m.serialize_entry("codec", codec)?;
+            }
             if !c.containers.is_empty() {
                 m.serialize_entry("containers", &Each(&c.containers, OfContainer))?;
             }
@@ -280,6 +283,9 @@ pub(crate) fn content_value(c: &Content) -> Value {
     }
     if !c.islands.is_empty() {
         m.insert("islands".into(), c.islands.iter().map(island_value).collect());
+    }
+    if let Some(codec) = c.codec.name() {
+        m.insert("codec".into(), Value::String(codec.into()));
     }
     Value::Object(m)
 }
@@ -430,7 +436,17 @@ pub(crate) fn decode(v: &Value) -> Result<Content, ParseError> {
     let marks = array(v, "marks")?.iter().map(mark_from_value).collect::<Result<_, _>>()?;
     let anchors = array(v, "anchors")?.iter().map(anchor_from_value).collect::<Result<_, _>>()?;
     let islands = array(v, "islands")?.iter().map(island_from_value).collect::<Result<_, _>>()?;
-    Ok(Content { text, blocks, containers, marks, anchors, islands })
+    Ok(Content { text, blocks, containers, marks, anchors, islands, codec: codec_from_value(v)? })
+}
+
+pub(crate) fn codec_from_value(v: &Value) -> Result<Codec, ParseError> {
+    match v.get("codec") {
+        None | Some(Value::Null) => Ok(Codec::Rich),
+        Some(Value::String(name)) => {
+            Codec::parse(name).ok_or_else(|| ParseError::UnknownName { axis: "codec", name: name.clone() })
+        }
+        Some(_) => Err(shape("`codec` is not a string")),
+    }
 }
 
 pub fn block_from_value(v: &Value) -> Result<Block, ParseError> {

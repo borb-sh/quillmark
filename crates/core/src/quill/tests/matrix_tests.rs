@@ -238,9 +238,9 @@ fn a_held_member_with_no_answers_rests_as_the_bare_tick() {
             .main()
             .payload()
             .get("qualifications")
-            .unwrap()
-            .as_json(),
-        &json!({ "flight_cc": true, "dodin_ops": { "detail": "X" }, "cyber_200": false })
+            .map(|v| crate::quill::plain_leaves(v.as_json()))
+            .unwrap(),
+        json!({ "flight_cc": true, "dodin_ops": { "detail": "X" }, "cyber_200": false })
     );
 
     quill

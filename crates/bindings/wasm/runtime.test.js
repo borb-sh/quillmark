@@ -486,7 +486,7 @@ card_kinds:
       "~~~card-yaml\n$quill: view_test\nsubject: Q3 **results**\nnote: 'a *literal* line'\n~~~\n\nBody."
     const bound = quill.parse(md)
     expect(typeof bound.getStored('subject')).toBe('object') // richtext: the Content object
-    expect(bound.getStored('note')).toBe('a *literal* line') // text: the literal
+    expect(bound.getStored('note')).toMatchObject({ codec: 'plain', text: 'a *literal* line' }) // text: plain content
     expect(bound.warnings).toEqual([])
 
     // conform is the same walk on a document that arrived any other way, and it

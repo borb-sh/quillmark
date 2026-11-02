@@ -21,7 +21,10 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(typescript_custom_section)]
 const CONTENT_TS: &'static str = r#"
 /**
- * One rich-text value: a card body or a `richtext` field. Flat `text` where a
+ * One content value: a card body, a `richtext` field, or a `text` field,
+ * which `codec: "plain"` marks and which holds only paragraphs in no
+ * container, with no mark and no island, read and written as its literal
+ * text. Flat `text` where a
  * `\n` opens a block, `U+2028` is a hard break and `U+FFFC` is an island's
  * slot; one block record per `\n`-separated segment, each `\n` carrying the
  * record of the block it opens and `blocks[0]` the first block's; containers
@@ -37,6 +40,7 @@ export interface Content {
     marks?: ContentMark[];
     anchors?: ContentAnchor[];
     islands?: ContentIsland[];
+    codec?: "plain";
 }
 
 /** A block's record: its kind and attributes, and its container path,
@@ -229,6 +233,7 @@ export interface RawContent {
     islands?: (ContentIsland & { slots?: Record<string, RawContent> })[]
         | Record<string, Omit<ContentIsland, "id"> & { slots?: Record<string, RawContent> }>;
     slot_ids?: (string | null)[];
+    codec?: "plain";
 }
 
 /**

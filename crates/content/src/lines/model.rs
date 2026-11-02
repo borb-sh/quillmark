@@ -834,15 +834,16 @@ impl Content {
             && self.lines[0].containers.is_empty()
     }
 
-    /// Whether this content satisfies the `text` constraint: no marks, no
-    /// islands, and every line a plain `Para` sitting in no container.
+    /// Whether this content satisfies the `text` constraint: no mark but an
+    /// anchor, no islands, and every line a plain `Para` sitting in no
+    /// container.
     /// `continues` is unconstrained. [`Content::empty`] is plain.
     ///
     /// The distinguishing property of `text` over a mark-free `richtext` is
     /// the *literal* codec ([`crate::lines::import::from_plaintext`]), not this
     /// predicate.
     pub fn is_plain(&self) -> bool {
-        self.marks.is_empty()
+        self.marks.iter().all(|m| matches!(m.kind, MarkKind::Anchor { .. }))
             && self.islands.is_empty()
             && self
                 .lines

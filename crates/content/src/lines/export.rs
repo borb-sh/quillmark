@@ -245,6 +245,13 @@ pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
     Annotated { markdown, anchors }
 }
 
+/// The literal codec's annotated read: [`to_plaintext`], which spells no tag,
+/// and every anchor listed as [`to_markdown_annotated`] lists it, so a revise
+/// carries each by the diff.
+pub fn to_plaintext_annotated(rt: &Normalized) -> Annotated {
+    Annotated { markdown: to_plaintext(rt), anchors: anchors_where(rt, |_| true) }
+}
+
 /// The anchors [`to_markdown_annotated`] lists for `rt` whose id `keep`
 /// holds, in its order, read without projecting `rt`.
 pub fn anchors_where(rt: &Normalized, keep: impl Fn(&str) -> bool) -> Vec<AnchorRead> {
