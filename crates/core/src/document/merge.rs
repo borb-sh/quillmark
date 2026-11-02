@@ -345,6 +345,7 @@ pub(crate) fn merge_documents(
             document: Document {
                 main: main.0,
                 cards: merged_cards,
+                mints: Default::default(),
             },
             warnings: Vec::new(),
         },
@@ -362,7 +363,7 @@ fn paired(pairs: &[Option<(usize, Pairing)>]) -> Vec<Option<usize>> {
 
 /// A parse's main card and composable cards, each with its body's markdown.
 fn split(revising: Revising) -> (Held, Vec<Held>) {
-    let Document { main, cards } = revising.parsed.document;
+    let Document { main, cards, .. } = revising.parsed.document;
     let mut bodies = revising.bodies.into_iter();
     let main_body = bodies.next().unwrap_or_default();
     let cards = cards

@@ -1008,6 +1008,7 @@ impl Serialize for SeedOverlay {
 pub struct Document {
     main: Card,
     cards: Vec<Card>,
+    mints: card_id::ActorMints,
 }
 
 impl Document {
@@ -1025,6 +1026,7 @@ impl Document {
         Self {
             main: Card::from_parts(payload, Lines::empty()),
             cards: Vec::new(),
+            mints: Default::default(),
         }
     }
 
@@ -1054,7 +1056,7 @@ impl Document {
             "composable cards must not carry `$seed`"
         );
         card_id::settle(&mut cards, &std::collections::HashSet::new());
-        Self { main, cards }
+        Self { main, cards, mints: Default::default() }
     }
 
     /// Read a stored row ([`StoredDocument`] JSON) into a [`Parsed`]: the

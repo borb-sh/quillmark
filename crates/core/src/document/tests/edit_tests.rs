@@ -1181,3 +1181,14 @@ fn a_placed_card_mints_under_its_writers_actor() {
     spelled.payload_mut().set_id("kept");
     assert_eq!(doc.unchecked().insert_card(None, spelled, Some("7")).unwrap(), "kept");
 }
+
+/// An actor never mints an id twice in a document's life, though the card
+/// that held it is gone.
+#[test]
+fn an_actor_never_mints_a_freed_id_again() {
+    let mut doc = make_doc();
+    let first = doc.unchecked().insert_card(None, Card::new("note").unwrap(), Some("7")).unwrap();
+    doc.remove_card(0).unwrap();
+    let second = doc.unchecked().insert_card(None, Card::new("note").unwrap(), Some("7")).unwrap();
+    assert_ne!(first, second);
+}

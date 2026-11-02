@@ -92,7 +92,7 @@ impl Document {
                 },
             bodies,
         } = revising;
-        let Document { main, cards } = incoming;
+        let Document { main, cards, .. } = incoming;
         let mut bodies = bodies.into_iter();
 
         let pairs = align_cards(&self.cards, &cards);
@@ -179,10 +179,8 @@ impl Document {
             anchor.card_id = self.card_id_at(&anchor.path).map(str::to_string);
         }
 
-        *self = Document {
-            main,
-            cards: revised_cards,
-        };
+        self.main = main;
+        self.cards = revised_cards;
         DocumentRevised {
             dropped_anchors,
             warnings,

@@ -538,7 +538,12 @@ is written, and never rewritten while its card lives.**
   two replicas never mint two ids for one card. The mint is a function of the
   document and the writer's actor, so the never-ambient rule of § Island-id
   determinism holds, narrowed as it is there: a live document's ids depend on
-  which actors placed its cards.
+  which actors placed its cards. An actor's mint never reissues an id: each
+  `Document` value holds, beside its cards and outside its equality and its
+  stored row, the index past the last token it minted under each actor since
+  its parse, load or seed, and that actor's next mint starts there, so an id
+  an actor minted is never minted under it again in that value's life, though
+  the card holding it is removed. A positional mint keeps no such record.
 - **Every input path normalizes the id.** A parse, a load and a placing edit each leave every
   composable card holding a distinct valid id. A parse keeps the first card
   spelling an id, re-mints a later duplicate or an id outside the grammar, and
@@ -554,9 +559,10 @@ is written, and never rewritten while its card lives.**
   align by text ([BINDINGS.md](BINDINGS.md) § The write surface). A card revising a stored one
   holds its id whatever it spells. An inserted card keeps a valid id no stored
   card held and mints past every stored id otherwise, so a card a revise
-  removes never hands its id to a card that revise inserts. The document keeps
-  no record of an id it no longer holds: a later edit may mint it again. A
-  consumer keeping selectors by card id drops a removed card's when the
+  removes never hands its id to a card that revise inserts. Past the actor
+  mint above, the document keeps no record of an id it no longer holds: a
+  positional mint, or a mint under an actor in a value loaded after the id was
+  freed, may mint it again. A consumer keeping selectors by card id drops a removed card's when the
   receipt's `from` names that card in no entry.
 - **Never rendered.** `$id` never reaches the plate JSON, as `$ext` does not.
 

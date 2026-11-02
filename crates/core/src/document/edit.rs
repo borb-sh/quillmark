@@ -1065,7 +1065,10 @@ impl Document {
             }
             Some(id) => id.to_string(),
             None => {
-                let id = super::card_id::Mint::new(held).mint_as(actor);
+                let id = match actor {
+                    Some(actor) => self.mints.mint(held, actor),
+                    None => super::card_id::Mint::new(held).mint(),
+                };
                 card.payload_mut().set_id(id.clone());
                 id
             }
