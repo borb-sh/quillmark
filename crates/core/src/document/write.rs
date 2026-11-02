@@ -73,7 +73,8 @@ pub struct Receipt {
     /// with the slot that held it: every one a revise or replace lost, and
     /// for an apply every one but those its `anchor` steps removed.
     pub dropped_anchors: Vec<Dropped>,
-    /// Each surviving anchor whose text the write rewrote.
+    /// Each surviving anchor the write moved, a point included, and what
+    /// moved: its position, its block or its context.
     pub moved_anchors: Vec<Moved>,
     /// The markdown import's warnings, for a revise.
     pub warnings: Vec<ImportWarning>,

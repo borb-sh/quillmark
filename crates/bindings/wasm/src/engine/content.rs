@@ -160,7 +160,11 @@ export type Step =
  * write's `base`. `droppedAnchors` names each anchor the value held and holds
  * nowhere now, as it read before: every one a `revise` or `replace` lost, and
  * for an `apply` every one but those its `anchor` steps removed.
- * `movedAnchors` names each surviving one whose text the write rewrote.
+ * `movedAnchors` names each surviving one the write moved, a point included,
+ * with the text it covered before and after and `reason`, the first of these
+ * that holds: `position`, an anchor step put it other than where the write's
+ * text edits carry it; `block`, its start sits in another block; `context`,
+ * its text or the eight characters either side read otherwise.
  * `warnings` holds a `parse::dropped_construct` per construct a revise's
  * markdown dropped.
  * `rebased` says the write's `base` was a value the field had moved on from,
@@ -170,9 +174,17 @@ export interface Receipt {
     applied: Change;
     hash: string;
     droppedAnchors: DroppedAnchor[];
-    movedAnchors: { id: string; before: string; after: string }[];
+    movedAnchors: MovedAnchor[];
     warnings: Diagnostic[];
     rebased: boolean;
+}
+
+/** A surviving anchor a write moved, and what moved. */
+export interface MovedAnchor {
+    id: string;
+    before: string;
+    after: string;
+    reason: "position" | "block" | "context";
 }
 
 /**
@@ -294,6 +306,7 @@ struct MovedJs {
     id: String,
     before: String,
     after: String,
+    reason: &'static str,
 }
 
 /// The `base` of a `WriteOptions`.
@@ -469,7 +482,7 @@ fn write(
         moved_anchors: receipt
             .moved_anchors
             .into_iter()
-            .map(|m| MovedJs { id: m.id, before: m.before, after: m.after })
+            .map(|m| MovedJs { id: m.id, before: m.before, after: m.after, reason: m.reason.name() })
             .collect(),
         warnings,
         rebased: receipt.rebased,

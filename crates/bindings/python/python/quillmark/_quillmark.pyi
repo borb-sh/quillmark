@@ -185,6 +185,11 @@ class MovedAnchor(TypedDict):
     id: str
     before: str
     after: str
+    # What moved, the first that holds: "position" (an anchor step put it
+    # other than where the write's text edits carry it), "block" (its start
+    # sits in another block), "context" (its text or the eight characters
+    # either side read otherwise).
+    reason: Literal["position", "block", "context"]
 
 class ReceiptDroppedAnchor(AnchorContext, total=False):
     island: str

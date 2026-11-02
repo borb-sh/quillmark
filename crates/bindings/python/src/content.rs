@@ -89,7 +89,7 @@ pub(crate) fn write<'py>(
     let moved: Vec<_> = receipt
         .moved_anchors
         .into_iter()
-        .map(|m| serde_json::json!({ "id": m.id, "before": m.before, "after": m.after }))
+        .map(|m| serde_json::json!({ "id": m.id, "before": m.before, "after": m.after, "reason": m.reason.name() }))
         .collect();
     let out = PyDict::new(py);
     out.set_item("applied", json_to_py(py, &receipt.applied.to_value())?)?;

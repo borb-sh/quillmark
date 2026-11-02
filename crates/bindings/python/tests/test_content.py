@@ -151,3 +151,16 @@ def test_repair_answers_the_change_from_the_merged_text():
     assert read["content"]["anchors"] == [{"id": "p", "start": 1, "end": 1}]
     valid = {"text": "ab", "blocks": [{"id": "b0", "kind": "para"}]}
     assert repair(valid) == {"content": valid, "repairs": [], "change": {"steps": []}}
+
+
+def test_a_receipt_names_each_anchor_a_write_moved_and_what_moved():
+    doc = Document.from_markdown(MD)
+    doc.apply({"steps": [{"anchor": {"id": "p", "start": 0, "end": 0}}, {"anchor": {"id": "r", "start": 6, "end": 11}}]})
+    receipt = doc.apply({"steps": [
+        {"anchor": {"id": "p", "start": 5, "end": 5, "move": True}},
+        {"splice": {"at": 5, "delete": " ", "insert": "\n", "blocks": [{"id": "b9", "kind": "para"}]}},
+    ]})
+    assert receipt["moved_anchors"] == [
+        {"id": "p", "before": "", "after": "", "reason": "position"},
+        {"id": "r", "before": "world", "after": "world", "reason": "block"},
+    ]

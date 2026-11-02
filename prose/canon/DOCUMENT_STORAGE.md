@@ -466,7 +466,8 @@ read-only in markdown.**
 - **Opaque and invariant.** The runtime never rewrites an id. Positions move
   through steps exactly; the id passes untouched. An anchor whose text is
   deleted entirely drops *whole*, named in the receipt's `droppedAnchors`, and a
-  surviving anchor whose text a write rewrote is named in `movedAnchors`. A
+  surviving anchor whose position, block or context a write moved is named
+  in `movedAnchors`, a point included. A
   rewrite diffs by line, then by word within a line it pairs, so an anchor keeps
   its place wherever its text is untouched.
 

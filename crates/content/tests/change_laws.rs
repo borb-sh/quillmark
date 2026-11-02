@@ -891,38 +891,111 @@ proptest! {
     }
 }
 
-/// The text each anchor covers, in the text or a slot.
-fn quotes(c: &Content, out: &mut std::collections::BTreeMap<String, String>) {
+/// Each anchor of `c`, in the text or a slot: the slots it sits in, its
+/// range, the id of the block its start sits in, and the eight characters
+/// before it, its text and the eight after.
+type Read = (Vec<(String, String)>, (usize, usize), String, [String; 3]);
+
+fn reads(c: &Content, path: &[(String, String)], out: &mut std::collections::BTreeMap<String, Read>) {
+    let cs = chars(c);
+    let text = |a: usize, b: usize| cs[a..b].iter().collect::<String>();
     for a in &c.anchors {
-        out.insert(a.id.clone(), chars(c)[a.start..a.end].iter().collect());
+        let block = c.blocks[cs[..a.start].iter().filter(|&&ch| ch == '\n').count()].id.clone();
+        let around = [text(a.start.saturating_sub(8), a.start), text(a.start, a.end), text(a.end, (a.end + 8).min(cs.len()))];
+        out.insert(a.id.clone(), (path.to_vec(), (a.start, a.end), block, around));
     }
     for island in &c.islands {
-        island.slots.values().for_each(|slot| quotes(slot, out));
+        for (slot, inner) in &island.slots {
+            let mut deeper = path.to_vec();
+            deeper.push((island.id.clone(), slot.clone()));
+            reads(inner, &deeper, out);
+        }
+    }
+}
+
+fn stepped(steps: &[Step], out: &mut BTreeSet<String>) {
+    for s in steps {
+        match s {
+            Step::Anchor(a @ (AnchorStep::Place { .. } | AnchorStep::Move { .. })) => {
+                out.insert(a.id().to_string());
+            }
+            Step::Nested { change, .. } => stepped(&change.steps, out),
+            _ => {}
+        }
     }
 }
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(300))]
 
-    /// Every range anchor a change keeps and whose text it rewrites is named
-    /// in `moved` once, with the text it covered before and after.
+    /// Every anchor a change keeps is named in `moved` once where it moved,
+    /// a point included, with the text it covered before and after and the
+    /// first of these that holds: an `anchor` step put it other than where
+    /// the change's text edits carry it (`position`), its start sits in
+    /// another block (`block`), or its text or the eight characters either
+    /// side read otherwise (`context`).
     #[test]
-    fn every_anchor_whose_text_a_change_rewrites_is_moved(d in document(), ops in ops()) {
+    fn every_anchor_a_change_moves_is_named_with_what_moved(d in document(), ops in ops()) {
         let c = change_for(&d, &ops);
         let done = apply(&d, &c).unwrap();
         let (mut before, mut after) = (Default::default(), Default::default());
-        quotes(&d, &mut before);
-        quotes(&done.content, &mut after);
-        let want: Vec<(String, String, String)> = after
+        reads(&d, &[], &mut before);
+        reads(&done.content, &[], &mut after);
+        let mut steps = BTreeSet::new();
+        stepped(&c.steps, &mut steps);
+        let map = Mapping::from_change(&done.applied).unwrap();
+        let local = |mut p: Pos| loop {
+            match p {
+                Pos::At(p) => return p,
+                Pos::In { at, .. } => p = *at,
+            }
+        };
+        let want: Vec<(String, String, String, &str)> = after
             .into_iter()
-            .filter_map(|(id, now)| {
-                let was = before.get(&id)?;
-                (!was.is_empty() && *was != now).then(|| (id, was.clone(), now))
+            .filter_map(|(id, (path, range, block, around))| {
+                let (wpath, (s, e), wblock, waround) = before.get(&id)?.clone();
+                let at = |p: usize| wpath.iter().rev().fold(Pos::At(p), |inner, (i, k)| Pos::In { island: i.clone(), slot: k.clone(), at: Box::new(inner) });
+                let carried = match s == e {
+                    true => {
+                        let p = local(map.map_point(&at(s)).pos);
+                        (p, p)
+                    }
+                    false => (local(map.map(&at(s), Assoc::After).pos), local(map.map(&at(e), Assoc::Before).pos)),
+                };
+                let reason = if steps.contains(&id) && (wpath != path || carried != range) {
+                    "position"
+                } else if wblock != block {
+                    "block"
+                } else if waround != around {
+                    "context"
+                } else {
+                    return None;
+                };
+                Some((id, waround[1].clone(), around[1].clone(), reason))
             })
             .collect();
-        let got: Vec<(String, String, String)> = done.moved.into_iter().map(|m| (m.id, m.before, m.after)).collect();
+        let got: Vec<(String, String, String, &str)> = done.moved.into_iter().map(|m| (m.id, m.before, m.after, m.reason.name())).collect();
         prop_assert_eq!(got, want, "{:?}", c);
     }
+}
+
+/// A receipt names a point a step moved as moved by position, one whose
+/// block split off as moved by block, and one whose neighbours were
+/// retyped as moved by context; an anchor with nothing near the edit is not
+/// named.
+#[test]
+fn a_receipt_names_what_moved_about_each_anchor_points_included() {
+    let mut d = from_markdown("Alpha beta gamma delta epsilon zeta eta theta").unwrap().content;
+    d.anchors = vec![Anchor::new("p", 6, 6), Anchor::new("q", 40, 40), Anchor::new("r", 17, 22), Anchor::new("far", 0, 5)];
+    d.normalize();
+    let change = Change::new(vec![
+        Step::Anchor(AnchorStep::Move { anchor: Anchor::new("p", 11, 11), quote: None }),
+        Step::Splice(Splice { blocks: vec![Block::new("b9", BlockKind::Para)], ..Splice::new(35, " ", "\n") }),
+        Step::Splice(Splice::new(23, "", "!")),
+    ]);
+    let done = apply(&d, &change).unwrap();
+    let got: Vec<(&str, &str, &str, &str)> = done.moved.iter().map(|m| (m.id.as_str(), m.before.as_str(), m.after.as_str(), m.reason.name())).collect();
+    assert_eq!(got, [("p", "", "", "position"), ("q", "", "", "block"), ("r", "delta", "delta", "context")]);
 }
 
 /// Deleting an island's slot character, or dropping a table row with a props

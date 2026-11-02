@@ -570,7 +570,8 @@ fn a_revise_and_a_replace_carry_an_anchor_through_one_word_diff() {
     assert_eq!(quote_of(&revised, "c1").as_deref(), Some("brown "));
     assert_eq!(quote_of(&revised, "c2").as_deref(), Some("dog"));
     assert_eq!(revised.main().body().anchors, replaced.main().body().anchors);
-    assert_eq!(receipt.moved_anchors.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["c1"]);
+    let moved: Vec<_> = receipt.moved_anchors.iter().map(|m| (m.id.as_str(), m.reason.name())).collect();
+    assert_eq!(moved, [("c1", "context"), ("c2", "context")]);
 }
 
 /// A replaced run's lines pair by best similarity, so a paragraph the writer

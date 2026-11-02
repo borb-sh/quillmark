@@ -766,6 +766,17 @@ describe('Document apply: the write primitive', () => {
     expect(doc.read({}).anchors).toEqual([{ id: 'c1', start: 6, end: 11 }])
   })
 
+  it('a receipt names each anchor a write moved and what moved, a point included', () => {
+    const doc = blankDoc()
+    doc.replace({}, importMarkdown('😀 alpha beta gamma delta').content)
+    doc.apply({}, { steps: [{ anchor: { id: 'p', start: 3, end: 3 } }, { anchor: { id: 'r', start: 9, end: 13 } }] })
+    const receipt = doc.apply({}, { steps: [{ anchor: { id: 'p', start: 14, end: 14, move: true } }, { splice: { at: 13, delete: '', insert: '!' } }] })
+    expect(receipt.movedAnchors).toEqual([
+      { id: 'p', before: '', after: '', reason: 'position' },
+      { id: 'r', before: 'beta', after: 'beta', reason: 'context' },
+    ])
+  })
+
   it('a reserved x- name rides as written, and another unknown one throws', () => {
     const doc = blankDoc()
     const value = { text: 'Note', blocks: [{ id: 'b0', kind: 'x-callout', attrs: { tone: 'warm' } }], marks: [{ start: 0, end: 4, type: 'x-glow' }] }

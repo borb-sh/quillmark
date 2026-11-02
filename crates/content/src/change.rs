@@ -181,7 +181,8 @@ pub struct Applied {
     /// Each anchor the value held before and holds nowhere after, unless an
     /// `anchor` step removed it, as it read before, in reading order.
     pub dropped: Vec<Dropped>,
-    /// Each surviving range anchor whose text the change rewrote.
+    /// Each surviving anchor, a point included, whose position, block or
+    /// context the change moved, by id.
     pub moved: Vec<Moved>,
 }
 
@@ -201,12 +202,43 @@ pub struct SlotRef {
     pub slot: String,
 }
 
+/// A surviving anchor a change moved: the text it covered before and after,
+/// and what moved.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Moved {
     pub id: String,
     pub before: String,
     pub after: String,
+    pub reason: MoveReason,
 }
+
+/// What moved about an anchor, the first of these that holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoveReason {
+    /// A step put it other than where the change's edits to the text carry
+    /// it, or in another slot.
+    Position,
+    /// Its start sits in another block.
+    Block,
+    /// Its text, or the [`CONTEXT`] characters on either side of it, reads
+    /// otherwise.
+    Context,
+}
+
+impl MoveReason {
+    /// The reason's name on the wire.
+    pub fn name(self) -> &'static str {
+        match self {
+            MoveReason::Position => "position",
+            MoveReason::Block => "block",
+            MoveReason::Context => "context",
+        }
+    }
+}
+
+/// The characters on each side of an anchor its context reads, as many as
+/// `reattach` holds a selector's prefix and suffix to.
+pub const CONTEXT: Usv = 8;
 
 impl AnchorStep {
     /// The id of the anchor the step names.
@@ -266,9 +298,10 @@ fn applying(before: &Content, change: &Change, undo: bool) -> Result<(Applied, C
         }
         false => Vec::new(),
     };
-    let moved = moved_anchors(before, &content, &run.touched);
+    let applied = Change { steps: applied };
+    let moved = moved_anchors(before, &content, &applied, &run);
     let inverse = Change { steps: groups.into_iter().rev().flatten().collect() };
-    Ok((Applied { content, applied: Change { steps: applied }, dropped, moved }, inverse))
+    Ok((Applied { content, applied, dropped, moved }, inverse))
 }
 
 /// Each anchor of `before`, in its text or a slot, that `after` holds
@@ -318,8 +351,10 @@ pub(crate) struct Run {
     undo: bool,
     /// The id of each anchor an `anchor` step removed.
     removed: Vec<String>,
-    /// Each anchor whose text a step may have rewritten.
+    /// Each anchor whose position, block or context a step may have moved.
     touched: HashSet<String>,
+    /// Each anchor an `anchor` step placed or moved.
+    stepped: HashSet<String>,
     /// Whether a step may have lost an anchor other than by an `anchor` step.
     lost: bool,
 }
@@ -332,7 +367,7 @@ const TWICE_ISLAND: &str = "the island id is held twice";
 
 impl Run {
     pub(crate) fn new(undo: bool) -> Run {
-        Run { undo, removed: Vec::new(), touched: HashSet::new(), lost: false }
+        Run { undo, removed: Vec::new(), touched: HashSet::new(), stepped: HashSet::new(), lost: false }
     }
 
     /// Runs `steps` on one level, each checked over what it touched, and
@@ -471,6 +506,13 @@ impl Run {
         let next = if untouched { next } else { settled(ws, &written, next) };
         let inserted = clipped(&next, at, at + m);
 
+        let breaks = s.insert.contains('\n') || s.delete.contains('\n');
+        let (lo, hi) = match breaks {
+            true => (ws.min(at.saturating_sub(CONTEXT)), d.block_end(k1).max(end + CONTEXT)),
+            false => (at.saturating_sub(CONTEXT), end + CONTEXT),
+        };
+        let near = d.c.anchors.partition_point(|a| a.start <= hi);
+        self.touched.extend(d.c.anchors[..near].iter().filter(|a| a.end >= lo).map(|a| a.id.clone()));
         let restores = self.shift_anchors(d, at, dn, m);
         let blocks = d.rewrite(k0, k1, &written, next, s.blocks.clone());
         let gone: Vec<Island> = d.c.islands.splice(first..first + lost, islands.iter().cloned()).collect();
@@ -622,6 +664,7 @@ impl Run {
                 let at = d.c.anchors.partition_point(|h| key(h) < key(a));
                 d.c.anchors.insert(at, a.clone());
                 self.touched.insert(a.id.clone());
+                self.stepped.insert(a.id.clone());
                 let undo = match prior {
                     Some(p) => back(d, p, false),
                     None => Step::Anchor(AnchorStep::Remove { id: a.id.clone() }),
@@ -927,53 +970,128 @@ fn differing(a: &[&Mark], b: &[&Mark]) -> Vec<(Usv, Usv)> {
     gone
 }
 
-/// Each range anchor `touched` names that the change kept, whose text it
-/// changed.
-fn moved_anchors(before: &Content, after: &Content, touched: &HashSet<String>) -> Vec<Moved> {
-    if touched.is_empty() {
+/// Each anchor `run` touched that the change kept and moved, by id: one an
+/// `anchor` step put other than where the change's edits carry it, then one
+/// whose start sits in another block, then one whose text or context reads
+/// otherwise.
+fn moved_anchors(before: &Content, after: &Content, applied: &Change, run: &Run) -> Vec<Moved> {
+    if run.touched.is_empty() {
         return Vec::new();
     }
     let mut was = HashMap::new();
-    quotes(before, touched, &mut was);
+    sites(before, &run.touched, &[], &mut was);
     let mut now = HashMap::new();
-    quotes(after, touched, &mut now);
+    sites(after, &run.touched, &[], &mut now);
+    let maps = match run.stepped.is_empty() {
+        true => None,
+        false => Mapping::from_change(applied).ok(),
+    };
     let mut out: Vec<Moved> = now
         .into_iter()
-        .filter_map(|(id, after)| {
-            let before = was.remove(&id)?;
-            (before != after && !before.is_empty()).then_some(Moved { id, before, after })
+        .filter_map(|(id, n)| {
+            let w = was.remove(&id)?;
+            let placed = || match &maps {
+                _ if w.path != n.path => true,
+                Some(maps) => carried(maps, &w) != Some((n.start, n.end)),
+                None => true,
+            };
+            let reason = if run.stepped.contains(&id) && placed() {
+                MoveReason::Position
+            } else if w.block != n.block {
+                MoveReason::Block
+            } else if (&w.prefix, &w.quote, &w.suffix) != (&n.prefix, &n.quote, &n.suffix) {
+                MoveReason::Context
+            } else {
+                return None;
+            };
+            Some(Moved { id, before: w.quote, after: n.quote, reason })
         })
         .collect();
     out.sort_by(|a, b| a.id.cmp(&b.id));
     out
 }
 
-/// The text each anchor `ids` names covers, in `c` and its slots.
-fn quotes(c: &Content, ids: &HashSet<String>, out: &mut HashMap<String, String>) {
-    let mut want: Vec<&Anchor> = c.anchors.iter().filter(|a| ids.contains(&a.id)).collect();
+/// Where an anchor read in `site` lands across `maps`, as `apply` moves it.
+fn carried(maps: &Mapping, site: &Site) -> Option<(Usv, Usv)> {
+    let at = |p: Usv| {
+        site.path.iter().rev().fold(Pos::At(p), |inner, (island, slot)| Pos::In {
+            island: island.clone(),
+            slot: slot.clone(),
+            at: Box::new(inner),
+        })
+    };
+    let local = |r: MapResult| {
+        let mut p = r.pos;
+        loop {
+            match p {
+                Pos::At(p) => return p,
+                Pos::In { at, .. } => p = *at,
+            }
+        }
+    };
+    Some(match site.start == site.end {
+        true => {
+            let p = local(maps.map_point(&at(site.start)));
+            (p, p)
+        }
+        false => (local(maps.map(&at(site.start), Assoc::After)), local(maps.map(&at(site.end), Assoc::Before))),
+    })
+}
+
+/// An anchor as one value holds it: the slots it sits in, its range, the id
+/// of the block its start sits in, and its text and context.
+struct Site {
+    path: Vec<(String, String)>,
+    start: Usv,
+    end: Usv,
+    block: String,
+    prefix: String,
+    quote: String,
+    suffix: String,
+}
+
+/// The site of each anchor `ids` names, in `c`, at `path`, and its slots.
+fn sites(c: &Content, ids: &HashSet<String>, path: &[(String, String)], out: &mut HashMap<String, Site>) {
+    let want: Vec<&Anchor> = c.anchors.iter().filter(|a| ids.contains(&a.id)).collect();
     if !want.is_empty() {
-        let mut edges: Vec<Usv> = want.iter().flat_map(|a| [a.start, a.end]).collect();
+        let mut edges: Vec<Usv> = want.iter().flat_map(|a| [a.start.saturating_sub(CONTEXT), a.start, a.end, a.end + CONTEXT]).collect();
         edges.sort_unstable();
         edges.dedup();
-        let mut bytes = HashMap::with_capacity(edges.len());
+        let mut at = HashMap::with_capacity(edges.len());
         let mut next = edges.iter().peekable();
-        for (k, (b, _)) in c.text.char_indices().chain([(c.text.len(), ' ')]).enumerate() {
+        let mut breaks = 0;
+        for (k, (b, ch)) in c.text.char_indices().enumerate() {
             while next.next_if(|&&e| e == k).is_some() {
-                bytes.insert(k, b);
+                at.insert(k, (b, breaks));
             }
             if next.peek().is_none() {
                 break;
             }
+            breaks += usize::from(ch == '\n');
         }
-        want.sort_by_key(|a| a.start);
+        let end = (c.text.len(), breaks);
+        let read = |p: Usv| *at.get(&p).unwrap_or(&end);
         for a in want {
-            let (Some(&s), Some(&e)) = (bytes.get(&a.start), bytes.get(&a.end)) else { continue };
-            out.insert(a.id.clone(), c.text[s..e].to_string());
+            let (from, (s, k), (e, _), to) = (read(a.start.saturating_sub(CONTEXT)), read(a.start), read(a.end), read(a.end + CONTEXT));
+            out.insert(
+                a.id.clone(),
+                Site {
+                    path: path.to_vec(),
+                    start: a.start,
+                    end: a.end,
+                    block: c.blocks.get(k).map(|b| b.id.clone()).unwrap_or_default(),
+                    prefix: c.text[from.0..s].to_string(),
+                    quote: c.text[s..e].to_string(),
+                    suffix: c.text[e..to.0].to_string(),
+                },
+            );
         }
     }
     for island in &c.islands {
-        for slot in island.slots.values() {
-            quotes(slot, ids, out);
+        for (slot, inner) in &island.slots {
+            let mut deeper = path.to_vec();
+            deeper.push((island.id.clone(), slot.clone()));
+            sites(inner, ids, &deeper, out);
         }
     }
 }

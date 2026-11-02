@@ -58,7 +58,13 @@ A selector naming none is path-strict, as is the rest of every path: a path nami
 ## Drift
 
 `revise` can keep an anchor on different words: it relocates a moved quote to the first occurrence overlapping inserted text, and a word-level rewrite can leave both ends of a range over new text. `reattach` never sees those anchors.
-A caller compares each surviving anchor's selector after the write to the one it read before, and a changed quote is the drift it shows. Nothing moves an anchor on its own.
+A write's `movedAnchors` reports drift by position, a point included: it names each surviving anchor the write moved, with its quote before and after and the first `reason` that holds.
+
+- `position`: an `anchor` step put it other than where the write's text edits carry it, as a writer moving a kept tag does, or in another slot.
+- `block`: its start now sits in another block, as after a split or a join, or a paragraph the diff paired otherwise.
+- `context`: its quote, or the eight characters either side that `reattach` holds a selector's context to, read otherwise, so a relocated quote with an unchanged text still reports.
+
+A host re-reads the selector of each anchor named there. Nothing moves an anchor on its own.
 
 ## Table cells and notes
 
