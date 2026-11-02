@@ -459,8 +459,9 @@ read-only in markdown.**
   consumer knows the referent. A client wanting generated ids mints them
   client-side and supplies them.
 - **Unique per `Content`.** An `anchor` step placing an id the value or any
-  slot holds elsewhere is refused, and `Content::validate` refuses a value
-  holding one twice, so a stored value holds each id once. The empty id is
+  slot holds is refused, as is a move of one its text does not hold, and
+  `Content::validate` refuses a value holding one twice, so a stored value
+  holds each id once and a host's colliding mint fails loudly. The empty id is
   refused as a degenerate handle.
 - **Opaque and invariant.** The runtime never rewrites an id. Positions move
   through steps exactly; the id passes untouched. An anchor whose text is

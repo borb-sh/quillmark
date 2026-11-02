@@ -376,7 +376,7 @@ fn step_in(d: &Draft, index: &Index, step: &Step, n: usize, u: impl Units, dir: 
         Step::Mark(MarkStep::Remove { start, end, .. }) => {
             (*start, *end) = (at(*start)?, at(*end)?);
         }
-        Step::Anchor(AnchorStep::Set { anchor: a, .. }) => {
+        Step::Anchor(AnchorStep::Place { anchor: a, .. } | AnchorStep::Move { anchor: a, .. }) => {
             (a.start, a.end) = (at(a.start)?, at(a.end)?);
         }
         Step::Island(IslandStep::Props { slots, .. }) => {

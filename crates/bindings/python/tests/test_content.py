@@ -129,3 +129,15 @@ def test_deleting_an_island_names_the_anchors_of_its_slots():
     assert receipt["dropped_anchors"] == [
         {"id": "c1", "path": "main.body", "card_id": None, "quote": "text", "prefix": "cell ", "suffix": "", "island": island["id"], "slot": cell}
     ]
+
+
+def test_an_anchor_placement_refuses_a_held_id_and_a_move_moves_it():
+    doc = Document.from_markdown(MD)
+    doc.apply({"steps": [{"anchor": {"id": "c1", "start": 0, "end": 5}}]})
+    with raises_edit_code("edit::content_apply"):
+        doc.apply({"steps": [{"anchor": {"id": "c1", "start": 6, "end": 11}}]})
+    with raises_edit_code("edit::content_apply"):
+        doc.apply({"steps": [{"anchor": {"id": "c9", "start": 6, "end": 11, "move": True}}]})
+    receipt = doc.apply({"steps": [{"anchor": {"id": "c1", "start": 6, "end": 11, "move": True}}]})
+    assert receipt["applied"]["steps"][0]["anchor"]["move"] is True
+    assert doc.read()["anchors"] == [{"id": "c1", "start": 6, "end": 11}]

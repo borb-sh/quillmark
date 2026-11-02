@@ -9,7 +9,7 @@ use crate::change::{AnchorStep, ApplyError, Assoc, Change, ContainerStep, Island
 use crate::draft::Draft;
 use crate::ids::{Minter, prefix};
 use crate::mapping::{MapResult, Mapping, StepMap, moved_islands};
-use crate::model::{Anchor, Content, Mark, Pos, Usv};
+use crate::model::{Anchor, Content, Mark, MarkKind, Pos, Usv};
 use crate::units::Scalars;
 use std::collections::{HashMap, HashSet};
 
@@ -28,9 +28,11 @@ pub enum Reason {
     /// sides of an insert.
     Deleted,
     /// The text a splice deletes or a step quotes, the block an island insert
-    /// names, what a step by id overwrites, an island a splice deletes, or
-    /// the slot a nested step edits where `over` removed it, now reads
-    /// otherwise.
+    /// names, what a step by id overwrites, an island, block record or mark
+    /// a splice deletes, the formatting of a mark step's type over its range,
+    /// or the slot a nested step edits where `over` removed it, now reads
+    /// otherwise; or `over` placed, moved or removed the anchor the step
+    /// names.
     Changed,
     /// The step names a block, container, anchor, island or slot that is no
     /// longer there.
@@ -53,7 +55,7 @@ impl Reason {
 
     fn of(e: ApplyError) -> Reason {
         match e {
-            ApplyError::Stale { .. } => Reason::Changed,
+            ApplyError::Stale { .. } | ApplyError::AnchorHeld { .. } => Reason::Changed,
             ApplyError::UnknownBlock { .. }
             | ApplyError::UnknownContainer { .. }
             | ApplyError::UnknownAnchor { .. }
@@ -115,8 +117,14 @@ impl std::error::Error for RebaseError {}
 ///   overwrites what `over` changed conflicts: the fields of a block's record
 ///   a `setBlock` names, a container's attributes, an island's props and the
 ///   slots they drop.
-/// - A splice conflicts where an island or block record it deletes reads
-///   otherwise than its writer read it.
+/// - A splice conflicts where an island, block record or mark it deletes
+///   reads otherwise than its writer read it, so a stale rewrite of a word
+///   `over` formatted conflicts rather than dropping the formatting.
+/// - A mark step conflicts where `over` changed the formatting of its type on
+///   a character of its range both values hold.
+/// - An anchor step conflicts where an `anchor` step of `over` names its id:
+///   a stale write never brings back an anchor `over` removed, nor wins one
+///   both moved.
 /// - `nested` rebases its change over what `over` did inside that slot. Where
 ///   `over` removed the island or the slot and the slot now reads otherwise,
 ///   its edits are not in the mapping, and the step conflicts.
@@ -158,6 +166,13 @@ fn level(
 ) -> Result<Vec<Step>, (usize, Reason)> {
     let n = orig.len();
     let gone = removed_by(over_steps);
+    let stepped: HashSet<&str> = over_steps
+        .iter()
+        .filter_map(|s| match s {
+            Step::Anchor(a) => Some(a.id()),
+            _ => None,
+        })
+        .collect();
     let mine = introduced_by(orig, &was.c);
     let mut maps = Mapping::new();
     for (i, step) in norm[..n].iter().enumerate().rev() {
@@ -191,9 +206,11 @@ fn level(
             }
             (step, _) => map_step(step, &through).map_err(|reason| (i, reason))?,
         };
+        let reformats = reformats(step, was, now, &through);
         let read = Run::new(false).step(was, step, i).map_err(|e| (i, Reason::Refused(e)))?;
         let wrote = Run::new(false).step(now, &mapped, i).map_err(|e| (i, Reason::of(e)))?;
-        if overwrites(step, &read, &wrote) {
+        let restepped = matches!(step, Step::Anchor(a) if stepped.contains(a.id()));
+        if reformats || restepped || overwrites(step, &read, &wrote) {
             return Err((i, Reason::Changed));
         }
         let map = StepMap::of(&wrote.0, Scalars).map_err(|e| (i, Reason::Refused(e)))?;
@@ -421,13 +438,13 @@ fn rehomed(over: &Mapping, island: &str, slot: &str) -> bool {
 
 /// Whether `step`, run where it was made (`read`) and where it now lands
 /// (`wrote`), overwrites something that reads otherwise: what its inverse
-/// puts back, for the fields it sets, or the islands and block records a
-/// splice deletes.
+/// puts back, for the fields it sets, or the islands, block records and
+/// marks a splice deletes.
 fn overwrites(step: &Step, (read, put): &(Step, Vec<Step>), (wrote, puts): &(Step, Vec<Step>)) -> bool {
     match (step, read, wrote, put.as_slice(), puts.as_slice()) {
         (Step::Splice(_), Step::Splice(a), Step::Splice(b), ..) => {
             let (a, b) = (a.removed.as_ref(), b.removed.as_ref());
-            a.map(|r| (&r.islands, &r.blocks)) != b.map(|r| (&r.islands, &r.blocks))
+            a.map(|r| (&r.islands, &r.blocks, &r.marks)) != b.map(|r| (&r.islands, &r.blocks, &r.marks))
         }
         (Step::SetBlock(s), _, _, [Step::SetBlock(x)], [Step::SetBlock(y)]) => {
             ((s.kind.is_some() || s.attrs.is_some()) && (&x.kind, &x.attrs) != (&y.kind, &y.attrs))
@@ -436,6 +453,39 @@ fn overwrites(step: &Step, (read, put): &(Step, Vec<Step>), (wrote, puts): &(Ste
         (Step::Container(_) | Step::Island(IslandStep::Props { .. }), ..) => put != puts,
         _ => false,
     }
+}
+
+/// Whether `over` changed the formatting of a mark step's type on a
+/// character of its range that `was`, the value the step reads, and `now`,
+/// where it lands, both hold.
+fn reformats(step: &Step, was: &Draft, now: &Draft, through: &Tail) -> bool {
+    let (start, end, tag) = match step {
+        Step::Mark(MarkStep::Add { mark, .. }) => (mark.start, mark.end, mark.kind.tag()),
+        Step::Mark(MarkStep::Remove { start, end, tag, .. }) => (*start, *end, tag.as_str()),
+        _ => return false,
+    };
+    if start >= end || end > was.len() {
+        return false;
+    }
+    let read = formatting(was, start, end, tag);
+    let lo = offset(&through.map(&Pos::At(start), Assoc::After));
+    let hi = offset(&through.map(&Pos::At(end), Assoc::Before)).clamp(lo, now.len());
+    let theirs = formatting(now, lo, hi, tag);
+    (start..end).zip(read).any(|(p, held)| {
+        let r = through.map(&Pos::At(p), Assoc::After);
+        let q = offset(&r);
+        !r.deleted_after && (lo..hi).contains(&q) && theirs[q - lo] != held
+    })
+}
+
+/// The mark of type `tag` on each character of `[start, end)` in `d`.
+fn formatting(d: &Draft, start: Usv, end: Usv, tag: &str) -> Vec<Option<MarkKind>> {
+    if start >= end {
+        return Vec::new();
+    }
+    let (_, _, marks) = d.window(d.block_at(start), d.block_at(end));
+    let marks: Vec<Mark> = marks.into_iter().filter(|m| m.kind.tag() == tag && m.end > start && m.start < end).collect();
+    (start..end).map(|p| marks.iter().find(|m| m.start <= p && p < m.end).map(|m| m.kind.clone())).collect()
 }
 
 /// A mapping's maps from one on.
@@ -508,7 +558,7 @@ fn map_step(step: &Step, maps: &Tail) -> Result<Step, Reason> {
             let (start, end) = range(*start, *end, maps)?;
             Step::Mark(MarkStep::Remove { start, end, tag: tag.clone(), quote: quote.clone() })
         }
-        Step::Anchor(AnchorStep::Set { anchor, quote }) => {
+        Step::Anchor(AnchorStep::Place { anchor, quote } | AnchorStep::Move { anchor, quote }) => {
             let (start, end) = match anchor.is_point() {
                 true => {
                     let p = offset(&maps.map_point(&Pos::At(anchor.start)));
@@ -516,7 +566,11 @@ fn map_step(step: &Step, maps: &Tail) -> Result<Step, Reason> {
                 }
                 false => range(anchor.start, anchor.end, maps)?,
             };
-            Step::Anchor(AnchorStep::Set { anchor: Anchor { start, end, ..anchor.clone() }, quote: quote.clone() })
+            let (anchor, quote) = (Anchor { start, end, ..anchor.clone() }, quote.clone());
+            Step::Anchor(match step {
+                Step::Anchor(AnchorStep::Move { .. }) => AnchorStep::Move { anchor, quote },
+                _ => AnchorStep::Place { anchor, quote },
+            })
         }
         Step::SetBlock(_) | Step::Container(_) | Step::Anchor(AnchorStep::Remove { .. }) | Step::Island(IslandStep::Props { .. }) => {
             step.clone()

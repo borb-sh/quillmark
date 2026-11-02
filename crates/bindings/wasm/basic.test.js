@@ -755,6 +755,17 @@ describe('Document apply: the write primitive', () => {
     expect(receipt.applied.steps[0].anchor.quote).toBe('world')
   })
 
+  it('an anchor placement refuses a held id and a move moves the held one', () => {
+    const doc = blankDoc()
+    doc.replace({}, importMarkdown('hello world').content)
+    doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 0, end: 5 } }] })
+    expectEditCode(() => doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 6, end: 11 } }] }), 'edit::content_apply')
+    expectEditCode(() => doc.apply({}, { steps: [{ anchor: { id: 'c9', start: 6, end: 11, move: true } }] }), 'edit::content_apply')
+    const receipt = doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 6, end: 11, move: true } }] })
+    expect(receipt.applied.steps[0].anchor).toEqual({ id: 'c1', start: 6, end: 11, quote: 'world', move: true })
+    expect(doc.read({}).anchors).toEqual([{ id: 'c1', start: 6, end: 11 }])
+  })
+
   it('a reserved x- name rides as written, and another unknown one throws', () => {
     const doc = blankDoc()
     const value = { text: 'Note', blocks: [{ id: 'b0', kind: 'x-callout', attrs: { tone: 'warm' } }], marks: [{ start: 0, end: 4, type: 'x-glow' }] }

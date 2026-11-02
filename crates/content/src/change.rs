@@ -88,10 +88,15 @@ pub enum MarkStep {
     Remove { start: Usv, end: Usv, tag: String, quote: Option<String> },
 }
 
+/// `quote` is as a mark step's.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnchorStep {
-    /// Places or moves an anchor. `quote` is as a mark step's.
-    Set { anchor: Anchor, quote: Option<String> },
+    /// Places an anchor under an id neither its text nor a slot in it holds:
+    /// one held is [`ApplyError::AnchorHeld`], so two hosts minting one id
+    /// collide loudly rather than one moving the other's anchor.
+    Place { anchor: Anchor, quote: Option<String> },
+    /// Moves the anchor its text holds under the id.
+    Move { anchor: Anchor, quote: Option<String> },
     Remove { id: String },
 }
 
@@ -127,6 +132,8 @@ pub enum ApplyError {
     ContainerKind { id: String },
     ContainerInUse { id: String },
     UnknownAnchor { id: String },
+    /// An anchor placement of an id the text or a slot in it already holds.
+    AnchorHeld { id: String },
     UnknownIsland { id: String },
     UnknownSlot { island: String, slot: String },
     /// A splice whose `blocks` or `islands` do not match its insert, or a
@@ -144,6 +151,7 @@ impl std::fmt::Display for ApplyError {
             ApplyError::ContainerKind { id } => write!(f, "container `{id}` cannot change its kind"),
             ApplyError::ContainerInUse { id } => write!(f, "container `{id}` is still on a block's path"),
             ApplyError::UnknownAnchor { id } => write!(f, "no anchor `{id}`"),
+            ApplyError::AnchorHeld { id } => write!(f, "anchor `{id}` is held: move it, or place another id"),
             ApplyError::UnknownIsland { id } => write!(f, "no island `{id}`"),
             ApplyError::UnknownSlot { island, slot } => write!(f, "island `{island}` has no slot `{slot}`"),
             ApplyError::BadStep { step, reason } => write!(f, "step {step}: {reason}"),
@@ -198,6 +206,16 @@ pub struct Moved {
     pub id: String,
     pub before: String,
     pub after: String,
+}
+
+impl AnchorStep {
+    /// The id of the anchor the step names.
+    pub fn id(&self) -> &str {
+        match self {
+            AnchorStep::Place { anchor, .. } | AnchorStep::Move { anchor, .. } => &anchor.id,
+            AnchorStep::Remove { id } => id,
+        }
+    }
 }
 
 impl Change {
@@ -515,7 +533,7 @@ impl Run {
             if self.undo {
                 let back = (map_start(start, at, m, dn, point), map_end(end_, at, m, dn, point));
                 if !alive || back != (a.start, a.end) {
-                    restores.push(a.clone());
+                    restores.push((a.clone(), alive));
                 }
             }
             if !alive {
@@ -533,9 +551,12 @@ impl Run {
         }
         restores
             .into_iter()
-            .map(|a| {
+            .map(|(a, alive)| {
                 let quote = Some(d.slice(a.start, a.end));
-                Step::Anchor(AnchorStep::Set { anchor: a, quote })
+                Step::Anchor(match alive {
+                    true => AnchorStep::Move { anchor: a, quote },
+                    false => AnchorStep::Place { anchor: a, quote },
+                })
             })
             .collect()
     }
@@ -576,33 +597,46 @@ impl Run {
     }
 
     fn anchor(&mut self, d: &mut Draft, s: &AnchorStep, n: usize) -> Result<(AnchorStep, Step), ApplyError> {
-        let back = |d: &Draft, a: Anchor| {
+        let back = |d: &Draft, a: Anchor, place: bool| {
             let quote = Some(d.slice(a.start, a.end));
-            Step::Anchor(AnchorStep::Set { anchor: a, quote })
+            Step::Anchor(match place {
+                true => AnchorStep::Place { anchor: a, quote },
+                false => AnchorStep::Move { anchor: a, quote },
+            })
         };
         match s {
-            AnchorStep::Set { anchor: a, quote } => {
+            AnchorStep::Place { anchor: a, quote } | AnchorStep::Move { anchor: a, quote } => {
                 let held = quoted(d, a.start, a.end, quote, n)?;
                 if a.id.is_empty() || a.start > a.end || a.end > d.len() {
                     return Err(ApplyError::BadStep { step: n, reason: "an anchor step's range is past the text" });
                 }
-                let prior = d.c.anchors.iter().position(|h| h.id == a.id).map(|k| d.c.anchors[k].clone());
-                d.c.anchors.retain(|h| h.id != a.id);
+                let prior = d.c.anchors.iter().position(|h| h.id == a.id);
+                let place = matches!(s, AnchorStep::Place { .. });
+                let prior = match (place, prior) {
+                    (true, None) if !d.c.islands.iter().any(|i| i.slots.values().any(|slot| slot.holds_anchor(&a.id))) => None,
+                    (true, _) => return Err(ApplyError::AnchorHeld { id: a.id.clone() }),
+                    (false, Some(k)) => Some(d.c.anchors.remove(k)),
+                    (false, None) => return Err(ApplyError::UnknownAnchor { id: a.id.clone() }),
+                };
                 let key = |h: &Anchor| (h.start, h.end, h.id.clone());
                 let at = d.c.anchors.partition_point(|h| key(h) < key(a));
                 d.c.anchors.insert(at, a.clone());
                 self.touched.insert(a.id.clone());
                 let undo = match prior {
-                    Some(p) => back(d, p),
+                    Some(p) => back(d, p, false),
                     None => Step::Anchor(AnchorStep::Remove { id: a.id.clone() }),
                 };
-                Ok((AnchorStep::Set { anchor: a.clone(), quote: held }, undo))
+                let done = match place {
+                    true => AnchorStep::Place { anchor: a.clone(), quote: held },
+                    false => AnchorStep::Move { anchor: a.clone(), quote: held },
+                };
+                Ok((done, undo))
             }
             AnchorStep::Remove { id } => {
                 let at = d.c.anchors.iter().position(|h| &h.id == id).ok_or_else(|| ApplyError::UnknownAnchor { id: id.clone() })?;
                 let held = d.c.anchors.remove(at);
                 self.removed.push(id.clone());
-                Ok((s.clone(), back(d, held)))
+                Ok((s.clone(), back(d, held, true)))
             }
         }
     }
@@ -1165,7 +1199,12 @@ mod wire {
                     quote,
                 ),
             ),
-            Step::Anchor(AnchorStep::Set { anchor, quote }) => one("anchor", quoting(anchor_value(anchor), quote)),
+            Step::Anchor(AnchorStep::Place { anchor, quote }) => one("anchor", quoting(anchor_value(anchor), quote)),
+            Step::Anchor(AnchorStep::Move { anchor, quote }) => {
+                let mut v = quoting(anchor_value(anchor), quote);
+                v["move"] = true.into();
+                one("anchor", v)
+            }
             Step::Anchor(AnchorStep::Remove { id }) => {
                 one("anchor", obj([("id", id.as_str().into()), ("remove", true.into())]))
             }
@@ -1211,10 +1250,14 @@ mod wire {
     }
 
     fn removing(v: &Value) -> Result<bool, ParseError> {
-        match v.get("remove") {
+        flag(v, "remove")
+    }
+
+    fn flag(v: &Value, key: &str) -> Result<bool, ParseError> {
+        match v.get(key) {
             None | Some(Value::Null) | Some(Value::Bool(false)) => Ok(false),
             Some(Value::Bool(true)) => Ok(true),
-            Some(_) => Err(shape("`remove` is not a boolean")),
+            Some(_) => Err(shape(format!("`{key}` is not a boolean"))),
         }
     }
 
@@ -1331,11 +1374,12 @@ mod wire {
                 }
             }
             "anchor" => {
-                only(body, "an anchor step", &["id", "start", "end", "quote", "remove"])?;
-                if removing(body)? {
-                    Step::Anchor(AnchorStep::Remove { id: str_key(body, "id")? })
-                } else {
-                    Step::Anchor(AnchorStep::Set { anchor: anchor_from_value(body)?, quote: opt_str(body, "quote")? })
+                only(body, "an anchor step", &["id", "start", "end", "quote", "remove", "move"])?;
+                match (removing(body)?, flag(body, "move")?) {
+                    (true, true) => return Err(shape("an anchor step names `remove` or `move`, not both")),
+                    (true, false) => Step::Anchor(AnchorStep::Remove { id: str_key(body, "id")? }),
+                    (false, true) => Step::Anchor(AnchorStep::Move { anchor: anchor_from_value(body)?, quote: opt_str(body, "quote")? }),
+                    (false, false) => Step::Anchor(AnchorStep::Place { anchor: anchor_from_value(body)?, quote: opt_str(body, "quote")? }),
                 }
             }
             "island" => match body.get("island") {

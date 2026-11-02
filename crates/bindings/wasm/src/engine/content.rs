@@ -127,11 +127,15 @@ export interface Change {
  * - `container` adds a container or sets an existing one's attributes, or
  *   removes one no path names.
  * - `mark` adds or removes formatting over a range.
- * - `anchor` places, moves or removes a comment anchor.
+ * - `anchor` places a comment anchor under an id the value holds nowhere,
+ *   moves the one its text holds (`move: true`), or removes one.
  * - `island` replaces an island's props, or inserts an island's slot at `at`.
  * - `nested` applies a change inside one slot of an island.
  *
- * A `mark` step and an `anchor` placement take `quote`, the text their range
+ * A placement of a held id, and a move or removal of one the text does not
+ * hold, is refused (`edit::content_apply`).
+ *
+ * A `mark` step and an `anchor` placement or move take `quote`, the text their range
  * covered when the writer read it, and an island insert takes `block`, the id
  * of the block the writer read `at` in. A step whose `quote` or `block` the
  * value no longer holds is refused as stale (`edit::content_apply`), as a
@@ -146,7 +150,7 @@ export type Step =
     | { setBlock: { id: string; kind?: ContentBlockKind["kind"]; attrs?: Record<string, unknown>; path?: string[] } }
     | { container: ContentContainer | { id: string; remove: true } }
     | { mark: { start: number; end: number; add: boolean; quote?: string } & ContentMarkKind }
-    | { anchor: (ContentAnchor & { quote?: string }) | { id: string; remove: true } }
+    | { anchor: (ContentAnchor & { quote?: string; move?: true }) | { id: string; remove: true } }
     | { island: { id: string; props: Record<string, unknown>; slots?: Record<string, Content> } | { at: number; island: ContentIsland; block?: string } }
     | { nested: { island: string; slot: string; change: Change } };
 

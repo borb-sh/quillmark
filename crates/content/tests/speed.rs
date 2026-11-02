@@ -53,7 +53,7 @@ fn change(d: &Content, word: &str, to: &str, tag: &str) -> Change {
         let len = word.chars().count();
         steps.push(match k % 10 {
             7 => Step::Mark(MarkStep::Add { mark: Mark::new(at, at + len, MarkKind::Strong), quote: None }),
-            8 => Step::Anchor(AnchorStep::Set { anchor: Anchor::new(format!("{tag}-{k}"), at, at + len), quote: None }),
+            8 => Step::Anchor(AnchorStep::Place { anchor: Anchor::new(format!("{tag}-{k}"), at, at + len), quote: None }),
             9 => {
                 shift += 1;
                 let block = Block::new(format!("{tag}{k}"), BlockKind::Para);

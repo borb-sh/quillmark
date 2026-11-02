@@ -36,8 +36,10 @@ fn fixups(now: &Content, want: &Content) -> Vec<Step> {
     let held: HashMap<&str, &crate::model::Anchor> = now.anchors.iter().map(|a| (a.id.as_str(), a)).collect();
     let wanted: HashSet<&str> = want.anchors.iter().map(|a| a.id.as_str()).collect();
     for a in &want.anchors {
-        if held.get(a.id.as_str()) != Some(&a) {
-            out.push(Step::Anchor(AnchorStep::Set { anchor: a.clone(), quote: None }));
+        match held.get(a.id.as_str()) {
+            Some(h) if *h == a => {}
+            Some(_) => out.push(Step::Anchor(AnchorStep::Move { anchor: a.clone(), quote: None })),
+            None => out.push(Step::Anchor(AnchorStep::Place { anchor: a.clone(), quote: None })),
         }
     }
     for a in &now.anchors {

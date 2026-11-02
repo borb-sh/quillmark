@@ -149,6 +149,15 @@ fn quote_of(c: &Content, start: usize, end: usize, seed: usize) -> Option<String
     (seed / 2 % 2 == 0).then(|| chars(c)[start..end].iter().collect())
 }
 
+/// An anchor step to `anchor`: a move of the one `c`'s text holds under its
+/// id, else a placement.
+fn anchor_step(c: &Content, anchor: Anchor, quote: Option<String>) -> Step {
+    match c.anchor(&anchor.id) {
+        Some(_) => Step::Anchor(AnchorStep::Move { anchor, quote }),
+        None => Step::Anchor(AnchorStep::Place { anchor, quote }),
+    }
+}
+
 fn slots_of(c: &Content) -> Vec<(&Island, String)> {
     c.islands.iter().flat_map(|i| i.slot_order().into_iter().map(move |s| (i, s))).collect()
 }
@@ -174,10 +183,7 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
                 0 if !c.anchors.is_empty() => {
                     Step::Anchor(AnchorStep::Remove { id: c.anchors[x % c.anchors.len()].id.clone() })
                 }
-                _ => Step::Anchor(AnchorStep::Set {
-                    anchor: Anchor::new(format!("c-{}", z % 4), a.min(b), a.max(b)),
-                    quote: quote_of(c, a.min(b), a.max(b), x),
-                }),
+                _ => anchor_step(c, Anchor::new(format!("c-{}", z % 4), a.min(b), a.max(b)), quote_of(c, a.min(b), a.max(b), x)),
             }
         }
         4 => {
@@ -287,7 +293,7 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
                 (11, 0) if !inner.anchors.is_empty() => {
                     Step::Anchor(AnchorStep::Remove { id: inner.anchors[x % inner.anchors.len()].id.clone() })
                 }
-                (11, _) => Step::Anchor(AnchorStep::Set { anchor: Anchor::new(format!("sa-{}", z % 4), start, end), quote }),
+                (11, _) => anchor_step(inner, Anchor::new(format!("sa-{}", z % 4), start, end), quote),
                 _ => return None,
             };
             Step::Nested { island: island.id.clone(), slot: slot.clone(), change: Change::new(vec![step]) }
@@ -767,7 +773,7 @@ fn a_quoted_step_refuses_the_text_it_did_not_read() {
     let joined = apply(&d, &one(&Step::Splice(Splice::new(5, "\n", "")))).unwrap().content;
     let math = Island::new("isl-9", IslandType::Math).with_props(json!({"tex": "y"}));
     let cases = [
-        (Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }), &typed),
+        (Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }), &typed),
         (Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Strong), quote: Some("world".into()) }), &typed),
         (Step::Mark(MarkStep::Remove { start: 6, end: 11, tag: "strong".into(), quote: Some("world".into()) }), &typed),
         (Step::Island(IslandStep::Insert { at: 8, island: math, block: Some(d.blocks[1].id.clone()) }), &joined),
@@ -776,7 +782,7 @@ fn a_quoted_step_refuses_the_text_it_did_not_read() {
         assert!(apply(&d, &one(&step)).is_ok(), "{step:?}");
         assert_eq!(apply(moved, &one(&step)).map(|_| ()), Err(ApplyError::Stale { step: 0 }), "{step:?}");
         let unguarded = match step {
-            Step::Anchor(AnchorStep::Set { anchor, .. }) => Step::Anchor(AnchorStep::Set { anchor, quote: None }),
+            Step::Anchor(AnchorStep::Place { anchor, .. }) => Step::Anchor(AnchorStep::Place { anchor, quote: None }),
             Step::Mark(MarkStep::Add { mark, .. }) => Step::Mark(MarkStep::Add { mark, quote: None }),
             Step::Mark(MarkStep::Remove { start, end, tag, .. }) => Step::Mark(MarkStep::Remove { start, end, tag, quote: None }),
             Step::Island(IslandStep::Insert { at, island, .. }) => Step::Island(IslandStep::Insert { at, island, block: None }),
@@ -790,17 +796,18 @@ fn a_quoted_step_refuses_the_text_it_did_not_read() {
 fn the_receipt_and_the_inverse_carry_each_steps_precondition() {
     let d = from_markdown("hello world").unwrap().content;
     let c = Change::new(vec![
-        Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-1", 6, 11), quote: None }),
+        Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-1", 6, 11), quote: None }),
         Step::Mark(MarkStep::Add { mark: Mark::new(0, 5, MarkKind::Strong), quote: None }),
         Step::Island(IslandStep::Insert { at: 5, island: Island::new("isl-9", IslandType::Math).with_props(json!({"tex": "y"})), block: None }),
     ]);
     let done = apply(&d, &c).unwrap();
-    assert_eq!(done.applied.steps[0], Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }));
+    assert_eq!(done.applied.steps[0], Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }));
     assert_eq!(done.applied.steps[1], Step::Mark(MarkStep::Add { mark: Mark::new(0, 5, MarkKind::Strong), quote: Some("hello".into()) }));
     assert!(matches!(&done.applied.steps[2], Step::Island(IslandStep::Insert { block: Some(b), .. }) if *b == d.blocks[0].id));
     let undo = invert(&c, &d).unwrap();
     let guarded = |s: &Step| match s {
-        Step::Mark(MarkStep::Add { quote, .. } | MarkStep::Remove { quote, .. }) | Step::Anchor(AnchorStep::Set { quote, .. }) => quote.is_some(),
+        Step::Mark(MarkStep::Add { quote, .. } | MarkStep::Remove { quote, .. })
+        | Step::Anchor(AnchorStep::Place { quote, .. } | AnchorStep::Move { quote, .. }) => quote.is_some(),
         _ => true,
     };
     assert!(undo.steps.iter().all(guarded), "{undo:?}");
@@ -819,7 +826,7 @@ proptest! {
         let (start, end) = (a.min(b), a.max(b));
         let quote: String = chars(&d)[start..end].iter().collect();
         let step = |quote: Option<String>| match z % 3 {
-            0 => Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-9", start, end), quote }),
+            0 => Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-9", start, end), quote }),
             1 => Step::Mark(MarkStep::Add { mark: Mark::new(start, end, MarkKind::Emph), quote }),
             _ => Step::Mark(MarkStep::Remove { start, end, tag: "strong".into(), quote }),
         };
@@ -1097,7 +1104,10 @@ fn wild_step() -> impl Strategy<Value = Step> {
         } else {
             MarkStep::Remove { start: s, end: e, tag: "strong".into(), quote: Some("a".into()) }
         })),
-        (id(), n(), n()).prop_map(|(i, s, e)| Step::Anchor(AnchorStep::Set { anchor: Anchor::new(i, s, e), quote: None })),
+        (id(), n(), n(), any::<bool>()).prop_map(|(i, s, e, place)| Step::Anchor(match place {
+            true => AnchorStep::Place { anchor: Anchor::new(i, s, e), quote: None },
+            false => AnchorStep::Move { anchor: Anchor::new(i, s, e), quote: None },
+        })),
         id().prop_map(|i| Step::Anchor(AnchorStep::Remove { id: i })),
         (id(), prop::collection::vec(id(), 0..4)).prop_map(|(i, path)| Step::SetBlock(SetBlock { id: i, path: Some(path), ..SetBlock::default() })),
         id().prop_map(|i| Step::Container(ContainerStep::Remove { id: i })),
@@ -1499,7 +1509,7 @@ fn windowed(d: &Content, ops: &[Op], (lo, mut hi): (usize, usize), side: &str) -
                 Step::Splice(s)
             }
             1 if start < end => Step::Mark(MarkStep::Add { mark: Mark::new(start, end, kind_of(TAGS[z as usize % TAGS.len()])), quote: quote_of(&sim, start, end, y) }),
-            _ => Step::Anchor(AnchorStep::Set { anchor: Anchor::new(format!("{side}-{}", z % 3), start, end), quote: quote_of(&sim, start, end, x) }),
+            _ => anchor_step(&sim, Anchor::new(format!("{side}-{}", z % 3), start, end), quote_of(&sim, start, end, x)),
         };
         let mut trial = steps.clone();
         trial.push(step.clone());
@@ -1650,14 +1660,21 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(400))]
 
     /// A rebased change keeps what the change it rebased over did to each
-    /// record, container and island by id, or conflicts.
+    /// record, container and island by id, to the formatting of each
+    /// character all three values hold, and to each anchor its steps named,
+    /// or conflicts.
     #[test]
     fn a_rebased_change_keeps_what_the_other_changed_or_conflicts(d in document(), mine in ops(), theirs in ops()) {
         let c = change_for(&d, &mine);
         let o = change_from(&d, &theirs, 0);
-        let now = apply(&d, &o).unwrap().content;
+        let theirs = apply(&d, &o).unwrap();
+        let now = theirs.content.clone();
         let Ok(r) = rebase(&d, &c, &o) else { return Ok(()) };
-        let done = apply(&now, &r).unwrap().content;
+        let landed = apply(&now, &r).unwrap();
+        let own = apply(&d, &c).unwrap();
+        prop_assert_eq!(reformatted(&d, &own, &theirs, &landed), None, "change {:?}\nover {:?}\nrebased {:?}", c, o, r);
+        prop_assert_eq!(restepped(&o, &now, &landed), None, "change {:?}\nover {:?}\nrebased {:?}", c, o, r);
+        let done = landed.content;
         let mut read = Vec::new();
         for k in 0..=c.steps.len() {
             if let Ok(at) = apply(&d, &Change::new(c.steps[..k].to_vec())) {
@@ -1666,6 +1683,68 @@ proptest! {
         }
         prop_assert_eq!(overwritten(&d, &now, &done, &read), None, "change {:?}\nover {:?}\nrebased {:?}", c, o, r);
     }
+}
+
+/// Where a character of `d` lands after `change`, `None` where it went.
+fn char_map(change: &Change, i: usize) -> Option<usize> {
+    let r = map_pos(change, &Pos::At(i), Assoc::After).ok()?;
+    match (r.deleted_after, r.pos) {
+        (false, Pos::At(p)) => Some(p),
+        _ => None,
+    }
+}
+
+/// The mark of each type on character `i` of `c`.
+fn formats(c: &Content, i: usize) -> std::collections::BTreeMap<String, MarkKind> {
+    c.marks.iter().filter(|m| m.start <= i && i < m.end).map(|m| (m.kind.tag().to_string(), m.kind.clone())).collect()
+}
+
+/// A mark of a type `over` changed on a character of `d` that `own`, the
+/// change made from `d`, left as it was, and that `landed`, the change
+/// rebased over it, holds otherwise than `theirs`.
+fn reformatted(d: &Content, own: &quillmark_content::change::Applied, theirs: &quillmark_content::change::Applied, landed: &quillmark_content::change::Applied) -> Option<String> {
+    for j in 0..d.len_usv() {
+        let (Some(jo), Some(jc)) = (char_map(&theirs.applied, j), char_map(&own.applied, j)) else { continue };
+        let Some(jf) = char_map(&landed.applied, jo) else { continue };
+        let (dv, ov, cv, fv) = (formats(d, j), formats(&theirs.content, jo), formats(&own.content, jc), formats(&landed.content, jf));
+        let tags: BTreeSet<&String> = dv.keys().chain(ov.keys()).chain(cv.keys()).collect();
+        for t in tags {
+            if dv.get(t) != ov.get(t) && dv.get(t) == cv.get(t) && fv.get(t) != ov.get(t) {
+                return Some(format!("the {t} of character {j}"));
+            }
+        }
+    }
+    None
+}
+
+/// An anchor of the value's own text an `anchor` step of `over` named that
+/// `landed` holds otherwise than where its own steps carry it from `now`.
+fn restepped(over: &Change, now: &Content, landed: &quillmark_content::change::Applied) -> Option<String> {
+    let named: BTreeSet<&str> = over.steps.iter().filter_map(|s| match s {
+        Step::Anchor(a) => Some(a.id()),
+        _ => None,
+    }).collect();
+    let map = Mapping::from_change(&landed.applied).unwrap();
+    for id in named {
+        let want = now.anchor(id).and_then(|a| {
+            let at = |p: Pos| match p {
+                Pos::At(p) => p,
+                _ => unreachable!(),
+            };
+            let (start, end) = match a.is_point() {
+                true => {
+                    let p = at(map.map_point(&Pos::At(a.start)).pos);
+                    (p, p)
+                }
+                false => (at(map.map(&Pos::At(a.start), Assoc::After).pos), at(map.map(&Pos::At(a.end), Assoc::Before).pos)),
+            };
+            (a.is_point() || start < end).then(|| Anchor::new(id, start, end))
+        });
+        if landed.content.anchor(id) != want.as_ref() {
+            return Some(format!("anchor {id}"));
+        }
+    }
+    None
 }
 
 fn table_change(d: &Content, edit: impl FnOnce(&mut Table), slots: &[(&str, &str)]) -> Change {
@@ -1788,8 +1867,8 @@ fn a_slow_anchor_lands_on_its_text_over_live_typing() {
     let d = from_markdown("Hello world").unwrap().content;
     let typed = Change::new(vec![Step::Splice(Splice::new(0, "", "XX ")), Step::Splice(Splice::new(8, "", "!"))]);
     let place = Change::new(vec![
-        Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }),
-        Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-2", 5, 5), quote: None }),
+        Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }),
+        Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-2", 5, 5), quote: None }),
         Step::Mark(MarkStep::Add { mark: Mark::new(0, 5, MarkKind::Strong), quote: Some("Hello".into()) }),
     ]);
     let now = apply(&d, &typed).unwrap().content;
@@ -2009,4 +2088,61 @@ fn a_diff_merging_or_splitting_table_cells_lands_the_span() {
         let change = quillmark_content::diff::diff(from, to).unwrap();
         assert_eq!(&apply(from, &change).unwrap().content, to);
     }
+}
+
+#[test]
+fn a_placement_refuses_a_held_id_and_a_move_a_missing_one() {
+    let mut d = from_markdown("Hello world\n\n| aa | bb |\n| - | - |\n| cc | dd |").unwrap().content;
+    d.anchors.push(Anchor::new("c-1", 0, 5));
+    let island = d.islands[0].clone();
+    let cell = island.slot_order()[2].clone();
+    d.islands[0].slots.get_mut(&cell).unwrap().anchors.push(Anchor::new("c-2", 0, 2));
+    let one = |s: Step| Change::new(vec![s]);
+    let place = |id: &str, s, e| Step::Anchor(AnchorStep::Place { anchor: Anchor::new(id, s, e), quote: None });
+    let shift = |id: &str, s, e| Step::Anchor(AnchorStep::Move { anchor: Anchor::new(id, s, e), quote: None });
+    let in_cell = |s: Step| Step::Nested { island: island.id.clone(), slot: cell.clone(), change: Change::new(vec![s]) };
+    assert_eq!(apply(&d, &one(place("c-1", 6, 11))).map(|_| ()), Err(ApplyError::AnchorHeld { id: "c-1".into() }));
+    assert_eq!(apply(&d, &one(place("c-2", 6, 11))).map(|_| ()), Err(ApplyError::AnchorHeld { id: "c-2".into() }));
+    assert_eq!(apply(&d, &one(in_cell(place("c-1", 0, 1)))).map(|_| ()), Err(ApplyError::Invalid(Invariant::DuplicateId { id: "c-1".into() })));
+    assert_eq!(apply(&d, &one(shift("c-9", 6, 11))).map(|_| ()), Err(ApplyError::UnknownAnchor { id: "c-9".into() }));
+    assert_eq!(apply(&d, &one(shift("c-2", 6, 11))).map(|_| ()), Err(ApplyError::UnknownAnchor { id: "c-2".into() }));
+    let moved = apply(&d, &one(shift("c-1", 6, 11))).unwrap();
+    assert_eq!(moved.content.anchor("c-1"), Some(&Anchor::new("c-1", 6, 11)));
+    assert_eq!(invert(&one(shift("c-1", 6, 11)), &d).unwrap().steps, [Step::Anchor(AnchorStep::Move { anchor: Anchor::new("c-1", 0, 5), quote: Some("Hello".into()) })]);
+    let across = Change::new(vec![Step::Anchor(AnchorStep::Remove { id: "c-1".into() }), in_cell(place("c-1", 0, 1))]);
+    assert!(apply(&d, &across).is_ok());
+    for (step, wire) in [
+        (place("c-3", 1, 2), json!({"anchor": {"id": "c-3", "start": 1, "end": 2}})),
+        (shift("c-1", 1, 2), json!({"anchor": {"id": "c-1", "start": 1, "end": 2, "move": true}})),
+    ] {
+        assert_eq!(one(step.clone()).to_value(), json!({"steps": [wire]}));
+        assert_eq!(Change::from_value(&json!({"steps": [wire]})).unwrap(), one(step));
+    }
+    assert!(Change::from_value(&json!({"steps": [{"anchor": {"id": "c-1", "remove": true, "move": true}}]})).is_err());
+}
+
+/// A stale revise that rewrites a word another writer formatted since
+/// conflicts rather than dropping the formatting, and a stale revise from an
+/// annotated read that kept a resolved comment's tag conflicts rather than
+/// bringing the comment back.
+#[test]
+fn a_stale_revise_neither_strips_formatting_nor_resurrects_an_anchor() {
+    let d = from_markdown("Hello world, again").unwrap().content;
+    let link = Change::new(vec![Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Link { url: "https://x.io".into() }), quote: None })]);
+    let mine = quillmark_content::diff::revise(&d, "Hello World, again").unwrap().change;
+    assert_eq!(conflict_of(&d, &mine, &link), Some((0, "changed")));
+    let typed = Change::new(vec![Step::Splice(Splice::new(0, "", "Oh, "))]);
+    assert!(rebase(&d, &mine, &typed).is_ok());
+
+    let mut d = from_markdown("The quick brown fox").unwrap().content;
+    d.anchors.push(Anchor::new("c-1", 10, 15));
+    let resolve = Change::new(vec![Step::Anchor(AnchorStep::Remove { id: "c-1".into() })]);
+    let read = quillmark_content::markdown::to_markdown_annotated(&d).markdown;
+    assert!(read.contains("qm-anchor"), "{read}");
+    let mine = quillmark_content::diff::revise(&d, &read.replace("brown", "red")).unwrap().change;
+    assert!(mine.steps.iter().any(|s| matches!(s, Step::Anchor(a) if a.id() == "c-1")), "{mine:?}");
+    let refused = conflict_of(&d, &mine, &resolve);
+    assert!(matches!(refused, Some((_, "missing" | "changed"))), "{refused:?}");
+    let moved = Change::new(vec![Step::Anchor(AnchorStep::Move { anchor: Anchor::new("c-1", 4, 9), quote: None })]);
+    assert!(conflict_of(&d, &mine, &moved).is_some());
 }

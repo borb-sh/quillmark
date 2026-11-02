@@ -509,6 +509,12 @@ impl Content {
         out
     }
 
+    /// Whether the text or a slot in it holds an anchor under `id`.
+    pub fn holds_anchor(&self, id: &str) -> bool {
+        self.anchors.iter().any(|a| a.id == id)
+            || self.islands.iter().any(|i| i.slots.values().any(|slot| slot.holds_anchor(id)))
+    }
+
     /// The content at `island`'s `slot`.
     pub fn slot(&self, island: &str, slot: &str) -> Option<&Content> {
         self.island(island)?.slots.get(slot)
