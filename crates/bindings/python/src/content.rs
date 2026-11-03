@@ -9,8 +9,7 @@ use pyo3::types::PyDict;
 use quillmark_content::change::{self, Change};
 use quillmark_content::model::Content;
 use quillmark_content::wire::ParseError;
-use quillmark_automerge::automerge::sync;
-use quillmark_core::document::{CardMut, Document, Edit, EditError, Receipt, Target, WriteOptions, check_change, check_content_value};
+use quillmark_core::document::{CardMut, Document, Edit, EditError, LoadError, Receipt, SyncMessage, SyncState, Target, WriteOptions, check_change, check_content_value};
 use quillmark_core::path::DocPath;
 
 use crate::errors::convert_edit_error;
@@ -88,16 +87,40 @@ pub(crate) fn card_mut(doc: &mut Document, card: Option<usize>) -> CardMut<'_> {
 }
 
 /// What one peer of the Automerge sync protocol is known to hold, for one
-/// value: `Document.sync_state()` makes it, and `generate_sync_message` and
-/// `receive_sync_message` read and advance it. Opaque, and in memory only.
+/// value: `SyncState()` makes it, and `generate_sync_message` and
+/// `receive_sync_message` read and advance it. One serves one value and one
+/// peer; `encode` keeps it across a restart.
 #[pyclass(name = "SyncState")]
 pub struct PySyncState {
-    pub(crate) inner: sync::State,
+    pub(crate) inner: SyncState,
+}
+
+#[pymethods]
+impl PySyncState {
+    /// A peer of whom nothing is known yet.
+    #[new]
+    fn new() -> Self {
+        PySyncState { inner: SyncState::new() }
+    }
+
+    /// The state as bytes `decode` reads back.
+    fn encode<'py>(&self, py: Python<'py>) -> Bound<'py, pyo3::types::PyBytes> {
+        pyo3::types::PyBytes::new(py, &self.inner.encode())
+    }
+
+    /// The state `encode` gave as `data`. Bytes that do not decode raise
+    /// `edit::bad_live_bytes` with `reason` `decode`.
+    #[staticmethod]
+    fn decode(data: &[u8]) -> PyResult<Self> {
+        SyncState::decode(data)
+            .map(|inner| PySyncState { inner })
+            .map_err(|e| convert_edit_error(EditError::bad_live_bytes(LoadError::Decode(e.to_string())), &DocPath::new()))
+    }
 }
 
 /// The `edit::bad_live_bytes` refusal of a sync message that does not decode.
-pub(crate) fn sync_message(bytes: &[u8]) -> Result<sync::Message, EditError> {
-    sync::Message::decode(bytes).map_err(|e| EditError::bad_live_bytes(quillmark_automerge::LoadError::Decode(e.to_string())))
+pub(crate) fn sync_message(bytes: &[u8]) -> Result<SyncMessage, EditError> {
+    SyncMessage::decode(bytes).map_err(|e| EditError::bad_live_bytes(LoadError::Decode(e.to_string())))
 }
 
 /// `receipt` as it crosses, its dropped anchors' selectors at `path` on the

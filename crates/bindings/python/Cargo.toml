@@ -15,5 +15,4 @@ pyo3 = { version = "0.30", features = ["extension-module", "abi3-py310"] }
 quillmark = { workspace = true }
 quillmark-core = { workspace = true }
 quillmark-content = { workspace = true }
-quillmark-automerge = { workspace = true }
 serde_json = { workspace = true }

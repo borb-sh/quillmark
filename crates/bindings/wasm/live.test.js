@@ -14,8 +14,7 @@ const parse = (body) => Document.parse(`~~~\n$quill: q\n~~~\n\n${body}\n`)
 
 /** Run the sync protocol between `a` and `b` at `addr` until neither has a
  * message, answering the receipts each received. */
-function sync(a, b, addr = {}) {
-  const [toB, toA] = [Document.syncState(), Document.syncState()]
+function sync(a, b, addr = {}, [toB, toA] = [new SyncState(), new SyncState()]) {
   const receipts = { a: [], b: [] }
   for (let round = 0; round < 16; round++) {
     const forB = a.generateSyncMessage(addr, toB)
@@ -96,5 +95,29 @@ describe('the live document', () => {
     const reply = peer.generateSyncMessage(aaa, toTwo)
     const refused = expectEditCode(() => two.receiveSyncMessage(bbb, toPeer, reply), 'edit::bad_live_bytes')
     expect(refused.diagnostics[0].args.reason).toBe('address')
+  })
+
+  it('keeps a peer\'s sync state across encode and decode', () => {
+    const [a, b] = [parse('Hello world'), parse('Hello world')]
+    const states = [new SyncState(), new SyncState()]
+    sync(a, b, {}, states)
+    a.apply({}, { steps: [{ splice: { at: 5, delete: '', insert: ' brave' } }] }, { actor: 'ann' })
+
+    const decoded = states.map((s) => SyncState.decode(s.encode()))
+    const receipts = sync(a, b, {}, decoded)
+    expect(b.read({})).toEqual(a.read({}))
+    expect(b.read({}).text).toBe('Hello brave world')
+    expect(receipts.b.flatMap((r) => r.applied.steps)).toHaveLength(1)
+    const err = expectEditCode(() => SyncState.decode(new Uint8Array([1, 2, 3])), 'edit::bad_live_bytes')
+    expect(err.diagnostics[0].args.reason).toBe('decode')
+  })
+
+  it('names a card by $id on every live verb', () => {
+    const doc = Document.parse('~~~\n$quill: q\n~~~\n\n~~~card-yaml\n$kind: note\n$id: aaa\n~~~\n\nHello\n')
+    const bytes = doc.save({ card: 'aaa' })
+    expect(() => doc.save({ card: 0 })).toThrow(/\$id/)
+    expect(() => doc.generateSyncMessage({ card: 0 }, new SyncState())).toThrow(/\$id/)
+    expect(() => doc.load({ card: 0 }, bytes)).toThrow(/\$id/)
+    expect(() => doc.receiveSyncMessage({ card: 0 }, new SyncState(), new Uint8Array())).toThrow(/\$id/)
   })
 })

@@ -1006,10 +1006,11 @@ impl PyDocument {
     }
 
     /// The live Automerge document of the value at `field` on `card`, as its
-    /// bytes: made from the value where no write has made it yet. Raises as
-    /// `read`.
+    /// bytes: made from the value where no write has made it yet. `card` is
+    /// a card's id, as on every live verb; otherwise raises as `read`.
     #[pyo3(signature = (field=None, card=None))]
     fn save<'py>(&mut self, py: Python<'py>, field: Option<&str>, card: Option<CardSel>) -> PyResult<Bound<'py, PyBytes>> {
+        require_card_id(&card, "save")?;
         let target = Target::resolve(&self.inner, card)?;
         let bytes = crate::content::card_mut(&mut self.inner, target.index)
             .save(quillmark_core::document::Target::from(field))
@@ -1031,8 +1032,7 @@ impl PyDocument {
         crate::content::taking(py, &mut self.inner, target.index, &target.base, field, |card, t| card.load(t, data))
     }
 
-    /// A fresh `SyncState`: a peer of whom nothing is known yet. One serves
-    /// one value and one peer.
+    /// A fresh `SyncState`, as `SyncState()` makes.
     #[staticmethod]
     fn sync_state() -> crate::content::PySyncState {
         crate::content::PySyncState { inner: Default::default() }
@@ -1040,7 +1040,8 @@ impl PyDocument {
 
     /// The next Automerge sync message from the live document of the value
     /// at `field` on `card` to the peer `state` tracks, `None` where the peer
-    /// holds everything. Raises as `read`.
+    /// holds everything. `card` is a card's id, as on every live verb;
+    /// otherwise raises as `read`.
     #[pyo3(signature = (state, field=None, card=None))]
     fn generate_sync_message<'py>(
         &mut self,
@@ -1049,6 +1050,7 @@ impl PyDocument {
         field: Option<&str>,
         card: Option<CardSel>,
     ) -> PyResult<Option<Bound<'py, PyBytes>>> {
+        require_card_id(&card, "generate_sync_message")?;
         let target = Target::resolve(&self.inner, card)?;
         let message = crate::content::card_mut(&mut self.inner, target.index)
             .generate_sync_message(quillmark_core::document::Target::from(field), &mut state.inner)
@@ -1197,12 +1199,13 @@ fn card_position(doc: &Document, card: Option<CardSel>) -> PyResult<Option<isize
     }
 }
 
-/// A content write names a composable card by its `$id` alone: an index
-/// another writer's move or insert can shift would land it on another card.
+/// A content write or a live-document verb names a composable card by its
+/// `$id` alone: an index another writer's move or insert can shift would
+/// land it on another card.
 fn require_card_id(card: &Option<CardSel>, verb: &str) -> PyResult<()> {
     match card {
         Some(CardSel::Index(_)) => Err(PyValueError::new_err(format!(
-            "{verb}: a content write names its card by its id (card=card[\"id\"]), not by index"
+            "{verb}: a card is named by its id (card=card[\"id\"]), not by index"
         ))),
         _ => Ok(()),
     }

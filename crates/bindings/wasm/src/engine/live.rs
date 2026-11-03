@@ -3,17 +3,47 @@
 
 use super::content::{ReceiptJs, card_base, card_mut_of, receipt_js, target, value_path};
 use super::{Addr, Document, edit_error_to_js, serialize_or_throw};
-use quillmark_automerge::automerge::sync;
 use quillmark_content::units::Utf16;
-use quillmark_core::document::{EditError, Receipt};
+use quillmark_core::document::{EditError, LoadError, Receipt, SyncMessage};
+use quillmark_core::path::DocPath;
 use wasm_bindgen::prelude::*;
 
 /// What one peer of the Automerge sync protocol is known to hold, for one
-/// value: `Document.syncState()` makes it, and `generateSyncMessage` and
-/// `receiveSyncMessage` read and advance it. Opaque, and in memory only.
+/// value: `new SyncState()` makes it, and `generateSyncMessage` and
+/// `receiveSyncMessage` read and advance it. One serves one value and one
+/// peer; `encode` keeps it across a restart, and `free()` releases it when
+/// the peer is gone.
 #[wasm_bindgen]
 pub struct SyncState {
-    inner: sync::State,
+    inner: quillmark_core::document::SyncState,
+}
+
+impl Default for SyncState {
+    fn default() -> Self {
+        SyncState { inner: quillmark_core::document::SyncState::new() }
+    }
+}
+
+#[wasm_bindgen]
+impl SyncState {
+    /// A peer of whom nothing is known yet.
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> SyncState {
+        SyncState::default()
+    }
+
+    /// The state as bytes `decode` reads back.
+    pub fn encode(&self) -> Vec<u8> {
+        self.inner.encode()
+    }
+
+    /// The state `encode` gave as `bytes`. Bytes that do not decode throw
+    /// `edit::bad_live_bytes` with `reason` `decode`.
+    pub fn decode(bytes: &[u8]) -> Result<SyncState, JsValue> {
+        quillmark_core::document::SyncState::decode(bytes)
+            .map(|inner| SyncState { inner })
+            .map_err(|e| edit_error_to_js(&EditError::bad_live_bytes(LoadError::Decode(e.to_string())), &DocPath::main()))
+    }
 }
 
 /// Run `take` on the card `addr` names, its receipt as it crosses.
@@ -33,13 +63,14 @@ fn taking(
 #[wasm_bindgen]
 impl Document {
     /// The live Automerge document of the value at `addr`, as its bytes:
-    /// made from the value where no write has made it yet. Throws as `read`.
+    /// made from the value where no write has made it yet. The card is named
+    /// by `$id`, as on every live verb; otherwise throws as `read`.
     #[wasm_bindgen(js_name = save)]
     pub fn save(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
     ) -> Result<Vec<u8>, JsValue> {
-        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
+        let addr = Addr::for_write(&addr, &self.inner, "save")?;
         let card_base = card_base(&self.inner, &addr);
         card_mut_of(&mut self.inner, &addr)?
             .save(target(&addr))
@@ -65,28 +96,28 @@ impl Document {
         serialize_or_throw(&receipt, "load")
     }
 
-    /// A fresh `SyncState`: a peer of whom nothing is known yet. One serves
-    /// one value and one peer.
+    /// A fresh `SyncState`, as `new SyncState()` makes.
     #[wasm_bindgen(js_name = syncState)]
     pub fn sync_state() -> SyncState {
-        SyncState { inner: sync::State::new() }
+        SyncState::default()
     }
 
     /// The next Automerge sync message from the live document of the value
     /// at `addr` to the peer `state` tracks, `undefined` where the peer holds
-    /// everything. Throws as `read`.
+    /// everything. The card is named by `$id`, as on every live verb;
+    /// otherwise throws as `read`.
     #[wasm_bindgen(js_name = generateSyncMessage)]
     pub fn generate_sync_message(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         state: &mut SyncState,
     ) -> Result<Option<Vec<u8>>, JsValue> {
-        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
+        let addr = Addr::for_write(&addr, &self.inner, "generateSyncMessage")?;
         let card_base = card_base(&self.inner, &addr);
         let message = card_mut_of(&mut self.inner, &addr)?
             .generate_sync_message(target(&addr), &mut state.inner)
             .map_err(|e| edit_error_to_js(&e, &card_base))?;
-        Ok(message.map(sync::Message::encode))
+        Ok(message.map(SyncMessage::encode))
     }
 
     /// Take an Automerge sync message from the peer `state` tracks into the
@@ -107,7 +138,7 @@ impl Document {
         let addr = Addr::for_write(&addr, &self.inner, "receiveSyncMessage")?;
         let t = target(&addr);
         let receipt = taking(&mut self.inner, &addr, |card| {
-            let message = sync::Message::decode(message).map_err(|e| EditError::bad_live_bytes(quillmark_automerge::LoadError::Decode(e.to_string())))?;
+            let message = SyncMessage::decode(message).map_err(|e| EditError::bad_live_bytes(LoadError::Decode(e.to_string())))?;
             card.receive_sync_message(t, &mut state.inner, message)
         })?;
         serialize_or_throw(&receipt, "receiveSyncMessage")

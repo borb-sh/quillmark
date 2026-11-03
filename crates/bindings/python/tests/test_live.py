@@ -2,6 +2,8 @@
 `load`, and the sync protocol two documents run through
 `generate_sync_message` / `receive_sync_message`. Offsets count code points."""
 
+import pytest
+
 from quillmark import Document, SyncState, import_markdown
 
 from conftest import raises_edit_code
@@ -11,10 +13,10 @@ def parse(body):
     return Document.parse(f"~~~\n$quill: q\n~~~\n\n{body}\n")
 
 
-def sync(a, b, field=None):
+def sync(a, b, field=None, states=None):
     """Run the sync protocol between `a` and `b` at `field` until neither has
     a message, returning the receipts each received."""
-    to_b, to_a = Document.sync_state(), Document.sync_state()
+    to_b, to_a = states or (SyncState(), SyncState())
     receipts = {"a": [], "b": []}
     for _ in range(16):
         for_b = a.generate_sync_message(to_b, field=field)
@@ -101,3 +103,32 @@ def test_bytes_or_a_message_from_another_values_live_document_are_refused():
     with raises_edit_code("edit::bad_live_bytes") as err:
         two.receive_sync_message(to_peer, reply, card="bbb")
     assert err.value.diagnostics[0].args["reason"] == "address"
+
+
+def test_a_sync_state_survives_encode_and_decode():
+    a, b = parse("Hello world"), parse("Hello world")
+    states = (SyncState(), SyncState())
+    sync(a, b, states=states)
+    a.apply({"steps": [{"splice": {"at": 5, "delete": "", "insert": " brave"}}]}, actor="ann")
+
+    decoded = tuple(SyncState.decode(s.encode()) for s in states)
+    receipts = sync(a, b, states=decoded)
+    assert b.read() == a.read()
+    assert b.read()["text"] == "Hello brave world"
+    assert len([s for r in receipts["b"] for s in r["applied"]["steps"]]) == 1
+    with raises_edit_code("edit::bad_live_bytes") as err:
+        SyncState.decode(b"\x01\x02\x03")
+    assert err.value.diagnostics[0].args["reason"] == "decode"
+
+
+def test_every_live_verb_names_a_card_by_id():
+    doc = Document.parse("~~~\n$quill: q\n~~~\n\n~~~card-yaml\n$kind: note\n$id: aaa\n~~~\n\nHello\n")
+    data = doc.save(card="aaa")
+    for call in (
+        lambda: doc.save(card=0),
+        lambda: doc.generate_sync_message(SyncState(), card=0),
+        lambda: doc.load(data, card=0),
+        lambda: doc.receive_sync_message(SyncState(), b"", card=0),
+    ):
+        with pytest.raises(ValueError, match="id"):
+            call()
