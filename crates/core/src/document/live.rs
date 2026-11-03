@@ -94,6 +94,12 @@ fn renamed_content(content: &Content, minted: &BTreeMap<String, String>) -> Cont
     Content::from_value(&walk(&content.to_value(), minted)).unwrap_or_else(|_| content.clone())
 }
 
+/// Whether `content` holds a point anchor, which Automerge keeps as a
+/// cursor that a splice can leave elsewhere than the content model does.
+fn holds_points(content: &Content) -> bool {
+    content.anchors.iter().any(|a| a.start == a.end) || content.islands.iter().any(|i| i.slots.values().any(holds_points))
+}
+
 fn removed_by(change: &Change, out: &mut Vec<String>) {
     for step in &change.steps {
         match step {
@@ -308,7 +314,7 @@ impl Document {
         let (lowered, _) = lowered.map_err(step_error)?;
         let merged = heads.is_some();
         let named: BTreeMap<String, String> = mine.minted.iter().filter_map(|(placeholder, id)| Some((id.clone(), lowered.minted.get(placeholder)?.clone()))).collect();
-        let after = match merged || diffed {
+        let after = match merged || diffed || holds_points(&read) || holds_points(&mine.content) {
             true => doc.view(&root).content,
             false => {
                 let held: BTreeMap<String, String> = lowered.minted.iter().map(|(given, id)| (mine.minted.get(given).unwrap_or(given).clone(), id.clone())).collect();
