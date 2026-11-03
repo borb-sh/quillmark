@@ -891,21 +891,13 @@ export class DocumentWriter {
 		return this.#doc._commitFields(this.#quill, MAIN_CARD_ADDR, fields);
 	}
 	/**
-	 * @param {string} markdown
-	 * @param {import('../core/wasm.js').BaseOptions} [opts]
-	 * @returns {import('../core/wasm.js').Receipt}
-	 */
-	reviseBody(markdown, opts) {
-		return this.#doc._revise({}, markdown, opts);
-	}
-	/**
-	 * @param {string} name
+	 * @param {import('../core/wasm.js').Addr | string} addr
 	 * @param {string} text
 	 * @param {import('../core/wasm.js').BaseOptions} [opts]
 	 * @returns {import('../core/wasm.js').Receipt}
 	 */
-	reviseField(name, text, opts) {
-		return this.#doc._reviseField(this.#quill, name, text, opts);
+	revise(addr, text, opts) {
+		return this.#doc._revise(this.#quill, addr, text, opts);
 	}
 	/**
 	 * @param {string} markdown
@@ -942,6 +934,15 @@ export class DocumentWriter {
 	}
 }
 
+/**
+ * The field a card-relative address names, `undefined` the body.
+ * @param {{ field?: string } | string | undefined} addr
+ * @returns {string | undefined}
+ */
+function cardField(addr) {
+	return typeof addr === 'string' ? addr : addr?.field;
+}
+
 export class CardWriter {
 	#quill;
 	#doc;
@@ -958,11 +959,11 @@ export class CardWriter {
 		this.#index = index;
 	}
 	/**
-	 * @param {string} [field]
+	 * @param {{ field?: string } | string} [addr]
 	 * @returns {string}
 	 */
-	hashAt(field) {
-		return this.#doc._hashAt(this.#quill, { card: this.#index, field });
+	hashAt(addr) {
+		return this.#doc._hashAt(this.#quill, { card: this.#index, field: cardField(addr) });
 	}
 	/**
 	 * @param {string} name
@@ -980,21 +981,13 @@ export class CardWriter {
 		return this.#doc._commitFields(this.#quill, { card: this.#index }, fields);
 	}
 	/**
-	 * @param {string} markdown
-	 * @param {import('../core/wasm.js').BaseOptions} [opts]
-	 * @returns {import('../core/wasm.js').Receipt}
-	 */
-	reviseBody(markdown, opts) {
-		return this.#doc._revise({ card: this.#index }, markdown, opts);
-	}
-	/**
-	 * @param {string} name
+	 * @param {{ field?: string } | string} addr
 	 * @param {string} text
 	 * @param {import('../core/wasm.js').BaseOptions} [opts]
 	 * @returns {import('../core/wasm.js').Receipt}
 	 */
-	reviseField(name, text, opts) {
-		return this.#doc._reviseField(this.#quill, { card: this.#index, field: name }, text, opts);
+	revise(addr, text, opts) {
+		return this.#doc._revise(this.#quill, { card: this.#index, field: cardField(addr) }, text, opts);
 	}
 }
 

@@ -53,6 +53,18 @@ impl<'a> Target<'a> {
     }
 }
 
+impl<'a> From<&'a str> for Target<'a> {
+    fn from(name: &'a str) -> Self {
+        Target::Field(name)
+    }
+}
+
+impl<'a> From<&'a String> for Target<'a> {
+    fn from(name: &'a String) -> Self {
+        Target::Field(name)
+    }
+}
+
 impl<'a> From<Option<&'a str>> for Target<'a> {
     /// `None` the body, a name that field.
     fn from(field: Option<&'a str>) -> Self {
@@ -160,18 +172,29 @@ impl Receipt {
 
 impl Card {
     /// The value at `target`.
-    pub fn read(&self, target: Target<'_>) -> Result<Content, EditError> {
-        match target {
+    pub fn read<'t>(&self, target: impl Into<Target<'t>>) -> Result<Content, EditError> {
+        match target.into() {
             Target::Body => Ok(self.body().clone()),
             Target::Field(name) => self.richtext_value(name),
         }
     }
 
     /// The hash of the value at `target`, the `base` a write to it names.
-    pub fn hash_of(&self, target: Target<'_>) -> Result<String, EditError> {
-        match target {
+    pub fn hash_of<'t>(&self, target: impl Into<Target<'t>>) -> Result<String, EditError> {
+        match target.into() {
             Target::Body => Ok(self.body_hash()),
             Target::Field(name) => self.field_hash(name),
+        }
+    }
+
+    /// The annotated read of the value at `target`: the scoped read a revise
+    /// of it reads back, and the markdown a [`Base::Read`](super::Base::Read)
+    /// of it takes. A field stored under `codec: "plain"` reads as its literal
+    /// text, its anchors listed and no tag spelled.
+    pub fn annotated<'t>(&self, target: impl Into<Target<'t>>) -> Result<quillmark_content::lines::export::Annotated, EditError> {
+        match target.into() {
+            Target::Body => Ok(self.body_annotated()),
+            Target::Field(name) => self.field_annotated(name),
         }
     }
 

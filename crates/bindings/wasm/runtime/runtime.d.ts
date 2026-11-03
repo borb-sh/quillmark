@@ -690,8 +690,8 @@ import type { Addr, BaseOptions, CardAdded, CardInput, Content, DocumentRevised,
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
- * Speaks names, values, and markdown, so bare `set` / `setAll` / `reviseBody` /
- * `reviseField` / `addCard` / `card(i).set` replace threading the `quill` handle
+ * Speaks names, values, and markdown, so bare `set` / `setAll` / `revise` /
+ * `addCard` / `card(i).set` replace threading the `quill` handle
  * through the underscored ABI. Holds both handles by reference and owns neither.
  *
  * Typed commit is the default whenever a quill is in hand: it resolves each
@@ -712,7 +712,7 @@ export declare class DocumentWriter {
 	hash(): string;
 	/**
 	 * The hash of the body or field at `addr` through its schema: the
-	 * `baseHash` {@link reviseBody} and {@link reviseField} check. A
+	 * `baseHash` {@link revise} checks. An absent `addr.field` hashes the body. A
 	 * `richtext` or `text` field hashes its content however it is stored, ids
 	 * and anchors included, any other type its stored value, an absent field as
 	 * `null`. Throws `UnknownField` for an undeclared name.
@@ -733,37 +733,32 @@ export declare class DocumentWriter {
 	 */
 	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**
-	 * Revise the main body from markdown; anchors rebase. Returns the
-	 * `Receipt` a content write answers: `applied` the change from the body
-	 * before, its warnings at `main.body`, and the anchors the write dropped
-	 * or moved; a body carries no field schema to type against. `opts` names
-	 * what the writer read: a stale `baseHash` (from {@link hashAt}) rebases
-	 * over the change since, throwing `edit::rebase_conflict` where the two
-	 * touch and `edit::stale_base` where the log no longer reaches the base,
-	 * and a `baseMarkdown` merges; either sets `rebased`.
-	 */
-	reviseBody(markdown: string, opts?: BaseOptions): Receipt;
-	/**
-	 * Revise the content main-card field `name` from authored text: typed *and*
-	 * anchor-preserving. Surviving anchors rebase, then the diffed result is
-	 * schema-conformed (a one-paragraph `richtext` rejects a multi-block result). Throws
-	 * `UnknownField` for a name the schema does not declare. Returns the
-	 * `Receipt`, its warnings at the field; a `text` field's `applied` is one
-	 * splice over its literal text.
+	 * Revise the body or content field at `addr` from authored text: anchors
+	 * rebase, and the write answers the `Receipt` a content write does,
+	 * `applied` the change from the value before, its warnings at the value,
+	 * and the anchors the write dropped or moved. A bare string is `Addr`
+	 * shorthand for `{ field }`; an absent `addr.field` is the body, an absent
+	 * `addr.card` the main card.
 	 *
-	 * The codec comes from the declared type: `richtext` diffs markdown, while
-	 * `text` diffs the literal text and never imports markdown, so a
-	 * byte-identical revise of a value carrying escapes is a byte no-op.
+	 * The codec comes from the declared type, the body's being `richtext`:
+	 * `richtext` diffs markdown, while `text` diffs the literal text and never
+	 * imports markdown, so a byte-identical revise of a value carrying escapes
+	 * is a byte no-op and its `applied` is one splice over the literal text. A
+	 * field's result is schema-conformed (a one-paragraph `richtext` rejects a
+	 * multi-block result), and an undeclared name throws `UnknownField`.
 	 *
-	 * `opts` names what the writer read, as on {@link reviseBody}; a `text`
-	 * field's `baseMarkdown` is the literal text it read.
+	 * `opts` names what the writer read: a stale `baseHash` (from
+	 * {@link hashAt}) rebases over the change since, throwing
+	 * `edit::rebase_conflict` where the two touch and `edit::stale_base` where
+	 * the log no longer reaches the base, and a `baseMarkdown` merges, a `text`
+	 * field's being its literal text; either sets `rebased`.
 	 */
-	reviseField(name: string, text: string, opts?: BaseOptions): Receipt;
+	revise(addr: Addr | string, text: string, opts?: BaseOptions): Receipt;
 	/**
 	 * Replace the bound document with `markdown`, then conform it. Composable
 	 * cards align to the stored ones by `$kind` and text similarity, an aligned
 	 * card's body and stored content fields revise, their anchors rebasing as
-	 * {@link reviseBody}'s do, and every declared content field lands in its stored form.
+	 * {@link revise}'s do, and every declared content field lands in its stored form.
 	 * Returns the `DocumentRevised` receipt, its `from` naming the stored card
 	 * each composable card revises and its `warnings` ending with the
 	 * `conform::*` ones, and clears `doc.warnings`. Throws when `markdown`
@@ -810,20 +805,16 @@ export declare class DocumentWriter {
  */
 export declare class CardWriter {
 	constructor(quill: Quill, doc: Document, index: number);
-	/** The card twin of {@link DocumentWriter.hashAt}; no `field` reads the body. */
-	hashAt(field?: string): string;
+	/** The card twin of {@link DocumentWriter.hashAt}; no `field` hashes the body. */
+	hashAt(addr?: { field?: string } | string): string;
 	set(name: string, value: unknown): Diagnostic[];
 	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**
-	 * Revise this card's body from markdown (edit semantics), returning the
-	 * `Receipt`, its warnings at the card's body.
+	 * The card twin of {@link DocumentWriter.revise}: no `field` revises the
+	 * card's body. Throws `UnknownField` for an undeclared name and
+	 * `IndexOutOfRange` for a bad bound index.
 	 */
-	reviseBody(markdown: string, opts?: BaseOptions): Receipt;
-	/**
-	 * The card twin of {@link DocumentWriter.reviseField}. Throws `UnknownField`
-	 * for an undeclared name and `IndexOutOfRange` for a bad bound index.
-	 */
-	reviseField(name: string, text: string, opts?: BaseOptions): Receipt;
+	revise(addr: { field?: string } | string, text: string, opts?: BaseOptions): Receipt;
 }
 
 /**

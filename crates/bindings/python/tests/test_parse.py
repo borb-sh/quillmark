@@ -15,7 +15,7 @@ def test_projection(taro_md):
     doc = Document.parse(taro_md)
     assert "Ice Cream" in field(doc.main, "title")
     assert not has_field(doc.main, "$quill")
-    assert "nutty" in doc.body["text"]
+    assert "nutty" in doc.read()["text"]
     assert len(doc.cards) == 1
     card = doc.cards[0]
     assert card["kind"] == "quotes"

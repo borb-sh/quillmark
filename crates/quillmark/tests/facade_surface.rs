@@ -81,9 +81,9 @@ fn content_lane_spells_through_the_facade() {
     let _: &Content = doc.main().body();
     let reader: TypedReader = quill.reader(&doc);
     let _: Option<Content> = reader.get_content("subject").expect("subject is declared");
-    let _: Annotated = doc.main().body_annotated();
+    let _: Annotated = doc.main().annotated(quillmark::Target::Body).expect("the body reads");
 
-    let revised: Result<Receipt, EditError> = doc.main_mut().revise_body("# Body");
+    let revised: Result<Receipt, EditError> = doc.main_mut().revise(quillmark::Target::Body, "# Body", None);
     let Receipt { applied, dropped_anchors, .. } = revised.expect("a heading imports");
     let _: quillmark::Change = applied;
     let _: Vec<quillmark::Dropped> = dropped_anchors;

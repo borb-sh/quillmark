@@ -84,13 +84,13 @@ fn a_text_revise_carries_its_anchors_by_the_diff() {
     let mut doc = anchored();
     let revised = quill()
         .writer(&mut doc)
-        .revise_field("note", "now a *literal* line, longer")
+        .revise(crate::document::Target::from("note"), "now a *literal* line, longer", None)
         .expect("revise");
     assert_eq!(revised.dropped_anchors, []);
     let c1 = doc.anchor_context("c1").expect("c1 survives");
     assert_eq!((c1.quote.as_str(), c1.prefix.as_str()), ("literal", "now a *"));
 
-    let revised = quill().writer(&mut doc).revise_field("note", "now a line, longer").expect("revise");
+    let revised = quill().writer(&mut doc).revise(crate::document::Target::from("note"), "now a line, longer", None).expect("revise");
     let dropped: Vec<&str> = revised.dropped_anchors.iter().map(|a| a.context.id.as_str()).collect();
     assert_eq!(dropped, ["c1"], "the receipt names the anchor the edit took");
 }
@@ -111,8 +111,8 @@ fn a_document_revise_keeps_a_text_anchor() {
 fn a_dropped_text_anchor_reattaches_by_its_selector() {
     let mut doc = anchored();
     let selector = doc.anchor_context("c1").unwrap();
-    let _ = quill().writer(&mut doc).revise_field("note", "gone").unwrap();
-    let _ = quill().writer(&mut doc).revise_field("note", "a *literal* line").unwrap();
+    let _ = quill().writer(&mut doc).revise(crate::document::Target::from("note"), "gone", None).unwrap();
+    let _ = quill().writer(&mut doc).revise(crate::document::Target::from("note"), "a *literal* line", None).unwrap();
     assert!(doc.anchor_context("c1").is_none());
     let out = doc.reattach(&[selector], &HashMap::new());
     assert_eq!(out.orphaned, []);

@@ -137,22 +137,18 @@ fn a_text_field_merges_its_literal_text() {
     let config = config();
     let mut doc = parse("~~~\n$quill: memo@1.0.0\nnote: \"a *b*\\n\\nc\\n\\nd\"\n~~~\n");
     let mut w = TypedWriter::new(&config, &mut doc);
-    let _ = w.revise_field("note", "a *b*, edited\n\nc\n\nd").unwrap();
+    let _ = w.revise(crate::document::Target::from("note"), "a *b*, edited\n\nc\n\nd", None).unwrap();
     let _ = w
-        .revise_field_against(
-            "note",
-            Base::Read("a *b*\n\nc\n\nd"),
-            "a *b*\n\nc\n\nd, too",
-        )
+        .revise(crate::document::Target::from("note"), "a *b*\n\nc\n\nd, too", Some(Base::Read("a *b*\n\nc\n\nd")))
         .unwrap();
     let note = doc.main().payload().get("note").unwrap().as_json().clone();
     assert_eq!(crate::quill::text_of(&note), "a *b*, edited\n\nc\n\nd, too");
 
     let mut w = TypedWriter::new(&config, &mut doc);
-    let read = w.field_hash("note").unwrap();
-    let _ = w.revise_field("note", "x").unwrap();
+    let read = w.hash_of("note").unwrap();
+    let _ = w.revise(crate::document::Target::from("note"), "x", None).unwrap();
     let err = w
-        .revise_field_against("note", Base::Hash(&read), "y")
+        .revise(crate::document::Target::from("note"), "y", Some(Base::Hash(&read)))
         .unwrap_err();
     assert_eq!(
         err.doc_path(&crate::path::DocPath::main())
@@ -160,7 +156,7 @@ fn a_text_field_merges_its_literal_text() {
         Some("main.note".into())
     );
     let w = TypedWriter::new(&config, &mut doc);
-    assert_eq!(current_of(err), ("stale", w.field_hash("note").unwrap()));
+    assert_eq!(current_of(err), ("stale", w.hash_of("note").unwrap()));
 }
 
 /// A revise of a field neither `text` nor `richtext` fails as it does with no
@@ -170,10 +166,10 @@ fn a_revise_of_a_date_under_a_fresh_hash_fails_as_a_plain_revise() {
     let config = config();
     let mut doc = parse("~~~\n$quill: memo@1.0.0\non: 2024-01-01\n~~~\n");
     let mut w = TypedWriter::new(&config, &mut doc);
-    let plain = w.revise_field("on", "2024-02-02").unwrap_err().code();
-    let read = w.field_hash("on").unwrap();
+    let plain = w.revise(crate::document::Target::from("on"), "2024-02-02", None).unwrap_err().code();
+    let read = w.hash_of("on").unwrap();
     let err = w
-        .revise_field_against("on", Base::Hash(&read), "2024-02-02")
+        .revise(crate::document::Target::from("on"), "2024-02-02", Some(Base::Hash(&read)))
         .unwrap_err();
     assert_eq!(err.code(), plain);
     assert_ne!(plain, "edit::stale_base");
@@ -183,22 +179,22 @@ fn a_revise_of_a_date_under_a_fresh_hash_fails_as_a_plain_revise() {
 fn a_richtext_field_hashes_its_content_however_it_rests() {
     let config = config();
     let mut doc = parse("~~~\n$quill: memo@1.0.0\nsubject: Hello *world*\n~~~\n");
-    let as_string = doc.main().field_hash("subject").unwrap();
+    let as_string = doc.main().hash_of("subject").unwrap();
     assert_eq!(
         as_string,
         content_hash(&quillmark_content::markdown::from_markdown("Hello *world*").unwrap().content)
     );
     let mut w = TypedWriter::new(&config, &mut doc);
-    assert_eq!(w.field_hash("subject").unwrap(), as_string);
-    let _ = w.revise_body("Body.").unwrap();
+    assert_eq!(w.hash_of("subject").unwrap(), as_string);
+    let _ = w.revise(crate::document::Target::Body, "Body.", None).unwrap();
     assert!(config.conform(&mut doc).unwrap().is_empty());
-    assert_eq!(doc.main().field_hash("subject").unwrap(), as_string);
+    assert_eq!(doc.main().hash_of("subject").unwrap(), as_string);
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise_field_against("subject", Base::Hash(&as_string), "Hello _world_, hi")
+        .revise(crate::document::Target::from("subject"), "Hello _world_, hi", Some(Base::Hash(&as_string)))
         .unwrap();
     assert_eq!(
-        w.field_hash("missing").unwrap_err().code(),
+        w.hash_of("missing").unwrap_err().code(),
         "edit::unknown_field"
     );
 }
@@ -326,7 +322,7 @@ fn a_document_revise_merges_a_read_and_refuses_a_stale_hash() {
 
     let _ = doc
         .main_mut()
-        .revise_body("Alpha one.\n\nBeta two, edited.")
+        .revise(crate::document::Target::Body, "Alpha one.\n\nBeta two, edited.", None)
         .unwrap();
     let mut w = TypedWriter::new(&config, &mut doc);
     let err = w

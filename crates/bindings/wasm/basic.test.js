@@ -76,7 +76,7 @@ describe('Document.toMarkdown', () => {
     const doc = Document.parse(TEST_MARKDOWN)
     doc._uncheckedStoreField('title', 'New Title')
     doc._uncheckedInsertCard(makeCard('note', { author: 'Alice' }, 'Hello'))
-    doc._revise({}, 'Updated body')
+    doc.revise({}, 'Updated body')
 
     const doc2 = Document.parse(doc.toMarkdown())
     expect(field(doc2.main, 'title')).toBe('New Title')
@@ -310,7 +310,7 @@ describe('Document editor surface: setQuillRef / replace / revise', () => {
 
   it('revise({}, md) revises the main body and returns the content receipt', () => {
     const doc = Document.parse(TEST_MARKDOWN)
-    const { applied, hash, warnings } = doc._revise({}, 'Body from **markdown**.')
+    const { applied, hash, warnings } = doc.revise({}, 'Body from **markdown**.')
     expect(exportMarkdown(doc.main.body)).toBe('Body from **markdown**.')
     expect(Array.isArray(applied.steps)).toBe(true)
     expect(hash).toBe(doc.hashAt({}))
@@ -409,13 +409,12 @@ describe('Document comment anchors: anchorContexts / reattach / droppedAnchors',
     expect(other.replace({}, importMarkdown('Nothing like it.\n\nAt all.').content).droppedAnchors).toEqual([
       { ...context, suffix: ' to plan.' },
     ])
-    expect(anchoredDoc()._revise({}, 'Nothing like it.\n\nAt all.').droppedAnchors).toEqual([{ ...context, suffix: ' to plan.' }])
   })
 
   it('reattach places a dropped anchor where its quote and context are found once', () => {
     const doc = anchoredDoc()
     const before = doc.anchorContexts()
-    const { applied } = doc._revise({}, 'Minutes.\n\nThe committee met on Monday to plan.')
+    const { applied } = doc.revise({}, 'Minutes.\n\nThe committee met on Monday to plan.')
     expect(doc.anchorContexts().map((c) => c.id)).toEqual(['m1'])
 
     const reopened = Document.parse(doc.toMarkdown())
@@ -431,8 +430,8 @@ describe('Document comment anchors: anchorContexts / reattach / droppedAnchors',
 
   it('a typed revise answers its change in UTF-16, over the value it revised', () => {
     const doc = anchoredDoc()
-    doc._revise({}, '😀😀 alpha gamma')
-    const { applied } = doc._revise({}, '😀😀 alpha 😀 beta gamma')
+    doc.revise({}, '😀😀 alpha gamma')
+    const { applied } = doc.revise({}, '😀😀 alpha 😀 beta gamma')
     expect(mapPos(applied, 10, 'before').pos).toBe(10)
     expect(mapPos(applied, 11, 'after').pos).toBe(19)
   })
@@ -1061,7 +1060,7 @@ describe('Document editor surface: storeField / removeField / replace / revise (
 
   it('revise / replace take a card address', () => {
     const doc = Document.parse(MD_WITH_CARD)
-    const { applied } = doc._revise({ card: 0 }, 'New card body.')
+    const { applied } = doc.revise({ card: doc.cards[0].id }, 'New card body.')
     expect(exportMarkdown(doc.cards[0].body)).toBe('New card body.')
     expect(Array.isArray(applied.steps)).toBe(true)
 
@@ -1071,7 +1070,7 @@ describe('Document editor surface: storeField / removeField / replace / revise (
 
   it('revise anchors a dropped construct at the address it wrote', () => {
     const doc = Document.parse(MD_WITH_CARD)
-    const { warnings } = doc._revise({ card: 0 }, 'Card <span>body</span>.')
+    const { warnings } = doc.revise({ card: doc.cards[0].id }, 'Card <span>body</span>.')
     expect(doc.cards[0].body.text).toBe('Card body.')
     expect(warnings).toEqual([
       expect.objectContaining({
@@ -1081,7 +1080,7 @@ describe('Document editor surface: storeField / removeField / replace / revise (
         args: { construct: 'span', count: 1 },
       }),
     ])
-    expect(doc._revise({ field: 'intro' }, '<kbd>x</kbd>').warnings[0].path).toBe('main.intro')
+    expect(doc.revise({ field: 'intro' }, '<kbd>x</kbd>').warnings[0].path).toBe('main.intro')
   })
 
   it('the annotated toMarkdown spells each anchor at its start and lists it at its path', () => {
@@ -1111,7 +1110,7 @@ describe('Document editor surface: storeField / removeField / replace / revise (
     const read = doc.toMarkdown(undefined, { annotated: true }).markdown
     expect(read).toContain('Main <qm-anchor ref="b"></qm-anchor>body here.')
     const moved = read.replace('Main <qm-anchor ref="b"></qm-anchor>body here.', 'Main body <qm-anchor ref="b"></qm-anchor>here.')
-    const receipt = doc._revise({}, moved.split('~~~\n\n')[1].trim() + ' <qm-anchor ref="gone"></qm-anchor>')
+    const receipt = doc.revise({}, moved.split('~~~\n\n')[1].trim() + ' <qm-anchor ref="gone"></qm-anchor>')
     expect(receipt.droppedAnchors).toEqual([])
     expect(receipt.warnings).toEqual([
       expect.objectContaining({ code: 'parse::dropped_construct', args: { construct: 'qm-anchor[ref]', count: 1 } }),
@@ -1139,7 +1138,6 @@ describe('Document editor surface: storeField / removeField / replace / revise (
     const addr = { card: 0, field: 'foo' }
     expectEditCode(() => doc._uncheckedStoreField(addr, 'x'), 'edit::index_out_of_range')
     expectEditCode(() => doc.removeField(addr), 'edit::index_out_of_range')
-    expectEditCode(() => doc._revise({ card: 0 }, 'x'), 'edit::index_out_of_range')
     expectEditCode(() => doc.read({ card: 0 }), 'edit::index_out_of_range')
     expectEditCode(() => doc.read({ card: 'nobody' }), 'edit::unknown_card_id')
     expectEditCode(() => doc.replace({ card: 'nobody' }, importMarkdown('x').content), 'edit::unknown_card_id')

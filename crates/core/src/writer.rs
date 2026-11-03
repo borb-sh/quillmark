@@ -28,7 +28,7 @@
 use indexmap::IndexMap;
 
 use crate::document::edit::{overflow_errors, resolve_field_write};
-use crate::document::{Base, Card, Document, DocumentRevised, EditError, Receipt, Revising};
+use crate::document::{Base, Card, Document, DocumentRevised, EditError, Receipt, Revising, Target};
 use crate::error::Diagnostic;
 use crate::path::DocPath;
 use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
@@ -103,61 +103,30 @@ impl<'a> TypedWriter<'a> {
         set_all_impl(self.doc.main_card_mut(), schema, fields, &DocPath::main())
     }
 
-    /// Revise the main card's body from markdown: edit semantics, surviving
-    /// anchors rebase, and the [`Receipt`] a content write answers. Untyped,
-    /// because a body carries no field schema to type against.
-    pub fn revise_body(&mut self, markdown: &str) -> Result<Receipt, EditError> {
-        self.doc.main_card_mut().revise_body(markdown)
-    }
-
-    /// [`revise_body`](Self::revise_body) under `base`, which refuses a stale
-    /// write or merges it onto what changed since the writer's read.
-    pub fn revise_body_against(
-        &mut self,
-        base: Base<'_>,
-        markdown: &str,
-    ) -> Result<Receipt, EditError> {
-        self.doc.main_card_mut().revise_body_against(base, markdown)
-    }
-
-    /// Revise a content field on the main card from authored text: typed *and*
-    /// anchor-preserving. Surviving anchors rebase and the diffed result is
-    /// schema-conformed (a one-line `richtext` rejects a multi-block result).
-    /// An undeclared name fails with [`EditError::UnknownField`], as
+    /// Revise the main card's body or a content field from authored text:
+    /// edit semantics, surviving anchors rebase, and the [`Receipt`] a content
+    /// write answers. A field is typed as well: the diffed result is
+    /// schema-conformed (a one-line `richtext` rejects a multi-block result),
+    /// and an undeclared name fails with [`EditError::UnknownField`], as
     /// [`set`](Self::set).
     ///
-    /// The codec comes from the declared type: `richtext` diffs markdown and
-    /// rebases anchors; `text` diffs the literal text and never imports
-    /// markdown, so a byte-identical revise of a value carrying escapes is a
-    /// byte no-op, and its [`Receipt`]'s change is one splice over the
-    /// literal text.
-    pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Receipt, EditError> {
-        let schema = Some(&self.config.main.fields);
-        revise_impl(
-            self.doc.main_card_mut(),
-            schema,
-            name,
-            None,
-            text,
-        )
-    }
-
-    /// [`revise_field`](Self::revise_field) under `base`. A `text` field's
-    /// [`Base::Read`] is its literal text.
-    pub fn revise_field_against(
+    /// The codec comes from the declared type, the body's being `richtext`:
+    /// `richtext` diffs markdown and rebases anchors; `text` diffs the literal
+    /// text and never imports markdown, so a byte-identical revise of a value
+    /// carrying escapes is a byte no-op, and its [`Receipt`]'s change is one
+    /// splice over the literal text.
+    ///
+    /// A `base` refuses a stale write or merges it onto what changed since the
+    /// writer's read: its hash is [`hash_of`](Self::hash_of), and a `text`
+    /// field's [`Base::Read`] is its literal text.
+    pub fn revise<'t>(
         &mut self,
-        name: &str,
-        base: Base<'_>,
+        target: impl Into<Target<'t>>,
         text: &str,
+        base: Option<Base<'_>>,
     ) -> Result<Receipt, EditError> {
         let schema = Some(&self.config.main.fields);
-        revise_impl(
-            self.doc.main_card_mut(),
-            schema,
-            name,
-            Some(base),
-            text,
-        )
+        revise_impl(self.doc.main_card_mut(), schema, target.into(), base, text)
     }
 
     /// Replace the document with `markdown` through [`Document::revise`], then
@@ -200,16 +169,13 @@ impl<'a> TypedWriter<'a> {
         Ok(crate::document::base::conformed(self.config, self.doc)?.hash())
     }
 
-    /// The hash of a main-card field through its schema: the [`Base::Hash`]
-    /// [`revise_field_against`](Self::revise_field_against) checks. A
-    /// `richtext` or `text` field hashes its content however it is stored, ids
-    /// and anchors included, any other type its stored value. An undeclared name
-    /// fails with [`EditError::UnknownField`].
-    pub fn field_hash(&self, name: &str) -> Result<String, EditError> {
-        match self.config.main.fields.get(name) {
-            Some(schema) => self.doc.main().field_hash_checked(name, schema),
-            None => Err(EditError::unknown_field(name)),
-        }
+    /// The hash of the main card's body or a field through its schema: the
+    /// [`Base::Hash`] [`revise`](Self::revise) checks. A `richtext` or `text`
+    /// field hashes its content however it is stored, ids and anchors
+    /// included, any other type its stored value. An undeclared name fails
+    /// with [`EditError::UnknownField`].
+    pub fn hash_of<'t>(&self, target: impl Into<Target<'t>>) -> Result<String, EditError> {
+        hash_impl(self.doc.main(), Some(&self.config.main.fields), target.into())
     }
 
     fn revise_parsed(&mut self, revising: Revising) -> Result<DocumentRevised, BoundParseError> {
@@ -349,46 +315,21 @@ impl<'a> CardWriter<'a> {
         commit_impl(self.card_mut(), schema, name, value, &base)
     }
 
-    /// Revise this card's body from markdown (edit semantics): the card twin
-    /// of [`TypedWriter::revise_body`].
-    pub fn revise_body(&mut self, markdown: &str) -> Result<Receipt, EditError> {
-        self.card_mut().revise_body(markdown)
-    }
-
-    /// The card twin of [`TypedWriter::revise_body_against`].
-    pub fn revise_body_against(
+    /// The card twin of [`TypedWriter::revise`], resolved against the card's
+    /// [`CardSchema`](crate::quill::CardSchema).
+    pub fn revise<'t>(
         &mut self,
-        read: Base<'_>,
-        markdown: &str,
-    ) -> Result<Receipt, EditError> {
-        self.card_mut().revise_body_against(read, markdown)
-    }
-
-    /// The card twin of [`TypedWriter::revise_field`], resolved against the
-    /// card's [`CardSchema`](crate::quill::CardSchema).
-    pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Receipt, EditError> {
-        let schema = self.fields_schema();
-        revise_impl(self.card_mut(), schema, name, None, text)
-    }
-
-    /// The card twin of [`TypedWriter::field_hash`].
-    pub fn field_hash(&self, name: &str) -> Result<String, EditError> {
-        let schema = self.fields_schema().and_then(|m| m.get(name));
-        match schema {
-            Some(schema) => self.card().field_hash_checked(name, schema),
-            None => Err(EditError::unknown_field(name)),
-        }
-    }
-
-    /// The card twin of [`TypedWriter::revise_field_against`].
-    pub fn revise_field_against(
-        &mut self,
-        name: &str,
-        read: Base<'_>,
+        target: impl Into<Target<'t>>,
         text: &str,
+        base: Option<Base<'_>>,
     ) -> Result<Receipt, EditError> {
         let schema = self.fields_schema();
-        revise_impl(self.card_mut(), schema, name, Some(read), text)
+        revise_impl(self.card_mut(), schema, target.into(), base, text)
+    }
+
+    /// The card twin of [`TypedWriter::hash_of`].
+    pub fn hash_of<'t>(&self, target: impl Into<Target<'t>>) -> Result<String, EditError> {
+        hash_impl(self.card(), self.fields_schema(), target.into())
     }
 
     /// Write several fields on this card atomically; see
@@ -427,20 +368,44 @@ fn commit_impl(
 }
 
 /// The anchor-preserving twin of [`commit_impl`], shared by the writers'
-/// `revise_field` and `revise_field_against`.
+/// `revise`.
 fn revise_impl(
     card: &mut Card,
     fields_schema: Option<&IndexMap<String, FieldSchema>>,
-    name: &str,
-    read: Option<Base<'_>>,
+    target: Target<'_>,
+    base: Option<Base<'_>>,
     text: &str,
 ) -> Result<Receipt, EditError> {
+    let name = match target {
+        Target::Body => {
+            return match base {
+                None => card.revise_body(text),
+                Some(base) => card.revise_body_against(base, text),
+            };
+        }
+        Target::Field(name) => name,
+    };
     let Some(schema) = fields_schema.and_then(|m| m.get(name)) else {
         return Err(EditError::unknown_field(name));
     };
-    match read {
+    match base {
         None => card.revise_field_checked(name, text, schema),
-        Some(read) => card.revise_field_checked_against(name, read, text, schema),
+        Some(base) => card.revise_field_checked_against(name, base, text, schema),
+    }
+}
+
+fn hash_impl(
+    card: &Card,
+    fields_schema: Option<&IndexMap<String, FieldSchema>>,
+    target: Target<'_>,
+) -> Result<String, EditError> {
+    let name = match target {
+        Target::Body => return Ok(card.body_hash()),
+        Target::Field(name) => name,
+    };
+    match fields_schema.and_then(|m| m.get(name)) {
+        Some(schema) => card.field_hash_checked(name, schema),
+        None => Err(EditError::unknown_field(name)),
     }
 }
 
@@ -743,7 +708,7 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         let mut ed = TypedWriter::new(&config, &mut doc);
-        let _delta = ed.revise_field("subject", "Hello").unwrap();
+        let _delta = ed.revise(crate::document::Target::from("subject"), "Hello", None).unwrap();
         assert_eq!(
             doc.main()
                 .field_text("subject", Codec::Richtext)
@@ -754,11 +719,11 @@ card_kinds:
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         assert_eq!(
-            ed.revise_field("nope", "x").unwrap_err().code(),
+            ed.revise(crate::document::Target::from("nope"), "x", None).unwrap_err().code(),
             "edit::unknown_field"
         );
         // A one-line `richtext` rejects a multi-block result.
-        let err = ed.revise_field("subject", "a\n\nb").unwrap_err();
+        let err = ed.revise(crate::document::Target::from("subject"), "a\n\nb", None).unwrap_err();
         assert_eq!(err.code(), "edit::field_not_single_line");
         assert_eq!(
             doc.main()
@@ -796,7 +761,7 @@ card_kinds:
         doc.unchecked().insert_card(None, Card::new("note").unwrap(), None).unwrap();
 
         let mut ed = TypedWriter::new(&config, &mut doc);
-        let _ = ed.card(0).unwrap().revise_field("prose", "**hi**").unwrap();
+        let _ = ed.card(0).unwrap().revise(crate::document::Target::from("prose"), "**hi**", None).unwrap();
         assert_eq!(
             doc.cards()[0]
                 .field_text("prose", Codec::Richtext)
@@ -809,7 +774,7 @@ card_kinds:
         assert_eq!(
             ed.card(0)
                 .unwrap()
-                .revise_field("stray", "x")
+                .revise(crate::document::Target::from("stray"), "x", None)
                 .unwrap_err()
                 .code(),
             "edit::unknown_field"
@@ -842,19 +807,19 @@ card_kinds:
             .add_card("note", [("prose", "a")], Some("<span>x</span>"), None, None)
             .unwrap();
         assert_eq!(anchors(&added.warnings), dropped("cards.note[0].body"));
-        let revised = ed.revise_body("<kbd>x</kbd>").unwrap();
+        let revised = ed.revise(crate::document::Target::Body, "<kbd>x</kbd>", None).unwrap();
         assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
-        let revised = ed.revise_field("subject", "<kbd>x</kbd>").unwrap();
+        let revised = ed.revise(crate::document::Target::from("subject"), "<kbd>x</kbd>", None).unwrap();
         assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
-        let revised = ed.card(0).unwrap().revise_body("<kbd>x</kbd>").unwrap();
+        let revised = ed.card(0).unwrap().revise(crate::document::Target::Body, "<kbd>x</kbd>", None).unwrap();
         assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
         let revised = ed
             .card(0)
             .unwrap()
-            .revise_field("blurb", "<kbd>x</kbd>")
+            .revise(crate::document::Target::from("blurb"), "<kbd>x</kbd>", None)
             .unwrap();
         assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
-        let revised = ed.card(0).unwrap().revise_field("blurb", "plain").unwrap();
+        let revised = ed.card(0).unwrap().revise(crate::document::Target::from("blurb"), "plain", None).unwrap();
         assert!(revised.warnings.is_empty());
         let added = ed
             .add_card("note", [("prose", "b")], Some("<span>y</span>"), Some(0), None)
@@ -876,7 +841,7 @@ card_kinds:
         let revised = doc
             .card_mut(1)
             .unwrap()
-            .revise_body("<kbd>x</kbd>")
+            .revise(crate::document::Target::Body, "<kbd>x</kbd>", None)
             .unwrap();
         assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
     }

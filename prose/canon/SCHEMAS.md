@@ -759,7 +759,7 @@ load that admitted it already warned.
 before any is applied, so a consumer submitting a whole form sees every typo in
 one pass. Both **canonicalize what they write**: a value position keeps its authored
 shorthand until that value position is written. A content value position written through either is
-a cold import — anchors on it do not survive, and `revise_field`, the content
+a cold import — anchors on it do not survive, and the writer's `revise`, the content
 revise at the field's address, is the write that keeps them.
 
 **A projection, never a storage format** ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)).

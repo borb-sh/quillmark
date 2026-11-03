@@ -27,10 +27,9 @@ use crate::quill::{BoundParseError, FieldSchema, FieldType, QuillConfig};
 /// What a revise's writer read, checked against the value stored at the write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Base<'a> {
-    /// The hash of the value the writer read: [`Card::body_hash`],
-    /// [`Card::field_hash`], [`Document::hash`] or [`content_hash`] on the
-    /// content write, and the typed writer's `hash` / `field_hash` on the
-    /// typed writer. A value that now hashes otherwise rebases the write over
+    /// The hash of the value the writer read: [`Card::hash_of`],
+    /// [`Document::hash`] or [`content_hash`] on the content write, and the
+    /// typed writer's `hash` / `hash_of` on the typed writer. A value that now hashes otherwise rebases the write over
     /// the change since, as [`Card::revise`] under the same base does: refused
     /// with [`BaseError::Conflict`] where the two touch, and with
     /// [`BaseError::Stale`] where the card's change log no longer reaches the
@@ -188,9 +187,8 @@ fn sorted(value: &JsonValue) -> JsonValue {
     }
 }
 
-/// The hash of a content's canonical form: what [`Card::body_hash`] answers for
-/// a body, and [`Card::field_hash`] for a richtext field, however the field
-/// rests.
+/// The hash of a content's canonical form: what [`Card::hash_of`] answers for
+/// a body or a richtext field, however the field rests.
 pub fn content_hash(content: &Content) -> String {
     digesting(|w| content.write_canonical(w))
 }
@@ -287,7 +285,7 @@ fn at_field(err: EditError, name: &str) -> EditError {
 impl Card {
     /// The hash of the body's canonical form, the [`Base::Hash`] a body revise
     /// checks.
-    pub fn body_hash(&self) -> String {
+    pub(crate) fn body_hash(&self) -> String {
         match self.hashes.body() {
             Some(hash) => hash.to_string(),
             None => content_hash(self.body()),
@@ -297,27 +295,25 @@ impl Card {
     /// The body's annotated read ([`to_markdown_annotated`]): the scoped read
     /// a body revise reads back, and the markdown a [`Base::Read`] merge of one
     /// takes. Its anchors carry no path; the body is theirs.
-    pub fn body_annotated(&self) -> Annotated {
+    pub(crate) fn body_annotated(&self) -> Annotated {
         quillmark_content::markdown::to_markdown_annotated(self.body())
     }
 
-    /// The field's annotated read, decoded as
-    /// [`revise_field`](Self::revise_field) decodes it, an absent field the
+    /// The field's annotated read, decoded as a schema-blind revise decodes
+    /// it, an absent field the
     /// empty content's: the scoped read a field revise reads back. A field
     /// stored under `codec: "plain"` reads as its literal text, its anchors
     /// listed and no tag spelled.
-    pub fn field_annotated(&self, name: &str) -> Result<Annotated, EditError> {
+    pub(crate) fn field_annotated(&self, name: &str) -> Result<Annotated, EditError> {
         Ok(quillmark_content::markdown::to_text_annotated(&self.richtext_value(name)?))
     }
 
-    /// The hash of the richtext field's content, decoded as
-    /// [`revise_field`](Self::revise_field) decodes it, so a field resting as a
-    /// markdown string and the canonical content it conforms to hash alike;
-    /// an absent field hashes as the empty content. The [`Base::Hash`] a
-    /// quill-free field revise checks. **Richtext only**, on
-    /// [`revise_field`](Self::revise_field)'s terms: the typed writer's
-    /// `field_hash` is the door for a field of another type.
-    pub fn field_hash(&self, name: &str) -> Result<String, EditError> {
+    /// The hash of the richtext field's content, decoded as a schema-blind
+    /// revise decodes it, so a field resting as a markdown string and the
+    /// canonical content it conforms to hash alike; an absent field hashes as
+    /// the empty content. **Richtext only**: the typed writer's `hash_of` is
+    /// the door for a field of another type.
+    pub(crate) fn field_hash(&self, name: &str) -> Result<String, EditError> {
         match self.hashes.field(name) {
             Some(hash) => Ok(hash.to_string()),
             None => Ok(content_hash(&self.richtext_value(name)?)),
@@ -378,7 +374,7 @@ impl Card {
     }
 
     /// [`revise_body`](Self::revise_body) under `base`.
-    pub fn revise_body_against(
+    pub(crate) fn revise_body_against(
         &mut self,
         base: Base<'_>,
         body: impl Into<String>,
@@ -388,37 +384,6 @@ impl Card {
             Write::Own => self.revise_body(body),
             Write::Merged(md, warnings) => Ok(self.revise_body(md)?.merged(Some(warnings))),
             Write::Rebase(read) => self.revise_counted_from(Target::Body, &body, Some(read)),
-        }
-    }
-
-    /// [`revise_field`](Self::revise_field) under `base`, its hash
-    /// [`field_hash`](Self::field_hash).
-    pub fn revise_field_against(
-        &mut self,
-        name: &str,
-        base: Base<'_>,
-        body: impl Into<String>,
-    ) -> Result<Receipt, EditError> {
-        let body = body.into();
-        if self.stored_codec(name) == Codec::Text {
-            return match self.text_body_against(name, base, body, || self.field_hash(name))? {
-                TextWrite::Own(body) => self.revise_field(name, body),
-                TextWrite::Merged(body) => Ok(self.revise_field(name, body)?.merged(None)),
-                TextWrite::Rebase(read, body) => {
-                    self.revise_counted_from(Target::Field(name), &body, Some(read)).map_err(|e| at_field(e, name))
-                }
-            };
-        }
-        let stored = self.richtext_base(name)?;
-        let held = self.richtext_value(name)?;
-        let write = richtext_write(&stored, || content_hash(&held), base, &body)
-            .map_err(|e| at_field(e, name))?;
-        match write {
-            Write::Own => self.revise_field(name, body),
-            Write::Merged(md, warnings) => Ok(self.revise_field(name, md)?.merged(Some(warnings))),
-            Write::Rebase(read) => {
-                self.revise_counted_from(Target::Field(name), &body, Some(read)).map_err(|e| at_field(e, name))
-            }
         }
     }
 

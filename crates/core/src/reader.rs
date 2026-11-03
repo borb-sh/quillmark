@@ -21,8 +21,8 @@
 //! [`get_content`](TypedReader::get_content) is the same read at the other end
 //! of the codec, and is total over the storage form. It binds the quill too: a
 //! `richtext` string is markdown and a `text` string is literal text, so
-//! the same bytes decode two ways. The body read stays quill-free — a body's
-//! type is a format fact, not a schema fact.
+//! the same bytes decode two ways. Each read takes a [`Target`]: a field by
+//! name, or the body, which is `richtext` by format rather than by schema.
 //!
 //! Like [`TypedWriter`](crate::writer::TypedWriter), a bound reader holds
 //! `&Document` and `&QuillConfig`, so it cannot cross a lifetime-free binding
@@ -32,7 +32,7 @@ use indexmap::IndexMap;
 use quillmark_content::model::Content;
 
 use crate::document::edit::field_decode;
-use crate::document::{Card, Document, EditError};
+use crate::document::{Card, Document, EditError, Target};
 use crate::quill::{
     CalendarDate, CardSchema, FieldSchema, FieldType, QuillConfig, Resolved, resolve_document,
 };
@@ -54,20 +54,22 @@ impl<'a> TypedReader<'a> {
         Self { config, doc }
     }
 
-    /// Read a main-card field in the values form: every content leaf in its
-    /// type tree as its codec's text (`richtext` markdown, `text` literal),
-    /// everything else as stored. A present-null field reads `Some(null)`.
+    /// Read the main card's body or a field in the values form: every content
+    /// leaf in its type tree as its codec's text (`richtext` markdown, `text`
+    /// literal), everything else as stored. The body reads its markdown and is
+    /// never absent. A present-null field reads `Some(null)`.
     /// `Ok(None)` when the field is absent;
     /// [`EditError::UnknownField`] for a name the schema does not declare (a typo,
     /// as on the write side); [`EditError::FieldDecode`], anchored at the leaf,
     /// when a content leaf holds a value that does not decode (a scalar an
     /// opaque [`store_field`](crate::document::Card::store_field) wrote).
-    pub fn get(&self, name: &str) -> Result<Option<QuillValue>, EditError> {
-        read_field(self.doc.main(), Some(&self.config.main.fields), name)
+    pub fn get<'t>(&self, target: impl Into<Target<'t>>) -> Result<Option<QuillValue>, EditError> {
+        read_field(self.doc.main(), Some(&self.config.main.fields), target.into())
     }
 
-    /// Read a main-card content field as its [`Content`], decoded through the
-    /// codec its declared type names: the [`Content`] twin of [`get`](Self::get).
+    /// Read the main card's body or a content field as its [`Content`], a
+    /// field decoded through the codec its declared type names: the
+    /// [`Content`] twin of [`get`](Self::get).
     /// Total over the storage form, so a canonical content object and an
     /// authored string both read back as a [`Content`].
     ///
@@ -78,8 +80,11 @@ impl<'a> TypedReader<'a> {
     /// `array<richtext>` carries content without having one [`Content`]);
     /// [`EditError::FieldDecode`] when the stored value decodes under
     /// neither encoding.
-    pub fn get_content(&self, name: &str) -> Result<Option<Content>, EditError> {
-        self.get_content_at(name, &[])
+    pub fn get_content<'t>(&self, target: impl Into<Target<'t>>) -> Result<Option<Content>, EditError> {
+        match target.into() {
+            Target::Body => Ok(Some(self.doc.main().body().clone())),
+            Target::Field(name) => self.get_content_at(name, &[]),
+        }
     }
 
     /// Read the [`Content`] *nested inside* a composite field at `at`: an
@@ -111,12 +116,6 @@ impl<'a> TypedReader<'a> {
         read_content(self.doc.main(), Some(&self.config.main.fields), name, at)
     }
 
-    /// The main body's markdown projection. Consults no schema and never
-    /// raises; the body is never absent.
-    pub fn body_markdown(&self) -> String {
-        self.doc.main().body_markdown()
-    }
-
     /// The resolved view: for every declared field, the value the render
     /// projection would use and the source it came from. The one read that
     /// blank-fills and coerces; see
@@ -143,7 +142,7 @@ impl<'a> TypedReader<'a> {
 }
 
 /// A single composable card bound to its [`CardSchema`], from
-/// [`TypedReader::card`]. Same `get` / `body_markdown` verbs as
+/// [`TypedReader::card`]. Same verbs as
 /// [`TypedReader`], reading the card at its bound index.
 pub struct CardReader<'a> {
     schema: Option<&'a CardSchema>,
@@ -160,14 +159,17 @@ impl CardReader<'_> {
     /// [`TypedReader::get`]. Resolves the field against the card's
     /// [`CardSchema`]; a name the schema does not declare (or any name when the
     /// card kind is unknown) reads with [`EditError::UnknownField`].
-    pub fn get(&self, name: &str) -> Result<Option<QuillValue>, EditError> {
-        read_field(self.card, self.schema.map(|s| &s.fields), name)
+    pub fn get<'t>(&self, target: impl Into<Target<'t>>) -> Result<Option<QuillValue>, EditError> {
+        read_field(self.card, self.schema.map(|s| &s.fields), target.into())
     }
 
     /// Read a content field on this card as its [`Content`]: the card twin
     /// of [`TypedReader::get_content`], carrying the same outcomes.
-    pub fn get_content(&self, name: &str) -> Result<Option<Content>, EditError> {
-        self.get_content_at(name, &[])
+    pub fn get_content<'t>(&self, target: impl Into<Target<'t>>) -> Result<Option<Content>, EditError> {
+        match target.into() {
+            Target::Body => Ok(Some(self.card.body().clone())),
+            Target::Field(name) => self.get_content_at(name, &[]),
+        }
     }
 
     /// The card twin of [`TypedReader::get_content_at`], carrying the same
@@ -179,11 +181,6 @@ impl CardReader<'_> {
     ) -> Result<Option<Content>, EditError> {
         read_content(self.card, self.schema.map(|s| &s.fields), name, at)
     }
-
-    /// This card's body markdown: the card twin of [`TypedReader::body_markdown`].
-    pub fn body_markdown(&self) -> String {
-        self.card.body_markdown()
-    }
 }
 
 /// The shared read dispatch behind [`TypedReader::get`] and [`CardReader::get`].
@@ -191,8 +188,12 @@ impl CardReader<'_> {
 fn read_field(
     card: &Card,
     fields_schema: Option<&IndexMap<String, FieldSchema>>,
-    name: &str,
+    target: Target<'_>,
 ) -> Result<Option<QuillValue>, EditError> {
+    let name = match target {
+        Target::Body => return Ok(Some(QuillValue::from_json(serde_json::Value::String(card.body_markdown())))),
+        Target::Field(name) => name,
+    };
     let schema = fields_schema
         .and_then(|m| m.get(name))
         .ok_or_else(|| EditError::unknown_field(name))?;

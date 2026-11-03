@@ -103,19 +103,19 @@ def test_writer_revise_field():
     quill = richtext_quill()
     doc = Document("sample_form@0.1.0")
     w = quill.writer(doc)
-    receipt = w.revise_field("bio", "make it **bold**")
+    receipt = w.revise("make it **bold**", "bio")
     assert sorted(receipt) == ["applied", "dropped_anchors", "hash", "minted", "moved_anchors", "rebased", "warnings"]
     assert receipt["applied"]["steps"][0]["splice"]["insert"] == "make it bold"
     assert receipt["hash"] == w.hash_at("bio")
     assert (receipt["dropped_anchors"], receipt["moved_anchors"], receipt["warnings"], receipt["rebased"]) == ([], [], [], False)
     assert quill.reader(doc).get("bio") == "make it **bold**"
-    (dropped,) = w.revise_field("bio", "make it <kbd>**bold**</kbd>")["warnings"]
+    (dropped,) = w.revise("make it <kbd>**bold**</kbd>", "bio")["warnings"]
     assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
     assert quill.reader(doc).get("bio") == "make it **bold**"
     with raises_edit_code("edit::field_not_single_line"):
-        w.revise_field("headline", "line one\n\nline two")
+        w.revise("line one\n\nline two", "headline")
     with raises_edit_code("edit::unknown_field"):
-        w.revise_field("nope", "x")
+        w.revise("x", "nope")
 
 
 def test_writer_set_returns_what_its_markdown_dropped():
@@ -138,7 +138,7 @@ def test_writer_revise_document():
     doc = quill.parse("~~~\n$quill: sample_form@0.1.0\n~~~\n\n<span>Body.</span>\n")
     assert [d.code for d in doc.warnings] == ["parse::dropped_construct"]
     w = quill.writer(doc)
-    w.revise_field("bio", "make it **bold**")
+    w.revise("make it **bold**", "bio")
     receipt = w.revise_document(
         "~~~\n$quill: sample_form@0.1.0\nbio: make it <kbd>**bold**</kbd>\n~~~\n\nBody.\n"
     )
@@ -164,18 +164,18 @@ def test_a_base_rebases_a_stale_revise_and_merges_a_read():
     read, hash = doc.to_markdown(), w.hash()
     body_hash = w.hash_at()
     assert body_hash == doc.hash_at()
-    assert w.revise_body("Alpha, edited.\n\nBeta.")["rebased"] is False
-    merged = w.revise_body("Alpha.\n\nBeta, mine.", base_markdown="Alpha.\n\nBeta.")
+    assert w.revise("Alpha, edited.\n\nBeta.")["rebased"] is False
+    merged = w.revise("Alpha.\n\nBeta, mine.", base_markdown="Alpha.\n\nBeta.")
     assert merged["rebased"] is True
     assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, mine.\n")
-    w.revise_body("Alpha, edited.\n\nBeta.")
+    w.revise("Alpha, edited.\n\nBeta.")
     read_hash = w.hash_at()
-    w.revise_body("Alpha, edited.\n\nBeta, two.")
-    assert w.revise_body("Alpha, again.\n\nBeta.", base_hash=read_hash)["rebased"] is True
+    w.revise("Alpha, edited.\n\nBeta, two.")
+    assert w.revise("Alpha, again.\n\nBeta.", base_hash=read_hash)["rebased"] is True
     assert doc.to_markdown().endswith("Alpha, again.\n\nBeta, two.\n")
-    w.revise_body("Alpha, edited.\n\nBeta.")
+    w.revise("Alpha, edited.\n\nBeta.")
     with raises_edit_code("edit::stale_base") as exc_info:
-        w.revise_body("Other.", base_hash="never-read")
+        w.revise("Other.", base_hash="never-read")
     assert exc_info.value.diagnostics[0].args == {"current": doc.hash_at()}
     with raises_edit_code("edit::stale_base"):
         w.revise_document(read, base_hash=hash)
@@ -192,7 +192,7 @@ def test_a_base_rebases_a_stale_revise_and_merges_a_read():
     ]
     assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, rewritten.\n")
     with pytest.raises(ValueError):
-        w.revise_body("x", base_hash=hash, base_markdown=read)
+        w.revise("x", base_hash=hash, base_markdown=read)
 
 
 def test_a_field_hash_reads_through_the_schema():
@@ -206,7 +206,7 @@ def test_a_field_hash_reads_through_the_schema():
     assert hash == doc.hash_at("bio")
     quill.conform(doc)
     assert (w.hash_at("bio"), w.hash()) == (hash, whole)
-    w.revise_field("bio", "Hello _world_, hi", base_hash=hash)
+    w.revise("Hello _world_, hi", "bio", base_hash=hash)
     with raises_edit_code("edit::unknown_field"):
         w.hash_at("nope")
 
@@ -215,11 +215,11 @@ def test_an_anchor_survives_the_field_and_document_revises():
     """revise_field and revise_document rebase an anchor the field holds."""
     quill = richtext_quill()
     doc = Document("sample_form@0.1.0")
-    quill.writer(doc).revise_field("bio", "make it bold here")
+    quill.writer(doc).revise("make it bold here", "bio")
     doc.apply({"steps": [{"anchor": {"id": "a1", "start": 8, "end": 12}}]}, field="bio")
 
     w = quill.writer(doc)
-    assert w.revise_field("bio", "now make it bold here")["dropped_anchors"] == []
+    assert w.revise("now make it bold here", "bio")["dropped_anchors"] == []
     assert doc.read("bio")["anchors"] == [{"id": "a1", "start": 12, "end": 16}]
     receipt = w.revise_document("~~~\n$quill: sample_form@0.1.0\nbio: so now make it bold here\n~~~\n")
     assert receipt["dropped_anchors"] == []
@@ -246,7 +246,7 @@ def test_a_dropped_anchor_is_named_and_reattached_where_its_text_is_found_once()
     assert doc.anchor_context("nope") is None
 
     w = quill.writer(doc)
-    receipt = w.revise_body("Nothing like it.\n\nAt all.")
+    receipt = w.revise("Nothing like it.\n\nAt all.")
     assert receipt["dropped_anchors"] == [context]
     assert doc.reattach([context], {"main.body": receipt["applied"]}) == {"reattached": [], "orphaned": [context]}
 
@@ -269,7 +269,7 @@ def test_markdown_writes_return_their_drops_at_the_body_written():
     def drops(warnings):
         return [(d.code, d.path, d.args["construct"]) for d in warnings]
 
-    assert drops(w.revise_body("a <kbd>b</kbd>")["warnings"]) == [
+    assert drops(w.revise("a <kbd>b</kbd>")["warnings"]) == [
         ("parse::dropped_construct", "main.body", "kbd")
     ]
     assert drops(w.add_card("quotes", {"author": "A"}, "x <span>y</span>")["warnings"]) == [
@@ -278,7 +278,7 @@ def test_markdown_writes_return_their_drops_at_the_body_written():
     assert drops(w.add_card("quotes", {"author": "B"}, "<em>z</em>", at=0)["warnings"]) == [
         ("parse::dropped_construct", "cards.quotes[0].body", "em")
     ]
-    assert drops(w.revise_body("c <kbd>d</kbd>", card=1)["warnings"]) == [
+    assert drops(w.revise("c <kbd>d</kbd>", card=1)["warnings"]) == [
         ("parse::dropped_construct", "cards.quotes[1].body", "kbd")
     ]
     assert doc.to_markdown_at(card=1) == "c d"
@@ -470,7 +470,7 @@ def test_to_markdown_at_reads_the_main_body():
     """to_markdown_at() with no address reads the main body markdown."""
     quill = taro_quill()
     doc = Document("taro@0.1.0")
-    quill.writer(doc).revise_body("A **taro** essay.")
+    quill.writer(doc).revise("A **taro** essay.")
     assert doc.to_markdown_at() == "A **taro** essay."
 
 
@@ -479,8 +479,8 @@ def test_a_text_field_revise_answers_one_splice_over_its_literal_text():
     points."""
     doc = taro_quill().parse(TARO_MARKDOWN)
     w = taro_quill().writer(doc)
-    w.revise_field("title", "a \U0001F600 \\*b\\*")
-    receipt = w.revise_field("title", "a \U0001F600 \\*b\\* c")
+    w.revise("a \U0001F600 \\*b\\*", "title")
+    receipt = w.revise("a \U0001F600 \\*b\\* c", "title")
     assert receipt["applied"] == {"steps": [{"splice": {"at": 9, "delete": "", "insert": " c", "removed": {}}}]}
     assert receipt["hash"] == w.hash_at("title")
-    assert w.revise_field("title", "a \U0001F600 \\*b\\* c")["applied"] == {"steps": []}
+    assert w.revise("a \U0001F600 \\*b\\* c", "title")["applied"] == {"steps": []}

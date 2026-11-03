@@ -89,13 +89,13 @@ reference and owns neither: bind, write, discard.
 w = quill.writer(doc)
 w.set("title", "On Taro")                 # typed-commit one field (mismatch raises now)
 w.set_all({"title": "T", "author": "A"})  # atomic batch; one diagnostic per bad field
-w.revise_body("A **taro** essay.")        # body write (edit semantics; a body has no field schema)
-w.revise_field("bio", "make it **bold**") # typed *and* anchor-preserving content write (codec by declared type)
+w.revise("A **taro** essay.")             # body write: no field is the body (edit semantics, anchors rebase)
+w.revise("make it **bold**", "bio")       # typed *and* anchor-preserving content write (codec by declared type)
 w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit + insert (at appends/inserts)
                                           # set and set_all return the parse::dropped_construct
                                           # warnings their markdown raised: [Diagnostic, ...]
                                           # add_card returns {"id", "warnings": [Diagnostic, ...]}
-                                          # revise_body and revise_field return their receipt:
+                                          # revise returns its receipt:
                                           # {"delta", "warnings": [Diagnostic, ...], "dropped_anchors": [{"id", "line"}]}
 w.revise_document(markdown)               # whole-document write: cards align by $kind and text, anchors rebase,
                                           # then conform; returns {"dropped_anchors": [{"id", "path", "line"}],
@@ -157,7 +157,7 @@ Document.quill_ref_hint()                        # $quill reference grammar (sta
 doc.clone()
 doc.equals(other)
 doc.card_count
-doc.main; doc.cards; doc.body; doc.warnings      # total-read snapshots (dicts); body is a content dict
+doc.main; doc.cards; doc.warnings                # total-read snapshots (dicts); a card's body is a content dict
 doc.card(0)                                      # one card, same dict shape as main (out of range raises)
 doc.seed_overlay("note")                         # one $seed[kind] overlay, or None
 doc.set_quill_ref("other@1.0")

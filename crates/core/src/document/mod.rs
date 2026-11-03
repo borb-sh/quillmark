@@ -448,12 +448,6 @@ impl Codec {
         }
     }
 
-    /// The codec a stored value reads under where no schema names one: the
-    /// one an object names, and [`Codec::Richtext`] for a string.
-    pub(crate) fn of_stored(value: Option<&serde_json::Value>) -> Codec {
-        value.filter(|v| v.is_object()).map_or(Codec::Richtext, Codec::of_object)
-    }
-
     /// The content codec this codec rests under.
     pub(crate) fn content(self) -> quillmark_content::model::Codec {
         match self {
@@ -689,7 +683,7 @@ pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
 pub use payload::{MetaKey, Payload, PayloadItem};
 /// Returned by [`Document::reattach`], so nameable from here.
 pub use quillmark_content::anchors::Reattached;
-/// Answered by [`Card::body_annotated`] and the content crate's anchor reads, so nameable from here.
+/// Answered by [`Card::annotated`] and the content crate's anchor reads, so nameable from here.
 pub use quillmark_content::markdown::{AnchorRead, Annotated};
 /// Carried by [`EditError::Import`], so nameable from here.
 pub use quillmark_content::markdown::ImportError;

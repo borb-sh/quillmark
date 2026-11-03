@@ -142,8 +142,6 @@ class Document:
     @property
     def warnings(self) -> list[Diagnostic]: ...
     @property
-    def body(self) -> Any: ...
-    @property
     def main(self) -> dict[str, Any]: ...
     @property
     def cards(self) -> list[dict[str, Any]]: ...
@@ -359,18 +357,10 @@ class Writer:
     def hash_at(self, field: str | None = None, card: int | str | None = None) -> str: ...
     def set(self, name: str, value: Any, card: int | str | None = None) -> list[Diagnostic]: ...
     def set_all(self, fields: dict[str, Any], card: int | str | None = None) -> list[Diagnostic]: ...
-    def revise_body(
+    def revise(
         self,
-        markdown: str,
-        card: int | str | None = None,
-        *,
-        base_hash: str | None = None,
-        base_markdown: str | None = None,
-    ) -> Receipt: ...
-    def revise_field(
-        self,
-        name: str,
         text: str,
+        field: str | None = None,
         card: int | str | None = None,
         *,
         base_hash: str | None = None,
@@ -397,9 +387,9 @@ class Writer:
 class Reader:
     @property
     def document(self) -> Document: ...
-    def get(self, name: str, card: int | str | None = None) -> Any: ...
+    def get(self, field: str | None = None, card: int | str | None = None) -> Any: ...
     def get_content(
-        self, name: str, card: int | str | None = None
+        self, field: str | None = None, card: int | str | None = None
     ) -> dict[str, Any] | None: ...
     def get_content_at(
         self, name: str, path: Sequence[str | int], card: int | str | None = None

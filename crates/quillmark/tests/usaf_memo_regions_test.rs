@@ -79,7 +79,7 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
     let _ = quillmark::TypedWriter::new(quill.config(), &mut edited)
         .card(0)
         .expect("the indorsement card")
-        .revise_body("The indorsement **body**, rebuilt by render-body.")
+        .revise(quillmark::Target::Body, "The indorsement **body**, rebuilt by render-body.", None)
         .expect("set the card body");
     session
         .update(&edited)
