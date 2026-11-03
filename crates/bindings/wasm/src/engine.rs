@@ -340,11 +340,11 @@ export interface BaseOptions {
 /**
  * What a `reviseDocument`'s writer read, its optional last argument. Name one
  * or neither. A stale `baseHash` (`writer.hash`) throws `edit::stale_base`.
- * `baseStored` is the `save()` bytes the writer read, or a `toStored()` row:
- * under bytes of this document's history the writer's change lands at the
- * heads they were saved at and merges with every change since as Automerge
- * merges; a row, or bytes of another history, holds only where it reads as
- * the document now.
+ * `baseStored` is the `save()` bytes the writer read, or a `toStored()` row
+ * as a string or its bytes: under bytes of this document's history the
+ * writer's change lands at the heads they were saved at and merges with every
+ * change since as Automerge merges; a row, or bytes of another history, holds
+ * only where it reads as the document now.
  */
 export interface DocumentBaseOptions {
     baseHash?: string;
@@ -2125,17 +2125,19 @@ impl ReadBase {
                 .as_string()
                 .map(ReadBase::Hash)
                 .ok_or_else(|| invalid("baseHash must be a string".into())),
-            (None, Some(v)) if other == "baseStored" && v.is_instance_of::<js_sys::Uint8Array>() => {
-                let bytes = js_sys::Uint8Array::from(v).to_vec();
-                quillmark_core::document::Document::load(&bytes)
-                    .map(|doc| ReadBase::Stored(Box::new(doc)))
-                    .map_err(|e| invalid(format!("baseStored: bytes that hold no document: {e}")))
-            }
             (None, Some(v)) if other == "baseStored" => {
-                let json = v.as_string().ok_or_else(|| invalid("baseStored must be save() bytes or a toStored string".into()))?;
-                quillmark_core::document::Document::from_stored(&json)
+                use quillmark_core::document::{Document, StoredError};
+                let data = match v.as_string() {
+                    Some(json) => json.into_bytes(),
+                    None if v.is_instance_of::<js_sys::Uint8Array>() => js_sys::Uint8Array::from(v).to_vec(),
+                    None => return Err(invalid("baseStored must be save() bytes or a toStored string".into())),
+                };
+                Document::from_stored_any(&data)
                     .map(|parsed| ReadBase::Stored(Box::new(parsed.document)))
-                    .map_err(|e| invalid(format!("baseStored: invalid storage DTO: {e}")))
+                    .map_err(|e| match e {
+                        StoredError::Bytes(e) => invalid(format!("baseStored: bytes that hold no document: {e}")),
+                        StoredError::Row(e) => invalid(format!("baseStored: invalid storage DTO: {e}")),
+                    })
             }
             (None, Some(v)) => content::content_in(v, &format!("{verb}: baseContent")).map(ReadBase::Content),
         }

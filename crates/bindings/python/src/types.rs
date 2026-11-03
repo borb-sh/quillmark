@@ -483,16 +483,7 @@ impl PyDocument {
     /// or unparseable quill reference.
     #[staticmethod]
     fn from_stored(json: &str) -> PyResult<Self> {
-        let parsed = Document::from_stored(json).map_err(|e| {
-            let msg = format!("invalid storage DTO: {e}");
-            raise_with_diagnostics(
-                vec![quillmark_core::error::Diagnostic::new(
-                    quillmark_core::error::Severity::Error,
-                    msg.clone(),
-                )],
-                msg,
-            )
-        })?;
+        let parsed = Document::from_stored(json).map_err(stored_row_refused)?;
         Ok(PyDocument {
             inner: parsed.document,
             parse_warnings: parsed.warnings,
@@ -1116,6 +1107,14 @@ fn card_base(doc: &Document, index: usize) -> quillmark_core::path::DocPath {
     quillmark_core::path::DocPath::card(doc.cards().get(index).and_then(|c| c.kind()), index)
 }
 
+fn stored_row_refused(e: serde_json::Error) -> PyErr {
+    let msg = format!("invalid storage DTO: {e}");
+    raise_with_diagnostics(
+        vec![quillmark_core::error::Diagnostic::new(quillmark_core::error::Severity::Error, msg.clone())],
+        msg,
+    )
+}
+
 fn index_error(index: usize, len: usize) -> PyErr {
     convert_edit_error(
         quillmark_core::document::EditError::IndexOutOfRange { index, len },
@@ -1488,10 +1487,21 @@ impl PyWriter {
         use quillmark_core::document::DocumentBase;
         let stored = match (base_hash, base_stored) {
             (Some(_), Some(_)) => return Err(PyValueError::new_err("name base_hash or base_stored, not both")),
-            (_, Some(stored)) => Some(match stored.cast::<PyBytes>() {
-                Ok(bytes) => PyDocument::load(bytes.as_bytes())?.inner,
-                Err(_) => PyDocument::from_stored(stored.extract()?)?.inner,
-            }),
+            (_, Some(stored)) => {
+                use quillmark_core::document::StoredError;
+                let parsed = match stored.cast::<PyBytes>() {
+                    Ok(bytes) => Document::from_stored_any(bytes.as_bytes()),
+                    Err(_) => Document::from_stored_any(stored.extract::<&str>()?.as_bytes()),
+                };
+                Some(
+                    parsed
+                        .map_err(|e| match e {
+                            StoredError::Bytes(e) => convert_edit_error(e, &quillmark_core::path::DocPath::new()),
+                            StoredError::Row(e) => stored_row_refused(e),
+                        })?
+                        .document,
+                )
+            }
             _ => None,
         };
         let read = match (base_hash, &stored) {

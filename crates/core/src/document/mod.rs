@@ -731,6 +731,17 @@ pub struct Parsed {
     pub warnings: Vec<Diagnostic>,
 }
 
+/// Why [`Document::from_stored_any`] refuses.
+#[derive(Debug, thiserror::Error)]
+pub enum StoredError {
+    /// Automerge bytes that [`Document::load`] refuses.
+    #[error(transparent)]
+    Bytes(EditError),
+    /// A stored row that [`Document::from_stored`] refuses.
+    #[error(transparent)]
+    Row(serde_json::Error),
+}
+
 /// A parse ahead of a revise: the [`Parsed`] document, its cards unsettled,
 /// and each body's markdown, the main card's first.
 #[derive(Debug)]
@@ -1262,7 +1273,22 @@ impl Document {
     /// whose content value the read rewrote to its canonical form. Fails as
     /// deserializing a `Document` from `json` fails.
     pub fn from_stored(json: &str) -> Result<Parsed, serde_json::Error> {
-        let stored: StoredDocument = serde_json::from_str(json)?;
+        Self::stored_row(json.as_bytes())
+    }
+
+    /// Read `data` as [`save`](Document::save) bytes when it starts as
+    /// Automerge's bytes do, and as a stored row
+    /// ([`from_stored`](Document::from_stored)) otherwise.
+    pub fn from_stored_any(data: &[u8]) -> Result<Parsed, StoredError> {
+        if data.starts_with(&quillmark_automerge::model::MAGIC) {
+            let document = Self::load(data).map_err(StoredError::Bytes)?;
+            return Ok(Parsed { document, warnings: Vec::new() });
+        }
+        Self::stored_row(data).map_err(StoredError::Row)
+    }
+
+    fn stored_row(data: &[u8]) -> Result<Parsed, serde_json::Error> {
+        let stored: StoredDocument = serde_json::from_slice(data)?;
         dto::from_stored(stored).map_err(serde::de::Error::custom)
     }
 

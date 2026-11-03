@@ -31,14 +31,16 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   would leave the document outside its schema, its `reason` `decode`,
   `shape`, `schema`, or `apply` for a sync message that decodes and does not
   apply, and changes nothing; `load`, `merge` and `receive_sync_message`
-  answer it as an `EditError`. The per-value `Card::save`, `load` and sync
-  verbs are gone. `StoredDocument` JSON stays the history-free interchange,
+  answer it as an `EditError`. `Document::from_stored_any` reads either
+  carrier, telling Automerge bytes by their leading bytes. The per-value
+  `Card::save`, `load` and sync verbs are gone. `StoredDocument` JSON stays the history-free interchange,
   and a `0.134.0` row reads into a new document.
 - feat(wasm)!: **the document crosses as bytes.** `doc.save()`,
   `Document.load(bytes)`, `doc.heads()`, `doc.saveSince(heads)`,
   `doc.merge(bytes)`, and `doc.generateSyncMessage(state)` /
   `doc.receiveSyncMessage(state, message)` with the opaque `SyncState`.
-  `reviseDocument`'s `baseStored` takes the `save()` bytes the writer read.
+  `reviseDocument`'s `baseStored` takes the `save()` bytes the writer read,
+  or a row as a string or bytes.
 - feat(python)!: **the same in snake case**: `doc.save()`,
   `Document.load`, `doc.heads()`, `doc.save_since`, `doc.merge`,
   `doc.generate_sync_message(state)` and `doc.receive_sync_message(state,

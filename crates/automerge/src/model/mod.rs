@@ -45,6 +45,9 @@ pub const EXT: &str = "ext";
 pub const SEED: &str = "seed";
 pub const BODY: &str = "body";
 
+/// The bytes every saved Automerge document starts with.
+pub const MAGIC: [u8; 4] = [0x85, 0x6f, 0x4a, 0x83];
+
 /// The actor of a document's first change: a byte no random actor spells,
 /// so every process builds one skeleton as the same bytes.
 const FIRST: &[u8] = b"~";

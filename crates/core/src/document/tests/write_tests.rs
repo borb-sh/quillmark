@@ -690,6 +690,24 @@ fn a_document_saves_loads_and_syncs() {
     assert!(Document::load(b"not a document").is_err());
 }
 
+/// A stored document reads from its saved bytes, history and all, or from
+/// its row; bytes that start as Automerge's and do not load refuse as bytes,
+/// anything else as a row.
+#[test]
+fn a_stored_document_reads_from_its_bytes_or_its_row() {
+    use crate::document::StoredError;
+    let mut doc = parse(SOURCE);
+    type_keys(&mut doc, [(0, 2)]);
+    let mut saved = Document::from_stored_any(&doc.save()).unwrap().document;
+    assert_eq!(saved.heads(), doc.heads());
+    let row = serde_json::to_string(&doc).unwrap();
+    assert_eq!(Document::from_stored_any(row.as_bytes()).unwrap().document, doc);
+
+    let truncated = &doc.save()[..12];
+    assert!(matches!(Document::from_stored_any(truncated), Err(StoredError::Bytes(EditError::BadLiveBytes { .. }))));
+    assert!(matches!(Document::from_stored_any(b"not a document"), Err(StoredError::Row(_))));
+}
+
 /// Runs the sync protocol between `a` and `b` until neither has a message
 /// left.
 fn sync(a: &mut Document, b: &mut Document) {
