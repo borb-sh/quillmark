@@ -311,7 +311,7 @@ impl Document {
         if opts.actor.is_some() {
             doc.set_actor(actor);
         }
-        let (lowered, _) = lowered.map_err(step_error)?;
+        let lowered = lowered.map_err(step_error)?;
         let merged = heads.is_some();
         let named: BTreeMap<String, String> = mine.minted.iter().filter_map(|(placeholder, id)| Some((id.clone(), lowered.minted.get(placeholder)?.clone()))).collect();
         let after = match merged || diffed || holds_points(&read) || holds_points(&mine.content) {

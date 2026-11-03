@@ -20,7 +20,7 @@ pub use step::{Lowered, StepError};
 use automerge::sync::{self, SyncDoc};
 use automerge::transaction::{CommitOptions, Transactable};
 use automerge::{
-    ActorId, AutoCommit, ChangeHash, ObjId, ObjType, Patch, ROOT, ReadDoc, TextEncoding,
+    ActorId, AutoCommit, ChangeHash, ObjId, ObjType, ROOT, ReadDoc, TextEncoding,
 };
 use quillmark_content::change::Change;
 use quillmark_content::model::Content;
@@ -112,7 +112,6 @@ impl Doc {
         build(&mut d);
         d.doc.commit_with(CommitOptions::default().with_time(0));
         d.doc.set_actor(ActorId::random());
-        d.doc.update_diff_cursor();
         d
     }
 
@@ -138,7 +137,6 @@ impl Doc {
         let mut d = Doc { doc };
         d.check()?;
         d.doc.set_actor(ActorId::random());
-        d.doc.update_diff_cursor();
         Ok(d)
     }
 
@@ -167,12 +165,11 @@ impl Doc {
         self.doc.save_after(heads)
     }
 
-    /// Takes the changes `bytes` hold, a save or a [`save_since`]'s, and
-    /// answers the patches they made. Changes the document holds already
-    /// change nothing.
+    /// Takes the changes `bytes` hold, a save or a [`save_since`]'s.
+    /// Changes the document holds already change nothing.
     ///
     /// [`save_since`]: Doc::save_since
-    pub fn merge(&mut self, bytes: &[u8]) -> Result<Vec<Patch>, LoadError> {
+    pub fn merge(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
         let before = self.doc.clone();
         self.doc
             .load_incremental(bytes)
@@ -181,15 +178,11 @@ impl Doc {
             self.doc = before;
             return Err(e);
         }
-        Ok(self.doc.diff_incremental())
+        Ok(())
     }
 
     pub fn heads(&mut self) -> Vec<ChangeHash> {
         self.doc.get_heads()
-    }
-
-    pub fn actor(&self) -> String {
-        self.doc.get_actor().to_hex_string()
     }
 
     /// Writes under `actor`, the bytes its hex spells, from now on.
@@ -201,13 +194,13 @@ impl Doc {
         self.doc.sync().generate_sync_message(state)
     }
 
-    /// Takes a peer's sync message and answers the patches it made. A
-    /// message that leaves the document outside the schema is undone.
+    /// Takes a peer's sync message. A message that leaves the document
+    /// outside the schema is undone.
     pub fn receive_sync_message(
         &mut self,
         state: &mut sync::State,
         message: sync::Message,
-    ) -> Result<Vec<Patch>, LoadError> {
+    ) -> Result<(), LoadError> {
         let (before, was) = (self.doc.clone(), state.clone());
         self.doc
             .sync()
@@ -218,46 +211,14 @@ impl Doc {
             *state = was;
             return Err(e);
         }
-        Ok(self.doc.diff_incremental())
-    }
-
-    /// Runs `write` as one change, at `heads` where given, Automerge's write
-    /// at earlier heads: the change is concurrent with every change since,
-    /// and merges with them. Answers what `write` answered and the patches
-    /// from the state before to the state after.
-    pub fn write<T>(
-        &mut self,
-        heads: Option<&[ChangeHash]>,
-        write: impl FnOnce(&mut AutoCommit) -> T,
-    ) -> (T, Vec<Patch>) {
-        self.doc.update_diff_cursor();
-        let before = self.doc.get_heads();
-        let isolated = heads.filter(|h| *h != before.as_slice());
-        if let Some(h) = isolated {
-            self.doc.isolate(h);
-        }
-        let out = write(&mut self.doc);
-        self.doc.commit();
-        if isolated.is_some() {
-            self.doc.integrate();
-        }
-        let after = self.doc.get_heads();
-        let patches = self.doc.diff(&before, &after);
-        self.doc.update_diff_cursor();
-        (out, patches)
-    }
-
-    /// The patches from `before` to `after`: what undoing a write runs,
-    /// read the other way round.
-    pub fn diff(&mut self, before: &[ChangeHash], after: &[ChangeHash]) -> Vec<Patch> {
-        self.doc.diff(before, after)
+        Ok(())
     }
 
     pub fn am(&self) -> &AutoCommit {
         &self.doc
     }
 
-    /// The document, to write outside [`write`](Doc::write). A caller
+    /// The document, to write outside [`apply`](Doc::apply). A caller
     /// commits what it writes.
     pub fn am_mut(&mut self) -> &mut AutoCommit {
         &mut self.doc
@@ -330,11 +291,7 @@ impl Doc {
 
     /// What the value `root` read as at `heads`.
     pub fn view_at(&mut self, root: &ObjId, heads: &[ChangeHash]) -> View {
-        self.doc.commit();
-        self.doc.isolate(heads);
-        let view = self.view(root);
-        self.doc.integrate();
-        view
+        self.isolated(heads, |d| d.view(root))
     }
 
     /// The raw value `root` holds, before repair.
@@ -350,7 +307,7 @@ impl Doc {
         root: &ObjId,
         change: &Change,
         heads: Option<&[ChangeHash]>,
-    ) -> Result<(Lowered, Vec<Patch>), StepError> {
+    ) -> Result<Lowered, StepError> {
         self.apply_from(root, change, heads, None)
     }
 
@@ -362,9 +319,8 @@ impl Doc {
         change: &Change,
         heads: Option<&[ChangeHash]>,
         read: Option<&Content>,
-    ) -> Result<(Lowered, Vec<Patch>), StepError> {
+    ) -> Result<Lowered, StepError> {
         self.doc.commit();
-        self.doc.update_diff_cursor();
         let before = self.doc.get_heads();
         let isolated = heads.filter(|h| *h != before.as_slice());
         if let Some(h) = isolated {
@@ -382,11 +338,7 @@ impl Doc {
         if isolated.is_some() {
             self.doc.integrate();
         }
-        let lowered = lowered?;
-        let after = self.doc.get_heads();
-        let patches = self.doc.diff(&before, &after);
-        self.doc.update_diff_cursor();
-        Ok((lowered, patches))
+        lowered
     }
 
     /// Puts `content` under `key` of the map `parent` as a new value.
