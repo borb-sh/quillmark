@@ -1063,7 +1063,9 @@ impl Document {
     /// The document `doc` holds, its cards read from it.
     pub(crate) fn read_from(doc: quillmark_automerge::model::Doc, mints: card_id::ActorMints) -> Result<Self, String> {
         let (main, cards) = held::read(&doc)?;
-        Ok(Self { main, cards, mints, held: Bound(Some(Held::new(doc, false))) })
+        let mut read = Self { main, cards, mints, held: Bound(Some(Held::new(doc, false))) };
+        read.note_held();
+        Ok(read)
     }
 
     /// Holds the document in an Automerge document where it is not yet,
@@ -1081,6 +1083,22 @@ impl Document {
         self.main = main;
         if !unplaced {
             self.cards = cards;
+        }
+        self.note_held();
+    }
+
+    /// Notes the hash of each body and content field the Automerge document
+    /// holds at its heads now, so a base read before any write is found.
+    fn note_held(&mut self) {
+        let held = self.held.0.as_mut().expect("bound");
+        let heads = held.doc.heads();
+        for card in std::iter::once(&self.main).chain(self.cards.iter().filter(|c| c.id().is_some())) {
+            let fields = card.payload().iter().filter(|(_, v)| v.as_json().is_object()).map(|(name, _)| write::Target::Field(name));
+            for target in std::iter::once(write::Target::Body).chain(fields) {
+                if let Ok(hash) = card.hash_of(target) {
+                    held.seen.entry((write::address(card.id(), target), hash)).or_insert_with(|| heads.clone());
+                }
+            }
         }
     }
 

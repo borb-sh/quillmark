@@ -19,7 +19,8 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   since at its start. `edit::rebase_conflict`, `DocumentRevised.conflicts`
   and `MergeConflict` are gone; `edit::stale_base` names a base the
   document's history does not reach, every base read before a load from a
-  stored row among them. A whole-document `DocumentBase::Stored` lands the
+  stored row among them; a base read after the load, before any write,
+  merges. A whole-document `DocumentBase::Stored` lands the
   writer's revise at the heads it was read at.
 - feat(core)!: **bytes are the row.** `Document::save` and `load`
   save and read the whole document with its history; `heads`, `save_since`

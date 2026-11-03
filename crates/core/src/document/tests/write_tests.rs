@@ -90,6 +90,23 @@ fn a_base_from_before_storage_or_a_refused_change_writes_nothing() {
     assert_eq!(doc.main().body().text, "xxxRevenue grew 12%.\nShip v2");
 }
 
+/// A hash read off a document before any write, a stored row's or a
+/// parse's, is found at the heads the document was built at, so a write
+/// naming it after a peer's change merges with that change.
+#[test]
+fn a_hash_read_before_any_write_merges_with_a_change_since() {
+    let row = serde_json::to_string(&parse(SOURCE)).unwrap();
+    for mut doc in [Document::from_stored(&row).unwrap().document, parse(SOURCE)] {
+        let base = doc.main().hash_of(Target::Body).unwrap();
+        let mut peer = Document::load(&doc.save()).unwrap();
+        type_keys(&mut peer, [(0, 3)]);
+        doc.merge(&peer.save()).unwrap();
+        let receipt = doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(7, "", "!"))]), Some(base.as_str())).unwrap();
+        assert!(receipt.rebased);
+        assert_eq!(doc.main().body().text, "xxxRevenue! grew 12%.\nShip v2");
+    }
+}
+
 /// A base read before a write of more steps than a keystroke's thousands
 /// merges with it.
 #[test]
