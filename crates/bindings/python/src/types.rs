@@ -1039,12 +1039,6 @@ impl PyDocument {
         self.inner.merge(data).map_err(crate::content::refused)
     }
 
-    /// A fresh `SyncState`, as `SyncState()` makes.
-    #[staticmethod]
-    fn sync_state() -> crate::content::PySyncState {
-        crate::content::PySyncState { inner: Default::default() }
-    }
-
     /// The next Automerge sync message to the peer `state` tracks, `None`
     /// where the peer holds everything.
     fn generate_sync_message<'py>(&mut self, py: Python<'py>, state: &mut crate::content::PySyncState) -> Option<Bound<'py, PyBytes>> {

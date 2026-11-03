@@ -75,7 +75,7 @@ def test_two_documents_from_one_save_sync_to_one_value():
     assert a.read()["text"] == "😀 Xone two three"
     assert sync(a, b, states) == 0
     with raises_edit_code("edit::bad_live_bytes"):
-        a.receive_sync_message(Document.sync_state(), b"\x01\x02\x03")
+        a.receive_sync_message(SyncState(), b"\x01\x02\x03")
 
 
 def test_a_sync_state_survives_encode_and_decode():

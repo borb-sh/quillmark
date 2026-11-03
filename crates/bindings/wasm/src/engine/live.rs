@@ -91,12 +91,6 @@ impl Document {
         self.inner.merge(bytes).map_err(refused)
     }
 
-    /// A fresh `SyncState`, as `new SyncState()` makes.
-    #[wasm_bindgen(js_name = syncState)]
-    pub fn sync_state() -> SyncState {
-        SyncState::default()
-    }
-
     /// The next Automerge sync message to the peer `state` tracks,
     /// `undefined` where the peer holds everything.
     #[wasm_bindgen(js_name = generateSyncMessage)]

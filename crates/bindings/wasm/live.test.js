@@ -72,7 +72,7 @@ describe('the sync protocol', () => {
     a.apply({}, splice(3, 'X'), { actor: 'ann' })
     b.apply({}, splice(10, ' three'), { actor: 'b0' })
 
-    const states = [new SyncState(), Document.syncState()]
+    const states = [new SyncState(), new SyncState()]
     expect(sync(a, b, states)).toBeGreaterThan(0)
     expect(a.read({}).text).toBe('😀 Xone two three')
     expect(b.read({})).toEqual(a.read({}))
