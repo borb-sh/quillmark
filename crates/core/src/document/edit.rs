@@ -875,10 +875,6 @@ impl<'a> CardMut<'a> {
         self.doc.read_under(self.at, target, base)
     }
 
-
-
-
-
     /// [`write`](Self::write) of [`Edit::Replace`](super::Edit::Replace).
     pub fn replace<'o>(&mut self, target: super::Target<'_>, content: &quillmark_content::model::Content, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
         self.write(target, super::Edit::Replace(content.clone()), opts)

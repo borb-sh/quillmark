@@ -1,13 +1,16 @@
-//! A Quillmark content value held in an Automerge document.
+//! A Quillmark document held as one Automerge document.
 //!
-//! [`Held`] keeps one value under the root key [`KEY`] in the shape the
-//! `map` module states, takes each [`Change`](quillmark_content::change::Change) as the Automerge operations its
-//! [`Trace`] lowers to, and reads back the raw value [`repair`] takes, so
-//! every peer holding one merged state reads one valid value. A write made
-//! from earlier heads lowers on [`Held::fork_at`] and merges back. [`merge3`]
-//! merges two changes made from one value, and [`revise_keeping`] is the
-//! markdown revise that keeps what its read does not spell by merging the
-//! writer's revision with what the read lost.
+//! [`model::Doc`] is the document every `Document` is held in: its bytes
+//! ([`save`](model::Doc::save), [`load`](model::Doc::load)), its revision
+//! ([`heads`](model::Doc::heads)), the changes past it
+//! ([`save_since`](model::Doc::save_since), [`merge`](model::Doc::merge)) and
+//! Automerge's sync protocol over it, with a change lowered into it at its
+//! heads or at earlier ones and each value read back through [`repair`].
+//!
+//! [`Held`] holds a single value under the root key [`KEY`] and backs
+//! [`merge3`], which merges two changes made from one value; [`revise_keeping`]
+//! is the markdown revise that keeps what its read does not spell by merging
+//! the writer's revision with what the read lost.
 
 mod lower;
 mod map;

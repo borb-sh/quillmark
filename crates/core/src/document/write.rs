@@ -80,9 +80,9 @@ pub struct WriteOptions<'a> {
     pub base: Option<Base<'a>>,
     /// Who writes: in a document, the Automerge actor the write writes
     /// under, each id it mints an object id under it; on a card outside one,
-    /// the scope of each id it mints, `{actor}:{prefix}{n}`. A live client passes one
-    /// unique to its session, so two clients writing from one value never
-    /// mint one id. One that is not an
+    /// the scope of each id it mints, `{actor}:{prefix}{n}`. A live client
+    /// passes one unique to its session, so two clients writing from one
+    /// value never mint one id. One that is not an
     /// [actor](quillmark_content::ids::is_actor) is refused with
     /// `edit::invalid_actor`.
     pub actor: Option<&'a str>,

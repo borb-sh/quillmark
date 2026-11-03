@@ -7,8 +7,9 @@
 //!
 //! The root holds `schema`, `quill`, `main` (a card), `cards` (cards by
 //! `$id`) and `order` (the `$id`s in document order). A card holds `kind`,
-//! `layout` (the payload's items in source order, each field by key and each comment whole), `fields`, `nestedComments`, `ext`, `seed` and `body`; a body or
-//! content field is a value in the shape `value` states.
+//! `layout` (the payload's items in source order, each field by key and
+//! each comment whole), `fields`, `nestedComments`, `ext`, `seed` and
+//! `body`; a body or content field is a value in the shape `value` states.
 
 pub mod json;
 mod step;
@@ -26,7 +27,9 @@ use quillmark_content::model::Content;
 use quillmark_content::repair::{Raw, Repair, repair};
 use serde_json::Value;
 
-/// The schema a document's bytes hold under `schema`.
+/// The schema a document's bytes hold under `schema`: the model version,
+/// the JSON envelope's tag for the same model. Which carrier a row is, bytes
+/// or JSON, its leading bytes tell.
 pub const SCHEMA: &str = "quillmark/document@0.135.0";
 
 pub const QUILL: &str = "quill";
