@@ -200,10 +200,12 @@ card_kinds:
     ])
   })
 
-  it('a stale baseHash rebases a revise, an unknown one refuses, and a baseMarkdown lands beside the change since', () => {
+  it('a stale baseHash or baseContent rebases a revise, an unknown hash refuses, and a baseStored merges a document', () => {
     const doc = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nAlpha.\n\nBeta.\n\nGamma.')
     const ed = buildQuill().writer(doc)
     const read = doc.toMarkdown(undefined, { annotated: true }).markdown
+    const stored = doc.toStored()
+    const base = doc.read({})
     ed.revise({}, 'Alpha, edited.\n\nBeta.\n\nGamma.')
     const long = 'Alpha one two three.\n\nBeta four five six.'
     ed.revise({}, long)
@@ -215,9 +217,9 @@ card_kinds:
     expect(() => ed.revise({}, 'Other.', { baseHash: 'never-read' })).toThrow(
       expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base', args: { current: doc.hashAt({}) } })] }),
     )
-    ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { baseMarkdown: read })
+    ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { baseStored: stored })
     expect(doc.toMarkdown({})).toBe('Alpha, edited.\n\nBeta.\n\nGamma, rewritten.')
-    expect(ed.reviseDocument(read.replace('Alpha.', 'Alpha, mine.'), { baseMarkdown: read }).conflicts).toEqual([
+    expect(ed.reviseDocument(read.replace('Alpha.', 'Alpha, mine.'), { baseStored: stored }).conflicts).toEqual([
       {
         path: 'main.body',
         base: 'Alpha.\n\nBeta.\n\nGamma.',
@@ -225,11 +227,14 @@ card_kinds:
         proposed: 'Alpha, mine.\n\nBeta.\n\nGamma.',
       },
     ])
+    expect(ed.revise({}, 'Alpha.\n\nBeta, mine.\n\nGamma.', { baseContent: base }).rebased).toBe(true)
+    expect(doc.toMarkdown({})).toBe('Alpha, edited.\n\nBeta, mine.\n\nGamma, rewritten.')
     expectEditCode(
-      () => ed.revise({}, 'Alpha, mine.\n\nBeta.\n\nGamma.', { baseMarkdown: 'Alpha.\n\nBeta.\n\nGamma.' }),
+      () => ed.revise({}, 'Alph!\n\nBeta.\n\nGamma.', { baseContent: base }),
       'edit::rebase_conflict',
     )
-    expect(() => ed.revise({}, 'x', { baseHash: undefined })).toThrow(/baseHash must be a string/)
+    expect(() => ed.reviseDocument(read, { baseHash: 'x', baseStored: stored })).toThrow(/not both/)
+    expect(() => ed.revise({}, 'x', { baseHash: undefined })).toThrow(/baseHash must be given a value/)
   })
 
   it('writer.hashAt reads a field through its schema, so a string at rest and its conformed content agree', () => {
@@ -489,7 +494,7 @@ card_kinds:
     expect(read.markdown).toBe('# Plan\n\nMain <qm-anchor ref="c1"></qm-anchor>**body**.')
     expect(read.anchors).toEqual([{ id: 'c1', path: 'main.body', line: 'Main body.' }])
     expect(doc.toMarkdown('subject', { annotated: true })).toEqual({ markdown: 'Q3 **results**', anchors: [] })
-    const receipt = quill.writer(doc).revise({}, read.markdown.replace('Main', 'The main'), { baseMarkdown: read.markdown })
+    const receipt = quill.writer(doc).revise({}, read.markdown.replace('Main', 'The main'), { baseContent: doc.read({}) })
     expect(receipt.droppedAnchors).toEqual([])
     expect(doc.anchorContext('c1')).toMatchObject({ quote: 'body' })
   })

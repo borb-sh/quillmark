@@ -155,17 +155,18 @@ def test_writer_revise_document():
 
 
 def test_a_base_rebases_a_stale_revise_and_merges_a_read():
-    """base_hash rebases a write onto a value changed since the read, and
-    refuses one it cannot reach, naming the hash now; base_markdown lands the
-    writer's edit beside the change."""
+    """base_hash or base_content rebases a write onto a value changed since
+    the read, and a base_hash refuses one it cannot reach, naming the hash
+    now; base_stored merges a whole document."""
     quill = richtext_quill()
     doc = quill.parse("~~~\n$quill: sample_form@0.1.0\n~~~\n\nAlpha.\n\nBeta.\n")
     w = quill.writer(doc)
-    read, hash = doc.to_markdown(), w.hash()
+    read, stored, hash = doc.to_markdown(), doc.to_stored(), w.hash()
+    base = doc.read()
     body_hash = w.hash_at()
     assert body_hash == doc.hash_at()
     assert w.revise("Alpha, edited.\n\nBeta.")["rebased"] is False
-    merged = w.revise("Alpha.\n\nBeta, mine.", base_markdown="Alpha.\n\nBeta.")
+    merged = w.revise("Alpha.\n\nBeta, mine.", base_content=base)
     assert merged["rebased"] is True
     assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, mine.\n")
     w.revise("Alpha, edited.\n\nBeta.")
@@ -179,9 +180,9 @@ def test_a_base_rebases_a_stale_revise_and_merges_a_read():
     assert exc_info.value.diagnostics[0].args == {"current": doc.hash_at()}
     with raises_edit_code("edit::stale_base"):
         w.revise_document(read, base_hash=hash)
-    w.revise_document(read.replace("Beta.", "Beta, rewritten."), base_markdown=read)
+    w.revise_document(read.replace("Beta.", "Beta, rewritten."), base_stored=stored)
     assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, rewritten.\n")
-    receipt = w.revise_document(read.replace("Alpha.", "Alpha, mine."), base_markdown=read)
+    receipt = w.revise_document(read.replace("Alpha.", "Alpha, mine."), base_stored=stored)
     assert receipt["conflicts"] == [
         {
             "path": "main.body",
@@ -192,7 +193,9 @@ def test_a_base_rebases_a_stale_revise_and_merges_a_read():
     ]
     assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, rewritten.\n")
     with pytest.raises(ValueError):
-        w.revise("x", base_hash=hash, base_markdown=read)
+        w.revise("x", base_hash=hash, base_content=base)
+    with pytest.raises(ValueError):
+        w.revise_document(read, base_hash=hash, base_stored=stored)
 
 
 def test_a_field_hash_reads_through_the_schema():

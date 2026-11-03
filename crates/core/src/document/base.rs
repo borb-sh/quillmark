@@ -2,16 +2,14 @@
 //!
 //! A revise diffs its markdown against the value stored now, so an edit made
 //! between a writer's read and its write reads as text the writer deleted. A
-//! [`Base`] names the read: [`Base::Hash`] rebases the write over the change
-//! since, as a content write does, and [`Base::Read`] merges the writer's edit
-//! onto the change by line.
+//! [`Base`] names the read, and the write rebases over the change since: the
+//! change the card's log holds from a [`Base::Hash`], or the diff from a
+//! [`Base::Content`] to the value now. A whole-document revise names its read
+//! with a [`DocumentBase`].
 
 use std::collections::BTreeMap;
 
-use quillmark_content::lines::delta::{merge_lines, rebase_marks_pinned};
-use quillmark_content::lines::export::{Annotated, to_markdown, to_markdown_annotated};
-use quillmark_content::lines::import::{ImportWarning, from_markdown_against};
-use quillmark_content::lines::model::Lines;
+use quillmark_content::lines::export::Annotated;
 use quillmark_content::model::Content;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
@@ -25,22 +23,35 @@ use crate::path::{DocPath, DocSeg};
 use crate::quill::{BoundParseError, FieldSchema, FieldType, QuillConfig};
 
 /// What a revise's writer read, checked against the value stored at the write.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Base<'a> {
-    /// The hash of the value the writer read: [`Card::hash_of`],
-    /// [`Document::hash`] or [`content_hash`] on the content write, and the
-    /// typed writer's `hash` / `hash_of` on the typed writer. A value that now hashes otherwise rebases the write over
-    /// the change since, as [`Card::revise`] under the same base does: refused
-    /// with [`BaseError::Conflict`] where the two touch, and with
-    /// [`BaseError::Stale`] where the card's change log no longer reaches the
-    /// base. A whole-document revise has no log, and refuses a stale hash.
+    /// The hash of the value the writer read: [`Card::hash_of`] or
+    /// [`content_hash`] on the content write, and the typed writer's
+    /// `hash_of`. A value that now hashes otherwise rebases the write over
+    /// the change the card's log holds since: refused with
+    /// [`BaseError::Conflict`] where the two touch, and with
+    /// [`BaseError::Stale`] where the log no longer reaches the base.
     Hash(&'a str),
-    /// The markdown the writer read, annotated or not (a `text` field's literal
-    /// text). When the value has changed since, the writer's edit of this
-    /// markdown and the change since merge by line ([`merge_lines`]) and the
-    /// merge is what the revise writes, so both land; runs of lines both
-    /// changed refuse the write with [`BaseError::Conflict`].
-    Read(&'a str),
+    /// The value the writer read, in its canonical form (a `text` field's
+    /// content spelling `codec: "plain"`). A value that has moved on from it
+    /// rebases the write over the diff from it to the value now, so the base
+    /// holds however long ago it was read: refused with [`BaseError::Conflict`]
+    /// where the two touch, never stale.
+    Content(&'a Content),
+}
+
+/// What a whole-document revise's writer read.
+#[derive(Debug, Clone, Copy)]
+pub enum DocumentBase<'a> {
+    /// The document's hash, [`Document::hash`] or the typed writer's `hash`.
+    /// A document that now hashes otherwise refuses the write with
+    /// [`BaseError::Stale`]: a whole document keeps no log.
+    Hash(&'a str),
+    /// The document the writer read, as stored. The writer's edit of it and
+    /// the change made since merge card by card and field by field; a place
+    /// both changed keeps its value now and is named in
+    /// [`DocumentRevised::conflicts`](super::DocumentRevised::conflicts).
+    Stored(&'a Document),
 }
 
 /// A revise refused by its [`Base`]. Each carries the hash of the value stored
@@ -193,88 +204,6 @@ pub fn content_hash(content: &Content) -> String {
     digesting(|w| content.write_canonical(w))
 }
 
-/// What a guarded write lands: the writer's own markdown, or the merge with
-/// the import warnings of the writer's markdown, which the merge no longer
-/// spells.
-enum Write<'a> {
-    Own,
-    Merged(String, Vec<ImportWarning>),
-    Rebase(&'a str),
-}
-
-/// What a literal-codec revise under a [`Base`] writes.
-enum TextWrite<'a> {
-    Own(String),
-    Merged(String),
-    Rebase(&'a str, String),
-}
-
-fn check(current: String, read: &str) -> Result<(), BaseError> {
-    if current == read {
-        Ok(())
-    } else {
-        Err(BaseError::Stale {
-            current,
-            field: None,
-        })
-    }
-}
-
-/// The [`Write`] for a richtext revise of `stored`. Each markdown is read as a
-/// revise of `stored` and spelled as its annotated read, so the three sides of
-/// a merge are spelled alike, a token survives the merge, a tag the writer
-/// moved on a line the merge takes from it pins there, and a read of the
-/// stored value, annotated or not, matches it: a read equal to the stored value's plain or
-/// annotated markdown writes the writer's own, though its markup lost an
-/// island its spelling cannot match.
-fn richtext_write<'a>(
-    stored: &Lines,
-    current: impl FnOnce() -> String,
-    base: Base<'a>,
-    body: &str,
-) -> Result<Write<'a>, EditError> {
-    let read = match base {
-        Base::Hash(read) => return Ok(if current() == read { Write::Own } else { Write::Rebase(read) }),
-        Base::Read(read) => read,
-    };
-    if read == to_markdown(stored) || read == to_markdown_annotated(stored).markdown {
-        return Ok(Write::Own);
-    }
-    let spelled = |md: &str| {
-        from_markdown_against(md, stored)
-            .map(|against| {
-                let content = rebase_marks_pinned(stored, against.content, &against.pins);
-                (to_markdown_annotated(&content).markdown, against.warnings)
-            })
-            .map_err(EditError::import)
-    };
-    let now = to_markdown_annotated(stored).markdown;
-    let (read, _) = spelled(read)?;
-    if read == now {
-        return Ok(Write::Own);
-    }
-    let (new, warnings) = spelled(body)?;
-    match merge_lines(&read, &now, &new) {
-        Some(merged) => Ok(Write::Merged(merged, warnings)),
-        None => Err(EditError::Base(BaseError::Conflict {
-            current: current(),
-            field: None,
-            step: None,
-            reason: None,
-        })),
-    }
-}
-
-impl Receipt {
-    fn merged(mut self, warnings: Option<Vec<ImportWarning>>) -> Self {
-        if let Some(warnings) = warnings {
-            self.warnings = warnings;
-        }
-        self.rebased = true;
-        self
-    }
-}
-
 fn at_field(err: EditError, name: &str) -> EditError {
     match err {
         EditError::Base(e) => EditError::Base(e.at_field(name)),
@@ -293,8 +222,7 @@ impl Card {
     }
 
     /// The body's annotated read ([`to_markdown_annotated`]): the scoped read
-    /// a body revise reads back, and the markdown a [`Base::Read`] merge of one
-    /// takes. Its anchors carry no path; the body is theirs.
+    /// a body revise reads back    /// takes. Its anchors carry no path; the body is theirs.
     pub(crate) fn body_annotated(&self) -> Annotated {
         quillmark_content::markdown::to_markdown_annotated(self.body())
     }
@@ -361,30 +289,9 @@ impl Card {
         }
     }
 
-    /// The `text` field's literal text, `None` for an absent field.
-    fn text_now(&self, name: &str) -> Result<Option<String>, EditError> {
-        if !is_valid_field_name(name) {
-            return Err(EditError::InvalidFieldName(name.to_string()));
-        }
-        match self.field_text(name, Codec::Text) {
-            Some(Ok(text)) => Ok(Some(text)),
-            Some(Err(e)) => Err(super::edit::field_decode(name, &[], Codec::Text, e)),
-            None => Ok(None),
-        }
-    }
-
     /// [`revise_body`](Self::revise_body) under `base`.
-    pub(crate) fn revise_body_against(
-        &mut self,
-        base: Base<'_>,
-        body: impl Into<String>,
-    ) -> Result<Receipt, EditError> {
-        let body = body.into();
-        match richtext_write(self.body_lines(), || content_hash(self.body()), base, &body)? {
-            Write::Own => self.revise_body(body),
-            Write::Merged(md, warnings) => Ok(self.revise_body(md)?.merged(Some(warnings))),
-            Write::Rebase(read) => self.revise_counted_from(Target::Body, &body, Some(read)),
-        }
+    pub(crate) fn revise_body_against(&mut self, base: Base<'_>, body: impl Into<String>) -> Result<Receipt, EditError> {
+        self.revise_counted_from(Target::Body, &body.into(), Some(base))
     }
 
     /// [`revise_field_checked`](Self::revise_field_checked) under `base`, its
@@ -406,74 +313,31 @@ impl Card {
         ) {
             return self.revise_field_checked(name, body, schema);
         }
-        if matches!(schema.r#type, FieldType::RichText { .. }) {
-            let stored = self.richtext_base(name)?;
-            let held = self.richtext_value(name)?;
-            let write = richtext_write(&stored, || content_hash(&held), base, &body)
-                .map_err(|e| at_field(e, name))?;
-            return match write {
-                Write::Own => self.revise_field_checked(name, body, schema),
-                Write::Merged(md, warnings) => Ok(self
-                    .revise_field_checked(name, md, schema)?
-                    .merged(Some(warnings))),
-                Write::Rebase(read) => self.rebase_checked(name, &body, read, schema),
-            };
+        let read = match base {
+            Base::Hash(read) => read.to_string(),
+            Base::Content(read) => content_hash(read),
+        };
+        if read == self.field_hash_checked(name, schema)? {
+            return self.revise_field_checked(name, body, schema);
         }
-        match self.text_body_against(name, base, body, || self.field_hash_checked(name, schema))? {
-            TextWrite::Own(body) => self.revise_field_checked(name, body, schema),
-            TextWrite::Merged(body) => Ok(self.revise_field_checked(name, body, schema)?.merged(None)),
-            TextWrite::Rebase(read, body) => {
-                let text = super::edit::committed_text(name, body, schema)?;
-                self.rebase_checked(name, &text, read, schema)
-            }
-        }
+        let body = match schema.r#type {
+            FieldType::Text { .. } => super::edit::committed_text(name, body, schema)?,
+            _ => body,
+        };
+        self.rebase_checked(name, &body, base, schema)
     }
 
-    /// A typed field revise of `body` under a hash `read` the field has moved
-    /// on from: the content revise rebased over the change since, held to the
+    /// A typed field revise of `body` under a `base` the field has moved on
+    /// from: the content revise rebased over the change since, held to the
     /// field's schema, or nothing written.
-    fn rebase_checked(&mut self, name: &str, body: &str, read: &str, schema: &FieldSchema) -> Result<Receipt, EditError> {
+    fn rebase_checked(&mut self, name: &str, body: &str, base: Base<'_>, schema: &FieldSchema) -> Result<Receipt, EditError> {
         let mut card = self.clone();
-        let receipt = card.revise_counted_from(Target::Field(name), body, Some(read)).map_err(|e| at_field(e, name))?;
+        let receipt = card.revise_counted_from(Target::Field(name), body, Some(base)).map_err(|e| at_field(e, name))?;
         if let Some(value) = card.payload().get(name) {
             super::edit::resolve_field_write(name, value, schema, &DocPath::new())?;
         }
         *self = card;
         Ok(receipt)
-    }
-
-    /// The text a literal-codec revise under `base` writes: `body` as it
-    /// stands when `base` is current, the line merge of `body` over the text
-    /// now when `base` is a read it has moved on from, `body` to rebase when
-    /// `base` is a hash it has moved on from, refused when the merge
-    /// conflicts.
-    fn text_body_against<'a>(
-        &self,
-        name: &str,
-        base: Base<'a>,
-        body: String,
-        current: impl Fn() -> Result<String, EditError>,
-    ) -> Result<TextWrite<'a>, EditError> {
-        match base {
-            Base::Hash(read) => Ok(if current()? == read { TextWrite::Own(body) } else { TextWrite::Rebase(read, body) }),
-            Base::Read(read) => {
-                let now = self.text_now(name)?.unwrap_or_default();
-                if read == now {
-                    return Ok(TextWrite::Own(body));
-                }
-                merge_lines(read, &now, &body).map(TextWrite::Merged).ok_or_else(|| {
-                    match current() {
-                        Ok(current) => EditError::Base(BaseError::Conflict {
-                            current,
-                            field: Some(name.to_string()),
-                            step: None,
-                            reason: None,
-                        }),
-                        Err(e) => e,
-                    }
-                })
-            }
-        }
     }
 }
 
@@ -496,47 +360,48 @@ pub(crate) fn conformed(config: &QuillConfig, doc: &Document) -> Result<Document
 }
 
 /// Parse `markdown` as a revise of `doc` under `base`: the writer's markdown,
-/// or the line merge of its edit onto what changed since its read, carrying
-/// the writer's own parse warnings at their cards' places in the merge. Each
-/// side is spelled as the annotated read of `doc` revised by it and
-/// conformed, so the three sides are spelled alike, a token survives the
-/// merge, and a tag the writer moved pins where the merge keeps its line. A merge that does not
-/// parse as a document, or names another quill, is a [`BaseError::Conflict`],
-/// since the writer's own markdown parsed. A read equal to the document's
-/// plain or annotated markdown, as stored or conformed, takes the writer's own.
+/// or the merge of its edit onto what changed since its read, carrying the
+/// writer's own parse warnings at their cards' places in the merge. The read
+/// and the value now are spelled as their conformed annotated reads, and the
+/// writer's edit as the read revised by it, so the three sides are spelled
+/// alike, a token survives the merge, and a tag the writer moved pins where
+/// the merge keeps its line. A merge that does not parse as a document, or
+/// names another quill, is a [`BaseError::Conflict`], since the writer's own
+/// markdown parsed. A read that conforms to the document now takes the
+/// writer's own.
 pub(crate) fn parse_against(
     config: &QuillConfig,
     doc: &Document,
-    base: Base<'_>,
+    base: DocumentBase<'_>,
     markdown: &str,
 ) -> Result<(Revising, Vec<MergeConflict>), BoundParseError> {
     let hash = || conformed(config, doc).map(|d| d.hash());
-    let read = match base {
-        Base::Hash(read) => {
-            check(hash()?, read)?;
+    let stored = match base {
+        DocumentBase::Hash(read) => {
+            let current = hash()?;
+            if current != read {
+                return Err(BaseError::Stale { current, field: None }.into());
+            }
             return Ok((Document::parse_revising(markdown)?, Vec::new()));
         }
-        Base::Read(read) => read,
+        DocumentBase::Stored(read) => read,
     };
     let revising = Document::parse_revising(markdown)?;
     config.check_quill_reference(&revising.parsed.document)?;
-    let reads_now =
-        |doc: &Document| read == doc.to_markdown() || read == doc.to_markdown_annotated().markdown;
-    if reads_now(doc) || reads_now(&conformed(config, doc)?) {
+    let read = conformed(config, stored)?;
+    let now = conformed(config, doc)?;
+    if read.hash() == now.hash() {
         return Ok((revising, Vec::new()));
     }
     let spell = |side: Revising| -> Result<String, BoundParseError> {
-        let mut revised = doc.clone();
+        let mut revised = read.clone();
         let _ = revised.revise_parsed(side);
         Ok(conformed(config, &revised)?
             .to_markdown_annotated()
             .markdown)
     };
-    let now = conformed(config, doc)?.to_markdown_annotated().markdown;
-    let read = spell(Document::parse_revising(read)?)?;
-    if read == now {
-        return Ok((revising, Vec::new()));
-    }
+    let now = now.to_markdown_annotated().markdown;
+    let read = read.to_markdown_annotated().markdown;
     let new = spell(Revising {
         parsed: Parsed {
             document: revising.parsed.document.clone(),

@@ -41,7 +41,7 @@ pub struct DocumentRevised {
     /// entry names was removed. Only cards of one `$kind` pair, and a card
     /// revising a stored one holds its `$id`.
     pub from: Vec<Option<usize>>,
-    /// Under a [`Base::Read`](super::Base::Read), each place the writer's
+    /// Under a [`DocumentBase::Stored`](super::DocumentBase::Stored), each place the writer's
     /// change and the change since its read both changed, which the write
     /// leaves as it stands now. Empty for any other write.
     pub conflicts: Vec<MergeConflict>,

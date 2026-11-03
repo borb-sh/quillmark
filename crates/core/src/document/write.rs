@@ -21,7 +21,7 @@ use quillmark_content::lines::island::IslandType;
 use quillmark_content::model::Content;
 use quillmark_content::units::{self, Units};
 
-use super::base::{BaseError, content_hash};
+use super::base::{Base, BaseError, content_hash};
 use super::edit::EditError;
 use super::Card;
 use crate::value::QuillValue;
@@ -73,11 +73,11 @@ impl<'a> From<Option<&'a str>> for Target<'a> {
 }
 
 /// What a write reads besides its edit.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct WriteOptions<'a> {
-    /// The hash the writer read, which a write over a value that has moved on
+    /// What the writer read, which a write over a value that has moved on
     /// rebases from.
-    pub base: Option<&'a str>,
+    pub base: Option<Base<'a>>,
     /// Who writes, scoping each id the write mints: `{actor}:{prefix}{n}`
     /// where it is given, `{prefix}{n}` where not. A live client passes one
     /// unique to its session, so two clients writing from one value never
@@ -88,9 +88,16 @@ pub struct WriteOptions<'a> {
 }
 
 impl<'a> From<Option<&'a str>> for WriteOptions<'a> {
-    /// The options of a write with this base and no actor.
+    /// The options of a write with this hash for its base and no actor.
     fn from(base: Option<&'a str>) -> Self {
-        WriteOptions { base, actor: None }
+        WriteOptions { base: base.map(Base::Hash), actor: None }
+    }
+}
+
+impl<'a> From<Base<'a>> for WriteOptions<'a> {
+    /// The options of a write with this base and no actor.
+    fn from(base: Base<'a>) -> Self {
+        WriteOptions { base: Some(base), actor: None }
     }
 }
 
@@ -188,8 +195,7 @@ impl Card {
     }
 
     /// The annotated read of the value at `target`: the scoped read a revise
-    /// of it reads back, and the markdown a [`Base::Read`](super::Base::Read)
-    /// of it takes. A field stored under `codec: "plain"` reads as its literal
+    /// of it reads back. A field stored under `codec: "plain"` reads as its literal
     /// text, its anchors listed and no tag spelled.
     pub fn annotated<'t>(&self, target: impl Into<Target<'t>>) -> Result<quillmark_content::lines::export::Annotated, EditError> {
         match target.into() {
@@ -361,7 +367,7 @@ impl Card {
 
     /// [`revise_counted`](Self::revise_counted) under `base`, rebased over
     /// the change since where the value has moved on.
-    pub(crate) fn revise_counted_from(&mut self, target: Target<'_>, markdown: &str, base: Option<&str>) -> Result<Receipt, EditError> {
+    pub(crate) fn revise_counted_from(&mut self, target: Target<'_>, markdown: &str, base: Option<Base<'_>>) -> Result<Receipt, EditError> {
         let before = self.read(target)?;
         let mut receipt = self.write(target, Edit::Revise(markdown), WriteOptions { base, actor: None })?;
         receipt.counted = Counted::Content(Arc::new(before));
@@ -402,31 +408,36 @@ impl Card {
         })
     }
 
-    /// The value `base` names at `target`: the value now, where `base` is
-    /// absent or its hash, or the value the card's log holds for an earlier
-    /// hash. Refused with `edit::stale_base` where the log reaches no value
-    /// that hashes to `base`.
+    /// The value the hash `base` names at `target`: the value now, where
+    /// `base` is absent or its hash, or the value the card's log holds for an
+    /// earlier hash. Refused with `edit::stale_base` where the log reaches no
+    /// value that hashes to `base`.
     pub fn read_at(&self, target: Target<'_>, base: Option<&str>) -> Result<Content, EditError> {
-        let read = self.reading(target, base)?;
+        let read = self.reading(target, base.map(Base::Hash))?;
         Ok(match read.since {
             Some(since) => since.base,
             None => read.now,
         })
     }
 
-    fn reading(&self, target: Target<'_>, base: Option<&str>) -> Result<Reading, EditError> {
+    fn reading(&self, target: Target<'_>, base: Option<Base<'_>>) -> Result<Reading, EditError> {
         let now = self.read(target)?;
         let Some(base) = base else {
             return Ok(Reading { now, hash: None, since: None });
         };
         let hash = self.hash_now(target, &now);
-        let since = match base != hash {
-            true => {
-                let since = self.log.since(target, base, &hash);
+        let since = match base {
+            Base::Hash(read) if read == hash => None,
+            Base::Hash(read) => {
+                let since = self.log.since(target, read, &hash);
                 let stale = || BaseError::Stale { current: hash.clone(), field: target.field().map(str::to_string) };
                 Some(since.ok_or_else(|| EditError::Base(stale()))?)
             }
-            false => None,
+            Base::Content(read) if *read == now => None,
+            Base::Content(read) => {
+                let change = diff::diff(read, &now).map_err(|e| EditError::change(e.into()))?;
+                Some(Since { base: read.clone(), change })
+            }
         };
         Ok(Reading { now, hash: Some(hash), since })
     }

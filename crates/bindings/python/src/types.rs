@@ -963,7 +963,7 @@ impl PyDocument {
         let target = Target::resolve(&self.inner, card)?;
         let change = crate::content::change_from_py(change, "apply")?;
         let edit = quillmark_core::document::Edit::Apply(change);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base, actor })
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base: base.map(quillmark_core::document::Base::Hash), actor })
     }
 
     /// Rewrite the value at `field` on `card` as `markdown`: the anchors and
@@ -983,7 +983,7 @@ impl PyDocument {
         require_card_id(&card, "revise")?;
         let target = Target::resolve(&self.inner, card)?;
         let edit = quillmark_core::document::Edit::Revise(markdown);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base, actor })
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base: base.map(quillmark_core::document::Base::Hash), actor })
     }
 
     /// Write `content` over the value at `field` on `card`, carrying each
@@ -1003,7 +1003,7 @@ impl PyDocument {
         let target = Target::resolve(&self.inner, card)?;
         let content = crate::content::content_from_py(content, "replace")?;
         let edit = quillmark_core::document::Edit::Replace(content);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base, actor })
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base: base.map(quillmark_core::document::Base::Hash), actor })
     }
 }
 
@@ -1076,20 +1076,28 @@ fn index_error(index: usize, len: usize) -> PyErr {
     )
 }
 
-/// What a revise's writer read, off its `base_hash` / `base_markdown`
+/// What a revise's writer read, off its `base_hash` / `base_content`
 /// keywords: one or neither.
-fn read_base<'a>(
-    base_hash: Option<&'a str>,
-    base_markdown: Option<&'a str>,
-) -> PyResult<Option<quillmark_core::document::Base<'a>>> {
-    use quillmark_core::document::Base;
-    match (base_hash, base_markdown) {
-        (None, None) => Ok(None),
-        (Some(hash), None) => Ok(Some(Base::Hash(hash))),
-        (None, Some(markdown)) => Ok(Some(Base::Read(markdown))),
-        (Some(_), Some(_)) => Err(PyValueError::new_err(
-            "name base_hash or base_markdown, not both",
-        )),
+enum ReadBase {
+    Hash(String),
+    Content(quillmark_core::Content),
+}
+
+impl ReadBase {
+    fn from_py(base_hash: Option<&str>, base_content: Option<&Bound<'_, PyAny>>) -> PyResult<Option<Self>> {
+        match (base_hash, base_content) {
+            (None, None) => Ok(None),
+            (Some(hash), None) => Ok(Some(ReadBase::Hash(hash.to_string()))),
+            (None, Some(content)) => Ok(Some(ReadBase::Content(crate::content::content_from_py(content, "base_content")?))),
+            (Some(_), Some(_)) => Err(PyValueError::new_err("name base_hash or base_content, not both")),
+        }
+    }
+
+    fn as_base(&self) -> quillmark_core::document::Base<'_> {
+        match self {
+            ReadBase::Hash(hash) => quillmark_core::document::Base::Hash(hash),
+            ReadBase::Content(content) => quillmark_core::document::Base::Content(content),
+        }
     }
 }
 
@@ -1353,18 +1361,17 @@ impl PyWriter {
     /// `applied`, the change from the value before (a `text` field's is one
     /// splice over its literal text); `hash`; `dropped_anchors` and
     /// `moved_anchors`; `warnings`, the import's `parse::dropped_construct` as
-    /// `Diagnostic` objects anchored at the value; and `rebased`, set where a
-    /// `base_markdown` merged.
+    /// `Diagnostic` objects anchored at the value; and `rebased`, set where the
+    /// write rebased over a change since its base.
     ///
-    /// `base_hash` or `base_markdown` names what the writer read: a
-    /// `base_hash` (`hash_at`) the value no longer hashes to rebases the write
-    /// over the change since, raising `edit::rebase_conflict` where the two
-    /// touch and `edit::stale_base` where the log no longer reaches the base,
-    /// and a `base_markdown` the value has moved on from merges the writer's
-    /// edit onto the change by line, raising `edit::rebase_conflict` where both
-    /// changed one; a `text` field's `base_markdown` is its literal text.
-    /// Either refusal's `args["current"]` is the hash now.
-    #[pyo3(signature = (text, field=None, card=None, *, base_hash=None, base_markdown=None))]
+    /// `base_hash` or `base_content` names what the writer read: its hash
+    /// (`hash_at`), or the value itself as canonical Content-JSON (`read`). A
+    /// value that has moved on rebases the write over the change since,
+    /// raising `edit::rebase_conflict` where the two touch; a `base_hash`
+    /// raises `edit::stale_base` where the log no longer reaches it, and a
+    /// `base_content` holds however long ago it was read. Either refusal's
+    /// `args["current"]` is the hash now.
+    #[pyo3(signature = (text, field=None, card=None, *, base_hash=None, base_content=None))]
     fn revise<'py>(
         &self,
         py: Python<'py>,
@@ -1372,9 +1379,10 @@ impl PyWriter {
         field: Option<&str>,
         card: Option<CardSel>,
         base_hash: Option<&str>,
-        base_markdown: Option<&str>,
+        base_content: Option<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let read = read_base(base_hash, base_markdown)?;
+        let read = ReadBase::from_py(base_hash, base_content.as_ref())?;
+        let read = read.as_ref().map(ReadBase::as_base);
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
@@ -1413,22 +1421,32 @@ impl PyWriter {
     /// or a `$quill` this quill does not answer to, leaving the document
     /// unchanged.
     ///
-    /// `base_hash` (`hash()`) or `base_markdown` (the whole document's
-    /// markdown, annotated or not) guard the write. A stale hash raises before
-    /// any mutation. Under `base_markdown` the writer's change and the change
-    /// since merge card by card and field by field; each place both changed
-    /// keeps its value now and is named in the receipt's `conflicts`, a list of
+    /// `base_hash` (`hash()`) or `base_stored` (the `to_stored()` row the
+    /// writer read) guard the write. A stale hash raises before any mutation.
+    /// Under `base_stored` the writer's change and the change since merge card
+    /// by card and field by field; each place both changed keeps its value now
+    /// and is named in the receipt's `conflicts`, a list of
     /// `{path, base, current, proposed}`, and the write raises
     /// `edit::rebase_conflict` only where no merge can stand.
-    #[pyo3(signature = (markdown, *, base_hash=None, base_markdown=None))]
+    #[pyo3(signature = (markdown, *, base_hash=None, base_stored=None))]
     fn revise_document<'py>(
         &self,
         py: Python<'py>,
         markdown: &str,
         base_hash: Option<&str>,
-        base_markdown: Option<&str>,
+        base_stored: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let read = read_base(base_hash, base_markdown)?;
+        use quillmark_core::document::DocumentBase;
+        let stored = match (base_hash, base_stored) {
+            (Some(_), Some(_)) => return Err(PyValueError::new_err("name base_hash or base_stored, not both")),
+            (_, Some(stored)) => Some(PyDocument::from_stored(stored)?.inner),
+            _ => None,
+        };
+        let read = match (base_hash, &stored) {
+            (Some(hash), _) => Some(DocumentBase::Hash(hash)),
+            (None, Some(stored)) => Some(DocumentBase::Stored(stored)),
+            (None, None) => None,
+        };
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let mut writer = quill.inner.writer(&mut doc.inner);

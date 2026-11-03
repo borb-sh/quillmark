@@ -364,14 +364,14 @@ class Writer:
         card: int | str | None = None,
         *,
         base_hash: str | None = None,
-        base_markdown: str | None = None,
+        base_content: dict[str, Any] | None = None,
     ) -> Receipt: ...
     def revise_document(
         self,
         markdown: str,
         *,
         base_hash: str | None = None,
-        base_markdown: str | None = None,
+        base_stored: str | None = None,
     ) -> DocumentRevised: ...
     def add_card(
         self,

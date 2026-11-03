@@ -28,7 +28,7 @@
 use indexmap::IndexMap;
 
 use crate::document::edit::{overflow_errors, resolve_field_write};
-use crate::document::{Base, Card, Document, DocumentRevised, EditError, Receipt, Revising, Target};
+use crate::document::{Base, Card, Document, DocumentBase, DocumentRevised, EditError, Receipt, Revising, Target};
 use crate::error::Diagnostic;
 use crate::path::DocPath;
 use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
@@ -116,9 +116,10 @@ impl<'a> TypedWriter<'a> {
     /// carrying escapes is a byte no-op, and its [`Receipt`]'s change is one
     /// splice over the literal text.
     ///
-    /// A `base` refuses a stale write or merges it onto what changed since the
-    /// writer's read: its hash is [`hash_of`](Self::hash_of), and a `text`
-    /// field's [`Base::Read`] is its literal text.
+    /// A `base` names what the writer read, its hash
+    /// [`hash_of`](Self::hash_of) or its [`Content`](crate::Content): a value
+    /// that has moved on rebases the write over the change since, refused
+    /// where the two touch.
     pub fn revise<'t>(
         &mut self,
         target: impl Into<Target<'t>>,
@@ -143,13 +144,13 @@ impl<'a> TypedWriter<'a> {
     }
 
     /// [`revise_document`](Self::revise_document) under `base`: the hash is
-    /// [`hash`](Self::hash), and a read is the whole document's markdown,
-    /// annotated or not. Each side is parsed, conformed and emitted before the
-    /// merge. A stale or conflicting write fails as [`BoundParseError::Base`]
-    /// before any mutation.
+    /// [`hash`](Self::hash), and a stored read is the document the writer
+    /// read. Each side is conformed and emitted before the merge. A stale or
+    /// conflicting write fails as [`BoundParseError::Base`] before any
+    /// mutation.
     pub fn revise_document_against(
         &mut self,
-        base: Base<'_>,
+        base: DocumentBase<'_>,
         markdown: &str,
     ) -> Result<DocumentRevised, BoundParseError> {
         let (parsed, conflicts) =

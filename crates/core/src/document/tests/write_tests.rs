@@ -648,8 +648,8 @@ fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
     use quillmark_content::structural::Wrap;
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nalpha\n\nbravo\n\ncharlie\n");
     let base = doc.main().hash_of(Target::Body).unwrap();
-    let ann = WriteOptions { base: Some(&base), actor: Some("ann") };
-    let bo = WriteOptions { base: Some(&base), actor: Some("bo") };
+    let ann = WriteOptions { base: Some(crate::document::Base::Hash(&base)), actor: Some("ann") };
+    let bo = WriteOptions { base: Some(crate::document::Base::Hash(&base)), actor: Some("bo") };
     let quoted = doc.main_mut().wrap(Target::Body, "b0", "b1", Wrap::Quote, ann).unwrap();
     assert_eq!(quoted.minted.get("?0").map(String::as_str), Some("ann:q0"));
     let split = doc.main_mut().split_block(Target::Body, 14, None, bo).unwrap();
@@ -681,7 +681,7 @@ fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
 
     let now = doc.main().hash_of(Target::Body).unwrap();
     let more = format!("{}\n\nend\n", doc.main().body_annotated().markdown.trim_end());
-    let revised = doc.main_mut().revise(Target::Body, &more, WriteOptions { base: Some(&now), actor: Some("cy") }).unwrap();
+    let revised = doc.main_mut().revise(Target::Body, &more, WriteOptions { base: Some(crate::document::Base::Hash(&now)), actor: Some("cy") }).unwrap();
     assert_eq!(doc.main().body().blocks.last().unwrap().id, "cy:b0");
     assert!(revised.minted.is_empty());
 
