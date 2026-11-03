@@ -507,12 +507,11 @@ impl PyDocument {
         quillmark_core::document::peek_storage_version(json)
     }
 
-    /// The newest storage version this build writes: a document holding a
-    /// composable card, each carrying its `$id`, carries it. A document of the
-    /// main card alone carries the oldest tag that holds its content.
+    /// The storage version every save this build makes writes. The tag
+    /// advances only when the wire format changes, not on every release.
     #[staticmethod]
     fn current_storage_version() -> &'static str {
-        quillmark_core::document::STORAGE_V0_134_0
+        quillmark_core::document::STORAGE_V0_135_0
     }
 
     /// The Quillmark Markdown rules.
@@ -1374,8 +1373,10 @@ impl PyWriter {
     /// `base_markdown` merged.
     ///
     /// `base_hash` or `base_markdown` names what the writer read: a
-    /// `base_hash` (`hash_at`) the body no longer hashes to raises
-    /// `edit::stale_base`, and a `base_markdown` the body has moved on from
+    /// `base_hash` (`hash_at`) the body no longer hashes to rebases the write
+    /// over the change since, raising `edit::rebase_conflict` where the two
+    /// touch and `edit::stale_base` where the log no longer reaches the base,
+    /// and a `base_markdown` the body has moved on from
     /// merges the writer's edit onto the change by line, raising
     /// `edit::rebase_conflict` where both changed one. Either refusal's
     /// `args["current"]` is the hash now.

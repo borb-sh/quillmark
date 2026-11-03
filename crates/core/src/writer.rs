@@ -202,8 +202,8 @@ impl<'a> TypedWriter<'a> {
 
     /// The hash of a main-card field through its schema: the [`Base::Hash`]
     /// [`revise_field_against`](Self::revise_field_against) checks. A
-    /// `richtext` field hashes its content however it rests, a `text` field
-    /// its literal text, any other type its stored value. An undeclared name
+    /// `richtext` or `text` field hashes its content however it is stored, ids
+    /// and anchors included, any other type its stored value. An undeclared name
     /// fails with [`EditError::UnknownField`].
     pub fn field_hash(&self, name: &str) -> Result<String, EditError> {
         match self.config.main.fields.get(name) {
