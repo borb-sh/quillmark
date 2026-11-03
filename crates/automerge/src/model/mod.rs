@@ -71,6 +71,8 @@ pub enum LoadError {
     Shape,
     #[error("the document's schema `{0}` is not one this build reads")]
     Schema(String),
+    #[error("the sync message decodes but does not apply: {0}")]
+    Apply(String),
 }
 
 impl LoadError {
@@ -79,6 +81,7 @@ impl LoadError {
             LoadError::Decode(_) => "decode",
             LoadError::Shape => "shape",
             LoadError::Schema(_) => "schema",
+            LoadError::Apply(_) => "apply",
         }
     }
 }
@@ -206,7 +209,7 @@ impl Doc {
         self.doc
             .sync()
             .receive_sync_message(&mut state.0, message.0)
-            .map_err(|e| LoadError::Decode(e.to_string()))?;
+            .map_err(|e| LoadError::Apply(e.to_string()))?;
         if let Err(e) = self.check() {
             self.doc = before;
             *state = was;

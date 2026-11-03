@@ -27,9 +27,11 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   `receive_sync_message` run Automerge's sync protocol over the whole
   document, through `quillmark-automerge`'s `Heads`, `SyncState` and
   `SyncMessage`, each with `encode` and `decode`, so no `automerge` type
-  crosses core's API. `edit::bad_live_bytes` names bytes or a message that would leave
-  the document outside its schema, its `reason` `decode`, `shape` or
-  `schema`, and changes nothing. The per-value `Card::save`, `load` and sync
+  crosses core's API. `edit::bad_live_bytes` names bytes or a message that
+  would leave the document outside its schema, its `reason` `decode`,
+  `shape`, `schema`, or `apply` for a sync message that decodes and does not
+  apply, and changes nothing; `load`, `merge` and `receive_sync_message`
+  answer it as an `EditError`. The per-value `Card::save`, `load` and sync
   verbs are gone. `StoredDocument` JSON stays the history-free interchange,
   and a `0.134.0` row reads into a new document.
 - feat(wasm)!: **the document crosses as bytes.** `doc.save()`,

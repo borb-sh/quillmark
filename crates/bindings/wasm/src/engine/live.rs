@@ -54,7 +54,7 @@ impl Document {
     /// Bytes that do not decode, or hold no Quillmark document of a schema
     /// this build reads, throw `edit::bad_live_bytes`.
     pub fn load(bytes: &[u8]) -> Result<Document, JsValue> {
-        let inner = quillmark_core::document::Document::load(bytes).map_err(refused)?;
+        let inner = quillmark_core::document::Document::load(bytes).map_err(|e| edit_error_to_js(&e, &DocPath::main()))?;
         Ok(Document { inner, parse_warnings: Vec::new() })
     }
 
@@ -80,7 +80,7 @@ impl Document {
     /// leave the document outside its schema, throw `edit::bad_live_bytes`
     /// and change nothing.
     pub fn merge(&mut self, bytes: &[u8]) -> Result<(), JsValue> {
-        self.inner.merge(bytes).map_err(refused)
+        self.inner.merge(bytes).map_err(|e| edit_error_to_js(&e, &DocPath::main()))
     }
 
     /// The next Automerge sync message to the peer `state` tracks,
@@ -96,6 +96,6 @@ impl Document {
     #[wasm_bindgen(js_name = receiveSyncMessage)]
     pub fn receive_sync_message(&mut self, state: &mut SyncState, message: &[u8]) -> Result<(), JsValue> {
         let message = SyncMessage::decode(message).map_err(refused)?;
-        self.inner.receive_sync_message(&mut state.inner, message).map_err(refused)
+        self.inner.receive_sync_message(&mut state.inner, message).map_err(|e| edit_error_to_js(&e, &DocPath::main()))
     }
 }

@@ -250,8 +250,9 @@ pub enum EditError {
     /// Bytes or a sync message the document's Automerge document does not
     /// take: `reason` is the refusal's name, `decode` where they do not
     /// decode, `shape` where the document they leave holds no Quillmark
-    /// document in the shape this build writes, and `schema` where it names
-    /// a schema this build does not read.
+    /// document in the shape this build writes, `schema` where it names a
+    /// schema this build does not read, and `apply` where a sync message
+    /// decodes but does not apply.
     #[error("the document refuses the bytes ({reason}): {detail}")]
     BadLiveBytes { reason: &'static str, detail: String },
 

@@ -1175,9 +1175,9 @@ impl Document {
     /// The document `bytes` hold: a [`save`](Document::save) or a merge of
     /// several. Bytes that do not decode, or hold no Quillmark document of a
     /// schema this build reads, are refused.
-    pub fn load(bytes: &[u8]) -> Result<Self, LoadError> {
-        let doc = quillmark_automerge::model::Doc::load(bytes)?;
-        Self::read_from(doc, Default::default()).map_err(|_| LoadError::Shape)
+    pub fn load(bytes: &[u8]) -> Result<Self, EditError> {
+        let doc = quillmark_automerge::model::Doc::load(bytes).map_err(EditError::bad_live_bytes)?;
+        Self::read_from(doc, Default::default()).map_err(|_| EditError::bad_live_bytes(LoadError::Shape))
     }
 
     /// The document's revision: its Automerge heads.
@@ -1198,16 +1198,16 @@ impl Document {
 
     /// Takes a peer's sync message and reads the cards again; one that
     /// leaves the document outside its schema is refused and undone.
-    pub fn receive_sync_message(&mut self, state: &mut SyncState, message: SyncMessage) -> Result<(), LoadError> {
-        self.doc().receive_sync_message(state, message)?;
+    pub fn receive_sync_message(&mut self, state: &mut SyncState, message: SyncMessage) -> Result<(), EditError> {
+        self.doc().receive_sync_message(state, message).map_err(EditError::bad_live_bytes)?;
         self.reread();
         Ok(())
     }
 
     /// Takes the changes `bytes` hold, another peer's save or
     /// [`save_since`](Document::save_since), and reads the cards again.
-    pub fn merge(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
-        self.doc().merge(bytes)?;
+    pub fn merge(&mut self, bytes: &[u8]) -> Result<(), EditError> {
+        self.doc().merge(bytes).map_err(EditError::bad_live_bytes)?;
         self.reread();
         Ok(())
     }

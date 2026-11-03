@@ -1016,7 +1016,7 @@ impl PyDocument {
     /// this build reads, raise `edit::bad_live_bytes`.
     #[staticmethod]
     fn load(data: &[u8]) -> PyResult<Self> {
-        let inner = quillmark_core::document::Document::load(data).map_err(crate::content::refused)?;
+        let inner = quillmark_core::document::Document::load(data).map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))?;
         Ok(PyDocument { inner, parse_warnings: Vec::new() })
     }
 
@@ -1036,7 +1036,7 @@ impl PyDocument {
     /// the document outside its schema, raise `edit::bad_live_bytes` and
     /// change nothing.
     fn merge(&mut self, data: &[u8]) -> PyResult<()> {
-        self.inner.merge(data).map_err(crate::content::refused)
+        self.inner.merge(data).map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))
     }
 
     /// The next Automerge sync message to the peer `state` tracks, `None`
@@ -1050,7 +1050,7 @@ impl PyDocument {
     /// raises `edit::bad_live_bytes` and changes nothing.
     fn receive_sync_message(&mut self, state: &mut crate::content::PySyncState, message: &[u8]) -> PyResult<()> {
         let message = quillmark_core::document::SyncMessage::decode(message).map_err(crate::content::refused)?;
-        self.inner.receive_sync_message(&mut state.inner, message).map_err(crate::content::refused)
+        self.inner.receive_sync_message(&mut state.inner, message).map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))
     }
 }
 

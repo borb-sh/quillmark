@@ -234,7 +234,8 @@ The receipt's `applied` is the change from the value before the write to the mer
 
 - `decode`: the bytes or the message do not decode;
 - `shape`: the document left holds no Quillmark document in the shape this build writes;
-- `schema`: its `schema` names a schema this build does not read.
+- `schema`: its `schema` names a schema this build does not read;
+- `apply`: a sync message decodes and Automerge does not apply it.
 
 Bytes `merge` takes leniently, as Automerge loads an increment: a trailing run that does not decode is left out.
 
