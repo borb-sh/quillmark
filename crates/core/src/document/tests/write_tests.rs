@@ -742,8 +742,8 @@ fn peers_writing_with_no_actor_sync_from_one_origin() {
 /// and the document and the sync state stay as they were.
 #[test]
 fn a_document_refuses_bytes_or_a_message_it_cannot_read() {
-    use crate::document::SyncState;
-    use quillmark_automerge::automerge::sync::SyncDoc;
+    use crate::document::{SyncMessage, SyncState};
+    use quillmark_automerge::automerge::sync::{self, SyncDoc};
     use quillmark_automerge::automerge::transaction::Transactable;
     use quillmark_automerge::automerge::{AutoCommit, ROOT};
     assert!(Document::load(b"not a document").is_err());
@@ -753,13 +753,13 @@ fn a_document_refuses_bytes_or_a_message_it_cannot_read() {
     let before = doc.clone();
     let mut peer = AutoCommit::load(&doc.save()).unwrap();
     peer.put(&ROOT, "schema", "elsewhere@1").unwrap();
-    let (mut ours, mut theirs) = (SyncState::new(), SyncState::new());
+    let (mut ours, mut theirs) = (SyncState::new(), sync::State::new());
     let refused = (0..8).find_map(|_| {
         if let Some(m) = doc.generate_sync_message(&mut ours) {
-            peer.sync().receive_sync_message(&mut theirs, m).unwrap();
+            peer.sync().receive_sync_message(&mut theirs, sync::Message::decode(&m.encode()).unwrap()).unwrap();
         }
         let m = peer.sync().generate_sync_message(&mut theirs)?;
-        doc.receive_sync_message(&mut ours, m).err()
+        doc.receive_sync_message(&mut ours, SyncMessage::decode(&m.encode()).unwrap()).err()
     });
     refused.expect("the message that brings another schema is refused");
     assert_eq!(doc, before);

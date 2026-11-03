@@ -9,7 +9,7 @@ use pyo3::types::PyDict;
 use quillmark_content::change::{self, Change};
 use quillmark_content::model::Content;
 use quillmark_content::wire::ParseError;
-use quillmark_core::document::{CardMut, Document, Edit, EditError, LoadError, Receipt, SyncMessage, SyncState, Target, WriteOptions, check_change, check_content_value};
+use quillmark_core::document::{CardMut, Document, Edit, EditError, LoadError, Receipt, SyncState, Target, WriteOptions, check_change, check_content_value};
 use quillmark_core::path::DocPath;
 
 use crate::errors::convert_edit_error;
@@ -112,29 +112,13 @@ impl PySyncState {
     /// `edit::bad_live_bytes` with `reason` `decode`.
     #[staticmethod]
     fn decode(data: &[u8]) -> PyResult<Self> {
-        SyncState::decode(data)
-            .map(|inner| PySyncState { inner })
-            .map_err(|e| convert_edit_error(EditError::bad_live_bytes(LoadError::Decode(e.to_string())), &DocPath::new()))
+        SyncState::decode(data).map(|inner| PySyncState { inner }).map_err(refused)
     }
 }
 
 /// The `edit::bad_live_bytes` refusal of bytes the document cannot take.
 pub(crate) fn refused(e: LoadError) -> PyErr {
     convert_edit_error(EditError::bad_live_bytes(e), &DocPath::new())
-}
-
-/// `heads` as change hashes, refused as `edit::bad_live_bytes` where one is
-/// not a hash.
-pub(crate) fn heads_from(heads: &[String]) -> PyResult<Vec<quillmark_core::document::ChangeHash>> {
-    heads
-        .iter()
-        .map(|h| h.parse().map_err(|e| refused(LoadError::Decode(format!("head `{h}`: {e}")))))
-        .collect()
-}
-
-/// The `edit::bad_live_bytes` refusal of a sync message that does not decode.
-pub(crate) fn sync_message(bytes: &[u8]) -> Result<SyncMessage, EditError> {
-    SyncMessage::decode(bytes).map_err(|e| EditError::bad_live_bytes(LoadError::Decode(e.to_string())))
 }
 
 /// `receipt` as it crosses, its dropped anchors' selectors at `path` on the

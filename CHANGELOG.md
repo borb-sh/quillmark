@@ -25,7 +25,9 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   save and read the whole document with its history; `heads`, `save_since`
   and `merge` move changes between peers; `generate_sync_message` and
   `receive_sync_message` run Automerge's sync protocol over the whole
-  document. `edit::bad_live_bytes` names bytes or a message that would leave
+  document, through `quillmark-automerge`'s `Heads`, `SyncState` and
+  `SyncMessage`, each with `encode` and `decode`, so no `automerge` type
+  crosses core's API. `edit::bad_live_bytes` names bytes or a message that would leave
   the document outside its schema, its `reason` `decode`, `shape` or
   `schema`, and changes nothing. The per-value `Card::save`, `load` and sync
   verbs are gone. `StoredDocument` JSON stays the history-free interchange,

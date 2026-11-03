@@ -12,12 +12,14 @@
 //! `body`; a body or content field is a value in the shape `value` states.
 
 pub mod json;
+mod peer;
 mod step;
 pub(crate) mod value;
 
+pub use peer::{Heads, SyncMessage, SyncState};
 pub use step::{Lowered, StepError};
 
-use automerge::sync::{self, SyncDoc};
+use automerge::sync::SyncDoc;
 use automerge::transaction::{CommitOptions, Transactable};
 use automerge::{
     ActorId, AutoCommit, ChangeHash, ObjId, ObjType, ROOT, ReadDoc, TextEncoding,
@@ -189,21 +191,21 @@ impl Doc {
         self.doc.set_actor(actor);
     }
 
-    pub fn generate_sync_message(&mut self, state: &mut sync::State) -> Option<sync::Message> {
-        self.doc.sync().generate_sync_message(state)
+    pub fn generate_sync_message(&mut self, state: &mut SyncState) -> Option<SyncMessage> {
+        self.doc.sync().generate_sync_message(&mut state.0).map(SyncMessage)
     }
 
     /// Takes a peer's sync message. A message that leaves the document
     /// outside the schema is undone.
     pub fn receive_sync_message(
         &mut self,
-        state: &mut sync::State,
-        message: sync::Message,
+        state: &mut SyncState,
+        message: SyncMessage,
     ) -> Result<(), LoadError> {
         let (before, was) = (self.doc.clone(), state.clone());
         self.doc
             .sync()
-            .receive_sync_message(state, message)
+            .receive_sync_message(&mut state.0, message.0)
             .map_err(|e| LoadError::Decode(e.to_string()))?;
         if let Err(e) = self.check() {
             self.doc = before;

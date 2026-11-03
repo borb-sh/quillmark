@@ -1022,12 +1022,12 @@ impl PyDocument {
 
     /// The document's revision: the hashes of its Automerge heads.
     fn heads(&mut self) -> Vec<String> {
-        self.inner.heads().iter().map(ToString::to_string).collect()
+        self.inner.heads().encode()
     }
 
     /// The changes since `heads`, as bytes `merge` takes.
     fn save_since<'py>(&mut self, py: Python<'py>, heads: Vec<String>) -> PyResult<Bound<'py, PyBytes>> {
-        let heads = crate::content::heads_from(&heads)?;
+        let heads = quillmark_core::document::Heads::decode(&heads).map_err(crate::content::refused)?;
         Ok(PyBytes::new(py, &self.inner.save_since(&heads)))
     }
 
@@ -1049,7 +1049,7 @@ impl PyDocument {
     /// that does not decode, or would leave the document outside its schema,
     /// raises `edit::bad_live_bytes` and changes nothing.
     fn receive_sync_message(&mut self, state: &mut crate::content::PySyncState, message: &[u8]) -> PyResult<()> {
-        let message = crate::content::sync_message(message).map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))?;
+        let message = quillmark_core::document::SyncMessage::decode(message).map_err(crate::content::refused)?;
         self.inner.receive_sync_message(&mut state.inner, message).map_err(crate::content::refused)
     }
 }

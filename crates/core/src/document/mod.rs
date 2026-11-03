@@ -690,10 +690,10 @@ pub use quillmark_content::markdown::ImportError;
 pub use quillmark_content::markdown::{DroppedConstruct, ImportWarning};
 pub use revise::DocumentRevised;
 /// Answered by [`Document::heads`] and taken by [`Document::save_since`], so nameable from here.
-pub use quillmark_automerge::automerge::ChangeHash;
+pub use quillmark_automerge::model::Heads;
 /// Taken and answered by [`Document::generate_sync_message`] and
 /// [`Document::receive_sync_message`], so nameable from here.
-pub use quillmark_automerge::automerge::sync::{Message as SyncMessage, State as SyncState};
+pub use quillmark_automerge::model::{SyncMessage, SyncState};
 /// Carried by [`EditError::bad_live_bytes`], so nameable from here.
 pub use quillmark_automerge::model::LoadError;
 // Reachable through `Payload::nested_comments`, so nameable from here.
@@ -1181,13 +1181,13 @@ impl Document {
     }
 
     /// The document's revision: its Automerge heads.
-    pub fn heads(&mut self) -> Vec<quillmark_automerge::automerge::ChangeHash> {
-        self.doc().heads()
+    pub fn heads(&mut self) -> Heads {
+        Heads::from(self.doc().heads())
     }
 
     /// The changes since `heads`, as bytes [`merge`](Document::merge) takes.
-    pub fn save_since(&mut self, heads: &[quillmark_automerge::automerge::ChangeHash]) -> Vec<u8> {
-        self.doc().save_since(heads)
+    pub fn save_since(&mut self, heads: &Heads) -> Vec<u8> {
+        self.doc().save_since(heads.hashes())
     }
 
     /// The next message of the sync protocol with the peer `state` tracks,
@@ -1198,7 +1198,7 @@ impl Document {
 
     /// Takes a peer's sync message and reads the cards again; one that
     /// leaves the document outside its schema is refused and undone.
-    pub fn receive_sync_message(&mut self, state: &mut SyncState, message: SyncMessage) -> Result<(), quillmark_automerge::model::LoadError> {
+    pub fn receive_sync_message(&mut self, state: &mut SyncState, message: SyncMessage) -> Result<(), LoadError> {
         self.doc().receive_sync_message(state, message)?;
         self.reread();
         Ok(())

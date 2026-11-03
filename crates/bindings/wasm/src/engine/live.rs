@@ -2,7 +2,7 @@
 //! heads, and the sync protocol a peer runs against it.
 
 use super::{Document, edit_error_to_js};
-use quillmark_core::document::{ChangeHash, EditError, LoadError, SyncMessage};
+use quillmark_core::document::{EditError, Heads, LoadError, SyncMessage};
 use quillmark_core::path::DocPath;
 use wasm_bindgen::prelude::*;
 
@@ -26,13 +26,6 @@ fn refused(e: LoadError) -> JsValue {
     edit_error_to_js(&EditError::bad_live_bytes(e), &DocPath::main())
 }
 
-fn heads_from(heads: Vec<String>) -> Result<Vec<ChangeHash>, JsValue> {
-    heads
-        .iter()
-        .map(|h| h.parse::<ChangeHash>().map_err(|e| refused(LoadError::Decode(format!("head `{h}`: {e}")))))
-        .collect()
-}
-
 #[wasm_bindgen]
 impl SyncState {
     /// A peer of whom nothing is known yet.
@@ -51,7 +44,7 @@ impl SyncState {
     pub fn decode(bytes: &[u8]) -> Result<SyncState, JsValue> {
         quillmark_core::document::SyncState::decode(bytes)
             .map(|inner| SyncState { inner })
-            .map_err(|e| refused(LoadError::Decode(e.to_string())))
+            .map_err(refused)
     }
 }
 
@@ -73,13 +66,13 @@ impl Document {
 
     /// The document's revision: the hashes of its Automerge heads.
     pub fn heads(&mut self) -> Vec<String> {
-        self.inner.heads().iter().map(ToString::to_string).collect()
+        self.inner.heads().encode()
     }
 
     /// The changes since `heads`, as bytes `merge` takes.
     #[wasm_bindgen(js_name = saveSince)]
     pub fn save_since(&mut self, heads: Vec<String>) -> Result<Vec<u8>, JsValue> {
-        Ok(self.inner.save_since(&heads_from(heads)?))
+        Ok(self.inner.save_since(&Heads::decode(&heads).map_err(refused)?))
     }
 
     /// Takes the changes `bytes` hold, another peer's `save` or `saveSince`,
@@ -102,7 +95,7 @@ impl Document {
     /// schema, throws `edit::bad_live_bytes` and changes nothing.
     #[wasm_bindgen(js_name = receiveSyncMessage)]
     pub fn receive_sync_message(&mut self, state: &mut SyncState, message: &[u8]) -> Result<(), JsValue> {
-        let message = SyncMessage::decode(message).map_err(|e| refused(LoadError::Decode(e.to_string())))?;
+        let message = SyncMessage::decode(message).map_err(refused)?;
         self.inner.receive_sync_message(&mut state.inner, message).map_err(refused)
     }
 }
