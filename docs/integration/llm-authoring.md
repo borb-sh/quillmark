@@ -70,6 +70,6 @@ const reply = await model(read.markdown)              // the model edits that ma
 quill.writer(doc).card(0).revise({}, reply, { baseContent: base })
 ```
 
-The scoped read is the read a revise at that address takes back: kept anchor tags pin their comments, and `baseContent` rebases the edit over any change made since the read.
+The scoped read is the read a revise at that address takes back: kept anchor tags pin their comments, and `baseContent` merges the edit with any change made since the read.
 
 Full model: [AUTHORING.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/AUTHORING.md).

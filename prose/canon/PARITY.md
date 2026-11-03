@@ -60,7 +60,7 @@ import meets. The columns:
 | Cell | Meaning |
 |---|---|
 | spells | the surface has a form for the construct and reads it back as written |
-| carries opaquely | the surface keeps the construct without reading it: an opaque carrier, or a markdown write through `revise` keeping an anchor by diff-rebase |
+| carries opaquely | the surface keeps the construct without reading it: an opaque carrier, or a markdown write through `revise` keeping an anchor by diff |
 | honors | the lowering draws it as CONVERT.md maps it |
 | declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render or `validate` under `backend::declined_construct` |
 | refuses | the surface rejects the write |

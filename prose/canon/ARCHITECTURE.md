@@ -20,9 +20,9 @@ do the heavy compilation.
 
 ## Crate Structure
 
-Seven crates publish to crates.io: `quillmark-core`, `quillmark`,
-`quillmark-content`, `quillmark-pdf`, `quillmark-typst`, `quillmark-acroform`
-and `quillmark-cli`. The binding and fixture crates are `publish = false`:
+Eight crates publish to crates.io: `quillmark-core`, `quillmark`,
+`quillmark-content`, `quillmark-automerge`, `quillmark-pdf`,
+`quillmark-typst`, `quillmark-acroform` and `quillmark-cli`. The binding and fixture crates are `publish = false`:
 they path-depend on the core beside them and ship as one build.
 
 The published crates carry **no API stability promise before 1.0**. The
@@ -43,7 +43,8 @@ Foundation types and traits: the render contract (`Backend` / `LiveSession`),
 the `Document` and `Quill` model, and the `Diagnostic` currency; see the
 crate's rustdoc for the full surface, and [Core Interfaces](#core-interfaces)
 below for the ones carrying the contract. It depends on `quillmark-content` (the leaf rich-text
-primitive one layer below it) and on no backend; backends depend on it.
+primitive one layer below it) and `quillmark-automerge` (the live state each
+content value keeps beside it), and on no backend; backends depend on it.
 
 ### `quillmark-content`
 
@@ -61,6 +62,18 @@ The workspace's only markdown parser (`pulldown-cmark`) lives here, in
 `quillmark-content::lines::import`, run once at ingest. **Invariant:** the Markdown
 parser appears exactly once in the workspace; no render path parses markdown:
 backends lower the content.
+
+### `quillmark-automerge`
+
+A content value held in an Automerge document (`Held`): the mapping between
+the two, a change lowered into Automerge operations from the trace `apply`
+gives, and the read back through merge repair, so every peer holding one
+merged state reads one valid value. `merge3` merges two changes made from one
+value, `conflict` names the record two of them both set, and `revise_keeping`
+is the markdown revise that keeps what its read does not spell by a merge
+([CONTENT.md](CONTENT.md) § "Live state and merge"). It depends on
+`quillmark-content` and on `automerge`, pinned exactly with no default
+features.
 
 ### `quillmark` (orchestration)
 

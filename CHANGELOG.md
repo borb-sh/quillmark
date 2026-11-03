@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
+
+- feat(core)!: **a stale write merges through Automerge.** Each content
+  value keeps a live Automerge document beside its `Content`, built on its
+  first write and in memory only, and each write lowers its change into it.
+  A write whose `base` names an earlier hash forks the document at the heads
+  that hash was left at, lands there and merges back, read through repair.
+  Text both sides edited keeps both edits, where it threw
+  `edit::rebase_conflict`; a record, container or island's props both set
+  still conflicts, `reason` `changed` or `missing`. `edit::stale_base` names a
+  hash no write this document took left, every base read before a load from
+  storage among them. The change log, `LOG_STEPS`, `change::rebase`,
+  `compose` and `diff::revise` are gone; `MAX_CHANGE_STEPS` is 16384, and
+  `Card::read_at` takes `&mut self`. Storage is unchanged.
+- feat(automerge): **`quillmark-automerge` holds a content value in an
+  Automerge 0.12 document**: `Held` maps a value both ways, lowers a change
+  from the trace `apply_traced` answers, and forks at earlier heads;
+  `merge3`, `conflict` and `revise` sit beside it. A point anchor is a pair
+  of one-character marks, not a cursor.
+- feat(core): **`Card::save`, `load`, `generate_sync_message` and
+  `receive_sync_message`** reach a value's live document, and
+  `edit::automerge` names bytes or a message it refuses.
+
 ## v0.134.1 - 2026-11-02
 
 - feat(wasm): **`repair(raw)` reads a merged state as a valid value.** It

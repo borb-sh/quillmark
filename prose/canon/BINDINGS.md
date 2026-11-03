@@ -50,7 +50,7 @@ A field's markdown lives here, and the quill-free markdown export stays on `Docu
 
 The rule scales from a field to a card without a new receiver: `reader.card(i)` / `writer.card(i)` answer the same verbs one card in, and `reader.resolve()` is the render view over the whole document, beside the authored read `get` answers ([SCHEMAS.md](SCHEMAS.md) § "The values form"). `quill.parse` / `quill.validate` / `quill.conform` stay on the quill as its ingestion and verdict verbs: a constructor, a diagnostic list, and `parse`'s in-place twin, none of them a read or write of a value.
 
-`revise` is the writer verb that is both typed *and* anchor-preserving: the content `revise` at the address, rebased over the read's loss with its quote relocation ([CONTENT.md](CONTENT.md) § "Writing a value").
+`revise` is the writer verb that is both typed *and* anchor-preserving: the content `revise` at the address, merged with the read's loss, with its quote relocation ([CONTENT.md](CONTENT.md) § "Writing a value").
 
 - At a field, the result then commits under the field schema like `set`. Because that needs the schema, it lives on the writer, wrapping core's `Card::revise_field_checked` primitive, which `Document` does not expose.
 - It takes the address `get` and `hashAt` take, so the body is the address with no field, not a verb of its own. The body's codec is `richtext` by format, and it has no schema to conform to.
@@ -74,7 +74,7 @@ The content write goes through one primitive. `apply(addr, change, { base, actor
 
 Every content write on `Document` takes `{ base, actor }` ([CONTENT.md](CONTENT.md) § Ids): `actor` scopes each id the write mints, and a live client passes one per session. The writer's revise verbs take a base alone, so the ids they mint, a card `reviseDocument` inserts included, are positional.
 
-Every receipt is `{ applied, hash, droppedAnchors, movedAnchors, warnings, rebased, minted }`: `invert(applied, before)` undoes the write, and `hash` is the next write's `base`. A dropped anchor is its selector, which `reattach` takes as given, and an anchor a removed island or slot held carries that `island` and `slot`. `warnings` holds a revise's `parse::dropped_construct` warnings, and `rebased` is true where the write rebased over a change since its base. `minted` maps each placeholder the change gave a record it put to the id the write minted for it.
+Every receipt is `{ applied, hash, droppedAnchors, movedAnchors, warnings, rebased, minted }`: `invert(applied, before)` undoes the write, and `hash` is the next write's `base`. A dropped anchor is its selector, which `reattach` takes as given, and an anchor a removed island or slot held carries that `island` and `slot`. `warnings` holds a revise's `parse::dropped_construct` warnings, and `rebased` is true where the write merged with a change since its base. `minted` maps each placeholder the change gave a record it put to the id the write minted for it.
 
 The bindings carry the write and the two helpers a writer outside the editor needs, `invert` and `diff`. WASM carries the editor's too ([CONTENT.md](CONTENT.md) § Changes):
 
@@ -85,7 +85,7 @@ The bindings carry the write and the two helpers a writer outside the editor nee
 
 Every input path that takes a value or a change bounds it before any work: a `Change` of more than `MAX_CHANGE_STEPS` (16 384) steps throws `edit::too_many_steps`, a `Content` or `RawContent` whose text and its slots' texts pass 10 MiB throws `edit::input_too_large`, as markdown past 10 MiB does at `revise` and `importMarkdown`, and a value past its mark or anchor bound throws `edit::too_many_marks` or `edit::too_many_anchors` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies").
 
-WASM and Python also expose merge `repair`, which reads a state concurrent edits merged into (`RawContent`) as the valid value every peer holding it reads, with each mend it made and the change from the merged text to the value's, which `mapPos` maps a position through ([CONTENT.md](CONTENT.md) § "Merge repair"). A stale write reaches rebase through `apply`, `revise` and `replace` with a base, so `compose` and `rebase` stay in Rust.
+WASM and Python also expose merge `repair`, which reads a state concurrent edits merged into (`RawContent`) as the valid value every peer holding it reads, with each mend it made and the change from the merged text to the value's, which `mapPos` maps a position through ([CONTENT.md](CONTENT.md) § "Merge repair"). A stale write reaches the merge through `apply`, `revise` and `replace` with a base, so the live Automerge document's `save`, `load` and sync messages stay in Rust ([CONTENT.md](CONTENT.md) § "Live state and merge").
 
 **A content write names its card by `$id`.** `Addr.card` (Python's `card=`) is a composable card's `$id` or its index on every verb, an id no card holds throwing `edit::unknown_card_id`. The content writes (`apply`, `revise`, `replace`) take the id alone and throw on an index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and an equal value there passes the base. The rest of the surface keeps the index, which it reads at the call.
 
@@ -126,9 +126,12 @@ The body follows from the same rule rather than from a separate one. `writer.rev
 
 **A write precondition is a hash, not a counter.** The preview gate asks whether this is the content last compiled; a write precondition asks whether the value a writer read is still the value stored. A write lands on the value stored now, so without one an edit made between a writer's read and its write reads as text the writer deleted, and is reverted without a signal.
 
-**Pass the base.** The content `apply`, `revise` and `replace` take `base`, the hash `doc.hash(addr)` answered when the writer read. A value that now hashes otherwise rebases the write over the change since, which the document keeps in memory for its recent writes ([CONTENT.md](CONTENT.md) § "Writing a value"). The receipt says `rebased`. A write that touches what changed refuses with `edit::rebase_conflict`, and a base the document no longer reaches with `edit::stale_base`, and the writer reads again.
+**Pass the base.** The content `apply`, `revise` and `replace` take `base`, the hash `doc.hash(addr)` answered when the writer read. A value that now hashes otherwise merges the write with the change since: the value's live Automerge document, in memory only, forks at the heads that hash was left at, takes the write there and merges back ([CONTENT.md](CONTENT.md) § "Live state and merge"). The receipt says `rebased`.
 
-The content writes' options take the hash as `base` or as `baseHash`, one meaning under either name: a stale hash rebases, on the content writes and on the typed writer's value revises below alike.
+- A write that sets a block record, container or island's props a change since also set refuses with `edit::rebase_conflict`; text both changed keeps both edits.
+- A hash no write this document took left, as every base read before the document was loaded from storage, refuses with `edit::stale_base`, and the writer reads again.
+
+The content writes' options take the hash as `base` or as `baseHash`, one meaning under either name: a stale hash merges, on the content writes and on the typed writer's value revises below alike.
 
 The writer's revise verbs take an optional base, the hash or the canonical value the writer read. The host holds what its writer read, so it holds the value itself as readily as its hash:
 
