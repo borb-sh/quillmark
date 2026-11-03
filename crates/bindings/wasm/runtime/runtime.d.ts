@@ -157,7 +157,6 @@ export type {
 	DocumentBaseOptions,
 	DocumentRevised,
 	CardAdded,
-	MergeConflict,
 	AnnotatedMarkdown,
 	AnnotatedExport,
 	DocumentAnchor,
@@ -752,10 +751,9 @@ export declare class DocumentWriter {
 	 *
 	 * `opts` names what the writer read: its `baseHash` (from {@link hashAt})
 	 * or its `baseContent` (the `Content` `doc.read` returned). A value that has
-	 * moved on merges the write with the change since and sets `rebased`,
-	 * throwing `edit::rebase_conflict` where the two conflict (CONTENT.md § "Live state and merge"); a
-	 * `baseHash` throws `edit::stale_base` where no write this document took
-	 * left it.
+	 * moved on merges the write with the change since as Automerge merges and
+	 * sets `rebased` (CONTENT.md § "Live state and merge"); a base the
+	 * document's history does not reach throws `edit::stale_base`.
 	 */
 	revise(addr: Addr | string, text: string, opts?: BaseOptions): Receipt;
 	/**
@@ -770,11 +768,9 @@ export declare class DocumentWriter {
 	 * leaving the document unchanged.
 	 *
 	 * `opts` names what the writer read: `baseHash` is {@link hash}, and
-	 * `baseStored` the `doc.toStored()` row it read. A stale hash throws before
-	 * any mutation. A stored base merges the write onto what changed since,
-	 * card by card and field by field: each place both changed keeps its value
-	 * now and is named in the receipt's `conflicts`, and the write throws
-	 * `edit::rebase_conflict` only where no merge can stand.
+	 * `baseStored` the `doc.save()` bytes it read. A stale hash throws before
+	 * any mutation. Under stored bytes the writer's revise lands at the heads
+	 * they were saved at, merged with every change since as Automerge merges.
 	 */
 	reviseDocument(markdown: string, opts?: DocumentBaseOptions): DocumentRevised;
 	/**

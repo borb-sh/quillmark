@@ -33,6 +33,7 @@ import {
   TEST_PLATE,
   TEST_MARKDOWN,
   MD_WITH_CARD,
+  byPlace,
 } from './test-helpers.js'
 
 initBuildSync(renderBuild, 'render')
@@ -577,7 +578,7 @@ describe('Content model: importMarkdown / exportMarkdown', () => {
     const doc = Document.parse('~~~card-yaml\n$quill: test_quill\n~~~\n')
     doc.replace({}, content)
     expect(Document.fromStored(doc.toStored()).main.body).toEqual(doc.main.body)
-    expect(doc.main.body.islands).toEqual(content.islands)
+    expect(byPlace(doc.main.body).islands).toEqual(byPlace(content).islands)
 
     const past = importMarkdown(table('9007199254740992 1'))
     expect(past.content.islands[0].props.widths).toBeUndefined()
@@ -753,14 +754,14 @@ describe('Document apply: the write primitive', () => {
     const reworded = { steps: [{ splice: { at: 9, delete: 'world', insert: 'there' } }] }
     doc.apply({}, { steps: [{ splice: { at: 14, delete: 'r', insert: 'R' } }] })
     expect(doc.apply({}, reworded, { base }).rebased).toBe(true)
-    expect(doc.read({}).text).toBe('🎉 😀 hello thereR')
+    expect(['🎉 😀 hello thereR', '🎉 😀 hello Rthere']).toContain(doc.read({}).text)
 
     const id = doc.read({}).blocks[0].id
     const heading = (level) => ({ steps: [{ setBlock: { id, kind: 'heading', attrs: { level } } }] })
     const read = doc.hash({})
     doc.apply({}, heading(2))
-    const err = expectEditCode(() => doc.apply({}, heading(3), { base: read }), 'edit::rebase_conflict')
-    expect(err.diagnostics[0].args).toMatchObject({ current: doc.hash({}), step: 0, reason: 'changed' })
+    expect(doc.apply({}, heading(3), { base: read }).rebased).toBe(true)
+    expect(doc.read({}).blocks[0].attrs).toEqual({ level: 3 })
   })
 
   it('a quoted step refuses text its writer did not read, offsets in UTF-16', () => {
@@ -799,7 +800,7 @@ describe('Document apply: the write primitive', () => {
     const doc = blankDoc()
     const value = { text: 'Note', blocks: [{ id: 'b0', kind: 'x-callout', attrs: { tone: 'warm' } }], marks: [{ start: 0, end: 4, type: 'x-glow' }] }
     doc.replace({}, value)
-    expect(doc.read({})).toEqual(value)
+    expect(byPlace(doc.read({}))).toEqual(byPlace(value))
     expect(exportMarkdown(value)).toBe('Note')
     expect(() => doc.replace({}, { ...value, blocks: [{ id: 'b0', kind: 'callout' }] })).toThrow(/callout/)
   })
@@ -819,13 +820,16 @@ describe('Document apply: the write primitive', () => {
     const base = doc.hash({})
     const split = doc.splitBlock({}, 4, { base, actor: 'ann' })
     expect(split.applied.steps[0].splice.at).toBe(4)
-    expect(split.minted).toEqual({ '?0': 'ann:b0' })
+    const ann = split.minted['?0']
+    expect(ann).toMatch(/@616e6e$/)
     expect(doc.read({}).text).toBe('😀 a\nb\none\ntwo')
-    const stale = doc.splitBlock({}, 1 + 2, { base, actor: 'bo', id: 'mine' })
+    const stale = doc.splitBlock({}, 1 + 2, { base, actor: 'bo' })
     expect(stale.rebased).toBe(true)
     expect(doc.read({}).text).toBe('😀 \na\nb\none\ntwo')
-    doc.joinBlocks({}, 'mine')
-    doc.joinBlocks({}, 'ann:b0')
+    const mine = doc.read({}).blocks[1].id
+    expect(mine).toMatch(/@626f$/)
+    doc.joinBlocks({}, mine)
+    doc.joinBlocks({}, ann)
     let c = doc.read({})
     expect(c.text).toBe('😀 ab\none\ntwo')
 
@@ -837,7 +841,7 @@ describe('Document apply: the write primitive', () => {
     const wrapped = doc.wrap({}, c.blocks[0].id, c.blocks[0].id, { kind: 'quote' }, { actor: 'ann' })
     c = doc.read({})
     expect(c.blocks[0].path).toEqual([wrapped.minted['?0']])
-    expect(c.containers.find((k) => k.id === 'ann:q0').kind).toBe('quote')
+    expect(c.containers.find((k) => k.id === wrapped.minted['?0']).kind).toBe('quote')
     expectEditCode(() => doc.indent({}, first), 'edit::content_apply')
     expectEditCode(() => doc.wrap({}, first, first, { kind: 'quote' }, { actor: 'a:b' }), 'edit::invalid_actor')
 
@@ -876,8 +880,9 @@ describe('Document apply: the write primitive', () => {
       { setBlock: { id: '?n', kind: 'heading', attrs: { level: 2 } } },
     ] }
     const receipt = doc.apply({}, change, { base, actor: 'ann' })
-    expect(receipt).toMatchObject({ rebased: true, minted: { '?n': 'ann:b0' } })
-    expect(doc.read({}).blocks[1]).toEqual({ id: 'ann:b0', kind: 'heading', attrs: { level: 2 } })
+    expect(receipt.rebased).toBe(true)
+    expect(receipt.minted['?n']).toMatch(/@616e6e$/)
+    expect(doc.read({}).blocks[1]).toEqual({ id: receipt.minted['?n'], kind: 'heading', attrs: { level: 2 } })
   })
 
   it('repair reads a merged state as a valid value, offsets in UTF-16', () => {
@@ -943,8 +948,8 @@ describe('Document apply: the write primitive', () => {
     expect(doc.read({}).blocks).toHaveLength(1)
     expect(exportMarkdown(doc.read({}))).toBe('one\\\ntwo')
 
-    doc.apply({}, { steps: [{ splice: { at: 3, delete: ' ', insert: '\n', blocks: [{ id: 'b9', kind: 'para' }] } }] })
-    expect(doc.read({}).blocks.map((b) => b.id)).toEqual([doc.read({}).blocks[0].id, 'b9'])
+    const split = doc.apply({}, { steps: [{ splice: { at: 3, delete: ' ', insert: '\n', blocks: [{ id: '?b', kind: 'para' }] } }] })
+    expect(doc.read({}).blocks.map((b) => b.id)).toEqual([doc.read({}).blocks[0].id, split.minted['?b']])
     expect(exportMarkdown(doc.read({}))).toBe('one\n\ntwo')
   })
 

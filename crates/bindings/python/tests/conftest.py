@@ -29,6 +29,30 @@ def field_keys(card):
     return [i["key"] for i in card["payload_items"] if i["type"] == "field"]
 
 
+def by_place(content):
+    """`content` with each block, container and island id named by its place,
+    as `Content::by_place` names them, so values of other histories that read
+    alike compare alike."""
+    ids = [b["id"] for b in content.get("blocks", [])]
+    ids += [c["id"] for c in content.get("containers", [])]
+    ids += [i["id"] for i in content.get("islands", [])]
+    names = {}
+    for n, i in enumerate(ids):
+        names.setdefault(i, f"p{n}")
+    name = lambda i: names.get(i, i)
+    out = dict(content)
+    if "blocks" in out:
+        out["blocks"] = [{**b, "id": name(b["id"]), **({"path": [name(p) for p in b["path"]]} if "path" in b else {})} for b in out["blocks"]]
+    if "containers" in out:
+        out["containers"] = [{**c, "id": name(c["id"])} for c in out["containers"]]
+    if "islands" in out:
+        out["islands"] = [
+            {**i, "id": name(i["id"]), **({"slots": {k: by_place(v) for k, v in i["slots"].items()}} if "slots" in i else {})}
+            for i in out["islands"]
+        ]
+    return out
+
+
 @contextmanager
 def raises_edit_code(code):
     """Assert the block raises `QuillmarkError` whose primary diagnostic carries

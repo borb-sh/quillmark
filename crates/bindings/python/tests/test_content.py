@@ -5,7 +5,7 @@ changes. Offsets count code points."""
 import pytest
 from quillmark import Document, diff, export_markdown, import_markdown, invert, is_inline, is_plain, normalize, repair
 
-from conftest import raises_edit_code
+from conftest import by_place, raises_edit_code
 
 MD = "~~~card-yaml\n$quill: test_quill\n~~~\n\nhello world\n"
 
@@ -68,17 +68,17 @@ def test_a_stale_base_merges_with_the_change_since():
 
     read = doc.hash_at()
     doc.apply(heading(2))
-    with raises_edit_code("edit::rebase_conflict") as err:
-        doc.apply(heading(3), base=read)
-    assert err.value.diagnostics[0].args == {"current": doc.hash_at(), "step": 0, "reason": "changed"}
+    assert doc.apply(heading(3), base=read)["rebased"] is True
+    assert doc.read()["blocks"][0]["attrs"] == {"level": 3}
 
 
 def test_a_placeholder_is_minted_under_the_writers_actor():
     doc = Document.parse(MD)
     change = {"steps": [{"splice": {"at": 5, "insert": "\nnew", "blocks": [{"id": "?n", "kind": "para"}]}}]}
     receipt = doc.apply(change, actor="ann")
-    assert receipt["minted"] == {"?n": "ann:b0"}
-    assert [b["id"] for b in doc.read()["blocks"]] == ["b0", "ann:b0"]
+    (minted,) = receipt["minted"].values()
+    assert minted.endswith("@" + "ann".encode().hex())
+    assert doc.read()["blocks"][1]["id"] == minted
     with raises_edit_code("edit::invalid_actor"):
         doc.apply({"steps": []}, actor="a:b")
 
@@ -87,7 +87,7 @@ def test_a_reserved_x_name_rides_as_written():
     doc = Document.parse(MD)
     value = {"text": "Note", "blocks": [{"id": "b0", "kind": "x-callout", "attrs": {"tone": "warm"}}], "marks": [{"start": 0, "end": 4, "type": "x-glow"}]}
     doc.replace(value)
-    assert doc.read() == value
+    assert by_place(doc.read()) == by_place(value)
     with pytest.raises(Exception, match="callout"):
         doc.replace({**value, "blocks": [{"id": "b0", "kind": "callout"}]})
 

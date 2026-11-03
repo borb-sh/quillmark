@@ -160,3 +160,31 @@ agree: true
 favorite_color: green
 ~~~
 `
+
+/** `content` with each block, container and island id named by its place,
+ * as `Content::by_place` names them, so values of other histories that read
+ * alike compare alike. */
+export function byPlace(content) {
+  const ids = [...(content.blocks ?? []), ...(content.containers ?? []), ...(content.islands ?? [])].map((r) => r.id)
+  const names = new Map()
+  ids.forEach((id, n) => names.has(id) || names.set(id, `p${n}`))
+  const name = (id) => names.get(id) ?? id
+  const out = { ...content }
+  if (out.blocks) out.blocks = out.blocks.map((b) => ({ ...b, id: name(b.id), ...(b.path ? { path: b.path.map(name) } : {}) }))
+  if (out.containers) out.containers = out.containers.map((c) => ({ ...c, id: name(c.id) }))
+  if (out.islands) {
+    out.islands = out.islands.map((i) => ({
+      ...i,
+      id: name(i.id),
+      ...(i.slots ? { slots: Object.fromEntries(Object.entries(i.slots).map(([k, v]) => [k, byPlace(v)])) } : {}),
+    }))
+  }
+  return out
+}
+
+/** `stored` with each minted id named by the order it first appears in,
+ * since two documents mint under different actors. */
+export function storedByPlace(stored) {
+  const names = new Map()
+  return stored.replace(/\d+@[0-9a-f]+/g, (id) => names.get(id) ?? (names.set(id, `#${names.size}`), names.get(id)))
+}

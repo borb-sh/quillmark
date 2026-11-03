@@ -941,12 +941,12 @@ impl PyDocument {
     /// form, which `invert` undoes), `hash` (the next write's `base`),
     /// `dropped_anchors`, `moved_anchors`, `warnings`, `rebased` and
     /// `minted`, each placeholder id the change gave a record mapped to the id
-    /// the write minted. `actor` scopes each id the write mints,
-    /// `{actor}:{prefix}{n}`. `base` is the hash the writer read
+    /// the write minted. `actor` is the Automerge actor the write writes
+    /// under, each id it mints an object id under it. `base` is the hash the writer read
     /// (`hash_at`); pass it. One the value has
-    /// moved on from merges the change with the change since, raising
-    /// `edit::rebase_conflict` where they conflict (CONTENT.md § "Live state and merge") and
-    /// `edit::stale_base` where no write this document took left the hash. A refused change raises `edit::content_apply` and writes
+    /// moved on from merges the change with the change since as Automerge
+    /// merges (CONTENT.md § "Live state and merge"), raising
+    /// `edit::stale_base` where the document's history does not reach the hash. A refused change raises `edit::content_apply` and writes
     /// nothing.
     #[pyo3(signature = (change, field=None, card=None, base=None, actor=None))]
     fn apply<'py>(
@@ -1005,31 +1005,38 @@ impl PyDocument {
         crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base: base.map(quillmark_core::document::Base::Hash), actor })
     }
 
-    /// The live Automerge document of the value at `field` on `card`, as its
-    /// bytes: made from the value where no write has made it yet. `card` is
-    /// a card's id, as on every live verb; otherwise raises as `read`.
-    #[pyo3(signature = (field=None, card=None))]
-    fn save<'py>(&mut self, py: Python<'py>, field: Option<&str>, card: Option<CardSel>) -> PyResult<Bound<'py, PyBytes>> {
-        require_card_id(&card, "save")?;
-        let target = Target::resolve(&self.inner, card)?;
-        let bytes = crate::content::card_mut(&mut self.inner, target.index)
-            .save(quillmark_core::document::Target::from(field))
-            .map_err(|e| convert_edit_error(e, &target.base))?;
-        Ok(PyBytes::new(py, &bytes))
+    /// The document as Automerge bytes, its whole history: the row a host
+    /// stores, which `from_bytes` reads back.
+    fn save<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.inner.to_bytes())
     }
 
-    /// Replace the live document of the value at `field` on `card` with the
-    /// one `data` holds (`save`'s), store what it reads as, and return the
-    /// receipt of a write from the value before. The document keeps the
-    /// history `data` holds but notes no hash before the load, so a base read
-    /// before it raises `edit::stale_base`. Bytes that hold no value, or the
-    /// live document of another card or field, raise `edit::bad_live_bytes`;
-    /// `card` is a card's id, as a content write's is.
-    #[pyo3(signature = (data, field=None, card=None))]
-    fn load<'py>(&mut self, py: Python<'py>, data: &[u8], field: Option<&str>, card: Option<CardSel>) -> PyResult<Bound<'py, PyDict>> {
-        require_card_id(&card, "load")?;
-        let target = Target::resolve(&self.inner, card)?;
-        crate::content::taking(py, &mut self.inner, target.index, &target.base, field, |card, t| card.load(t, data))
+    /// The document `data` holds, as `save` gave them or a merge of several.
+    /// Bytes that do not decode, or hold no Quillmark document of a schema
+    /// this build reads, raise `edit::bad_live_bytes`.
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        let inner = quillmark_core::document::Document::from_bytes(data).map_err(crate::content::refused)?;
+        Ok(PyDocument { inner, parse_warnings: Vec::new() })
+    }
+
+    /// The document's revision: the hashes of its Automerge heads.
+    fn heads(&mut self) -> Vec<String> {
+        self.inner.heads().iter().map(ToString::to_string).collect()
+    }
+
+    /// The changes since `heads`, as bytes `merge` takes.
+    fn save_since<'py>(&mut self, py: Python<'py>, heads: Vec<String>) -> PyResult<Bound<'py, PyBytes>> {
+        let heads = crate::content::heads_from(&heads)?;
+        Ok(PyBytes::new(py, &self.inner.save_since(&heads)))
+    }
+
+    /// Take the changes `data` holds, another peer's `save` or `save_since`,
+    /// and merge them as Automerge merges. Bytes that do not decode, or leave
+    /// the document outside its schema, raise `edit::bad_live_bytes` and
+    /// change nothing.
+    fn merge(&mut self, data: &[u8]) -> PyResult<()> {
+        self.inner.merge(data).map_err(crate::content::refused)
     }
 
     /// A fresh `SyncState`, as `SyncState()` makes.
@@ -1038,47 +1045,18 @@ impl PyDocument {
         crate::content::PySyncState { inner: Default::default() }
     }
 
-    /// The next Automerge sync message from the live document of the value
-    /// at `field` on `card` to the peer `state` tracks, `None` where the peer
-    /// holds everything. `card` is a card's id, as on every live verb;
-    /// otherwise raises as `read`.
-    #[pyo3(signature = (state, field=None, card=None))]
-    fn generate_sync_message<'py>(
-        &mut self,
-        py: Python<'py>,
-        state: &mut crate::content::PySyncState,
-        field: Option<&str>,
-        card: Option<CardSel>,
-    ) -> PyResult<Option<Bound<'py, PyBytes>>> {
-        require_card_id(&card, "generate_sync_message")?;
-        let target = Target::resolve(&self.inner, card)?;
-        let message = crate::content::card_mut(&mut self.inner, target.index)
-            .generate_sync_message(quillmark_core::document::Target::from(field), &mut state.inner)
-            .map_err(|e| convert_edit_error(e, &target.base))?;
-        Ok(message.map(|m| PyBytes::new(py, &m.encode())))
+    /// The next Automerge sync message to the peer `state` tracks, `None`
+    /// where the peer holds everything.
+    fn generate_sync_message<'py>(&mut self, py: Python<'py>, state: &mut crate::content::PySyncState) -> Option<Bound<'py, PyBytes>> {
+        self.inner.generate_sync_message(&mut state.inner).map(|m| PyBytes::new(py, &m.encode()))
     }
 
-    /// Take an Automerge sync message from the peer `state` tracks into the
-    /// live document of the value at `field` on `card`, store what it then
-    /// reads as, and return the receipt of a write from the value before:
-    /// its `dropped_anchors` each anchor the merge left nowhere, its
-    /// `moved_anchors` each one it moved. A message the document refuses, one
-    /// from the live document of another card or field among them, raises
-    /// `edit::bad_live_bytes`; `card` is a card's id, as a content write's is.
-    #[pyo3(signature = (state, message, field=None, card=None))]
-    fn receive_sync_message<'py>(
-        &mut self,
-        py: Python<'py>,
-        state: &mut crate::content::PySyncState,
-        message: &[u8],
-        field: Option<&str>,
-        card: Option<CardSel>,
-    ) -> PyResult<Bound<'py, PyDict>> {
-        require_card_id(&card, "receive_sync_message")?;
-        let target = Target::resolve(&self.inner, card)?;
-        crate::content::taking(py, &mut self.inner, target.index, &target.base, field, |card, t| {
-            card.receive_sync_message(t, &mut state.inner, crate::content::sync_message(message)?)
-        })
+    /// Take an Automerge sync message from the peer `state` tracks. A message
+    /// that does not decode, or would leave the document outside its schema,
+    /// raises `edit::bad_live_bytes` and changes nothing.
+    fn receive_sync_message(&mut self, state: &mut crate::content::PySyncState, message: &[u8]) -> PyResult<()> {
+        let message = crate::content::sync_message(message).map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))?;
+        self.inner.receive_sync_message(&mut state.inner, message).map_err(crate::content::refused)
     }
 }
 
@@ -1442,12 +1420,11 @@ impl PyWriter {
     ///
     /// `base_hash` or `base_content` names what the writer read: its hash
     /// (`hash_at`), or the value itself as canonical Content-JSON (`read`). A
-    /// value that has moved on merges the write with the change since,
-    /// raising `edit::rebase_conflict` where the two conflict (CONTENT.md § "Live state and merge"); a
-    /// `base_hash` raises `edit::stale_base` where no write this document took
-    /// left it, as for any base read before it was loaded from storage, and a
-    /// `base_content` holds however long ago it was read. Either refusal's
-    /// `args["current"]` is the hash now.
+    /// value that has moved on merges the write with the change since as
+    /// Automerge merges (CONTENT.md § "Live state and merge"); a base the
+    /// document's history does not reach, as any read before it was loaded
+    /// from its stored row, raises `edit::stale_base`, its `args["current"]`
+    /// the hash now.
     #[pyo3(signature = (text, field=None, card=None, *, base_hash=None, base_content=None))]
     fn revise<'py>(
         &self,
@@ -1498,25 +1475,27 @@ impl PyWriter {
     /// or a `$quill` this quill does not answer to, leaving the document
     /// unchanged.
     ///
-    /// `base_hash` (`hash()`) or `base_stored` (the `to_stored()` row the
-    /// writer read) guard the write. A stale hash raises before any mutation.
-    /// Under `base_stored` the writer's change and the change since merge card
-    /// by card and field by field; each place both changed keeps its value now
-    /// and is named in the receipt's `conflicts`, a list of
-    /// `{path, base, current, proposed}`, and the write raises
-    /// `edit::rebase_conflict` only where no merge can stand.
+    /// `base_hash` (`hash()`) or `base_stored` (the `save()` bytes the writer
+    /// read, or a `to_stored()` row) guard the write. A stale hash raises
+    /// before any mutation. Under `base_stored` bytes of this document's
+    /// history, the writer's change lands at the heads they were saved at and
+    /// merges with every change since as Automerge merges; a row or bytes of
+    /// another history hold only where they read as the document now.
     #[pyo3(signature = (markdown, *, base_hash=None, base_stored=None))]
     fn revise_document<'py>(
         &self,
         py: Python<'py>,
         markdown: &str,
         base_hash: Option<&str>,
-        base_stored: Option<&str>,
+        base_stored: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Bound<'py, PyDict>> {
         use quillmark_core::document::DocumentBase;
         let stored = match (base_hash, base_stored) {
             (Some(_), Some(_)) => return Err(PyValueError::new_err("name base_hash or base_stored, not both")),
-            (_, Some(stored)) => Some(PyDocument::from_stored(stored)?.inner),
+            (_, Some(stored)) => Some(match stored.cast::<PyBytes>() {
+                Ok(bytes) => PyDocument::from_bytes(bytes.as_bytes())?.inner,
+                Err(_) => PyDocument::from_stored(stored.extract()?)?.inner,
+            }),
             _ => None,
         };
         let read = match (base_hash, &stored) {
@@ -1541,22 +1520,6 @@ impl PyWriter {
         )?;
         receipt.set_item("warnings", py_diagnostics(revised.warnings))?;
         receipt.set_item("from", revised.from)?;
-        let conflicts: Vec<_> = revised
-            .conflicts
-            .into_iter()
-            .map(|c| {
-                serde_json::json!({
-                    "path": c.path.to_string(),
-                    "base": c.base,
-                    "current": c.current,
-                    "proposed": c.proposed,
-                })
-            })
-            .collect();
-        receipt.set_item(
-            "conflicts",
-            json_to_py(py, &serde_json::Value::Array(conflicts))?,
-        )?;
         Ok(receipt)
     }
 

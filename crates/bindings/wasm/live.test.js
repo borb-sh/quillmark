@@ -1,123 +1,95 @@
 /**
- * A value's live Automerge document across the WASM boundary: `save` and
- * `load`, and the sync protocol two documents run through
- * `generateSyncMessage` / `receiveSyncMessage` (prose/canon/CONTENT.md
- * § "Live state and merge").
+ * The document's Automerge history across the WASM boundary: `save` and
+ * `fromBytes`, `heads`, `saveSince` and `merge`, and the sync protocol two
+ * documents run through `generateSyncMessage` / `receiveSyncMessage`
+ * (prose/canon/DOCUMENT_STORAGE.md).
  */
 import { describe, it, expect } from 'vitest'
 import { init } from '@quillmark-wasm/runtime'
 import { expectEditCode } from './test-helpers.js'
 
-const { Document, SyncState, importMarkdown } = await init()
+const { Document, SyncState } = await init()
 
 const parse = (body) => Document.parse(`~~~\n$quill: q\n~~~\n\n${body}\n`)
 
-/** Run the sync protocol between `a` and `b` at `addr` until neither has a
- * message, answering the receipts each received. */
-function sync(a, b, addr = {}, [toB, toA] = [new SyncState(), new SyncState()]) {
-  const receipts = { a: [], b: [] }
-  for (let round = 0; round < 16; round++) {
-    const forB = a.generateSyncMessage(addr, toB)
-    if (forB) receipts.b.push(b.receiveSyncMessage(addr, toA, forB))
-    const forA = b.generateSyncMessage(addr, toA)
-    if (forA) receipts.a.push(a.receiveSyncMessage(addr, toB, forA))
-    if (!forA && !forB) return receipts
+/** Run the sync protocol between `a` and `b` until neither has a message,
+ * answering how many messages crossed. */
+function sync(a, b, states = [new SyncState(), new SyncState()]) {
+  const [toB, toA] = states
+  let crossed = 0
+  for (let i = 0; i < 16; i++) {
+    const forB = a.generateSyncMessage(toB)
+    if (forB) {
+      b.receiveSyncMessage(toA, forB)
+      crossed++
+    }
+    const forA = b.generateSyncMessage(toA)
+    if (forA) {
+      a.receiveSyncMessage(toB, forA)
+      crossed++
+    }
+    if (!forA && !forB) return crossed
   }
   throw new Error('the sync did not settle')
 }
 
-describe('the live document', () => {
-  it('saves to bytes another document loads, a base read before the load stale', () => {
+const splice = (at, insert) => ({ steps: [{ splice: { at, delete: '', insert } }] })
+
+describe('a document as Automerge bytes', () => {
+  it('saves to bytes fromBytes reads back', () => {
     const doc = parse('Hello world')
-    doc.apply({}, { steps: [{ splice: { at: 5, delete: '', insert: ' brave' } }] })
-    const bytes = doc.save({})
+    doc.apply({}, splice(5, ' brave'))
+    const bytes = doc.save()
     expect(bytes).toBeInstanceOf(Uint8Array)
 
-    const other = parse('else')
-    const before = other.hash({})
-    const receipt = other.load({}, bytes)
+    const other = Document.fromBytes(bytes)
     expect(other.read({})).toEqual(doc.read({}))
-    expect(receipt.hash).toBe(doc.hash({}))
-    expect(receipt.applied.steps.length).toBeGreaterThan(0)
-    expectEditCode(() => other.apply({}, { steps: [] }, { base: before }), 'edit::stale_base')
-
-    expectEditCode(() => other.load({}, new Uint8Array([1, 2, 3])), 'edit::bad_live_bytes')
-    expectEditCode(() => other.receiveSyncMessage({}, Document.syncState(), new Uint8Array([1, 2, 3])), 'edit::bad_live_bytes')
-    expect(other.read({})).toEqual(doc.read({}))
-  })
-
-  it('brings two documents parsed from one value to one value, receipts in UTF-16', () => {
-    const a = parse('😀 one two')
-    const b = parse('😀 one two')
-    a.apply({}, { steps: [{ splice: { at: 3, delete: '', insert: 'X' } }] }, { actor: 'ann' })
-    b.apply({}, { steps: [{ splice: { at: 10, delete: '', insert: ' three' } }] }, { actor: 'bo' })
-
-    const receipts = sync(a, b)
-    expect(a.read({})).toEqual(b.read({}))
-    expect(a.read({}).text).toBe('😀 Xone two three')
-    expect(a.hash({})).toBe(b.hash({}))
-    const splices = receipts.b.flatMap((r) => r.applied.steps).map((s) => s.splice)
-    expect(splices.map((s) => s.at)).toEqual([3])
-    const again = sync(a, b)
-    expect([...again.a, ...again.b].flatMap((r) => r.applied.steps)).toEqual([])
-  })
-
-  it('names in the receipt an anchor a merge took out, and a field syncs as the body does', () => {
-    const a = parse('Hello brave new world')
-    a.apply({}, { steps: [{ anchor: { id: 'c-1', start: 6, end: 15 } }] })
-    const b = parse('else')
-    b.load({}, a.save({}))
-    a.apply({}, { steps: [{ splice: { at: 6, delete: 'brave ', insert: '' } }] }, { actor: 'ann' })
-    b.apply({}, { steps: [{ splice: { at: 11, delete: ' new', insert: '' } }] }, { actor: 'bo' })
-
-    const receipts = sync(a, b)
-    expect(a.read({}).text).toBe('Hello  world')
-    expect(b.read({})).toEqual(a.read({}))
-    for (const side of [receipts.a, receipts.b]) {
-      expect(side.flatMap((r) => r.droppedAnchors)).toEqual([expect.objectContaining({ id: 'c-1', path: 'main.body' })])
-    }
-
-    a.replace({ field: 'note' }, importMarkdown('a note').content, { actor: 'ann' })
-    sync(a, b, { field: 'note' })
-    expect(b.read({ field: 'note' })).toEqual(a.read({ field: 'note' }))
-    expect(Document.syncState()).toBeInstanceOf(SyncState)
-  })
-
-  it('refuses bytes or a message from the live document of another value, however equal', () => {
-    const two = Document.parse('~~~\n$quill: q\n~~~\n\n~~~card-yaml\n$kind: note\n$id: aaa\n~~~\n\nHello\n\n~~~card-yaml\n$kind: note\n$id: bbb\n~~~\n\nHello\n')
-    const [aaa, bbb] = [{ card: 'aaa' }, { card: 'bbb' }]
-    const err = expectEditCode(() => two.load(bbb, two.save(aaa)), 'edit::bad_live_bytes')
-    expect(err.diagnostics[0].args.reason).toBe('address')
-
-    const peer = Document.parse(two.toMarkdown())
-    const [toPeer, toTwo] = [Document.syncState(), Document.syncState()]
-    peer.receiveSyncMessage(aaa, toTwo, two.generateSyncMessage(bbb, toPeer))
-    const reply = peer.generateSyncMessage(aaa, toTwo)
-    const refused = expectEditCode(() => two.receiveSyncMessage(bbb, toPeer, reply), 'edit::bad_live_bytes')
-    expect(refused.diagnostics[0].args.reason).toBe('address')
-  })
-
-  it('keeps a peer\'s sync state across encode and decode', () => {
-    const [a, b] = [parse('Hello world'), parse('Hello world')]
-    const states = [new SyncState(), new SyncState()]
-    sync(a, b, {}, states)
-    a.apply({}, { steps: [{ splice: { at: 5, delete: '', insert: ' brave' } }] }, { actor: 'ann' })
-
-    const decoded = states.map((s) => SyncState.decode(s.encode()))
-    const receipts = sync(a, b, {}, decoded)
-    expect(b.read({})).toEqual(a.read({}))
-    expect(b.read({}).text).toBe('Hello brave world')
-    expect(receipts.b.flatMap((r) => r.applied.steps)).toHaveLength(1)
-    const err = expectEditCode(() => SyncState.decode(new Uint8Array([1, 2, 3])), 'edit::bad_live_bytes')
+    expect(other.heads()).toEqual(doc.heads())
+    expect(other.toMarkdown()).toBe(doc.toMarkdown())
+    const err = expectEditCode(() => Document.fromBytes(new Uint8Array([1, 2, 3])), 'edit::bad_live_bytes')
     expect(err.diagnostics[0].args.reason).toBe('decode')
   })
 
-  it('names a card by $id on every live verb', () => {
-    const doc = Document.parse('~~~\n$quill: q\n~~~\n\n~~~card-yaml\n$kind: note\n$id: aaa\n~~~\n\nHello\n')
-    const bytes = doc.save({ card: 'aaa' })
-    expect(() => doc.save({ card: 0 })).toThrow(/\$id/)
-    expect(() => doc.generateSyncMessage({ card: 0 }, new SyncState())).toThrow(/\$id/)
-    expect(() => doc.load({ card: 0 }, bytes)).toThrow(/\$id/)
-    expect(() => doc.receiveSyncMessage({ card: 0 }, new SyncState(), new Uint8Array())).toThrow(/\$id/)
+  it('merges the changes since heads into a peer', () => {
+    const a = parse('Hello world')
+    const b = Document.fromBytes(a.save())
+    const heads = a.heads()
+    a.apply({}, splice(5, ' brave'), { actor: 'ann' })
+    b.apply({}, splice(11, '!'), { actor: 'b0' })
+
+    b.merge(a.saveSince(heads))
+    a.merge(b.save())
+    expect(a.read({}).text).toBe('Hello brave world!')
+    expect(b.read({})).toEqual(a.read({}))
+    expect([...a.heads()].sort()).toEqual([...b.heads()].sort())
+  })
+})
+
+describe('the sync protocol', () => {
+  it('brings two documents from one save to one value', () => {
+    const a = parse('😀 one two')
+    const b = Document.fromBytes(a.save())
+    a.apply({}, splice(3, 'X'), { actor: 'ann' })
+    b.apply({}, splice(10, ' three'), { actor: 'b0' })
+
+    const states = [new SyncState(), Document.syncState()]
+    expect(sync(a, b, states)).toBeGreaterThan(0)
+    expect(a.read({}).text).toBe('😀 Xone two three')
+    expect(b.read({})).toEqual(a.read({}))
+    expect(sync(a, b, states)).toBe(0)
+    expectEditCode(() => a.receiveSyncMessage(new SyncState(), new Uint8Array([1, 2, 3])), 'edit::bad_live_bytes')
+  })
+
+  it('keeps a sync state across encode and decode', () => {
+    const a = parse('Hello world')
+    const b = Document.fromBytes(a.save())
+    const states = [new SyncState(), new SyncState()]
+    sync(a, b, states)
+    a.apply({}, splice(5, ' brave'), { actor: 'ann' })
+
+    sync(a, b, states.map((s) => SyncState.decode(s.encode())))
+    expect(b.read({}).text).toBe('Hello brave world')
+    const err = expectEditCode(() => SyncState.decode(new Uint8Array([1, 2, 3])), 'edit::bad_live_bytes')
+    expect(err.diagnostics[0].args.reason).toBe('decode')
   })
 })

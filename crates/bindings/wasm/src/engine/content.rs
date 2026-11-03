@@ -211,15 +211,16 @@ export interface DroppedAnchor extends AnchorContext {
 }
 
 /** `base` is the hash a writer read. A value that has changed since merges
- *  the write with the change, refusing it with `edit::rebase_conflict` where
- *  the two conflict (CONTENT.md § "Live state and merge"), and with
- *  `edit::stale_base` where no write this document took left that hash, as
- *  for any base read before it was loaded from storage. Pass it: a write without one
+ *  the write with the change as Automerge merges (CONTENT.md § "Live state
+ *  and merge"), refusing it with `edit::stale_base` where the document's
+ *  history does not reach that hash, as for any base read before it was
+ *  loaded from its stored row. Pass it: a write without one
  *  lands over whatever the value now holds.
  *
- *  `actor` names the writer, one per live session: each id the write mints
- *  is `{actor}:{prefix}{n}`, so two clients writing from one value never mint
- *  one id. Without one a write mints `{prefix}{n}`, as an import does. An
+ *  `actor` names the writer, one per live session: the write writes under
+ *  that Automerge actor, so each id it mints is an object id under it and two
+ *  clients never mint one id. Without one a write writes under the
+ *  document's own actor. An
  *  actor is 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, as a
  *  card placement's is; another throws `edit::invalid_actor`. */
 export interface WriteOptions {
@@ -585,8 +586,8 @@ impl Document {
     /// answer the `Receipt`. `opts.base` is the hash the writer read
     /// (`hash(addr)`), and the change's offsets are into the value it names:
     /// one the value has moved on from merges the change with the change
-    /// since, throwing `edit::rebase_conflict` where they conflict (CONTENT.md § "Live state and merge") and
-    /// `edit::stale_base` where no write this document took left the hash. A refused change throws `edit::content_apply` and writes
+    /// since as Automerge merges (CONTENT.md § "Live state and merge"),
+    /// throwing `edit::stale_base` where the document's history does not reach the hash. A refused change throws `edit::content_apply` and writes
     /// nothing.
     #[wasm_bindgen(js_name = apply, unchecked_return_type = "Receipt")]
     pub fn apply(
