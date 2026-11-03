@@ -52,13 +52,15 @@ proptest! {
     }
 
     /// A block kind one change set stays where the other neither sets that
-    /// block's record nor removes it, and the merge needed no repair.
+    /// block's record nor removes it, nor conflicts with the change as a
+    /// stale write does, and the merge needed no repair.
     #[test]
     fn a_kind_one_side_set_the_other_left_alone_stays(d in document(), mine in ops(), theirs in ops()) {
         let (c, o) = (change_for(&d, &mine), change_from(&d, &theirs, 500));
         let merged = merge3(&d, &c, &o).unwrap();
         prop_assume!(merged.repairs.is_empty());
         let (ours, theirs) = (apply(&d, &c).unwrap().content, apply(&d, &o).unwrap().content);
+        prop_assume!(conflict(&d, &theirs, &c).is_none());
         let set: Vec<&str> = c.steps.iter().filter_map(|s| match s {
             Step::SetBlock(SetBlock { id, kind: Some(_), .. }) | Step::SetBlock(SetBlock { id, attrs: Some(_), .. }) => Some(id.as_str()),
             _ => None,

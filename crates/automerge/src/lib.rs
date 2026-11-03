@@ -12,12 +12,14 @@
 mod lower;
 mod map;
 mod merge;
+mod own;
 
 pub use automerge;
-pub use merge::{Conflict, Reason, conflict, merge3, revise, revise_keeping};
+pub use merge::{Conflict, Reason, conflict, deleted, merge3, reminted, resolved, revise, revise_keeping};
 
 use automerge::sync::{self, SyncDoc};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use automerge::transaction::CommitOptions;
 use automerge::{ActorId, AutoCommit, AutomergeError, ChangeHash, LoadOptions, ObjId, ROOT, TextEncoding};
@@ -34,14 +36,33 @@ const FIRST: &[u8] = b"~";
 /// The byte between an actor's id and its fork's level in a fork's id.
 const FORK: &[u8] = b"\x1f";
 
-/// A value held in an Automerge document. A write with no actor of its own
-/// writes under the document's own random actor, which a clone keeps: a
-/// clone that writes is the same peer, and another peer loads a save.
+/// A value held in an Automerge document, at an address: the name of the
+/// place the value sits, which its first change carries, so the documents
+/// of two addresses share no history and neither takes the other's changes.
+/// A write with no actor of its own writes under the document's own random
+/// actor, which a clone keeps: a clone that writes is the same peer, and
+/// another peer loads a save.
 #[derive(Debug, Clone)]
 pub struct Held {
     doc: AutoCommit,
     root: ObjId,
     own: ActorId,
+    checkpoint: Arc<Checkpoint>,
+}
+
+/// The document as it was at `heads`, which a fork at heads after them
+/// starts from rather than replaying the history from its first change.
+#[derive(Debug)]
+struct Checkpoint {
+    doc: AutoCommit,
+    heads: Vec<ChangeHash>,
+}
+
+impl Checkpoint {
+    fn of(doc: &mut AutoCommit) -> Arc<Checkpoint> {
+        let heads = doc.get_heads();
+        Arc::new(Checkpoint { doc: doc.clone(), heads })
+    }
 }
 
 /// The value a document reads as: what repair made of its merged state, what
@@ -62,6 +83,8 @@ pub enum LoadError {
     Shape,
     #[error("the value the document holds does not read as content: {0}")]
     Content(String),
+    #[error("the document holds the value of another address")]
+    Address,
 }
 
 impl LoadError {
@@ -71,34 +94,45 @@ impl LoadError {
             LoadError::Decode(_) => "decode",
             LoadError::Shape => "shape",
             LoadError::Content(_) => "content",
+            LoadError::Address => "address",
         }
     }
 }
 
 impl Held {
-    /// A new document holding `content`. Its first change is written under
-    /// one actor at time 0, so every process builds one value's first change
-    /// as the same bytes, and two documents built from equal values share
-    /// their origin and sync.
-    pub fn new(content: &Content) -> Held {
+    /// A new document holding `content` at `address`. Its first change is
+    /// written under one actor at time 0 with `address` as its message, so
+    /// every process builds the first change of one value at one address as
+    /// the same bytes: two documents built so share their origin and sync,
+    /// and two of different addresses or values share none.
+    pub fn new(content: &Content, address: &str) -> Held {
         let mut doc = AutoCommit::new_with_encoding(TextEncoding::UnicodeCodePoint).with_actor(ActorId::from(FIRST));
         let root = map::create(&mut doc, &ROOT, KEY, content);
-        doc.commit_with(CommitOptions::default().with_time(0));
+        doc.commit_with(CommitOptions::default().with_time(0).with_message(address.to_string()));
         let own = ActorId::random();
         doc.set_actor(own.clone());
-        Held { doc, root, own }
+        let checkpoint = Checkpoint::of(&mut doc);
+        Held { doc, root, own, checkpoint }
     }
 
-    /// The value a document's bytes hold, and what it reads as. Refused
-    /// where the bytes do not decode, the document holds no value in the
-    /// shape [`map`](crate) writes, or its raw value does not read as
-    /// content.
-    pub fn load(bytes: &[u8]) -> Result<(Held, Read), LoadError> {
+    /// The value a document's bytes hold at `address`, and what it reads
+    /// as. Refused where the bytes do not decode, the document's history
+    /// opens with no change [`new`](Held::new) made at `address`, it holds
+    /// no value in the shape [`map`](crate) writes, or its raw value does
+    /// not read as content.
+    pub fn load(bytes: &[u8], address: &str) -> Result<(Held, Read), LoadError> {
         let options = LoadOptions::new().text_encoding(TextEncoding::UnicodeCodePoint);
-        let doc = AutoCommit::load_with_options(bytes, options).map_err(|e| LoadError::Decode(e.to_string()))?;
+        let mut doc = AutoCommit::load_with_options(bytes, options).map_err(|e| LoadError::Decode(e.to_string()))?;
+        let origins: Vec<Option<String>> =
+            doc.get_changes_meta(&[]).into_iter().filter(|c| c.deps.is_empty()).map(|c| c.message.map(|m| m.into_owned())).collect();
+        if origins != [Some(address.to_string())] {
+            return Err(LoadError::Address);
+        }
         let own = ActorId::random();
         let (root, read) = checked(&doc)?;
-        Ok((Held { doc: doc.with_actor(own.clone()), root, own }, read))
+        let mut doc = doc.with_actor(own.clone());
+        let checkpoint = Checkpoint::of(&mut doc);
+        Ok((Held { doc, root, own, checkpoint }, read))
     }
 
     /// The document's bytes.
@@ -166,9 +200,60 @@ impl Held {
             })
             .find(|id| !since.contains(id))
             .expect("some fork id no change holds");
-        let doc = self.doc.fork_at(heads)?.with_actor(id);
+        let doc = match self.fork_from_checkpoint(heads) {
+            Some(doc) => doc,
+            None => self.doc.fork_at(heads)?,
+        };
+        let doc = doc.with_actor(id);
         let root = map::value_root(&doc).expect("a document holds its value at every heads it reached");
-        Ok(Held { doc, root, own: ActorId::random() })
+        let checkpoint = self.checkpoint.clone();
+        Ok(Held { doc, root, own: ActorId::random(), checkpoint })
+    }
+
+    /// The document at `heads` made from the checkpoint and the changes
+    /// since it that `heads` reach, where `heads` descend from it.
+    fn fork_from_checkpoint(&mut self, heads: &[ChangeHash]) -> Option<AutoCommit> {
+        let mut want: Vec<ChangeHash> = heads.to_vec();
+        want.sort();
+        want.dedup();
+        let mut fork = self.checkpoint.doc.clone();
+        let mut at = self.checkpoint.heads.clone();
+        at.sort();
+        if at != want {
+            let since = self.doc.get_changes(&self.checkpoint.heads);
+            let by_hash: HashMap<ChangeHash, &automerge::Change> = since.iter().map(|c| (c.hash(), c)).collect();
+            let (mut reach, mut stack) = (HashSet::new(), want.clone());
+            while let Some(h) = stack.pop() {
+                if let Some(c) = by_hash.get(&h) {
+                    if reach.insert(h) {
+                        stack.extend(c.deps().iter().copied());
+                    }
+                }
+            }
+            fork.apply_changes(since.iter().filter(|c| reach.contains(&c.hash())).cloned().collect::<Vec<_>>()).ok()?;
+        }
+        let mut got = fork.get_heads();
+        got.sort();
+        (got == want).then_some(fork)
+    }
+
+    /// Takes the document as it is now as the checkpoint a later fork
+    /// starts from.
+    pub fn checkpoint(&mut self) {
+        self.checkpoint = Checkpoint::of(&mut self.doc);
+    }
+
+    /// After a merge, takes back each edge of an anchor or mark `trace`
+    /// lowered that grew over text only the other side typed, as `own`
+    /// states: `mine` is the heads of the side that lowered `trace` and
+    /// `theirs` the other side's. Commits what it changed as one change, and
+    /// answers whether it changed anything.
+    pub fn clip(&mut self, mine: &[ChangeHash], theirs: &[ChangeHash], trace: &[Trace]) -> bool {
+        let changed = own::clip(&mut self.doc, &self.root, mine, theirs, trace);
+        if changed {
+            self.doc.commit();
+        }
+        changed
     }
 
     /// Takes every change `other` holds that this document does not.
@@ -183,11 +268,20 @@ impl Held {
 
     /// Takes a message of the sync protocol from the peer `state` tracks,
     /// and answers what the document reads as then. A message that does not
-    /// apply, or leaves the document holding no value [`load`](Held::load)
-    /// takes, is refused, and the document and `state` stay as they were.
+    /// apply, brings a history of its own (another address's, or one built
+    /// from another value), or leaves the document holding no value
+    /// [`load`](Held::load) takes, is refused, and the document and `state`
+    /// stay as they were.
     pub fn receive_sync_message(&mut self, state: &mut sync::State, message: sync::Message) -> Result<Read, LoadError> {
         let (mut doc, mut next) = (self.doc.clone(), state.clone());
-        doc.sync().receive_sync_message(&mut next, message).map_err(|e| LoadError::Decode(e.to_string()))?;
+        let heads = doc.get_heads();
+        doc.sync().receive_sync_message(&mut next, message).map_err(|e| match e {
+            AutomergeError::DuplicateSeqNumber(_, actor) if actor.to_bytes() == FIRST => LoadError::Address,
+            e => LoadError::Decode(e.to_string()),
+        })?;
+        if doc.get_changes_meta(&heads).iter().any(|c| c.deps.is_empty()) {
+            return Err(LoadError::Address);
+        }
         let (root, read) = checked(&doc)?;
         (self.doc, self.root, *state) = (doc, root, next);
         Ok(read)

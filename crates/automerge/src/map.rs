@@ -557,6 +557,31 @@ fn island_json(doc: &AutoCommit, m: &ObjId) -> Value {
     json!({ "type": get_str(doc, m, "type").unwrap_or_default(), "props": props, "slots": slots })
 }
 
+/// The text the islands and slots of `path` reach from the value at
+/// `root`, each island found by its marker's id.
+pub(crate) fn reach(doc: &AutoCommit, root: &ObjId, path: &[(String, String)]) -> Option<ObjId> {
+    let mut t = text(doc, root);
+    for (island, slot) in path {
+        let marker = markers(doc, &t).remove(island)?;
+        t = text(doc, &obj(doc, &obj(doc, &marker, "slots")?, slot)?);
+    }
+    Some(t)
+}
+
+/// Each marker of the text `t` by the id its record holds, the first where
+/// two hold one.
+pub(crate) fn markers(doc: &AutoCommit, t: &ObjId) -> std::collections::HashMap<String, ObjId> {
+    let mut out = std::collections::HashMap::new();
+    for e in elements(doc, t) {
+        if let Element::Marker(m, _) = e {
+            if let Some(id) = get_str(doc, &m, "id") {
+                out.entry(id).or_insert(m);
+            }
+        }
+    }
+    out
+}
+
 /// The marker at Automerge index `i` of the text `t`.
 pub(crate) fn marker_at(doc: &AutoCommit, t: &ObjId, i: usize) -> Option<ObjId> {
     match doc.get(t, i).ok()?? {

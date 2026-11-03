@@ -37,16 +37,16 @@ proptest! {
 
     #[test]
     fn every_value_reads_back_as_itself(d in document()) {
-        let mut held = Held::new(&d);
+        let mut held = Held::new(&d, "");
         reads_as(&held, &d)?;
-        let (loaded, _) = Held::load(&held.save()).unwrap();
+        let (loaded, _) = Held::load(&held.save(), "").unwrap();
         reads_as(&loaded, &d)?;
     }
 
     #[test]
     fn every_change_lowered_from_its_trace_reads_as_applied(d in document(), ops in ops()) {
         let change = change_for(&d, &ops);
-        let mut held = Held::new(&d);
+        let mut held = Held::new(&d, "");
         let after = write(&mut held, &d, &change);
         reads_as(&held, &after)?;
         prop_assert!(!held.sync_to(&after), "the text the trace lowered differs from the applied text");
@@ -58,24 +58,32 @@ proptest! {
     #[test]
     fn a_change_of_many_inserts_lowered_reads_as_applied(d in document(), ops in prop::collection::vec(ops(), 2..5)) {
         let change = change_for(&d, &ops.concat());
-        let mut held = Held::new(&d);
+        let mut held = Held::new(&d, "");
         let after = write(&mut held, &d, &change);
         reads_as(&held, &after)?;
     }
 
     #[test]
-    fn a_change_lowered_on_a_fork_at_earlier_heads_reads_as_applied_there(d in document(), first in ops(), ops in ops()) {
-        let mut held = Held::new(&d);
-        let heads = held.heads();
-        write(&mut held, &d, &change_from(&d, &first, 500));
-        let change = change_for(&d, &ops);
-        let mut fork = held.fork_at(&heads, None).unwrap();
-        reads_as(&fork, &d)?;
-        let after = write(&mut fork, &d, &change);
-        reads_as(&fork, &after)?;
-        held.merge(&mut fork).unwrap();
-        let merged = held.read();
-        merged.content.validate().unwrap();
+    fn a_change_lowered_on_a_fork_at_earlier_heads_reads_as_applied_there(
+        d in document(), first in ops(), second in ops(), ops in ops(), checkpoint in any::<bool>(),
+    ) {
+        let mut held = Held::new(&d, "");
+        let origin = held.heads();
+        let mid = write(&mut held, &d, &change_from(&d, &first, 500));
+        let at_mid = held.heads();
+        if checkpoint {
+            held.checkpoint();
+        }
+        write(&mut held, &mid, &change_from(&mid, &second, 500));
+        for (heads, value) in [(&origin, &d), (&at_mid, &mid)] {
+            let mut live = held.clone();
+            let mut fork = live.fork_at(heads, None).unwrap();
+            reads_as(&fork, value)?;
+            let after = write(&mut fork, value, &change_for(value, &ops));
+            reads_as(&fork, &after)?;
+            live.merge(&mut fork).unwrap();
+            live.read().content.validate().unwrap();
+        }
     }
 }
 
@@ -106,7 +114,7 @@ type Round = (usize, Vec<Op>, usize, bool);
 /// as a write whose base is a value the document has moved on from. Once
 /// every peer holds every change, each peer and a reload of each are read.
 fn session(d: &Content, rounds: &[Round], out: &mut Outcome) {
-    let base = Held::new(d);
+    let base = Held::new(d, "");
     let mut peers: Vec<Held> = (0..3).map(|_| base.clone()).collect();
     for (p, peer) in peers.iter_mut().enumerate() {
         peer.set_actor(Some(&format!("peer{p}")));
@@ -164,7 +172,7 @@ fn session(d: &Content, rounds: &[Round], out: &mut Outcome) {
     }
     for held in peers.iter_mut() {
         let live = held.raw();
-        if Held::load(&held.save()).unwrap().0.raw() != live {
+        if Held::load(&held.save(), "").unwrap().0.raw() != live {
             out.reload += 1;
             break;
         }

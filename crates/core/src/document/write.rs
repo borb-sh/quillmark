@@ -368,31 +368,32 @@ impl Card {
             };
             Ok((applied, trace, shown))
         })();
-        let (applied, trace, shown) = match landed {
-            Ok(landed) => landed,
-            Err(e) => {
-                if merge.lowered {
-                    self.live.forget(target, &read.now, &current);
-                }
-                return Err(e);
-            }
-        };
+        let (applied, trace, shown) = landed?;
         let dropped = change::lost_anchors(&read.now, &applied.content, |id| diffed || !merge.removed.contains(id));
-        let lowering = match (merge.lowered, applied.content == merge.content) {
-            (false, _) => Lowering::Trace(&trace),
-            (true, true) => Lowering::Done,
-            (true, false) => Lowering::Sync,
+        let mut moved = applied.moved;
+        for m in change::moved_between(&merge.mine, &applied.content, &merge.put) {
+            if !moved.iter().any(|n| n.id == m.id) {
+                moved.push(m);
+            }
+        }
+        moved.sort_by(|a, b| a.id.cmp(&b.id));
+        let lowering = match merge.held {
+            None => Lowering::Trace(&trace),
+            Some((held, repaired)) => Lowering::Merged { held, repaired, sync: applied.content != merge.content },
         };
         let hash = self.land(target, read, applied.content, lowering, opts.actor)?;
-        Ok(Receipt { applied: shown, hash, dropped_anchors: dropped, moved_anchors: applied.moved, warnings, rebased: true, minted, counted: Counted::Host })
+        Ok(Receipt { applied: shown, hash, dropped_anchors: dropped, moved_anchors: moved, warnings, rebased: true, minted, counted: Counted::Host })
     }
 
     /// `change`, made from the value its base names, merged with what
     /// changed since: lowered on the fork of the live document at the heads
-    /// the base was left at and merged back, the document reading as the
-    /// merge, a repair it needs written back under `actor` where none of it
+    /// the base was left at and merged into a copy of the document, the
+    /// anchors and marks it put held to their edges ([`Held::clip`]), a
+    /// repair the merge needs written back under `actor` where none of it
     /// inserts; for a base the live document never held, merged with the
-    /// diff from it to the value now, landing nowhere yet.
+    /// diff from it to the value now. Refused where a step names a record by
+    /// an id minted again since, or the merge deleted the text an anchor it
+    /// put sits on; the live document is untouched until the write lands.
     fn merged(&mut self, target: Target<'_>, read: &Reading, change: &Change, actor: Option<&str>) -> Result<Merged, EditError> {
         let since = read.since.as_ref().expect("a merge reads an earlier value");
         let (mine, trace) = change::apply_traced(since.base(), change).map_err(EditError::change)?;
@@ -401,23 +402,41 @@ impl Card {
             .map(|d| d.context.id)
             .filter(|id| !mine.dropped.iter().any(|d| &d.context.id == id))
             .collect();
-        match since {
+        let hash = read.hash.as_deref().unwrap_or_default();
+        let refuse = |c: quillmark_automerge::Conflict| EditError::Base(BaseError::rebase_conflict(hash.to_string(), target.field().map(str::to_string), &c));
+        if let Some(c) = quillmark_automerge::resolved(&mine.applied, since.base(), &read.now) {
+            return Err(refuse(c));
+        }
+        let (content, held) = match since {
             Since::Heads { fork, .. } => {
-                let hash = read.hash.as_deref().unwrap_or_default();
-                let mut fork = fork.clone();
+                let live = self.live.at(&address(self.id(), target), target, &read.now, hash);
+                if let Some(c) = quillmark_automerge::reminted(fork, &live.held, &mine.applied) {
+                    return Err(refuse(c));
+                }
+                let mut fork = fork.as_ref().clone();
                 fork.write(&trace, &mine.content);
-                let live = self.live.at(target, &read.now, hash);
-                live.held.merge(&mut fork).expect("a fork merges back into the document it forked from");
-                let merged = live.held.read();
-                live.write_back(&merged, actor);
-                Ok(Merged { content: merged.content, removed, lowered: true })
+                let (ours, theirs) = (fork.heads(), live.held.heads());
+                let mut next = live.held.clone();
+                next.merge(&mut fork).expect("a fork merges back into the document it forked from");
+                next.set_actor(actor);
+                next.clip(&ours, &theirs, &trace);
+                let merged = next.read();
+                let repaired = merged.repairs.iter().any(|r| r.inserts());
+                if !repaired && !merged.repairs.is_empty() {
+                    next.sync_to(&merged.content);
+                }
+                (merged.content, Some((Box::new(next), repaired)))
             }
             Since::Content { base } => {
                 let theirs = diff::diff(base, &read.now).map_err(|e| EditError::change(e.into()))?;
-                let merged = quillmark_automerge::merge3(base, change, &theirs).map_err(EditError::change)?;
-                Ok(Merged { content: merged.content, removed, lowered: false })
+                (quillmark_automerge::merge3(base, change, &theirs).map_err(EditError::change)?.content, None)
             }
+        };
+        if let Some(c) = quillmark_automerge::deleted(&mine.applied, &mine.content, &content) {
+            return Err(refuse(c));
         }
+        let put = anchors_put(&mine.applied.steps);
+        Ok(Merged { content, removed, held, mine: mine.content, put })
     }
 
     /// [`revise`](Self::revise) with no base, its receipt counted in scalars
@@ -455,7 +474,7 @@ impl Card {
         let dropped_anchors = change::lost_anchors(&before, &after, |_| true);
         let hash = self.hash_now(target, &after);
         if hash != before_hash {
-            let live = self.live.at(target, &before, &before_hash);
+            let live = self.live.at(&address(self.id(), target), target, &before, &before_hash);
             live.held.set_actor(None);
             live.held.write(&trace, &after);
             live.wrote(hash.clone());
@@ -496,14 +515,14 @@ impl Card {
         let since = match base {
             Base::Hash(read) if read == hash => None,
             Base::Hash(read) => {
-                let since = self.live.read_at(target, &now, &hash, read, actor);
+                let since = self.live.read_at(&address(self.id(), target), target, &now, &hash, read, actor);
                 let stale = || BaseError::Stale { current: hash.clone(), field: target.field().map(str::to_string) };
                 Some(since.ok_or_else(|| EditError::Base(stale()))?)
             }
             Base::Content(read) if *read == now => None,
             Base::Content(read) => Some(
                 self.live
-                    .read_at(target, &now, &hash, &content_hash(read), actor)
+                    .read_at(&address(self.id(), target), target, &now, &hash, &content_hash(read), actor)
                     .unwrap_or_else(|| Since::Content { base: read.clone() }),
             ),
         };
@@ -532,7 +551,7 @@ impl Card {
                 (super::base::digest(&value), Some(value))
             }
         };
-        let live = self.live.at(target, &before, &before_hash);
+        let live = self.live.at(&address(self.id(), target), target, &before, &before_hash);
         live.held.set_actor(actor);
         match lowering {
             Lowering::Trace(trace) if !live.repaired => live.held.write(trace, &content),
@@ -541,6 +560,15 @@ impl Card {
                 live.repaired = false;
             }
             Lowering::Done => {}
+            Lowering::Merged { held, repaired, sync } => {
+                live.held = *held;
+                live.repaired = repaired;
+                if sync {
+                    live.held.set_actor(actor);
+                    live.held.sync_to(&content);
+                    live.repaired = false;
+                }
+            }
         }
         live.wrote(hash.clone());
         if hash != before_hash {
@@ -563,7 +591,7 @@ impl Card {
     pub fn save(&mut self, target: Target<'_>) -> Result<Vec<u8>, EditError> {
         let now = self.read(target)?;
         let hash = self.hash_now(target, &now);
-        Ok(self.live.at(target, &now, &hash).held.save())
+        Ok(self.live.at(&address(self.id(), target), target, &now, &hash).held.save())
     }
 
     /// Replace the live document of the value at `target` with the one
@@ -573,10 +601,11 @@ impl Card {
     /// base read before it is stale; a repair its merged state needs is
     /// written back.
     pub fn load(&mut self, target: Target<'_>, bytes: &[u8]) -> Result<Receipt, EditError> {
-        let (held, read) = Held::load(bytes).map_err(EditError::bad_live_bytes)?;
+        let (held, read) = Held::load(bytes, &address(self.id(), target)).map_err(EditError::bad_live_bytes)?;
         self.taking(target, |live| {
             live.held = held;
             live.heads.clear();
+            live.noted.clear();
             Ok(read)
         })
     }
@@ -587,7 +616,7 @@ impl Card {
     pub fn generate_sync_message(&mut self, target: Target<'_>, state: &mut sync::State) -> Result<Option<sync::Message>, EditError> {
         let now = self.read(target)?;
         let hash = self.hash_now(target, &now);
-        Ok(self.live.at(target, &now, &hash).held.generate_sync_message(state))
+        Ok(self.live.at(&address(self.id(), target), target, &now, &hash).held.generate_sync_message(state))
     }
 
     /// Take a message of the Automerge sync protocol from the peer `state`
@@ -603,7 +632,7 @@ impl Card {
     fn taking(&mut self, target: Target<'_>, take: impl FnOnce(&mut Live) -> Result<quillmark_automerge::Read, EditError>) -> Result<Receipt, EditError> {
         let before = self.read(target)?;
         let before_hash = self.hash_now(target, &before);
-        let live = self.live.at(target, &before, &before_hash);
+        let live = self.live.at(&address(self.id(), target), target, &before, &before_hash);
         let read = take(live)?;
         live.write_back(&read, None);
         let reading = Reading { now: before.clone(), hash: Some(before_hash), since: None };
@@ -687,8 +716,28 @@ struct Merged {
     content: Content,
     /// Each anchor the write's own `anchor` steps removed.
     removed: HashSet<String>,
-    /// The live document holds the merge already.
-    lowered: bool,
+    /// The live document holding the merge, and whether it reads through a
+    /// repair it does not hold, where the write lowered on a fork.
+    held: Option<(Box<Held>, bool)>,
+    /// The value the write's own change gave, and each anchor its `anchor`
+    /// steps placed or moved.
+    mine: Content,
+    put: HashSet<String>,
+}
+
+/// Each anchor an `anchor` step of `steps` placed or moved, at any depth.
+fn anchors_put(steps: &[Step]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for step in steps {
+        match step {
+            Step::Anchor(change::AnchorStep::Place { anchor, .. } | change::AnchorStep::Move { anchor, .. }) => {
+                out.insert(anchor.id.clone());
+            }
+            Step::Nested { change, .. } => out.extend(anchors_put(&change.steps)),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// How [`Card::land`] brings the live document to the value it stores.
@@ -699,6 +748,9 @@ enum Lowering<'a> {
     Sync,
     /// The document reads as it already.
     Done,
+    /// The document a merge left, which replaces the live one, then a diff
+    /// from what it reads as where `sync` says the value differs.
+    Merged { held: Box<Held>, repaired: bool, sync: bool },
 }
 
 /// The steps one change a host writes may hold, nested ones counted. Each
@@ -752,18 +804,37 @@ pub(crate) struct Values {
     values: Vec<(Option<String>, Live)>,
 }
 
-/// One value's live document, the hash of the value it reads as, the heads
-/// at which each hash a write left reads, the latest write's for a hash two
-/// writes left, and whether the document reads through a repair it does not
-/// hold, one that inserts, so a write lowers into it as a diff rather than
-/// at its trace's offsets.
+/// The address of the value at `target` on the card `card` names, `None`
+/// for the main card: the message of its live document's first change.
+pub(crate) fn address(card: Option<&str>, target: Target<'_>) -> String {
+    serde_json::json!([card, target.field()]).to_string()
+}
+
+/// One value's live document, the address it was made at, the hash of the
+/// value it reads as, the heads at which each of the last [`NOTED_HASHES`]
+/// hashes a write left reads, the latest write's for a hash two writes left,
+/// in the order they were first noted, whether the document reads
+/// through a repair it does not hold, one that inserts, so a write lowers
+/// into it as a diff rather than at its trace's offsets, and the writes it
+/// has taken.
 #[derive(Clone)]
 pub(crate) struct Live {
     held: Held,
+    address: String,
     hash: String,
     heads: HashMap<String, Vec<ChangeHash>>,
+    noted: std::collections::VecDeque<String>,
     repaired: bool,
+    writes: usize,
 }
+
+/// The hashes a live document notes heads for, the latest kept: a base
+/// older than these is stale.
+const NOTED_HASHES: usize = 1024;
+
+/// The writes a live document takes between the checkpoints a stale write's
+/// fork starts from.
+const CHECKPOINT_EVERY: usize = 256;
 
 impl PartialEq for Values {
     fn eq(&self, _: &Self) -> bool {
@@ -792,8 +863,18 @@ impl Live {
 
     /// Note the heads the document is at as where `hash` reads.
     fn wrote(&mut self, hash: String) {
-        self.heads.insert(hash.clone(), self.held.heads());
+        if self.heads.insert(hash.clone(), self.held.heads()).is_none() {
+            self.noted.push_back(hash.clone());
+            if self.noted.len() > NOTED_HASHES {
+                let oldest = self.noted.pop_front().expect("a full queue holds a hash");
+                self.heads.remove(&oldest);
+            }
+        }
         self.hash = hash;
+        self.writes += 1;
+        if self.writes % CHECKPOINT_EVERY == 0 {
+            self.held.checkpoint();
+        }
     }
 }
 
@@ -806,13 +887,23 @@ impl Values {
     /// The live document of `target`, reading as `now`, which hashes to
     /// `hash`: made from it where none is, and brought to it by a diff where
     /// a write the document did not see moved the value on.
-    fn at(&mut self, target: Target<'_>, now: &Content, hash: &str) -> &mut Live {
+    /// A document made at `address` replaces one made at another, as when a
+    /// card takes its `$id`.
+    fn at(&mut self, address: &str, target: Target<'_>, now: &Content, hash: &str) -> &mut Live {
+        let fresh = || {
+            let mut live = Live { held: Held::new(now, address), address: address.to_string(), hash: String::new(), heads: HashMap::new(), noted: Default::default(), repaired: false, writes: 0 };
+            live.wrote(hash.to_string());
+            live
+        };
         let k = match self.position(target) {
-            Some(k) => k,
+            Some(k) => {
+                if self.values[k].1.address != address {
+                    self.values[k].1 = fresh();
+                }
+                k
+            }
             None => {
-                let mut live = Live { held: Held::new(now), hash: String::new(), heads: HashMap::new(), repaired: false };
-                live.wrote(hash.to_string());
-                self.values.push((target.field().map(str::to_string), live));
+                self.values.push((target.field().map(str::to_string), fresh()));
                 self.values.len() - 1
             }
         };
@@ -828,9 +919,9 @@ impl Values {
 
     /// The value `base` names at `target`, read on a fork for `actor` at
     /// the heads a write left it at, where it hashes to `base` there.
-    fn read_at(&mut self, target: Target<'_>, now: &Content, hash: &str, base: &str, actor: Option<&str>) -> Option<Since> {
+    fn read_at(&mut self, address: &str, target: Target<'_>, now: &Content, hash: &str, base: &str, actor: Option<&str>) -> Option<Since> {
         self.position(target)?;
-        let live = self.at(target, now, hash);
+        let live = self.at(address, target, now, hash);
         let heads = live.heads.get(base)?.clone();
         let mut fork = live.held.fork_at(&heads, actor).ok()?;
         let read = fork.read();

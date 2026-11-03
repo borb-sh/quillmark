@@ -84,9 +84,12 @@ fn time<T>(f: impl Fn() -> T) -> Duration {
 
 /// The 288k-character case's limits in milliseconds: five times the targets
 /// of 100 to apply and 200 to invert, and about ten times what a laptop takes
-/// for the rest, which a pass that walks the whole text per step overruns.
-/// The merge is a change made at the heads of a live document that has
-/// taken another since, lowered on a fork there and merged back, then read.
+/// for the diff and the UTF-16 round trip, which a pass that walks the whole
+/// text per step overruns. The merge is a change made at the heads of a live
+/// document that has taken another since, lowered on a fork there made from
+/// the document's checkpoint, merged back, held to its edges and read; its
+/// limit is under twice the 1.5 s it takes, since lowering 4000 steps into
+/// Automerge, merging and reading the value back each walk the text.
 const BUDGET: [(&str, f64); 5] = [("apply", 500.0), ("invert", 1000.0), ("diff", 1500.0), ("merge", 2500.0), ("utf16", 500.0)];
 
 fn measure(n: usize) -> (usize, usize, [f64; 5]) {
@@ -96,7 +99,7 @@ fn measure(n: usize) -> (usize, usize, [f64; 5]) {
     let after = apply(&d, &mine).unwrap().content;
     let (ours, ours_trace) = apply_traced(&d, &mine).unwrap();
     let (since, since_trace) = apply_traced(&d, &theirs).unwrap();
-    let mut live = Held::new(&d);
+    let mut live = Held::new(&d, "");
     let heads = live.heads();
     live.write(&since_trace, &since.content);
     let times = [
@@ -107,7 +110,9 @@ fn measure(n: usize) -> (usize, usize, [f64; 5]) {
             let mut live = live.clone();
             let mut fork = live.fork_at(&heads, None).unwrap();
             fork.write(&ours_trace, &ours.content);
+            let (at_ours, at_theirs) = (fork.heads(), live.heads());
             live.merge(&mut fork).unwrap();
+            live.clip(&at_ours, &at_theirs, &ours_trace);
             live.read()
         }),
         time(|| change_to_scalars(&change_from_scalars(&mine, &d, Utf16).unwrap(), &d, Utf16).unwrap()),

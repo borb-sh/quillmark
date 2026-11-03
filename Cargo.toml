@@ -116,11 +116,6 @@ split-debuginfo = "unpacked" # Faster on macOS/Linux
 [profile.dev.package."*"]
 debug = false
 opt-level = 0
-# automerge debug-asserts that its fast and slow list seeks agree, and they
-# disagree on an element a merge deleted; a release build runs the fast one,
-# and so does every test.
-[profile.dev.package.automerge]
-debug-assertions = false
 
 [profile.release]
 opt-level = 3

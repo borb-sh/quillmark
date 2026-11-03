@@ -2,24 +2,28 @@
 //! conflicts a merge can still name: a record or an island's props both
 //! sides set, or one the other side removed.
 
-use crate::{Held, Read};
-use quillmark_content::change::{ApplyError, Change, ContainerStep, IslandStep, Step, apply, apply_traced};
+use crate::{Held, Read, map};
+use quillmark_content::change::{AnchorStep, ApplyError, Change, ContainerStep, IslandStep, Step, apply, apply_traced};
 use quillmark_content::diff::{self, Keeping, Revision, ReviseError};
 use quillmark_content::model::{Block, Content};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// `ours` and `theirs`, both made from `base`, merged: `ours` written on
-/// `base` and `theirs` on a fork of it at `base`, the merged state read
-/// through repair.
+/// `base` and `theirs` on a fork of it at `base`, the anchors and marks
+/// `ours` put held to their edges ([`Held::clip`]), and the merged state
+/// read through repair.
 pub fn merge3(base: &Content, ours: &Change, theirs: &Change) -> Result<Read, ApplyError> {
     let (mine, mine_trace) = apply_traced(base, ours)?;
     let (since, since_trace) = apply_traced(base, theirs)?;
-    let mut held = Held::new(base);
+    let mut held = Held::new(base, "");
     let heads = held.heads();
     held.write(&mine_trace, &mine.content);
+    let mine_heads = held.heads();
     let mut fork = held.fork_at(&heads, None).expect("a document forks at its own heads");
     fork.write(&since_trace, &since.content);
+    let theirs_heads = fork.heads();
     held.merge(&mut fork).expect("a fork merges back into its document");
+    held.clip(&mine_heads, &theirs_heads, &mine_trace);
     Ok(held.read())
 }
 
@@ -63,8 +67,12 @@ pub enum Reason {
     /// The block record, container or island props the step sets, the
     /// fields it names, changed since.
     Changed,
-    /// The block, container, island or slot the step names is gone since.
+    /// The block, container, island or slot the step names is gone since,
+    /// or the record it names is gone and its id held by a record minted
+    /// since.
     Missing,
+    /// The anchor the step placed or moved lost its text to a change since.
+    Deleted,
 }
 
 impl Reason {
@@ -73,6 +81,7 @@ impl Reason {
         match self {
             Reason::Changed => "changed",
             Reason::Missing => "missing",
+            Reason::Deleted => "deleted",
         }
     }
 }
@@ -82,6 +91,7 @@ impl std::fmt::Display for Conflict {
         match self.reason {
             Reason::Changed => write!(f, "step {} sets what a change since its base set", self.step),
             Reason::Missing => write!(f, "step {} names what a change since its base removed", self.step),
+            Reason::Deleted => write!(f, "step {} puts an anchor on text a change since its base deleted", self.step),
         }
     }
 }
@@ -164,6 +174,90 @@ fn first_conflict(base: &Content, now: &Content, steps: &[Step]) -> Option<(usiz
         }
     }
     None
+}
+
+/// The first step of `applied`, a change as `apply` normalized it, that
+/// places or moves an anchor `mine`, the value it gave, holds and `merged`
+/// holds nowhere: the merge deleted the text it was put on.
+pub fn deleted(applied: &Change, mine: &Content, merged: &Content) -> Option<Conflict> {
+    let (put, kept) = (anchor_ids(mine), anchor_ids(merged));
+    first_putting(applied, |id| put.contains(id) && !kept.contains(id), Reason::Deleted)
+}
+
+/// The first step of `applied`, a change made from `base`, that places or
+/// moves an anchor `base` holds and `now`, the value since, holds nowhere:
+/// the anchor was removed since, and the step would bring it back.
+pub fn resolved(applied: &Change, base: &Content, now: &Content) -> Option<Conflict> {
+    let (was, kept) = (anchor_ids(base), anchor_ids(now));
+    first_putting(applied, |id| was.contains(id) && !kept.contains(id), Reason::Missing)
+}
+
+/// Each anchor id a value holds, at any depth.
+fn anchor_ids(c: &Content) -> HashSet<String> {
+    fn held(c: &Content, out: &mut HashSet<String>) {
+        out.extend(c.anchors.iter().map(|a| a.id.clone()));
+        for island in &c.islands {
+            for inner in island.slots.values() {
+                held(inner, out);
+            }
+        }
+    }
+    let mut out = HashSet::new();
+    held(c, &mut out);
+    out
+}
+
+/// The first step of `applied` that places or moves an anchor `hit` holds
+/// for, at any depth, refused for `reason`.
+fn first_putting(applied: &Change, hit: impl Fn(&str) -> bool, reason: Reason) -> Option<Conflict> {
+    fn puts(step: &Step, hit: &dyn Fn(&str) -> bool) -> bool {
+        match step {
+            Step::Anchor(AnchorStep::Place { anchor, .. } | AnchorStep::Move { anchor, .. }) => hit(&anchor.id),
+            Step::Nested { change, .. } => change.steps.iter().any(|s| puts(s, hit)),
+            _ => false,
+        }
+    }
+    applied.steps.iter().position(|s| puts(s, &hit)).map(|step| Conflict { step, reason })
+}
+
+/// The first step of `applied`, a change as `apply` normalized it from the
+/// value `was` holds, that names a block or island record by an id `now`
+/// holds on another record: the one the step read is gone, and its id was
+/// minted again since.
+pub fn reminted(was: &Held, now: &Held, applied: &Change) -> Option<Conflict> {
+    fn first(was: &Held, now: &Held, path: &mut Vec<(String, String)>, steps: &[Step]) -> bool {
+        fn by_id(s: &Step) -> Option<&str> {
+            match s {
+                Step::SetBlock(b) => Some(b.id.as_str()),
+                Step::Island(IslandStep::Props { id, .. }) => Some(id.as_str()),
+                Step::Nested { island, .. } => Some(island.as_str()),
+                _ => None,
+            }
+        }
+        if !steps.iter().any(|s| by_id(s).is_some()) {
+            return false;
+        }
+        let at = |h: &Held| map::reach(&h.doc, &h.root, path).map(|t| map::markers(&h.doc, &t));
+        let (Some(w), Some(n)) = (at(was), at(now)) else { return false };
+        steps.iter().any(|s| {
+            let swapped = by_id(s).is_some_and(|id| matches!((w.get(id), n.get(id)), (Some(a), Some(b)) if a != b));
+            swapped
+                || match s {
+                    Step::Nested { island, slot, change } => {
+                        path.push((island.clone(), slot.clone()));
+                        let found = first(was, now, path, &change.steps);
+                        path.pop();
+                        found
+                    }
+                    _ => false,
+                }
+        })
+    }
+    applied
+        .steps
+        .iter()
+        .position(|s| first(was, now, &mut Vec::new(), std::slice::from_ref(s)))
+        .map(|step| Conflict { step, reason: Reason::Missing })
 }
 
 fn records(c: &Content) -> HashMap<&str, &Block> {

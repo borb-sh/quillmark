@@ -1148,6 +1148,35 @@ fn moved_anchors(before: &Content, after: &Content, applied: &Change, run: &Run)
     out
 }
 
+/// Each anchor `ids` names that `before` and `after` both hold and that
+/// sits otherwise in `after`: in another slot, then with its start in
+/// another block, then with its text or context reading otherwise, by id.
+/// A merge reads it between the value its writer's own change gave and the
+/// merge, for the anchors that change put.
+pub fn moved_between(before: &Content, after: &Content, ids: &HashSet<String>) -> Vec<Moved> {
+    let (mut was, mut now) = (HashMap::new(), HashMap::new());
+    sites(before, ids, &[], &mut was);
+    sites(after, ids, &[], &mut now);
+    let mut out: Vec<Moved> = now
+        .into_iter()
+        .filter_map(|(id, n)| {
+            let w = was.remove(&id)?;
+            let reason = if w.path != n.path {
+                MoveReason::Position
+            } else if w.block != n.block {
+                MoveReason::Block
+            } else if (&w.prefix, &w.quote, &w.suffix) != (&n.prefix, &n.quote, &n.suffix) {
+                MoveReason::Context
+            } else {
+                return None;
+            };
+            Some(Moved { id, before: w.quote, after: n.quote, reason })
+        })
+        .collect();
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    out
+}
+
 /// Where an anchor read in `site` lands across `maps`, as `apply` moves it.
 fn carried(maps: &Mapping, site: &Site) -> Option<(Scalar, Scalar)> {
     let at = |p: Scalar| {

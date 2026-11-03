@@ -87,7 +87,7 @@ fn hit(doc: &mut AutoCommit, (target, op, x, y): Hit) {
 }
 
 fn bent(content: &Content, hits: &[Hit]) -> AutoCommit {
-    let mut doc = AutoCommit::load(&Held::new(content).save()).unwrap();
+    let mut doc = AutoCommit::load(&Held::new(content, "").save()).unwrap();
     for h in hits {
         hit(&mut doc, *h);
     }
@@ -114,23 +114,23 @@ proptest! {
     #[test]
     fn a_document_edited_at_any_depth_loads_or_is_refused(content in document(), seed in any::<u8>(), hits in hits()) {
         let content = with_ext(content, seed);
-        holds(Held::load(&bent(&content, &hits).save()))?;
+        holds(Held::load(&bent(&content, &hits).save(), ""))?;
     }
 
     #[test]
     fn bytes_cut_or_flipped_load_or_are_refused(content in document(), at in any::<u16>(), bit in 0u8..8, cut in any::<bool>()) {
-        let mut bytes = Held::new(&content).save();
+        let mut bytes = Held::new(&content, "").save();
         let at = at as usize % bytes.len();
         match cut {
             true => bytes.truncate(at),
             false => bytes[at] ^= 1 << bit,
         }
-        holds(Held::load(&bytes))?;
+        holds(Held::load(&bytes, ""))?;
     }
 
     #[test]
     fn a_message_bringing_an_edited_document_lands_or_changes_nothing(content in document(), hits in hits()) {
-        let mut held = Held::new(&content);
+        let mut held = Held::new(&content, "");
         let mut peer = bent(&content, &hits);
         let mut before = held.read();
         let (mut ours, mut theirs) = (State::new(), State::new());
