@@ -342,11 +342,7 @@ pub(crate) fn merge_documents(
     }
     let revising = Revising {
         parsed: Parsed {
-            document: Document {
-                main: main.0,
-                cards: merged_cards,
-                mints: Default::default(),
-            },
+            document: Document::assembled(main.0, merged_cards, Default::default()),
             warnings: Vec::new(),
         },
         bodies,

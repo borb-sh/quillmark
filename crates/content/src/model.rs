@@ -469,6 +469,33 @@ impl Default for Content {
 }
 
 impl Content {
+    /// This value with each block, container and island renamed by its
+    /// place, `p0` onward, each slot on its own: two values equal so hold
+    /// one text, structure, formatting and anchors under whatever ids their
+    /// documents gave the parts.
+    pub fn by_place(&self) -> Content {
+        let mut map = std::collections::HashMap::new();
+        for (n, id) in self.blocks.iter().map(|b| &b.id).chain(self.containers.iter().map(|c| &c.id)).chain(self.islands.iter().map(|i| &i.id)).enumerate() {
+            map.entry(id.clone()).or_insert_with(|| format!("p{n}"));
+        }
+        let name = |id: &String| map.get(id).cloned().unwrap_or_else(|| id.clone());
+        let mut out = self.clone();
+        for b in &mut out.blocks {
+            b.id = name(&b.id);
+            b.path = b.path.iter().map(name).collect();
+        }
+        for c in &mut out.containers {
+            c.id = name(&c.id);
+        }
+        for i in &mut out.islands {
+            i.id = name(&i.id);
+            for s in i.slots.values_mut() {
+                *s = s.by_place();
+            }
+        }
+        out
+    }
+
     /// One empty paragraph.
     pub fn empty() -> Self {
         Content {

@@ -35,7 +35,7 @@ pub(crate) fn json_scalar(s: &ScalarValue) -> Value {
 }
 
 /// An Automerge map or list read back as JSON.
-pub(crate) fn hydrate(doc: &AutoCommit, o: &ObjId) -> Value {
+pub fn hydrate(doc: &AutoCommit, o: &ObjId) -> Value {
     let item = |v: AmValue<'_>, id: ObjId| match v {
         AmValue::Object(_) => hydrate(doc, &id),
         AmValue::Scalar(s) => json_scalar(&s),
@@ -43,7 +43,8 @@ pub(crate) fn hydrate(doc: &AutoCommit, o: &ObjId) -> Value {
     match doc.object_type(o).unwrap() {
         ObjType::List => Value::Array(doc.values(o).map(|(v, id)| item(v, id)).collect()),
         _ => Value::Object(
-            doc.keys(o)
+            key_order(doc, o)
+                .into_iter()
                 .filter_map(|k| {
                     let (v, id) = doc.get(o, k.as_str()).ok()??;
                     Some((k, item(v, id)))
@@ -53,11 +54,39 @@ pub(crate) fn hydrate(doc: &AutoCommit, o: &ObjId) -> Value {
     }
 }
 
+/// The key a map holds its keys' order under, since an Automerge map holds
+/// none: a list of keys, each once.
+pub const ORDER: &str = "\u{1f}order";
+
+/// The keys of the map `o` in the order its [`ORDER`] list names them, each
+/// once, then any it does not name, sorted.
+fn key_order(doc: &AutoCommit, o: &ObjId) -> Vec<String> {
+    let held: Vec<String> = doc.keys(o).filter(|k| k != ORDER).collect();
+    let mut out: Vec<String> = Vec::with_capacity(held.len());
+    if let Ok(Some((AmValue::Object(ObjType::List), l))) = doc.get(o, ORDER) {
+        for (v, _) in doc.values(&l) {
+            if let AmValue::Scalar(s) = v {
+                if let Some(k) = s.as_str() {
+                    if held.iter().any(|h| h == k) && !out.iter().any(|x| x == k) {
+                        out.push(k.to_string());
+                    }
+                }
+            }
+        }
+    }
+    for k in held {
+        if !out.contains(&k) {
+            out.push(k);
+        }
+    }
+    out
+}
+
 /// Writes `want` at `key` of the map `parent`, touching only what differs: a
 /// map key by key and a list over the run between its common prefix and
 /// suffix, so two writers changing different keys or inserting at different
 /// places both land.
-pub(crate) fn write_json_at(doc: &mut AutoCommit, parent: &ObjId, key: &str, want: &Value) {
+pub fn write_json_at(doc: &mut AutoCommit, parent: &ObjId, key: &str, want: &Value) {
     let have = doc
         .get(parent, key)
         .unwrap()
@@ -80,12 +109,17 @@ pub(crate) fn write_json_at(doc: &mut AutoCommit, parent: &ObjId, key: &str, wan
 
 fn write_map(doc: &mut AutoCommit, o: &ObjId, want: &Map<String, Value>) {
     for k in doc.keys(o).collect::<Vec<_>>() {
-        if !want.contains_key(&k) {
+        if k != ORDER && !want.contains_key(&k) {
             doc.delete(o, k.as_str()).unwrap();
         }
     }
     for (k, v) in want {
         write_json_at(doc, o, k, v);
+    }
+    let order: Vec<&String> = want.keys().collect();
+    if want.len() > 1 && key_order(doc, o).iter().collect::<Vec<_>>() != order {
+        let keys = Value::Array(order.into_iter().map(|k| Value::String(k.clone())).collect());
+        write_json_at(doc, o, ORDER, &keys);
     }
 }
 

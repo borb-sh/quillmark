@@ -7,10 +7,10 @@
 //!
 //! The root holds `schema`, `quill`, `main` (a card), `cards` (cards by
 //! `$id`) and `order` (the `$id`s in document order). A card holds `kind`,
-//! `fields`, `fieldOrder`, `comments`, `ext`, `seed` and `body`; a body or
+//! `layout` (the payload's items in source order, each field by key and each comment whole), `fields`, `nestedComments`, `ext`, `seed` and `body`; a body or
 //! content field is a value in the shape [`value`] states.
 
-mod json;
+pub mod json;
 mod step;
 pub(crate) mod value;
 
@@ -35,8 +35,8 @@ pub const CARDS: &str = "cards";
 pub const ORDER: &str = "order";
 pub const KIND: &str = "kind";
 pub const FIELDS: &str = "fields";
-pub const FIELD_ORDER: &str = "fieldOrder";
-pub const COMMENTS: &str = "comments";
+pub const LAYOUT: &str = "layout";
+pub const NESTED: &str = "nestedComments";
 pub const EXT: &str = "ext";
 pub const SEED: &str = "seed";
 pub const BODY: &str = "body";
@@ -119,7 +119,7 @@ impl Doc {
         for key in [FIELDS, EXT, SEED] {
             self.doc.put_object(card, key, ObjType::Map).unwrap();
         }
-        for key in [FIELD_ORDER, COMMENTS] {
+        for key in [LAYOUT, NESTED] {
             self.doc.put_object(card, key, ObjType::List).unwrap();
         }
         value::create(&mut self.doc, card, BODY, &Content::empty());
