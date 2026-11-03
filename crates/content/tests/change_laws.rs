@@ -587,9 +587,9 @@ fn a_step_sets_and_removes_a_reserved_name_and_refuses_another_unknown_one() {
     assert!(matches!(apply(&d, &unknown), Err(ApplyError::BadStep { step: 0, .. })));
 }
 
-/// A step holding a key its kind does not define is refused, so a
-/// misspelled precondition never decodes as a step without it; the `attrs`
-/// and `props` bags stay open.
+/// A step, or a record or change holding one, with a key its kind does not
+/// define is refused, so a misspelled precondition never decodes as a step
+/// without it; the `props` bag and an `x-` member's `attrs` stay open.
 #[test]
 fn a_step_holding_a_key_it_does_not_define_is_refused() {
     let steps = [
@@ -616,9 +616,15 @@ fn a_step_holding_a_key_it_does_not_define_is_refused() {
         json!({"splice": {"at": 0, "delet": "he", "insert": "x"}}),
         json!({"splice": {"at": 0, "insert": "x", "marks": [{"type": "strong", "atrs": {}}]}}),
         json!({"splice": {"at": 0, "insert": "x", "removed": {"block": []}}}),
+        json!({"splice": {"at": 0, "insert": "\nx", "blocks": [{"id": "b9", "kind": "para", "pth": []}]}}),
+        json!({"splice": {"at": 0, "insert": "x", "marks": [{"type": "link", "attrs": {"url": "u", "title": "t"}}]}}),
+        json!({"mark": {"start": 0, "end": 2, "type": "link", "attrs": {"url": "u", "rel": "x"}, "add": true}}),
+        json!({"container": {"id": "l9", "kind": "list", "attrs": {"style": "roman"}}}),
+        json!({"island": {"at": 0, "island": {"id": "m0", "type": "math", "props": {"tex": "y"}, "caption": "x"}}}),
     ] {
         assert!(matches!(Change::from_value(&json!({"steps": [nested.clone()]})), Err(quillmark_content::wire::ParseError::UnknownKey { .. })), "{nested}");
     }
+    assert!(matches!(Change::from_value(&json!({"steps": [], "version": 2})), Err(quillmark_content::wire::ParseError::UnknownKey { .. })));
 }
 
 #[test]
@@ -2374,4 +2380,46 @@ fn a_stale_revise_neither_strips_formatting_nor_resurrects_an_anchor() {
     assert!(matches!(refused, Some((_, "missing" | "changed"))), "{refused:?}");
     let moved = Change::new(vec![Step::Anchor(AnchorStep::Move { anchor: Anchor::new("c-1", 4, 9), quote: None })]);
     assert!(conflict_of(&d, &mine, &moved).is_some());
+}
+
+/// Revises of different short paragraphs made from one value rebase over
+/// each other, the first paragraph's included, and a rewrite of the first
+/// block keeps the record of the block after it.
+#[test]
+fn revises_of_different_short_paragraphs_rebase() {
+    use quillmark_content::diff::revise;
+    let base = from_markdown("Alpha.\n\nBeta.\n\nGamma.").unwrap().content;
+    let ids = |c: &Content| c.blocks.iter().map(|b| b.id.clone()).collect::<Vec<_>>();
+    for (theirs, ours) in [
+        ("Alpha, edited.\n\nBeta.\n\nGamma.", "Alpha.\n\nBeta, mine.\n\nGamma."),
+        ("Alpha.\n\nBeta, edited.\n\nGamma.", "Alpha.\n\nBeta.\n\nGamma, mine."),
+        ("Something else entirely.\n\nBeta.\n\nGamma.", "Alpha.\n\nBeta, mine.\n\nGamma."),
+    ] {
+        let since = revise(&base, theirs).unwrap().change;
+        let mine = revise(&base, ours).unwrap().change;
+        let after = apply(&base, &since).unwrap().content;
+        assert_eq!(ids(&after), ids(&base), "{theirs}");
+        let rebased = rebase(&base, &mine, &since).unwrap_or_else(|e| panic!("{theirs} / {ours}: {e:?}"));
+        apply(&after, &rebased).unwrap();
+    }
+    let since = revise(&base, "Alpha!\n\nBeta.\n\nGamma.").unwrap().change;
+    let heading = Change::new(vec![Step::SetBlock(SetBlock {
+        id: "b1".into(),
+        kind: Some("heading".into()),
+        attrs: Some(json!({"level": 2}).as_object().unwrap().clone()),
+        path: None,
+    })]);
+    assert!(rebase(&base, &heading, &since).is_ok());
+}
+
+/// A container re-kinded under an id of the longest length a value holds
+/// diffs to a change that applies: the id it derives for the new kind fits.
+#[test]
+fn a_rekinded_container_of_the_longest_id_diffs() {
+    let long = "l".repeat(quillmark_content::ids::MAX_ID_LEN);
+    let before = Content::from_value(&json!({"blocks":[{"id":"b0","kind":"para","path":[long, "i0"]}],"containers":[{"attrs":{"ordered":false,"start":1},"id":long,"kind":"list"},{"id":"i0","kind":"item"}],"text":"a"})).unwrap();
+    let after = Content::from_value(&json!({"blocks":[{"id":"b0","kind":"para","path":[long]}],"containers":[{"id":long,"kind":"quote"}],"text":"a"})).unwrap();
+    let change = quillmark_content::diff::replace(&before, &after).unwrap();
+    let landed = apply(&before, &change).unwrap().content;
+    assert_eq!(landed.containers.iter().map(|c| &c.kind).collect::<Vec<_>>(), [&ContainerKind::Quote]);
 }

@@ -323,8 +323,11 @@ export interface Delta {
  * `reviseBody` / `reviseField` / `reviseDocument`.
  * Name one or neither; a key present with no string throws. `baseHash` is the
  * hash the writer read, paired with the write path it writes on: `writer.hashAt` /
- * `writer.hash`. A write onto a value that hashes otherwise
- * throws `edit::stale_base`. `baseMarkdown` is the markdown the writer read, annotated
+ * `writer.hash`. On `reviseBody` and `reviseField` a write onto a value that
+ * hashes otherwise rebases over the change since, throwing
+ * `edit::rebase_conflict` where the two touch and `edit::stale_base` where
+ * the log no longer reaches the base; on `reviseDocument` it throws
+ * `edit::stale_base`. `baseMarkdown` is the markdown the writer read, annotated
  * or not (a `text` field's literal text): when the value has changed since,
  * the writer's edit and the change since merge by line, so both land, and
  * runs of lines both changed throw `edit::rebase_conflict`. A
@@ -987,13 +990,11 @@ impl Document {
     }
 
     /// The newest storage version this build writes via
-    /// [`toStored`](Document::to_stored): a document holding a composable
-    /// card, each carrying its `$id`, carries it. A document of the main card
-    /// alone carries the oldest tag that holds its content. The tag advances
-    /// only when the wire format changes, not on every release.
+    /// [`toStored`](Document::to_stored). The tag advances only when the wire
+    /// format changes, not on every release.
     #[wasm_bindgen(js_name = currentStorageVersion)]
     pub fn current_storage_version() -> String {
-        quillmark_core::document::STORAGE_V0_134_0.to_string()
+        quillmark_core::document::STORAGE_V0_135_0.to_string()
     }
 
     /// The canonical `$quill` reference grammar as author-facing text: the same

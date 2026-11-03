@@ -22,6 +22,7 @@ pub struct Conflict {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Reason {
     /// `since` deleted text the step reads: any of the text a splice deletes,
     /// the whole range of a mark step or a range anchor, or the text on both
@@ -446,7 +447,7 @@ fn overwrites(step: &Step, (read, put): &(Step, Vec<Step>), (wrote, puts): &(Ste
     match (step, read, wrote, put.as_slice(), puts.as_slice()) {
         (Step::Splice(_), Step::Splice(a), Step::Splice(b), ..) => {
             let (a, b) = (a.removed.as_ref(), b.removed.as_ref());
-            a.map(|r| (&r.islands, &r.blocks, &r.marks)) != b.map(|r| (&r.islands, &r.blocks, &r.marks))
+            a.map(|r| (&r.islands, &r.blocks, sorted(&r.marks))) != b.map(|r| (&r.islands, &r.blocks, sorted(&r.marks)))
         }
         (Step::SetBlock(s), _, _, [Step::SetBlock(x)], [Step::SetBlock(y)]) => {
             ((s.kind.is_some() || s.attrs.is_some()) && (&x.kind, &x.attrs) != (&y.kind, &y.attrs))
@@ -455,6 +456,14 @@ fn overwrites(step: &Step, (read, put): &(Step, Vec<Step>), (wrote, puts): &(Ste
         (Step::Container(_) | Step::Island(IslandStep::Props { .. }), ..) => put != puts,
         _ => false,
     }
+}
+
+/// A splice's removed marks in one order, so marks equal over the deleted
+/// text compare equal however the marks around it sorted them.
+fn sorted(marks: &[Mark]) -> Vec<&Mark> {
+    let mut marks: Vec<&Mark> = marks.iter().collect();
+    marks.sort_by_cached_key(|m| (m.start, m.end, m.kind.sort_key()));
+    marks
 }
 
 /// Whether `since` changed the formatting of a mark step's type on a

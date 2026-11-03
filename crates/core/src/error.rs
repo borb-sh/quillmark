@@ -262,6 +262,7 @@ impl std::fmt::Display for Diagnostic {
 }
 
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum ParseError {
     #[error("Input too large: {size} bytes (max: {max} bytes)")]
     InputTooLarge { size: usize, max: usize },

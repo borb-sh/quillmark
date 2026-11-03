@@ -308,6 +308,7 @@ impl Pos {
 
 /// What the model refuses.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Invariant {
     /// A character the text cannot hold: `\r`, a bidi control, or a line
     /// separator other than [`HARD_BREAK`].

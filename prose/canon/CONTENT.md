@@ -110,7 +110,8 @@ Normalizing spends the mark bound before validating can refuse: a mark crosses a
 **One spelling per value.** The decoder a write reads through (`Content::from_value`, and every binding's `Content` input) checks the bounds, then validates the value as decoded, then refuses one `normalize` would rewrite or drop (`Content::check_canonical`):
 
 - a mark not cut, resolved or sorted, an `x-` mark over only a break among them, an anchor or container out of order, or island props `normalize` would change, as `Invariant::NotCanonical` naming the part;
-- a reversed or empty mark and an unused container, which are already invalid.
+- a reversed or empty mark and an unused container, which are already invalid;
+- a key the value's shape does not define, on the value or any record or slot in it, and an `attrs` entry a built-in member does not name, as `ParseError::UnknownKey` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies").
 
 So a value decodes only from the bytes it encodes to, up to the wire's own spelling of an empty key (absent or empty reads as one), and decoding then encoding is the identity on every value a write accepts. `diff::replace` and `Card::replace` refuse the same values a decode does. `normalize` is the producer's verb: a producer that builds a value by hand normalizes it before it writes it.
 
@@ -150,7 +151,7 @@ Each step holds to what its writer read as far as its precondition reaches. A st
 - an island insert holds `at` to `block`, the id of the block the writer read it in;
 - the id-addressed steps fail on a missing id, an anchor move and removal included, and an anchor placement on a held one (`ApplyError::AnchorHeld` where its text or a slot in it holds the id, the whole value's validation where another slot does).
 
-A step whose object holds a key its kind does not define, a splice's `delet` or a mark's `qoute`, is `ParseError::UnknownKey` at every decoder, so a misspelled precondition never decodes as a step without it. The `attrs` and `props` a step carries stay open.
+A step whose object holds a key its kind does not define, a splice's `delet` or a mark's `qoute`, is `ParseError::UnknownKey` at every decoder, so a misspelled precondition never decodes as a step without it. So is a change holding a key beside `steps`, and a record or island a step carries holding a key its shape does not define, as a value's decode refuses one ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies"). A step's `props` and an `x-` member's `attrs` stay open.
 
 `quote` and `block` are optional on input. The normalized change, `Applied.applied`, fills both in, as it fills a splice's `removed`, so a change rebased over another holds every step to what its writer read. `invert` fills them in its own steps, and each splice's `removed`, from the value each undoes: each step answers its inverse as it applies, and `invert` is those inverses read back last first.
 
@@ -290,6 +291,7 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 **Pass the base.** `base` is the hash the writer read (`hash(addr)`). Without one, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. A value that no longer hashes to the base rebases the write over what changed since:
 
 - Each card keeps a `ChangeLog` per value it holds, in memory only: one snapshot, the value its oldest write read, and each write's normalized change and the hash it left. No hash, comparison or stored form sees it.
+- A base therefore rebases only in the process that took the writes since it. A document loaded from its stored row, or held by another server instance, starts with an empty log, so a stale base there refuses with `edit::stale_base` though the value, its hash and `equals` are unchanged. A host serving writers across processes routes `edit::stale_base` to a fresh read, or has the writer pass the markdown it read (`baseMarkdown`), which merges without a log.
 - A base the log holds composes the changes from it to now, and the write rebases over them and applies. The value the base names is the snapshot with the changes before it applied as one composed change; one that does not hash to the base refuses as stale. A revise or replace diffs from the value the base names, so an edit made since is not read as text the writer deleted.
 - Each block, container and island id a revise or replace introduces is minted afresh where the value now holds it, past the ids of the value the base names, the value now and the write (`diff::revise_holding`, `diff::replace_holding`), a replace's own id among them. Under an actor, each id such a write minted rather than took from its writer moves under the actor (`mint::remint`).
 - Minting never consults the log: it reads those two values and the change since, so equal values written over equal values by one actor, or none, store equal bytes, and `normalize` predicts what `replace` stores up to the first block's id, which a replace keeps, and the actor's ids.

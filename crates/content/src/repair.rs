@@ -56,6 +56,7 @@ pub struct RawIsland {
 
 /// What [`repair`] changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Repair {
     /// A path named a container with no record; the id left the path.
     MissingContainer { block: String, container: String },

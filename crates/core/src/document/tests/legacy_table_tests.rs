@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::document::{Document, STORAGE_V0_129_0, STORAGE_V0_134_0, peek_storage_version};
+use crate::document::{Document, STORAGE_V0_129_0, STORAGE_V0_135_0, peek_storage_version};
 
 use super::parse;
 
@@ -72,7 +72,7 @@ fn a_headless_table_resaves_as_head_0() {
     let saved = serde_json::to_string(&doc).expect("the document serializes");
     assert_eq!(
         peek_storage_version(&saved).as_deref(),
-        Some(STORAGE_V0_134_0)
+        Some(STORAGE_V0_135_0)
     );
     let row: Value = serde_json::from_str(&saved).unwrap();
     let props = table_props(&row["main"]["body"]);

@@ -63,6 +63,7 @@ pub const CODEC_TEXT: &str = "text";
 
 /// Errors returned by document and card mutators.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[non_exhaustive]
 pub enum EditError {
     #[error("invalid field name '{0}': must match [A-Za-z_][A-Za-z0-9_]*")]
     InvalidFieldName(String),

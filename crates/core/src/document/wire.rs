@@ -107,6 +107,7 @@ impl CardWire {
 /// Failure converting a [`CardWire`] back into a [`Card`]. Building a card from
 /// a wire is a mutator door, so a binding routes it as it routes the mutators.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[non_exhaustive]
 pub enum WireError {
     /// The `quill` string is not a valid `name@version` reference.
     #[error("invalid `quill` reference {value:?}: {reason}")]

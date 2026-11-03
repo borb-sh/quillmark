@@ -713,8 +713,8 @@ export declare class DocumentWriter {
 	/**
 	 * The hash of the body or field at `addr` through its schema: the
 	 * `baseHash` {@link reviseBody} and {@link reviseField} check. A
-	 * `richtext` field hashes its content however it is stored, a `text` field its
-	 * literal text, any other type its stored value, an absent field as
+	 * `richtext` or `text` field hashes its content however it is stored, ids
+	 * and anchors included, any other type its stored value, an absent field as
 	 * `null`. Throws `UnknownField` for an undeclared name.
 	 */
 	hashAt(addr: Addr | string): string;
@@ -737,8 +737,10 @@ export declare class DocumentWriter {
 	 * `Receipt` a content write answers: `applied` the change from the body
 	 * before, its warnings at `main.body`, and the anchors the write dropped
 	 * or moved; a body carries no field schema to type against. `opts` names
-	 * what the writer read: a stale `baseHash` (from {@link hashAt}) throws
-	 * `edit::stale_base`, and a `baseMarkdown` merges, setting `rebased`.
+	 * what the writer read: a stale `baseHash` (from {@link hashAt}) rebases
+	 * over the change since, throwing `edit::rebase_conflict` where the two
+	 * touch and `edit::stale_base` where the log no longer reaches the base,
+	 * and a `baseMarkdown` merges; either sets `rebased`.
 	 */
 	reviseBody(markdown: string, opts?: BaseOptions): Receipt;
 	/**

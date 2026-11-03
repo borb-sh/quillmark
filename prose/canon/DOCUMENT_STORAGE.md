@@ -42,7 +42,7 @@ crate-internal to `quillmark-core` and never a storage option.
 
 ## The Format
 
-The current schema (`quillmark/document@0.134.0`) carries each card's full
+The current schema (`quillmark/document@0.135.0`) carries each card's full
 ordered payload: typed `$` system metadata, user fields, and YAML
 comments interleaved in source order: as a single discriminated-union
 item list. A composable card's `$id` is an `{type: id, value}` item after its
@@ -54,7 +54,7 @@ is stored as one inside its item's `value`; see Byte-stability.
 
 ```json
 {
-  "schema": "quillmark/document@0.134.0",
+  "schema": "quillmark/document@0.135.0",
   "main": {
     "payload": {
       "items": [
@@ -250,8 +250,8 @@ promoting it to a built-in is the storage event.
 The envelope keys stay siblings (`id`, `kind`/`type`, `path`, a mark's
 `start`/`end`) because they belong to the object rather than to the member it
 names. An empty bag is omitted, so `normalize` collapses `{}` and an absent bag
-to one spelling. A foreign bag key on a built-in drops unread: the decode reads
-the entries the member names and re-mints from its fields. One spelling per name
+to one spelling. A foreign bag key on a built-in is refused like an unknown
+envelope key (below). One spelling per name
 is also what makes the canonical mark order a function of the bytes:
 `MarkKind::sort_key` is the `(type, attrs)` pair the wire carries.
 
@@ -288,10 +288,15 @@ Unknown *keys* survive in designated carriers only:
 - **Opaque carriers keep what they hold.** An island's `props` round-trip
   untouched, and so do a table cell's own entry under `cell_attrs` and an
   `x-` block's or mark's `attrs`.
-- **Envelopes drop what they do not name, by design.** A block, container,
-  mark, anchor or island object is decoded into a struct and re-minted from
-  its fields, so an unrecognized sibling key does not survive. Growing those
-  shapes is a schema event.
+- **Envelopes refuse what they do not name.** The content value, and each
+  block, container, mark, anchor and island object in it, slots included,
+  holds only the keys its shape defines, and a built-in member's `attrs` only
+  the entries the member names. A write's decode refuses any other as
+  `ParseError::UnknownKey`, so a key a newer build adds fails loudly in an
+  older reader rather than dropping on a read. The stored read
+  (`Content::from_value_lenient`) drops it and reports the value rewritten,
+  so the row's warning names it. Growing those shapes is still a schema
+  event.
 
 A `footnote` island holds its note in the slot `note`, and an `image` its `url`
 and `alt` in `props`. A `math` island's props hold the equation's TeX under
@@ -550,8 +555,8 @@ is written, and never rewritten while its card lives.**
 
 The schema version is tied to the **crate version at which the `Document`
 wire format was last changed**: not the running crate version. The current
-format was fixed in `0.134.0`, so every save writes
-`quillmark/document@0.134.0`; every later patch release writes that same
+format was fixed in `0.135.0`, so every save writes
+`quillmark/document@0.135.0`; every later patch release writes that same
 value, because patches do not change the format.
 
 The format is the *bytes*, not only the envelope: dropping a key or retiring a
@@ -565,7 +570,10 @@ payload or payload item carrying a key its type does not name fails the load.
 line kinds and `description` to the containers. `0.131.0` adds `font_family`
 to the marks and a table's `head` and spans. `0.134.0` keeps the payload tree,
 adding the `id` payload item, and stores each body as the content model
-(`DocumentV0_134_0`, `StoredContent`).
+(`DocumentV0_134_0`, `StoredContent`). `0.135.0` shares that tree and adds
+the `codec` key to a content value, which a `0.134` reader does not decode,
+so a `0.134` build refuses the row as a newer version rather than reading a
+`text` field as rich text.
 
 The V0_124_0 → V0_129_0 hop decodes its raw `body`, and can reject for the same
 reason a load can. Only the newest DTO converts to the live `Document`.
@@ -636,7 +644,7 @@ retired.
 
 ## Gotchas
 
-- The schema version is a hand-set constant (`STORAGE_V0_134_0`), **not**
+- The schema version is a hand-set constant (`STORAGE_V0_135_0`), **not**
   `CARGO_PKG_VERSION`: bumping it is a deliberate act tied to a model change.
 - Unknown schema versions are rejected on read, never silently ignored.
 - DTO type names carry version suffixes with underscores

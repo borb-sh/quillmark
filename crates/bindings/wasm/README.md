@@ -184,7 +184,7 @@ const doc = Document.storageVersionOf(content)
 
 The tag model, what upgrading reads, and the one-time rewrites a release asks of stored rows are in [Persistence](https://quillmark.dev/integration/persistence/).
 
-`Document.currentStorageVersion()` is the newest tag this build writes, and a save writes the oldest tag that holds the row, so a tag other than it is not a mismatch. Use `storageVersionOf` after `fromStored` throws, to tell "a version this build does not read" from "corrupt":
+`Document.currentStorageVersion()` is the tag every save this build makes writes; a row under an older tag this build reads is not a mismatch. Use `storageVersionOf` after `fromStored` throws, to tell "a version this build does not read" from "corrupt":
 
 ```ts
 try {

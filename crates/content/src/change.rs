@@ -123,6 +123,7 @@ pub enum Assoc {
 
 /// Why a change was refused. Nothing changed.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum ApplyError {
     /// The step at `step` is past the text, deletes text the value does not
     /// hold there, quotes text its range no longer covers, or inserts an
@@ -220,6 +221,7 @@ pub struct Moved {
 
 /// What moved about an anchor, the first of these that holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MoveReason {
     /// A step put it other than where the change's edits to the text carry
     /// it, or in another slot.
@@ -1248,7 +1250,8 @@ mod wire {
     use super::*;
     use crate::wire::{
         ParseError, anchor_from_value, anchor_value, array, attrs, block_from_value, block_value, container_kind_from,
-        container_value, content_value, decode, island_from_value, island_value, mark_from_value, mark_kind_from,
+        check_block_keys, check_container_attrs, check_island_keys, check_keys, check_mark_attrs, check_mark_keys, container_value,
+        content_value, decode, island_from_value, only, island_value, mark_from_value, mark_kind_from,
         mark_value, obj, shape, str_key, usize_key,
     };
 
@@ -1284,6 +1287,7 @@ mod wire {
     }
 
     fn change_from(v: &Value, u: impl Units) -> Result<Change, ParseError> {
+        only(v, "a change", &["steps"])?;
         match v.get("steps") {
             Some(Value::Array(a)) => Ok(Change { steps: a.iter().map(|s| step_from(s, u)).collect::<Result<_, _>>()? }),
             _ => Err(shape("a change's `steps` is not an array")),
@@ -1422,17 +1426,30 @@ mod wire {
     fn slots_from(v: &Value) -> Result<BTreeMap<String, Content>, ParseError> {
         match v.get("slots") {
             None | Some(Value::Null) => Ok(BTreeMap::new()),
-            Some(Value::Object(m)) => m.iter().map(|(k, s)| Ok((k.clone(), decode(s)?))).collect(),
+            Some(Value::Object(m)) => m
+                .iter()
+                .map(|(k, s)| {
+                    check_keys(s)?;
+                    Ok((k.clone(), decode(s)?))
+                })
+                .collect(),
             Some(_) => Err(shape("`slots` is not an object")),
         }
     }
 
-    /// Refuses a key of `v` that `at` does not define.
-    fn only(v: &Value, at: &'static str, keys: &[&str]) -> Result<(), ParseError> {
-        match v.as_object().and_then(|m| m.keys().find(|k| !keys.contains(&k.as_str()))) {
-            Some(key) => Err(ParseError::UnknownKey { at, key: key.clone() }),
-            None => Ok(()),
+
+    /// Refuses a key a splice's `removed` records do not define.
+    fn records(r: &Value) -> Result<(), ParseError> {
+        for b in array(r, "blocks")? {
+            check_block_keys(b)?;
         }
+        for m in array(r, "marks")? {
+            check_mark_keys(m)?;
+        }
+        for i in array(r, "islands")? {
+            check_island_keys(i)?;
+        }
+        Ok(())
     }
 
     fn step_from(v: &Value, u: impl Units) -> Result<Step, ParseError> {
@@ -1450,6 +1467,7 @@ mod wire {
                     None | Some(Value::Null) => None,
                     Some(r @ Value::Object(_)) => {
                         only(r, "a splice's `removed`", &["blocks", "marks", "islands"])?;
+                        records(r)?;
                         Some(Removed {
                             blocks: array(r, "blocks")?.iter().map(block_from_value).collect::<Result<_, _>>()?,
                             marks: array(r, "marks")?.iter().map(mark_from_value).collect::<Result<_, _>>()?,
@@ -1458,12 +1476,19 @@ mod wire {
                     }
                     Some(_) => return Err(shape("`removed` is not an object")),
                 };
+                for b in array(body, "blocks")? {
+                    check_block_keys(b)?;
+                }
+                for i in array(body, "islands")? {
+                    check_island_keys(i)?;
+                }
                 let insert = str_key(body, "insert")?;
                 let len = u.len(&insert);
                 let marks = array(body, "marks")?
                     .iter()
                     .map(|mv| {
                         only(mv, "a splice's mark", &["start", "end", "type", "attrs"])?;
+                        check_mark_attrs(mv)?;
                         let kind = mark_kind_from(&str_key(mv, "type")?, &attrs(mv)?)?;
                         let start = if mv.get("start").is_some() { usize_key(mv, "start")? } else { 0 };
                         let end = if mv.get("end").is_some() { usize_key(mv, "end")? } else { len };
@@ -1513,6 +1538,7 @@ mod wire {
                 if removing(body)? {
                     Step::Container(ContainerStep::Remove { id })
                 } else {
+                    check_container_attrs(body)?;
                     let kind = container_kind_from(&str_key(body, "kind")?, &attrs(body)?)?;
                     Step::Container(ContainerStep::Set(Container { id, kind }))
                 }
@@ -1522,6 +1548,7 @@ mod wire {
                 let add = body.get("add").and_then(Value::as_bool).ok_or_else(|| shape("`add` is not a boolean"))?;
                 let quote = opt_str(body, "quote")?;
                 if add {
+                    check_mark_attrs(body)?;
                     Step::Mark(MarkStep::Add { mark: mark_from_value(body)?, quote })
                 } else {
                     let tag = str_key(body, "type")?;
@@ -1543,6 +1570,7 @@ mod wire {
             "island" => match body.get("island") {
                 Some(island) => {
                     only(body, "an island insert", &["at", "island", "block"])?;
+                    check_island_keys(island)?;
                     Step::Island(IslandStep::Insert {
                         at: usize_key(body, "at")?,
                         island: island_from_value(island)?,
