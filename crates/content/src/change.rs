@@ -2,20 +2,20 @@
 //! value the step before it left; [`apply`] runs them all or none, holds each
 //! step to what [`Content::check`] asks of what it touched and the whole
 //! change to [`Content::validate`], and returns the change in its normalized
-//! form. [`invert`] reads back the inverse each step gives as it applies;
-//! [`compose`] and [`map_pos`] are pure helpers over changes.
+//! form. [`invert`] reads back the inverse each step gives as it applies,
+//! [`apply_traced`] what each step read of the value it applied to, and
+//! [`map_pos`] maps a position across a change.
 
 use crate::draft::{Draft, HeldTwice};
 use crate::ids::is_id;
 use crate::lines::anchor::AnchorContext;
 use crate::model::{
-    Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Scalar, break_offsets, check_block,
+    Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind, Pos, Scalar, break_offsets, check_block,
     check_island, check_mark_kind, is_text_char, mark_spans, normalized_marks,
 };
 pub use crate::mapping::{MapResult, Mapping};
-pub use crate::rebase::{Conflict, RebaseError, rebase};
 use crate::table::{self, Table};
-use crate::units::{Scalars, Units, split_at};
+use crate::units::{Scalars, Units};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -193,6 +193,45 @@ pub struct Applied {
     pub minted: BTreeMap<String, String>,
 }
 
+/// One step as a store holding the value beside it lowers it, in the order
+/// the steps applied: the step in its normalized form and what it read of
+/// the value it applied to, at offsets into that value.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Trace {
+    /// The traces up to the matching [`Trace::Leave`] are in slot `slot` of
+    /// the island `island`, whose character sits at `at`.
+    Enter { at: Scalar, island: String, slot: String },
+    Leave,
+    /// A splice, or an island insert as the splice of its character.
+    Splice {
+        at: Scalar,
+        /// The characters deleted.
+        delete: Scalar,
+        insert: String,
+        /// The formatting the inserted text carries, offsets into `insert`.
+        marks: Vec<Mark>,
+        /// Each record an inserted `\n` carries, and each inserted island,
+        /// as the value holds them after the step.
+        blocks: Vec<Block>,
+        islands: Vec<Island>,
+        /// Where the step left each anchor with an edge at the text it
+        /// deleted, which a store keeping anchors on characters may not
+        /// reach by the text edit alone.
+        anchors: Vec<Anchor>,
+    },
+    /// A block record set, as it reads after the step; `opens` is the offset
+    /// of the `\n` that carries it, `None` for the first block.
+    Block { opens: Option<Scalar>, block: Block },
+    Container(ContainerStep),
+    /// A mark step; `cleared` is each kind of the step's type it removed.
+    Mark { step: MarkStep, cleared: Vec<MarkKind> },
+    Anchor(AnchorStep),
+    /// An island props step on the island whose character sits at `at`:
+    /// the props it set, each slot it gained, and the slots the island holds
+    /// after it.
+    Props { at: Scalar, props: Value, gained: BTreeMap<String, Content>, slots: Vec<String> },
+}
+
 /// An anchor a change dropped: its context as it read before, and the slot
 /// that held it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -286,9 +325,24 @@ pub fn invert(change: &Change, before: &Content) -> Result<Change, ApplyError> {
     Ok(applying(before, change, true)?.1)
 }
 
+/// [`apply`], and each step as a store holding the value beside it lowers
+/// it ([`Trace`]).
+#[doc(hidden)]
+pub fn apply_traced(before: &Content, change: &Change) -> Result<(Applied, Vec<Trace>), ApplyError> {
+    let mut run = Run::new(false);
+    run.trace = Some(Vec::new());
+    let applied = applying_in(before, change, run)?;
+    Ok((applied.0, applied.2.unwrap_or_default()))
+}
+
 fn applying(before: &Content, change: &Change, undo: bool) -> Result<(Applied, Change), ApplyError> {
-    let crate::mint::Filled { change, minted } = crate::mint::fill(change, &[before], None, None)?;
-    let mut run = Run::new(undo);
+    let (applied, inverse, _) = applying_in(before, change, Run::new(undo))?;
+    Ok((applied, inverse))
+}
+
+fn applying_in(before: &Content, change: &Change, mut run: Run) -> Result<(Applied, Change, Option<Vec<Trace>>), ApplyError> {
+    let undo = run.undo;
+    let crate::mint::Filled { change, minted } = crate::mint::fill(change, &[before], None)?;
     let mut draft = Draft::new(before.clone());
     let (mut applied, mut groups) = run.level(&mut draft, &change.steps)?;
     let mut content = draft.finish();
@@ -296,6 +350,7 @@ fn applying(before: &Content, change: &Change, undo: bool) -> Result<(Applied, C
     let unused: Vec<Container> = content.containers.iter().filter(|c| !used.contains(c.id.as_str())).cloned().collect();
     for k in unused {
         applied.push(Step::Container(ContainerStep::Remove { id: k.id.clone() }));
+        run.traced(|| Trace::Container(ContainerStep::Remove { id: k.id.clone() }));
         if undo {
             groups.push(vec![Step::Container(ContainerStep::Set(k))]);
         }
@@ -312,7 +367,7 @@ fn applying(before: &Content, change: &Change, undo: bool) -> Result<(Applied, C
     let applied = Change { steps: applied };
     let moved = moved_anchors(before, &content, &applied, &run);
     let inverse = Change { steps: groups.into_iter().rev().flatten().collect() };
-    Ok((Applied { content, applied, dropped, moved, minted }, inverse))
+    Ok((Applied { content, applied, dropped, moved, minted }, inverse, run.trace))
 }
 
 /// The text `change`'s top-level splices inserted that survives in `after`,
@@ -399,6 +454,8 @@ pub(crate) struct Run {
     stepped: HashSet<String>,
     /// Whether a step may have lost an anchor other than by an `anchor` step.
     lost: bool,
+    /// Each step as a store lowers it, where the run is traced.
+    trace: Option<Vec<Trace>>,
 }
 
 /// The steps that undo one step.
@@ -409,7 +466,13 @@ const TWICE_ISLAND: &str = "the island id is held twice";
 
 impl Run {
     pub(crate) fn new(undo: bool) -> Run {
-        Run { undo, removed: Vec::new(), touched: HashSet::new(), stepped: HashSet::new(), lost: false }
+        Run { undo, removed: Vec::new(), touched: HashSet::new(), stepped: HashSet::new(), lost: false, trace: None }
+    }
+
+    fn traced(&mut self, f: impl FnOnce() -> Trace) {
+        if let Some(t) = &mut self.trace {
+            t.push(f());
+        }
     }
 
     /// Runs `steps` on one level, each checked over what it touched, and
@@ -435,21 +498,33 @@ impl Run {
                 (Step::Splice(done), undo)
             }
             Step::SetBlock(s) => {
-                let (done, undo) = set_block(d, s, n)?;
+                let (done, undo, k) = set_block(d, s, n)?;
+                self.traced(|| Trace::Block { opens: (k > 0).then(|| d.block_start(k) - 1), block: d.c.blocks[k].clone() });
                 (Step::SetBlock(done), vec![Step::SetBlock(undo)])
             }
-            Step::Container(s) => (step.clone(), vec![container(&mut d.c, s)?]),
+            Step::Container(s) => {
+                let undo = container(&mut d.c, s)?;
+                self.traced(|| Trace::Container(s.clone()));
+                (step.clone(), vec![undo])
+            }
             Step::Mark(m) => {
                 let (done, undo) = self.mark(d, m, n)?;
                 (Step::Mark(done), undo)
             }
             Step::Anchor(a) => {
                 let (done, undo) = self.anchor(d, a, n)?;
+                self.traced(|| Trace::Anchor(done.clone()));
                 (Step::Anchor(done), vec![undo])
             }
             Step::Island(IslandStep::Props { id, props, slots }) => {
                 let (gained, undo) = self.island_props(&mut d.c, id, props, slots, n)?;
-                let props = d.c.islands.iter().find(|i| &i.id == id).map(|i| i.props.clone()).unwrap_or_default();
+                let k = island_index(&d.c, id, n)?;
+                let island = &d.c.islands[k];
+                let props = island.props.clone();
+                if self.trace.is_some() {
+                    let (at, held) = (d.island_at(k), island.slots.keys().cloned().collect());
+                    self.traced(|| Trace::Props { at, props: props.clone(), gained: gained.clone(), slots: held });
+                }
                 (Step::Island(IslandStep::Props { id: id.clone(), props, slots: gained }), vec![undo])
             }
             Step::Island(IslandStep::Insert { at, island, block }) => {
@@ -468,9 +543,12 @@ impl Run {
                     Err(ApplyError::UnknownIsland { .. }) => return Err(unknown()),
                     k => k?,
                 };
+                let at = d.island_at(k);
                 let target = d.c.islands[k].slots.get_mut(slot).ok_or_else(unknown)?;
                 let mut inner = Draft::new(std::mem::take(target));
+                self.traced(|| Trace::Enter { at, island: island.clone(), slot: slot.clone() });
                 let (steps, groups) = self.level(&mut inner, &change.steps)?;
+                self.traced(|| Trace::Leave);
                 *target = inner.finish();
                 if !target.is_slot_shape() {
                     return Err(Invariant::BadSlot { island: island.clone(), slot: slot.clone() }.into());
@@ -562,6 +640,14 @@ impl Run {
             self.lost = true;
         }
         let removed = Removed { blocks, marks: removed_marks, islands: gone };
+        if self.trace.is_some() {
+            let records = d.c.blocks[k0 + 1..k0 + 1 + s.blocks.len()].to_vec();
+            let near = d.c.anchors.partition_point(|a| a.start <= at + m);
+            let edge = |p: Scalar| dn > 0 && at <= p && p <= at + m;
+            let anchors = d.c.anchors[..near].iter().filter(|a| edge(a.start) || edge(a.end)).cloned().collect();
+            let (insert, marks, islands) = (s.insert.clone(), inserted.clone(), islands.clone());
+            self.traced(|| Trace::Splice { at, delete: dn, insert, marks, blocks: records, islands, anchors });
+        }
         let mut undo = Vec::new();
         if self.undo {
             undo.push(Step::Splice(Splice {
@@ -659,6 +745,14 @@ impl Run {
         let held_marks = marks.len();
         let was = if self.undo { marks.clone() } else { Vec::new() };
         let remove = matches!(s, MarkStep::Remove { .. }) || matches!(s, MarkStep::Add { mark, .. } if mark.kind.is_keyed());
+        let mut cleared: Vec<MarkKind> = Vec::new();
+        if self.trace.is_some() && remove {
+            for mk in marks.iter().filter(|mk| mk.kind.tag() == tag && mk.start < end && mk.end > start) {
+                if !cleared.contains(&mk.kind) {
+                    cleared.push(mk.kind.clone());
+                }
+            }
+        }
         if remove {
             clear(&mut marks, start, end, tag);
         }
@@ -677,6 +771,7 @@ impl Run {
             MarkStep::Add { mark, .. } => MarkStep::Add { mark: mark.clone(), quote: held },
             MarkStep::Remove { .. } => MarkStep::Remove { start, end, tag: tag.to_string(), quote: held },
         };
+        self.traced(|| Trace::Mark { step: done.clone(), cleared });
         Ok((done, undo))
     }
 
@@ -858,7 +953,7 @@ fn map_point(p: Scalar, at: Scalar, dn: Scalar, m: Scalar) -> Scalar {
 }
 
 /// Sets a block's record, and answers the step that puts it back.
-fn set_block(d: &mut Draft, s: &SetBlock, n: usize) -> Result<(SetBlock, SetBlock), ApplyError> {
+fn set_block(d: &mut Draft, s: &SetBlock, n: usize) -> Result<(SetBlock, SetBlock, usize), ApplyError> {
     let k = d
         .block_index(&s.id)
         .map_err(|HeldTwice| ApplyError::BadStep { step: n, reason: TWICE_BLOCK })?
@@ -887,7 +982,7 @@ fn set_block(d: &mut Draft, s: &SetBlock, n: usize) -> Result<(SetBlock, SetBloc
     check_block(b, |id| containers.iter().find(|k| k.id == id).map(|k| &k.kind))?;
     let attrs = crate::wire::block_attrs(&b.kind).and_then(|v| v.as_object().cloned());
     let kind = (s.kind.is_some() || s.attrs.is_some()).then(|| b.kind.tag().to_string());
-    Ok((SetBlock { id: s.id.clone(), attrs: kind.as_ref().and(attrs), kind, path: s.path.clone() }, undo))
+    Ok((SetBlock { id: s.id.clone(), attrs: kind.as_ref().and(attrs), kind, path: s.path.clone() }, undo, k))
 }
 
 /// Runs a container step, and answers the step that undoes it.
@@ -1136,98 +1231,6 @@ fn sites(c: &Content, ids: &HashSet<String>, path: &[(String, String)], out: &mu
             sites(inner, ids, &deeper, out);
         }
     }
-}
-
-/// `a` then `b` as one change: the steps of both, adjacent splices merged
-/// where the second lies within the text the first inserted or both only
-/// delete and touch, a merge that undoes itself dropped, and adjacent nested
-/// changes to one slot composed. A splice typed where the one before it
-/// deleted stays apart, since a point anchor there stays left of the first
-/// and would sit right of the merged one.
-pub fn compose(a: &Change, b: &Change) -> Change {
-    compose_in(a, b, Scalars)
-}
-
-/// [`compose`] over changes whose offsets count `u`.
-pub fn compose_in(a: &Change, b: &Change, u: impl Units) -> Change {
-    let mut steps: Vec<Step> = Vec::with_capacity(a.steps.len() + b.steps.len());
-    for step in a.steps.iter().chain(&b.steps) {
-        let merged = match (steps.last(), step) {
-            (Some(Step::Splice(x)), Step::Splice(y)) => merge_splices(x, y, u).map(Step::Splice),
-            (
-                Some(Step::Nested { island: i, slot: s, change: x }),
-                Step::Nested { island: j, slot: t, change: y },
-            ) if i == j && s == t => {
-                Some(Step::Nested { island: i.clone(), slot: s.clone(), change: compose_in(x, y, u) })
-            }
-            _ => None,
-        };
-        match merged {
-            Some(Step::Splice(m)) if m.delete.is_empty() && m.insert.is_empty() => {
-                steps.pop();
-            }
-            Some(m) => *steps.last_mut().expect("merged with the last step") = m,
-            None => steps.push(step.clone()),
-        }
-    }
-    Change { steps }
-}
-
-fn merge_splices(x: &Splice, y: &Splice, u: impl Units) -> Option<Splice> {
-    let (xm, yn) = (u.len(&x.insert), u.len(&y.delete));
-    let point_moves = !x.delete.is_empty() && !y.insert.is_empty() && y.at == x.at + xm;
-    if y.at >= x.at && y.at + yn <= x.at + xm && !point_moves {
-        let r = y.at - x.at;
-        let (head, rest) = split_at(u, &x.insert, r)?;
-        let (gone, tail) = split_at(u, rest, yn)?;
-        if gone != y.delete {
-            return None;
-        }
-        let insert = format!("{head}{}{tail}", y.insert);
-        let ym = u.len(&y.insert);
-        let count = |s: &str, ch: char| s.chars().filter(|&c| c == ch).count();
-        let (nl_before, nl_gone) = (count(head, '\n'), count(gone, '\n'));
-        let (sl_before, sl_gone) = (count(head, ISLAND_SLOT), count(gone, ISLAND_SLOT));
-        let mut blocks = x.blocks[..nl_before].to_vec();
-        blocks.extend(y.blocks.iter().cloned());
-        blocks.extend(x.blocks[nl_before + nl_gone..].iter().cloned());
-        let mut islands = x.islands[..sl_before].to_vec();
-        islands.extend(y.islands.iter().cloned());
-        islands.extend(x.islands[sl_before + sl_gone..].iter().cloned());
-        let mut marks = Vec::new();
-        for mk in &x.marks {
-            if mk.start < r {
-                marks.push(Mark::new(mk.start, mk.end.min(r), mk.kind.clone()));
-            }
-            if mk.end > r + yn {
-                marks.push(Mark::new(mk.start.max(r + yn) - yn + ym, mk.end - yn + ym, mk.kind.clone()));
-            }
-        }
-        marks.extend(y.marks.iter().map(|mk| Mark::new(mk.start + r, mk.end + r, mk.kind.clone())));
-        return Some(Splice { at: x.at, delete: x.delete.clone(), insert, marks, blocks, islands, removed: x.removed.clone() });
-    }
-    if !x.insert.is_empty() || !y.insert.is_empty() || x.delete.is_empty() || y.delete.is_empty() {
-        return None;
-    }
-    let (first, second, at) = if y.at + yn == x.at {
-        (y, x, y.at)
-    } else if y.at == x.at {
-        (x, y, x.at)
-    } else {
-        return None;
-    };
-    let removed = match (&first.removed, &second.removed) {
-        (Some(f), Some(s)) => {
-            let shift = u.len(&first.delete);
-            let mut r = f.clone();
-            r.blocks.extend(s.blocks.iter().cloned());
-            r.islands.extend(s.islands.iter().cloned());
-            r.marks.extend(s.marks.iter().map(|m| Mark::new(m.start + shift, m.end + shift, m.kind.clone())));
-            Some(r)
-        }
-        _ => None,
-    };
-    Some(Splice { at, delete: format!("{}{}", first.delete, second.delete), removed, ..Splice::default() })
 }
 
 /// Where `pos` lands after `change`, and what around it the change deleted:

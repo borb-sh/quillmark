@@ -26,4 +26,5 @@ unicode-segmentation = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+quillmark-automerge = { workspace = true }
 quillmark-fixtures = { workspace = true }

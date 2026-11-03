@@ -1,14 +1,13 @@
 //! The change laws over generated documents and generated changes: every
-//! change inverts exactly, composing agrees with applying in turn, a mapped
+//! change inverts exactly, a mapped
 //! position lands on the character it named, and a change either yields a
 //! valid value or fails.
 
 use proptest::prelude::*;
 use quillmark_content::change::{
     AnchorStep, ApplyError, Assoc, Change, ContainerStep, IslandStep, MapResult, Mapping, MarkStep, SetBlock, Splice, Step,
-    apply, compose, compose_in, invert, map_pos, map_pos_in, rebase,
+    apply, invert, map_pos, map_pos_in,
 };
-use quillmark_content::rebase::{Conflict, RebaseError, Reason};
 use quillmark_content::structural::{Wrap, delete_range, indent, inherited_marks, join_blocks, outdent, split_block, wrap};
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::markdown::from_markdown;
@@ -453,42 +452,6 @@ proptest! {
         }
     }
 
-    #[test]
-    fn composing_agrees_with_applying_in_turn(d in document(), ops in ops(), cut in any::<usize>()) {
-        let c = change_for(&d, &ops);
-        let cut = cut % (c.steps.len() + 1);
-        let (a, b) = (Change::new(c.steps[..cut].to_vec()), Change::new(c.steps[cut..].to_vec()));
-        let (Ok(mid), Ok(_)) = (apply(&d, &a), Ok::<(), ()>(())) else { return Ok(()) };
-        let Ok(end) = apply(&mid.content, &b) else { return Ok(()) };
-        let composed = apply(&d, &compose(&a, &b));
-        prop_assert!(composed.is_ok(), "{:?}", composed);
-        prop_assert_eq!(composed.unwrap().content, end.content);
-    }
-
-    #[test]
-    fn typing_and_deleting_compose_as_applied(d in document(), keys in prop::collection::vec(0u8..4, 1..10), at in any::<usize>()) {
-        let mut doc = d.clone();
-        let mut caret = at % (d.len_scalars() + 1);
-        let mut total = Change::default();
-        for k in keys {
-            let s = match k {
-                0 | 1 => Splice::new(caret, "", if k == 0 { "a" } else { "b" }),
-                2 if caret > 0 => {
-                    let ch = doc.text.chars().nth(caret - 1).unwrap();
-                    if ch == '\n' || ch == ISLAND_SLOT { continue }
-                    caret -= 1;
-                    Splice::new(caret, ch.to_string(), "")
-                }
-                _ => continue,
-            };
-            if k < 2 { caret += 1 }
-            let step = Change::new(vec![Step::Splice(s)]);
-            let Ok(done) = apply(&doc, &step) else { break };
-            doc = done.content;
-            total = compose(&total, &done.applied);
-        }
-        prop_assert_eq!(apply(&d, &total).unwrap().content, doc);
-    }
 
     /// Each character either goes, which the two edges around it both say,
     /// or keeps its place: the edges land around it, and the survivors keep
@@ -625,21 +588,6 @@ fn a_step_holding_a_key_it_does_not_define_is_refused() {
         assert!(matches!(Change::from_value(&json!({"steps": [nested.clone()]})), Err(quillmark_content::wire::ParseError::UnknownKey { .. })), "{nested}");
     }
     assert!(matches!(Change::from_value(&json!({"steps": [], "version": 2})), Err(quillmark_content::wire::ParseError::UnknownKey { .. })));
-}
-
-#[test]
-fn a_typed_run_composes_into_one_splice() {
-    let d = from_markdown("ab").unwrap().content;
-    let mut total = Change::default();
-    let mut doc = d.clone();
-    for (at, ch) in [(1, "x"), (2, "y"), (3, "z")] {
-        let done = apply(&doc, &Change::new(vec![Step::Splice(Splice::new(at, "", ch))])).unwrap();
-        doc = done.content;
-        total = compose(&total, &done.applied);
-    }
-    let back = apply(&doc, &Change::new(vec![Step::Splice(Splice::new(3, "z", ""))])).unwrap();
-    total = compose(&total, &back.applied);
-    assert!(matches!(&total.steps[..], [Step::Splice(s)] if s.insert == "xy"), "{total:?}");
 }
 
 /// Each block's text and id, in order, a heading marked `#`.
@@ -1217,7 +1165,8 @@ proptest! {
 
 mod diffs {
     use super::*;
-    use quillmark_content::diff::{align, diff, lift, replace, revise};
+    use quillmark_automerge::revise;
+    use quillmark_content::diff::{align, diff, lift, replace};
     use quillmark_content::markdown::{Loss, to_markdown, to_markdown_annotated, to_markdown_checked};
     use quillmark_content::migrate::to_lines;
 
@@ -1555,18 +1504,6 @@ proptest! {
     }
 
     #[test]
-    fn composing_in_utf16_agrees_with_applying_in_turn(d in document(), ops in ops(), cut in any::<usize>()) {
-        let c = change_for(&d, &ops);
-        let cut = cut % (c.steps.len() + 1);
-        let (a, b) = (Change::new(c.steps[..cut].to_vec()), Change::new(c.steps[cut..].to_vec()));
-        let Ok(mid) = apply(&d, &a).map(|m| m.content) else { return Ok(()) };
-        let Ok(end) = apply(&mid, &b).map(|e| e.content) else { return Ok(()) };
-        let (a16, b16) = (change_from_scalars(&a, &d, Utf16).unwrap(), change_from_scalars(&b, &mid, Utf16).unwrap());
-        let composed = change_to_scalars(&compose_in(&a16, &b16, Utf16), &d, Utf16).unwrap();
-        prop_assert_eq!(apply(&d, &composed).unwrap().content, end);
-    }
-
-    #[test]
     fn mapping_in_utf16_agrees_with_mapping_in_scalars(d in document(), ops in ops()) {
         let after = apply(&d, &change_for(&d, &ops)).unwrap();
         let c16 = change_from_scalars(&after.applied, &d, Utf16).unwrap();
@@ -1592,434 +1529,6 @@ fn an_offset_inside_a_surrogate_pair_is_refused() {
     let at3 = serde_json::json!({"steps": [{"splice": {"at": 3, "delete": "", "insert": "x"}}]});
     let c = change_to_scalars(&Change::from_value_in(&at3, Utf16).unwrap(), &d, Utf16).unwrap();
     assert_eq!(apply(&d, &c).unwrap().content.text, "a😀xb");
-}
-
-/// A change on `d` that touches only the text in `[lo, hi]`, the window
-/// following what its own splices do, deleting no `\n`, so it joins no
-/// block another change edits, its anchors named `{side}-*`.
-fn windowed(d: &Content, ops: &[Op], (lo, mut hi): (usize, usize), side: &str) -> Change {
-    let mut sim = d.clone();
-    let mut steps = Vec::new();
-    for (k, &(op, x, y, z)) in ops.iter().enumerate() {
-        let (a, b) = (lo + x % (hi - lo + 1), lo + y % (hi - lo + 1));
-        let (start, end) = (a.min(b), a.max(b));
-        let step = match op % 3 {
-            0 => {
-                let mut s = splice_on(&sim, start, 0, z, k);
-                let cs = chars(&sim);
-                let dn = cs[start..end].iter().take(3).take_while(|&&ch| ch != '\n').count();
-                s.delete = cs[start..start + dn].iter().collect();
-                Step::Splice(s)
-            }
-            1 if start < end => Step::Mark(MarkStep::Add { mark: Mark::new(start, end, kind_of(TAGS[z as usize % TAGS.len()])), quote: quote_of(&sim, start, end, y) }),
-            _ => anchor_step(&sim, Anchor::new(format!("{side}-{}", z % 3), start, end), quote_of(&sim, start, end, x)),
-        };
-        let mut trial = steps.clone();
-        trial.push(step.clone());
-        if let Ok(done) = apply(d, &Change::new(trial.clone())) {
-            if let Step::Splice(s) = &step {
-                hi = hi + s.insert.chars().count() - s.delete.chars().count();
-            }
-            steps = trial;
-            sim = done.content;
-        }
-    }
-    Change::new(steps)
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig { max_global_rejects: 300, ..ProptestConfig::with_cases(300) })]
-
-    /// A change rebased over another applies after it and leaves a valid
-    /// value, which the rebased change's inverse takes back exactly. A pair
-    /// that conflicts states nothing, and at most one in two may.
-    #[test]
-    fn a_rebased_change_applies_after_the_other_and_inverts_there(d in document(), mine in ops(), theirs in ops()) {
-        let c = change_for(&d, &mine);
-        let o = change_from(&d, &theirs, 0);
-        let now = apply(&d, &o).unwrap().content;
-        let r = rebase(&d, &c, &o);
-        prop_assume!(r.is_ok());
-        let r = r.unwrap();
-        let done = apply(&now, &r);
-        prop_assert!(done.is_ok(), "{:?}\nchange {:?}\nover {:?}\nrebased {:?}", done, c, o, r);
-        let done = done.unwrap().content;
-        prop_assert_eq!(done.validate(), Ok(()));
-        let undo = invert(&r, &now).unwrap();
-        prop_assert_eq!(apply(&done, &undo).unwrap().content, now);
-    }
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(300))]
-
-    #[test]
-    fn a_change_rebased_over_nothing_is_itself(d in document(), ops in ops()) {
-        let c = change_for(&d, &ops);
-        prop_assert_eq!(rebase(&d, &c, &Change::default()), Ok(c));
-    }
-
-    /// Two changes to text either side of a character neither touches, and
-    /// joining no blocks, rebase over each other, and either way round reach
-    /// the value holding both:
-    /// the text left of it as the one wrote it, the text right of it as the
-    /// other did. The blocks each splits off take their ids from one
-    /// namespace, as two writers minting past one value do, and the change
-    /// rebased renames an id the other also introduced, so the two values
-    /// agree but for the ids of those blocks.
-    #[test]
-    fn changes_to_disjoint_text_rebase_into_both(d in document(), cut in any::<usize>(), mine in ops(), theirs in ops()) {
-        let len = d.len_scalars();
-        let cut = cut % len;
-        let c = windowed(&d, &mine, (0, cut), "l");
-        let o = windowed(&d, &theirs, (cut + 1, len), "r");
-        let (left, right) = (apply(&d, &c).unwrap().content, apply(&d, &o).unwrap().content);
-        let r = rebase(&d, &c, &o);
-        prop_assert!(r.is_ok(), "{:?}\nchange {:?}\nover {:?}", r, c, o);
-        let r = r.unwrap();
-        let both = apply(&right, &r).unwrap().content;
-        let mine: String = chars(&left)[..left.len_scalars() - (len - cut)].iter().collect();
-        let theirs: String = chars(&right)[cut..].iter().collect();
-        prop_assert_eq!(&both.text, &format!("{mine}{theirs}"));
-        let back = rebase(&d, &o, &c).unwrap();
-        let unnamed = |mut v: Content| {
-            v.blocks.iter_mut().for_each(|b| b.id.clear());
-            v
-        };
-        prop_assert_eq!(unnamed(apply(&left, &back).unwrap().content), unnamed(both));
-    }
-}
-
-/// What `over` took `base` to in `theirs` that `done` holds otherwise, by
-/// id, on one level and in each slot all three hold: a block's kind or path,
-/// a container, an island's props, a block `over` changed that `done` lost,
-/// or an island or slot `over` changed that `done` lost where the change
-/// never edited what `over` changed in it. `read` is every island the
-/// change's steps passed through; the props or a slot the change edited
-/// before it dropped the island hold to what the change read, which the
-/// rebase checks step by step.
-fn overwritten(base: &Content, theirs: &Content, done: &Content, read: &[Island]) -> Option<String> {
-    let block = |c: &Content, id: &str| c.blocks.iter().find(|b| b.id == id).cloned();
-    for b in &theirs.blocks {
-        let Some(was) = block(base, &b.id) else { continue };
-        let Some(now) = block(done, &b.id) else {
-            if was != *b {
-                return Some(format!("block {}", b.id));
-            }
-            continue;
-        };
-        if was.kind != b.kind && now.kind != b.kind {
-            return Some(format!("the kind of {}", b.id));
-        }
-        if was.path != b.path && now.path != b.path {
-            return Some(format!("the path of {}", b.id));
-        }
-    }
-    for k in &theirs.containers {
-        if base.container(&k.id).is_some_and(|w| w != k) && done.container(&k.id).is_some_and(|d| d != k) {
-            return Some(format!("container {}", k.id));
-        }
-    }
-    let island = |c: &Content, id: &str| c.islands.iter().find(|i| i.id == id).cloned();
-    for i in &theirs.islands {
-        let Some(was) = island(base, &i.id).filter(|was| was != i) else { continue };
-        let Some(now) = island(done, &i.id) else {
-            let edited = |differs: &dyn Fn(&Island) -> bool| read.iter().any(|r| r.id == i.id && differs(r));
-            let props = was.props == i.props || edited(&|r| r.props != was.props);
-            let slots = i.slots.iter().all(|(slot, inner)| was.slots.get(slot) == Some(inner) || edited(&|r| r.slots.get(slot) != was.slots.get(slot)));
-            if props && slots {
-                continue;
-            }
-            return Some(format!("island {}", i.id));
-        };
-        if was.props != i.props && now.props != i.props {
-            return Some(format!("the props of {}", i.id));
-        }
-        for (slot, inner) in &i.slots {
-            match (was.slots.get(slot), now.slots.get(slot)) {
-                (Some(w), Some(n)) => {
-                    if let Some(lost) = overwritten(w, inner, n, read) {
-                        return Some(lost);
-                    }
-                }
-                (Some(w), None) if w != inner && !read.iter().any(|r| r.id == i.id && r.slots.get(slot) != Some(w)) => {
-                    return Some(format!("slot {slot} of {}", i.id));
-                }
-                _ => {}
-            }
-        }
-    }
-    None
-}
-
-fn every_island(c: &Content, out: &mut Vec<Island>) {
-    for island in &c.islands {
-        out.push(island.clone());
-        island.slots.values().for_each(|slot| every_island(slot, out));
-    }
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(400))]
-
-    /// A rebased change keeps what the change it rebased over did to each
-    /// record, container and island by id, to the formatting of each
-    /// character all three values hold, and to each anchor its steps named,
-    /// or conflicts.
-    #[test]
-    fn a_rebased_change_keeps_what_the_other_changed_or_conflicts(d in document(), mine in ops(), theirs in ops()) {
-        let c = change_for(&d, &mine);
-        let o = change_from(&d, &theirs, 0);
-        let theirs = apply(&d, &o).unwrap();
-        let now = theirs.content.clone();
-        let Ok(r) = rebase(&d, &c, &o) else { return Ok(()) };
-        let landed = apply(&now, &r).unwrap();
-        let own = apply(&d, &c).unwrap();
-        prop_assert_eq!(reformatted(&d, &own, &theirs, &landed), None, "change {:?}\nover {:?}\nrebased {:?}", c, o, r);
-        prop_assert_eq!(restepped(&o, &now, &landed), None, "change {:?}\nover {:?}\nrebased {:?}", c, o, r);
-        let done = landed.content;
-        let mut read = Vec::new();
-        for k in 0..=c.steps.len() {
-            if let Ok(at) = apply(&d, &Change::new(c.steps[..k].to_vec())) {
-                every_island(&at.content, &mut read);
-            }
-        }
-        prop_assert_eq!(overwritten(&d, &now, &done, &read), None, "change {:?}\nover {:?}\nrebased {:?}", c, o, r);
-    }
-}
-
-/// Where a character of `d` lands after `change`, `None` where it went.
-fn char_map(change: &Change, i: usize) -> Option<usize> {
-    let r = map_pos(change, &Pos::At(i), Assoc::After).ok()?;
-    match (r.deleted_after, r.pos) {
-        (false, Pos::At(p)) => Some(p),
-        _ => None,
-    }
-}
-
-/// The mark of each type on character `i` of `c`.
-fn formats(c: &Content, i: usize) -> std::collections::BTreeMap<String, MarkKind> {
-    c.marks.iter().filter(|m| m.start <= i && i < m.end).map(|m| (m.kind.tag().to_string(), m.kind.clone())).collect()
-}
-
-/// A mark of a type `over` changed on a character of `d` that `own`, the
-/// change made from `d`, left as it was, and that `landed`, the change
-/// rebased over it, holds otherwise than `theirs`.
-fn reformatted(d: &Content, own: &quillmark_content::change::Applied, theirs: &quillmark_content::change::Applied, landed: &quillmark_content::change::Applied) -> Option<String> {
-    for j in 0..d.len_scalars() {
-        let (Some(jo), Some(jc)) = (char_map(&theirs.applied, j), char_map(&own.applied, j)) else { continue };
-        let Some(jf) = char_map(&landed.applied, jo) else { continue };
-        let (dv, ov, cv, fv) = (formats(d, j), formats(&theirs.content, jo), formats(&own.content, jc), formats(&landed.content, jf));
-        let tags: BTreeSet<&String> = dv.keys().chain(ov.keys()).chain(cv.keys()).collect();
-        for t in tags {
-            if dv.get(t) != ov.get(t) && dv.get(t) == cv.get(t) && fv.get(t) != ov.get(t) {
-                return Some(format!("the {t} of character {j}"));
-            }
-        }
-    }
-    None
-}
-
-/// An anchor of the value's own text an `anchor` step of `over` named that
-/// `landed` holds otherwise than where its own steps carry it from `now`.
-fn restepped(over: &Change, now: &Content, landed: &quillmark_content::change::Applied) -> Option<String> {
-    let named: BTreeSet<&str> = over.steps.iter().filter_map(|s| match s {
-        Step::Anchor(a) => Some(a.id()),
-        _ => None,
-    }).collect();
-    let map = Mapping::from_change(&landed.applied).unwrap();
-    for id in named {
-        let want = now.anchor(id).and_then(|a| {
-            let at = |p: Pos| match p {
-                Pos::At(p) => p,
-                _ => unreachable!(),
-            };
-            let (start, end) = match a.is_point() {
-                true => {
-                    let p = at(map.map_point(&Pos::At(a.start)).pos);
-                    (p, p)
-                }
-                false => (at(map.map(&Pos::At(a.start), Assoc::After).pos), at(map.map(&Pos::At(a.end), Assoc::Before).pos)),
-            };
-            (a.is_point() || start < end).then(|| Anchor::new(id, start, end))
-        });
-        if landed.content.anchor(id) != want.as_ref() {
-            return Some(format!("anchor {id}"));
-        }
-    }
-    None
-}
-
-fn table_change(d: &Content, edit: impl FnOnce(&mut Table), slots: &[(&str, &str)]) -> Change {
-    let island = &d.islands[0];
-    let mut grid = Table::read(&island.props).unwrap();
-    edit(&mut grid);
-    let mut props = island.props.as_object().unwrap().clone();
-    grid.write_into(&mut props);
-    let slots = slots.iter().map(|(k, v)| (k.to_string(), quillmark_content::markdown::from_plaintext(v))).collect();
-    Change::new(vec![Step::Island(IslandStep::Props { id: island.id.clone(), props: props.into(), slots })])
-}
-
-fn conflict_of(d: &Content, change: &Change, over: &Change) -> Option<(usize, &'static str)> {
-    match rebase(d, change, over) {
-        Err(RebaseError::Conflict(Conflict { step, reason })) => Some((step, reason.name())),
-        _ => None,
-    }
-}
-
-#[test]
-fn a_step_by_id_conflicts_where_the_other_changed_what_it_overwrites() {
-    let d = from_markdown("lead\n\n| aa | bb |\n| - | - |\n| cc | dd |\n\ntail").unwrap().content;
-    let island = d.islands[0].clone();
-    let grid = Table::read(&island.props).unwrap();
-    let cell = |slot: &str| Change::new(vec![Step::Nested { island: island.id.clone(), slot: slot.into(), change: Change::new(vec![Step::Splice(Splice::new(2, "", "!"))]) }]);
-    let (last, first) = (grid.rows[1].cells[0].clone(), grid.rows[0].cells[0].clone());
-    let add_row = table_change(&d, |g| g.rows.push(quillmark_content::table::Row { id: "r-n".into(), cells: vec!["s-n0".into(), "s-n1".into()] }), &[("s-n0", "new"), ("s-n1", "row")]);
-    let add_column = table_change(
-        &d,
-        |g| {
-            g.columns.push("k-n".into());
-            g.rows.iter_mut().for_each(|r| r.cells.push(format!("{}k", r.id)));
-        },
-        &[],
-    );
-    let drop_last = table_change(&d, |g| { g.rows.pop(); }, &[]);
-    assert_eq!(conflict_of(&d, &add_column, &add_row), Some((0, "changed")));
-    assert_eq!(conflict_of(&d, &drop_last, &cell(&last)), Some((0, "changed")));
-    assert!(rebase(&d, &drop_last, &cell(&first)).is_ok());
-    assert!(rebase(&d, &add_column, &cell(&last)).is_ok());
-    assert!(rebase(&d, &cell(&last), &add_column).is_ok());
-
-    let at = d.text.chars().position(|ch| ch == ISLAND_SLOT).unwrap();
-    let drop_table = Change::new(vec![Step::Splice(Splice::new(at - 1, "\n\u{FFFC}", ""))]);
-    assert_eq!(conflict_of(&d, &drop_table, &cell(&last)), Some((0, "changed")));
-    assert!(rebase(&d, &drop_table, &Change::new(vec![Step::Splice(Splice::new(0, "", "x"))])).is_ok());
-
-    let tail = d.blocks.last().unwrap().id.clone();
-    let set = |kind: &str, attrs: Option<serde_json::Value>, path: Option<Vec<String>>| {
-        Change::new(vec![Step::SetBlock(SetBlock { id: tail.clone(), kind: Some(kind.into()), attrs: attrs.and_then(|v| v.as_object().cloned()), path })])
-    };
-    let quote = Change::new(vec![
-        Step::Container(ContainerStep::Set(Container::new("q-n", ContainerKind::Quote))),
-        Step::SetBlock(SetBlock { id: tail.clone(), path: Some(vec!["q-n".into()]), ..SetBlock::default() }),
-    ]);
-    let heading = set("heading", Some(json!({"level": 2})), None);
-    assert_eq!(conflict_of(&d, &set("heading", Some(json!({"level": 3})), None), &heading), Some((0, "changed")));
-    assert!(rebase(&d, &heading, &quote).is_ok());
-    assert!(rebase(&d, &quote, &heading).is_ok());
-    let unquote = Change::new(vec![Step::SetBlock(SetBlock { id: tail.clone(), path: Some(Vec::new()), ..SetBlock::default() })]);
-    assert!(rebase(&d, &unquote, &Change::default()).is_ok());
-    assert_eq!(conflict_of(&d, &unquote, &quote), Some((0, "changed")));
-}
-
-#[test]
-fn a_diff_names_only_the_block_fields_it_changes_so_a_quote_and_a_heading_both_land() {
-    let d = from_markdown("first\n\nsecond").unwrap().content;
-    let id = d.blocks[1].id.clone();
-    let mut heading = d.clone();
-    heading.blocks[1].kind = BlockKind::Heading { level: 2 };
-    let mine = quillmark_content::diff::diff(&d, &heading).unwrap();
-    assert_eq!(mine.steps, [Step::SetBlock(SetBlock { id: id.clone(), kind: Some("heading".into()), attrs: json!({"level": 2}).as_object().cloned(), path: None })]);
-    let quote = Change::new(vec![
-        Step::Container(ContainerStep::Set(Container::new("q-n", ContainerKind::Quote))),
-        Step::SetBlock(SetBlock { id: id.clone(), path: Some(vec!["q-n".into()]), ..SetBlock::default() }),
-    ]);
-    let now = apply(&d, &quote).unwrap().content;
-    let done = apply(&now, &rebase(&d, &mine, &quote).unwrap()).unwrap().content;
-    assert_eq!((&done.blocks[1].kind, &done.blocks[1].path), (&BlockKind::Heading { level: 2 }, &vec!["q-n".to_string()]));
-}
-
-#[test]
-fn rewording_the_word_beside_a_footnote_rebases_over_an_edit_inside_the_note() {
-    let d = from_markdown("Alpha[^a] beta gamma\n\n[^a]: note text here").unwrap().content;
-    let island = d.islands[0].clone();
-    let note = island.slot_order()[0].clone();
-    let len = island.slots[&note].len_scalars();
-    let over = Change::new(vec![Step::Nested { island: island.id.clone(), slot: note.clone(), change: Change::new(vec![Step::Splice(Splice::new(len, "", "!"))]) }]);
-    let mine = quillmark_content::diff::revise(&d, "Omega[^a] beta gamma\n\n[^a]: note text here").unwrap().change;
-    assert!(mine.steps.iter().all(|s| !matches!(s, Step::Splice(sp) if sp.delete.contains(ISLAND_SLOT))), "{mine:?}");
-    let now = apply(&d, &over).unwrap().content;
-    let done = apply(&now, &rebase(&d, &mine, &over).unwrap()).unwrap().content;
-    assert!(done.text.starts_with("Omega"));
-    assert_eq!(done.slot(&island.id, &note).unwrap().text, "note text here!");
-}
-
-#[test]
-fn a_nested_step_conflicts_where_the_other_rewrote_its_island_and_rebases_over_a_move() {
-    let d = from_markdown("intro\n\n| aa | bb |\n| - | - |\n| cc | dd |\n\nend").unwrap().content;
-    let island = d.islands[0].clone();
-    let slot = island.slot_order()[2].clone();
-    let mine = Change::new(vec![Step::Nested { island: island.id.clone(), slot: slot.clone(), change: Change::new(vec![Step::Splice(Splice::new(2, "", "!"))]) }]);
-    let at = d.text.chars().position(|ch| ch == ISLAND_SLOT).unwrap();
-    let rewrite = |copy: Island| Change::new(vec![Step::Splice(Splice { islands: vec![copy], ..Splice::new(at, "\u{FFFC}", "\u{FFFC}") })]);
-    let mut big = island.clone();
-    big.slots.insert(slot.clone(), quillmark_content::markdown::from_plaintext("Big cc"));
-    assert_eq!(conflict_of(&d, &mine, &rewrite(big)), Some((0, "changed")));
-    let same = rewrite(island.clone());
-    let done = apply(&apply(&d, &same).unwrap().content, &rebase(&d, &mine, &same).unwrap()).unwrap().content;
-    assert_eq!(done.slot(&island.id, &slot).unwrap().text, "cc!");
-
-    let target = quillmark_content::diff::align(&d, from_markdown("intro\n\nend\n\n| aa | bb |\n| - | - |\n| Big cc | dd |").unwrap().content);
-    let moved = quillmark_content::diff::diff(&d, &target).unwrap();
-    let done = apply(&apply(&d, &moved).unwrap().content, &rebase(&d, &mine, &moved).unwrap()).unwrap().content;
-    assert_eq!(done.slot(&island.id, &slot).unwrap().text, "Big cc!");
-}
-
-#[test]
-fn a_slow_anchor_lands_on_its_text_over_live_typing() {
-    let d = from_markdown("Hello world").unwrap().content;
-    let typed = Change::new(vec![Step::Splice(Splice::new(0, "", "XX ")), Step::Splice(Splice::new(8, "", "!"))]);
-    let place = Change::new(vec![
-        Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }),
-        Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-2", 5, 5), quote: None }),
-        Step::Mark(MarkStep::Add { mark: Mark::new(0, 5, MarkKind::Strong), quote: Some("Hello".into()) }),
-    ]);
-    let now = apply(&d, &typed).unwrap().content;
-    assert_eq!(now.text, "XX Hello! world");
-    let done = apply(&now, &rebase(&d, &place, &typed).unwrap()).unwrap().content;
-    assert_eq!(done.anchor("c-1"), Some(&Anchor::new("c-1", 10, 15)));
-    assert_eq!(done.anchor("c-2"), Some(&Anchor::new("c-2", 8, 8)));
-    assert_eq!(done.marks, [Mark::new(3, 8, MarkKind::Strong)]);
-}
-
-#[test]
-fn a_step_that_no_longer_fits_conflicts_by_name() {
-    let d = from_markdown("Hello world\n\nsecond").unwrap().content;
-    let one = |s: Step| Change::new(vec![s]);
-    let conflict = |c: &Change, o: &Change| match rebase(&d, c, o) {
-        Err(RebaseError::Conflict(Conflict { step, reason })) => Some((step, reason.name())),
-        _ => None,
-    };
-    let edit = Change::new(vec![Step::Splice(Splice::new(0, "", "> ")), Step::Splice(Splice::new(8, "world", "there"))]);
-    let reworded = one(Step::Splice(Splice::new(8, "r", "R")));
-    assert_eq!(conflict(&edit, &reworded), Some((1, "changed")));
-    let cut = one(Step::Splice(Splice::new(9, "ld", "")));
-    assert_eq!(conflict(&edit, &cut), Some((1, "deleted")));
-    let quoted = one(Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Emph), quote: Some("world".into()) }));
-    assert_eq!(conflict(&quoted, &one(Step::Splice(Splice::new(8, "", "XX")))), Some((0, "changed")));
-    let unquoted = one(Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Emph), quote: None }));
-    assert!(rebase(&d, &unquoted, &one(Step::Splice(Splice::new(8, "", "XX")))).is_ok());
-    assert_eq!(conflict(&unquoted, &one(Step::Splice(Splice::new(5, " world", "")))), Some((0, "deleted")));
-    let gone = one(Step::Splice(Splice::new(11, "\nsecond", "")));
-    let heading = one(Step::SetBlock(SetBlock { id: d.blocks[1].id.clone(), kind: Some("heading".into()), attrs: json!({"level": 2}).as_object().cloned(), path: None }));
-    assert_eq!(conflict(&heading, &gone), Some((0, "missing")));
-    assert!(rebase(&d, &heading, &reworded).is_ok());
-}
-
-#[test]
-fn a_nested_step_rebases_over_the_edits_inside_its_slot() {
-    let d = from_markdown("| aa | bb |\n| - | - |\n| cc | dd |").unwrap().content;
-    let island = d.islands[0].clone();
-    let slots = island.slot_order();
-    let cell = |slot: &str, s: Splice| Step::Nested { island: island.id.clone(), slot: slot.to_string(), change: Change::new(vec![Step::Splice(s)]) };
-    let theirs = Change::new(vec![cell(&slots[2], Splice::new(0, "", "XY")), cell(&slots[3], Splice::new(0, "dd", "ee"))]);
-    let mine = Change::new(vec![cell(&slots[2], Splice::new(2, "", "!")), cell(&slots[2], Splice::new(0, "c", "C"))]);
-    let now = apply(&d, &theirs).unwrap().content;
-    let done = apply(&now, &rebase(&d, &mine, &theirs).unwrap()).unwrap().content;
-    assert_eq!(done.slot(&island.id, &slots[2]).unwrap().text, "XYCc!");
-    assert_eq!(done.slot(&island.id, &slots[3]).unwrap().text, "ee");
-    let clash = Change::new(vec![cell(&slots[3], Splice::new(1, "d", "D"))]);
-    assert!(matches!(rebase(&d, &clash, &theirs), Err(RebaseError::Conflict(Conflict { step: 0, reason: Reason::Deleted }))));
 }
 
 /// Each block's text and its path as container kinds, outermost first: `L`
@@ -2270,10 +1779,8 @@ fn a_range_diff_types_one_letter_as_one_letter_and_keeps_enter_on_the_text() {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(300))]
 
-    /// Two writers each make a structural edit from one value under their own actor: the
-    /// ids each mints are its own, so where the second rebases over the
-    /// first, nothing is renamed and the value holds only ids one of them or
-    /// the value gave.
+    /// Two writers each make a structural edit from one value under their
+    /// own actor: the ids each mints are its own.
     #[test]
     fn two_actors_gesturing_from_one_value_never_mint_one_id(
         d in nested_document(), picks in prop::collection::vec((any::<usize>(), any::<usize>(), 0u8..5), 2),
@@ -2292,23 +1799,14 @@ proptest! {
             }
         };
         let (Ok(a), Ok(b)) = (gesture(picks[0]), gesture(picks[1])) else { return Ok(()) };
-        let (a, b) = (fill(&a, &[&d], None, Some("ann")).unwrap(), fill(&b, &[&d], None, Some("bo")).unwrap());
+        let (a, b) = (fill(&a, &[&d], Some("ann")).unwrap(), fill(&b, &[&d], Some("bo")).unwrap());
         let (ours, theirs): (BTreeSet<&String>, BTreeSet<&String>) = (a.minted.values().collect(), b.minted.values().collect());
         prop_assert!(ours.iter().all(|id| id.starts_with("ann:")) && theirs.iter().all(|id| id.starts_with("bo:")));
-        let Ok(first) = apply(&d, &a.change) else { return Ok(()) };
-        let Ok(rebased) = rebase(&d, &b.change, &a.change) else { return Ok(()) };
-        let done = apply(&first.content, &rebased);
-        prop_assert!(done.is_ok(), "{:?}", done);
-        let done = done.unwrap().content;
-        let given: BTreeSet<&String> = d.blocks.iter().map(|b| &b.id).chain(d.containers.iter().map(|k| &k.id)).chain(ours).chain(theirs).collect();
-        for id in done.blocks.iter().map(|b| &b.id).chain(done.containers.iter().map(|k| &k.id)) {
-            prop_assert!(given.contains(id), "{} is renamed", id);
-        }
     }
 }
 
 #[test]
-fn a_placeholder_is_filled_by_the_apply_and_by_a_rebase_past_both_values() {
+fn a_placeholder_is_filled_by_the_apply() {
     let d = from_markdown("one\n\ntwo").unwrap().content;
     let insert = |at, id: &str| {
         Change::new(vec![
@@ -2319,9 +1817,6 @@ fn a_placeholder_is_filled_by_the_apply_and_by_a_rebase_past_both_values() {
     let done = apply(&d, &insert(3, "?p")).unwrap();
     assert_eq!(done.minted.get("?p").map(String::as_str), Some("b2"));
     assert_eq!(segments(&done.content), ["b0=one", "b2#=new", "b1=two"]);
-    let ours = apply(&d, &insert(7, "b2")).unwrap().content;
-    let rebased = rebase(&d, &insert(3, "?p"), &insert(7, "b2")).unwrap();
-    assert_eq!(segments(&apply(&ours, &rebased).unwrap().content), ["b0=one", "b3#=new", "b1=two", "b2#=new"]);
     assert!(matches!(apply(&d, &Change::new(vec![insert(3, "?p").steps[1].clone()])), Err(ApplyError::BadStep { .. })));
 }
 
@@ -2354,62 +1849,6 @@ fn a_placement_refuses_a_held_id_and_a_move_a_missing_one() {
         assert_eq!(Change::from_value(&json!({"steps": [wire]})).unwrap(), one(step));
     }
     assert!(Change::from_value(&json!({"steps": [{"anchor": {"id": "c-1", "remove": true, "move": true}}]})).is_err());
-}
-
-/// A stale revise that rewrites a word another writer formatted since
-/// conflicts rather than dropping the formatting, and a stale revise from an
-/// annotated read that kept a resolved comment's tag conflicts rather than
-/// bringing the comment back.
-#[test]
-fn a_stale_revise_neither_strips_formatting_nor_resurrects_an_anchor() {
-    let d = from_markdown("Hello world, again").unwrap().content;
-    let link = Change::new(vec![Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Link { url: "https://x.io".into() }), quote: None })]);
-    let mine = quillmark_content::diff::revise(&d, "Hello World, again").unwrap().change;
-    assert_eq!(conflict_of(&d, &mine, &link), Some((0, "changed")));
-    let typed = Change::new(vec![Step::Splice(Splice::new(0, "", "Oh, "))]);
-    assert!(rebase(&d, &mine, &typed).is_ok());
-
-    let mut d = from_markdown("The quick brown fox").unwrap().content;
-    d.anchors.push(Anchor::new("c-1", 10, 15));
-    let resolve = Change::new(vec![Step::Anchor(AnchorStep::Remove { id: "c-1".into() })]);
-    let read = quillmark_content::markdown::to_markdown_annotated(&d).markdown;
-    assert!(read.contains("qm-anchor"), "{read}");
-    let mine = quillmark_content::diff::revise(&d, &read.replace("brown", "red")).unwrap().change;
-    assert!(mine.steps.iter().any(|s| matches!(s, Step::Anchor(a) if a.id() == "c-1")), "{mine:?}");
-    let refused = conflict_of(&d, &mine, &resolve);
-    assert!(matches!(refused, Some((_, "missing" | "changed"))), "{refused:?}");
-    let moved = Change::new(vec![Step::Anchor(AnchorStep::Move { anchor: Anchor::new("c-1", 4, 9), quote: None })]);
-    assert!(conflict_of(&d, &mine, &moved).is_some());
-}
-
-/// Revises of different short paragraphs made from one value rebase over
-/// each other, the first paragraph's included, and a rewrite of the first
-/// block keeps the record of the block after it.
-#[test]
-fn revises_of_different_short_paragraphs_rebase() {
-    use quillmark_content::diff::revise;
-    let base = from_markdown("Alpha.\n\nBeta.\n\nGamma.").unwrap().content;
-    let ids = |c: &Content| c.blocks.iter().map(|b| b.id.clone()).collect::<Vec<_>>();
-    for (theirs, ours) in [
-        ("Alpha, edited.\n\nBeta.\n\nGamma.", "Alpha.\n\nBeta, mine.\n\nGamma."),
-        ("Alpha.\n\nBeta, edited.\n\nGamma.", "Alpha.\n\nBeta.\n\nGamma, mine."),
-        ("Something else entirely.\n\nBeta.\n\nGamma.", "Alpha.\n\nBeta, mine.\n\nGamma."),
-    ] {
-        let since = revise(&base, theirs).unwrap().change;
-        let mine = revise(&base, ours).unwrap().change;
-        let after = apply(&base, &since).unwrap().content;
-        assert_eq!(ids(&after), ids(&base), "{theirs}");
-        let rebased = rebase(&base, &mine, &since).unwrap_or_else(|e| panic!("{theirs} / {ours}: {e:?}"));
-        apply(&after, &rebased).unwrap();
-    }
-    let since = revise(&base, "Alpha!\n\nBeta.\n\nGamma.").unwrap().change;
-    let heading = Change::new(vec![Step::SetBlock(SetBlock {
-        id: "b1".into(),
-        kind: Some("heading".into()),
-        attrs: Some(json!({"level": 2}).as_object().unwrap().clone()),
-        path: None,
-    })]);
-    assert!(rebase(&base, &heading, &since).is_ok());
 }
 
 /// A container re-kinded under an id of the longest length a value holds

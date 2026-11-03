@@ -8,8 +8,9 @@
 //! field of 20000 blocks or 500000 characters, holds [`TARGET`]: a plain
 //! list's revise, replace and repair in time, and import and decode linear.
 
-use quillmark_content::change::{AnchorStep, Change, MarkStep, Splice, Step, apply, invert, rebase};
-use quillmark_content::diff::{diff, replace, revise};
+use quillmark_automerge::{Held, revise};
+use quillmark_content::change::{AnchorStep, Change, MarkStep, Splice, Step, apply, apply_traced, invert};
+use quillmark_content::diff::{diff, replace};
 use quillmark_content::markdown::{from_markdown, to_markdown};
 use quillmark_content::model::{Anchor, Block, BlockKind, Content, Mark, MarkKind};
 use quillmark_content::repair::{Raw, repair};
@@ -84,18 +85,31 @@ fn time<T>(f: impl Fn() -> T) -> Duration {
 /// The 288k-character case's limits in milliseconds: five times the targets
 /// of 100 to apply and 200 to invert, and about ten times what a laptop takes
 /// for the rest, which a pass that walks the whole text per step overruns.
-const BUDGET: [(&str, f64); 5] = [("apply", 500.0), ("invert", 1000.0), ("diff", 1500.0), ("rebase", 2500.0), ("utf16", 500.0)];
+/// The merge is a change made at the heads of a live document that has
+/// taken another since, lowered on a fork there and merged back, then read.
+const BUDGET: [(&str, f64); 5] = [("apply", 500.0), ("invert", 1000.0), ("diff", 1500.0), ("merge", 2500.0), ("utf16", 500.0)];
 
 fn measure(n: usize) -> (usize, usize, [f64; 5]) {
     let d = document(n);
     let mine = change(&d, "holds", "carries", "m");
     let theirs = change(&d, "end", "close", "t");
     let after = apply(&d, &mine).unwrap().content;
+    let (ours, ours_trace) = apply_traced(&d, &mine).unwrap();
+    let (since, since_trace) = apply_traced(&d, &theirs).unwrap();
+    let mut live = Held::new(&d);
+    let heads = live.heads();
+    live.write(&since_trace, &since.content);
     let times = [
         time(|| apply(&d, &mine).unwrap()),
         time(|| invert(&mine, &d).unwrap()),
         time(|| apply(&d, &diff(&d, &after).unwrap()).unwrap()),
-        time(|| rebase(&d, &mine, &theirs).unwrap()),
+        time(|| {
+            let mut live = live.clone();
+            let mut fork = live.fork_at(&heads, None).unwrap();
+            fork.write(&ours_trace, &ours.content);
+            live.merge(&mut fork).unwrap();
+            live.read()
+        }),
         time(|| change_to_scalars(&change_from_scalars(&mine, &d, Utf16).unwrap(), &d, Utf16).unwrap()),
     ];
     (d.text.chars().count(), mine.steps.len(), times.map(|t| t.as_secs_f64() * 1000.0))
@@ -103,7 +117,7 @@ fn measure(n: usize) -> (usize, usize, [f64; 5]) {
 
 #[test]
 #[ignore = "a release-build timing, run on its own"]
-fn a_long_change_applies_inverts_diffs_and_rebases_in_time() {
+fn a_long_change_applies_inverts_diffs_and_merges_in_time() {
     let mut table = format!("{:>8} {:>6}", "chars", "steps");
     for (what, _) in BUDGET {
         table += &format!(" {:>10}", format!("{what} ms"));

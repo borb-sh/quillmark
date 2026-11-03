@@ -844,8 +844,10 @@ mod tests {
         assert_eq!(md.markdown, "No**te**\n\n glows");
         assert!(!md.losses.is_empty());
         let annotated = crate::markdown::to_markdown_annotated(&c).markdown;
-        let r = crate::diff::revise(&c, &annotated).unwrap();
-        assert_eq!(crate::change::apply(&c, &r.change).unwrap().content, c, "{annotated}");
+        match crate::diff::revise_keeping(&c, &annotated, &c).unwrap() {
+            crate::diff::Keeping::Revised(r) => assert_eq!(crate::change::apply(&c, &r.change).unwrap().content, c, "{annotated}"),
+            crate::diff::Keeping::Merge { mine, .. } => assert!(mine.change.is_empty(), "{annotated}"),
+        }
     }
 
     /// Marks of distinct attributes over many blocks, each cut at every

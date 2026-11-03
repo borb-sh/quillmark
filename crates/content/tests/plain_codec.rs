@@ -3,7 +3,8 @@
 //! and revises as its literal text.
 
 use quillmark_content::change::apply;
-use quillmark_content::diff::{diff, replace, revise};
+use quillmark_automerge::revise;
+use quillmark_content::diff::{diff, replace};
 use quillmark_content::markdown::{from_markdown, plain, to_plaintext, to_text, to_text_annotated};
 use quillmark_content::model::{Anchor, Codec, Content, Invariant};
 use quillmark_content::repair::{Raw, repair};

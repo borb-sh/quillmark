@@ -75,12 +75,6 @@ pub fn from_scalars(u: impl Units, text: &str, n: Scalar) -> usize {
     text.chars().take(n).map(|c| u.char_len(c)).sum()
 }
 
-/// `s` split `n` units in; `None` inside a character or past the end.
-pub(crate) fn split_at(u: impl Units, s: &str, n: usize) -> Option<(&str, &str)> {
-    let k = to_scalars(u, s, n)?;
-    Some(s.split_at(crate::units::char_to_byte(s, k)))
-}
-
 #[derive(Clone, Copy)]
 enum Dir {
     In,
