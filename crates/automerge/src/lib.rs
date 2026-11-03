@@ -16,7 +16,7 @@ pub mod model;
 mod own;
 
 pub use automerge;
-pub use merge::{Conflict, Reason, conflict, deleted, merge3, merge3_checked, reminted, resolved, revise, revise_keeping};
+pub use merge::{merge3, revise, revise_keeping};
 
 use automerge::sync::{self, SyncDoc};
 use std::collections::{HashMap, HashSet};
@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use automerge::transaction::CommitOptions;
 use automerge::{ActorId, AutoCommit, AutomergeError, ChangeHash, LoadOptions, ObjId, ROOT, TextEncoding};
-use quillmark_content::change::{Change, Trace};
+use quillmark_content::change::Trace;
 use quillmark_content::model::Content;
 use quillmark_content::repair::{Raw, Repair, repair};
 
@@ -280,17 +280,6 @@ impl Held {
             self.commit();
         }
         changed
-    }
-
-    /// Of a change made from the value `base` holds and normalized as
-    /// `applied`, which `mine` holds lowered from `trace`, and a side
-    /// `theirs` made from `base` too: the first step of `applied` that
-    /// deleted text whose formatting `theirs` changed, as a `changed`
-    /// conflict. Each document is read as it stands.
-    #[doc(hidden)]
-    pub fn restyled(base: &Held, mine: &Held, theirs: &Held, trace: &[Trace], applied: &Change) -> Option<Conflict> {
-        let (path, at) = own::restyled((&base.doc, &base.root), (&mine.doc, &mine.root), (&theirs.doc, &theirs.root), trace)?;
-        Some(Conflict { step: merge::step_deleting(applied, &path, at), reason: Reason::Changed })
     }
 
     /// Takes every change `other` holds that this document does not.

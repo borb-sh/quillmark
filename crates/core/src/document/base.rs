@@ -25,15 +25,12 @@ pub enum Base<'a> {
     /// The hash of the value the writer read: [`Card::hash_of`] or
     /// [`content_hash`] on the content write, and the typed writer's
     /// `hash_of`. A value that now hashes otherwise merges the write with
-    /// the change since, at the heads a write left the hash at: refused with
-    /// [`BaseError::Conflict`] where the two touch, and with
-    /// [`BaseError::Stale`] where no write the card took left the base.
+    /// the change since, at the heads a write left the hash at; refused with
+    /// [`BaseError::Stale`] where the document's history does not reach it.
     Hash(&'a str),
     /// The value the writer read, in its canonical form (a `text` field's
-    /// content spelling `codec: "plain"`). A value that has moved on from it
-    /// merges the write with the diff from it to the value now, so the base
-    /// holds however long ago it was read: refused with [`BaseError::Conflict`]
-    /// where the two touch, never stale.
+    /// content spelling `codec: "plain"`), found by its hash among the heads
+    /// the document noted, and merged as a [`Base::Hash`] is.
     Content(&'a Content),
 }
 
@@ -64,69 +61,30 @@ pub enum BaseError {
         /// or a document.
         field: Option<String>,
     },
-    #[error("the writer's edit and a change made since its read touch the same text or record")]
-    Conflict {
-        current: String,
-        field: Option<String>,
-        /// The step of the writer's change that conflicts, and why
-        /// ([`Reason::name`](quillmark_automerge::Reason::name)), for a
-        /// content write merged with the change since; `None` for a merge
-        /// by line.
-        step: Option<usize>,
-        reason: Option<&'static str>,
-    },
 }
 
 impl BaseError {
-    /// The refusal of a content write whose change sets what the change
-    /// since its base also set; `current` is the hash of the value now.
-    pub fn rebase_conflict(
-        current: String,
-        field: Option<String>,
-        conflict: &quillmark_automerge::Conflict,
-    ) -> Self {
-        BaseError::Conflict {
-            current,
-            field,
-            step: Some(conflict.step),
-            reason: Some(conflict.reason.name()),
-        }
-    }
-
     pub fn code(&self) -> &'static str {
         match self {
             BaseError::Stale { .. } => "edit::stale_base",
-            BaseError::Conflict { .. } => "edit::rebase_conflict",
         }
     }
 
     pub fn args(&self) -> BTreeMap<String, JsonValue> {
         match self {
             BaseError::Stale { current, .. } => diag_args! { "current" => current },
-            BaseError::Conflict { current, step, reason, .. } => {
-                let mut args = diag_args! { "current" => current };
-                if let Some(step) = step {
-                    args.insert("step".into(), (*step).into());
-                }
-                if let Some(reason) = reason {
-                    args.insert("reason".into(), (*reason).into());
-                }
-                args
-            }
         }
     }
 
     pub(crate) fn field(&self) -> Option<&str> {
         match self {
-            BaseError::Stale { field, .. } | BaseError::Conflict { field, .. } => field.as_deref(),
+            BaseError::Stale { field, .. } => field.as_deref(),
         }
     }
 
     pub(crate) fn at_field(mut self, name: &str) -> Self {
         match &mut self {
-            BaseError::Stale { field, .. } | BaseError::Conflict { field, .. } => {
-                *field = Some(name.to_string());
-            }
+            BaseError::Stale { field, .. } => *field = Some(name.to_string()),
         }
         self
     }

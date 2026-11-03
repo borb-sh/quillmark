@@ -89,7 +89,6 @@ fn card_with_body(markdown: &str) -> Placed {
 fn current_of(err: EditError) -> (&'static str, String) {
     match err {
         EditError::Base(BaseError::Stale { current, .. }) => ("stale", current),
-        EditError::Base(BaseError::Conflict { current, .. }) => ("conflict", current),
         other => panic!("not a base refusal: {other:?}"),
     }
 }

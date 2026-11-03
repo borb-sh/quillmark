@@ -175,6 +175,9 @@ impl Document {
     /// The value at `target` of the card at `at` as its writer read it under
     /// `base`, refused with `edit::stale_base` where no write left it.
     pub(crate) fn read_under(&mut self, at: Option<usize>, target: Target<'_>, base: Option<&str>) -> Result<Content, EditError> {
+        if base.is_none() {
+            return self.card_at(at).read(target);
+        }
         let (root, _) = self.value_obj(at, target)?;
         let heads = self.heads_for(at, target, &root, base.map(Base::Hash))?;
         let doc = self.live();
@@ -213,7 +216,12 @@ impl Document {
         };
         let (change, warnings, diffed) = match edit {
             Edit::Apply(change) => match u {
-                Some(u) => (units::change_to_scalars(&change, &read, u).map_err(EditError::change)?, Vec::new(), false),
+                Some(u) => {
+                    let filled = quillmark_content::mint::fill(&change, &[&read], None).map_err(EditError::change)?;
+                    let scalars = units::change_to_scalars(&filled.change, &read, u).map_err(EditError::change)?;
+                    let back = filled.minted.into_iter().map(|(placeholder, id)| (id, placeholder)).collect();
+                    (renamed(&scalars, &back), Vec::new(), false)
+                }
                 None => (change, Vec::new(), false),
             },
             Edit::Structural(edit) => {
@@ -232,9 +240,9 @@ impl Document {
             }
             Edit::Replace(content) => (diff::replace_holding(&read, &content, &now).map_err(|e| EditError::change(e.into()))?, Vec::new(), true),
         };
+        let mine = change::apply(&read, &change).map_err(EditError::change)?;
         if diffed {
-            let landed = change::apply(&read, &change).map_err(EditError::change)?;
-            keeps_ext_islands(&read, &landed.content)?;
+            keeps_ext_islands(&read, &mine.content)?;
         }
         let doc = self.live();
         let actor = doc.am().get_actor().clone();
@@ -248,18 +256,23 @@ impl Document {
         let (lowered, _) = lowered.map_err(step_error)?;
         let after = doc.view(&root).content;
         let merged = heads.is_some();
-        let mut removed = Vec::new();
-        removed_by(&change, &mut removed);
-        let mut dropped_anchors = change::lost_anchors(&now, &after, |id| diffed || !removed.iter().any(|r| r == id));
-        if let Ok(mine) = change::apply(&read, &change) {
-            let held: std::collections::HashSet<String> = now.anchor_ids().into_iter().collect();
-            dropped_anchors.extend(change::lost_anchors(&mine.content, &after, |id| !held.contains(id)));
-        }
-        let ids: std::collections::HashSet<String> = now.anchor_ids().into_iter().collect();
-        let moved_anchors = change::moved_between(&now, &after, &ids);
+        let (dropped_anchors, moved_anchors) = match merged || diffed {
+            false => (mine.dropped.clone(), mine.moved.clone()),
+            true => {
+                let mut removed = Vec::new();
+                removed_by(&change, &mut removed);
+                let mut dropped = change::lost_anchors(&now, &after, |id| diffed || !removed.iter().any(|r| r == id));
+                let held: std::collections::HashSet<String> = now.anchor_ids().into_iter().collect();
+                dropped.extend(change::lost_anchors(&mine.content, &after, |id| !held.contains(id)));
+                (dropped, change::moved_between(&now, &after, &held))
+            }
+        };
         let applied = match merged || diffed {
             true => diff::diff(&now, &after).map_err(|e| EditError::change(e.into()))?,
-            false => renamed(&change, &lowered.minted),
+            false => {
+                let named = mine.minted.iter().filter_map(|(placeholder, id)| Some((id.clone(), lowered.minted.get(placeholder)?.clone()))).collect();
+                renamed(&mine.applied, &named)
+            }
         };
         let applied = match u {
             Some(u) => units::change_from_scalars(&applied, &now, u).map_err(EditError::change)?,

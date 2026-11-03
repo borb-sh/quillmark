@@ -3,12 +3,10 @@
 //! [`Card::write`] lands an [`Edit`] on a body or a richtext field and
 //! answers a [`Receipt`]: a [`Change`], or one built from a structural edit, a
 //! writer's markdown or a whole value. Each takes the hash its writer read as
-//! [`WriteOptions::base`]. Each value a card writes keeps a live Automerge
-//! document beside it, and a base the value has moved on from lowers the
-//! write at the heads that base was left at and merges it with what changed
-//! since. A write that sets a record or island props a change since also
-//! set is refused with `edit::rebase_conflict`, and a base no heads reach
-//! with `edit::stale_base`.
+//! [`WriteOptions::base`]. A base the value has moved on from lowers the
+//! write into the document's Automerge document at the heads that base was
+//! left at, where it merges with what changed since as Automerge merges; a
+//! base the history does not reach is refused with `edit::stale_base`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -80,8 +78,9 @@ pub struct WriteOptions<'a> {
     /// What the writer read, which a write over a value that has moved on
     /// merges from.
     pub base: Option<Base<'a>>,
-    /// Who writes, scoping each id the write mints: `{actor}:{prefix}{n}`
-    /// where it is given, `{prefix}{n}` where not. A live client passes one
+    /// Who writes: in a document, the Automerge actor the write writes
+    /// under, each id it mints an object id under it; on a card outside one,
+    /// the scope of each id it mints, `{actor}:{prefix}{n}`. A live client passes one
     /// unique to its session, so two clients writing from one value never
     /// mint one id. One that is not an
     /// [actor](quillmark_content::ids::is_actor) is refused with
@@ -444,7 +443,7 @@ pub(crate) fn keeps_ext_islands(before: &Content, after: &Content) -> Result<(),
 }
 
 /// The steps one change a host writes may hold, nested ones counted. Each
-/// step is applied and lowered into the live document on its own, so a
+/// step is applied and lowered into the document on its own, so a
 /// change past this is refused before any of that runs; a writer splits a
 /// larger edit into several changes.
 pub const MAX_CHANGE_STEPS: usize = 16384;
@@ -486,9 +485,9 @@ pub fn check_content_value(v: &serde_json::Value) -> Result<(), EditError> {
 }
 
 /// The address of the value at `target` on the card `card` names, `None`
-/// for the main card: the message of its live document's first change,
-/// spelled as the path with the card's `$id` in place of its index,
-/// `main.body`, `main.summary`, `cards[n1].body`, `cards[n1].summary`.
+/// for the main card, spelled as the path with the card's `$id` in place of
+/// its index, `main.body`, `main.summary`, `cards[n1].body`,
+/// `cards[n1].summary`: the key a base hash is noted under.
 pub(crate) fn address(card: Option<&str>, target: Target<'_>) -> String {
     let card = card.map_or_else(|| "main".to_string(), |id| format!("cards[{id}]"));
     format!("{card}.{}", target.field().unwrap_or("body"))

@@ -691,9 +691,10 @@ pub use quillmark_content::markdown::{DroppedConstruct, ImportWarning};
 pub use revise::DocumentRevised;
 /// Taken and answered by [`Card::generate_sync_message`] and
 /// [`Card::receive_sync_message`], so nameable from here.
+pub use quillmark_automerge::automerge::ChangeHash;
 pub use quillmark_automerge::automerge::sync::{Message as SyncMessage, State as SyncState};
 /// Carried by [`EditError::bad_live_bytes`], so nameable from here.
-pub use quillmark_automerge::LoadError;
+pub use quillmark_automerge::model::LoadError;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};
@@ -1159,10 +1160,12 @@ impl Document {
         self.live().save()
     }
 
-    /// The document `bytes` hold.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let doc = quillmark_automerge::model::Doc::load(bytes).map_err(|e| e.to_string())?;
-        Self::read_from(doc, Default::default())
+    /// The document `bytes` hold: a [`to_bytes`](Document::to_bytes) or a
+    /// merge of several. Bytes that do not decode, or hold no Quillmark
+    /// document of a schema this build reads, are refused.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, LoadError> {
+        let doc = quillmark_automerge::model::Doc::load(bytes)?;
+        Self::read_from(doc, Default::default()).map_err(|_| LoadError::Shape)
     }
 
     /// The document's revision: its Automerge heads.
@@ -1191,8 +1194,8 @@ impl Document {
 
     /// Takes the changes `bytes` hold, another peer's save or
     /// [`save_since`](Document::save_since), and reads the cards again.
-    pub fn merge(&mut self, bytes: &[u8]) -> Result<(), String> {
-        self.live().merge(bytes).map_err(|e| e.to_string())?;
+    pub fn merge(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
+        self.live().merge(bytes)?;
         self.reread();
         Ok(())
     }

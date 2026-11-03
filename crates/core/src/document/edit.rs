@@ -247,13 +247,12 @@ pub enum EditError {
     #[error("invalid actor '{0}': must be 1 to 57 of [A-Za-z0-9_-], opening with a letter or digit")]
     InvalidActor(String),
 
-    /// Bytes or a sync message the live Automerge document of a value does
-    /// not take: `reason` is the refusal's name, `decode` where they do not
-    /// decode or apply, `address` where they hold the history of another
-    /// value's live document, `shape` where the document they leave holds no
-    /// value in the shape a live document takes, and `content` where its
-    /// value does not read as content.
-    #[error("the live document refuses the bytes ({reason}): {detail}")]
+    /// Bytes or a sync message the document's Automerge document does not
+    /// take: `reason` is the refusal's name, `decode` where they do not
+    /// decode, `shape` where the document they leave holds no Quillmark
+    /// document in the shape this build writes, and `schema` where it names
+    /// a schema this build does not read.
+    #[error("the document refuses the bytes ({reason}): {detail}")]
     BadLiveBytes { reason: &'static str, detail: String },
 
     /// A revise's [`Base`] refused the write.
@@ -271,8 +270,8 @@ impl EditError {
         }
     }
 
-    /// The refusal of bytes or a sync message a live document does not take.
-    pub fn bad_live_bytes(e: quillmark_automerge::LoadError) -> Self {
+    /// The refusal of bytes or a sync message the document does not take.
+    pub fn bad_live_bytes(e: quillmark_automerge::model::LoadError) -> Self {
         EditError::BadLiveBytes { reason: e.name(), detail: e.to_string() }
     }
 

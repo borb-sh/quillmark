@@ -1,10 +1,10 @@
 //! Example merges of two changes made from one value: what each side put
 //! lands, an anchor or mark either side put keeps its edges over text the
-//! other typed there whichever actor sorts first, and a step by id conflicts
-//! only where the other side set or removed what it names.
+//! other typed there whichever actor sorts first, and a step by id lands
+//! beside what the other side set.
 
-use quillmark_automerge::{Held, Reason, conflict, deleted, merge3, merge3_checked};
-use quillmark_content::change::{AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step, apply, apply_traced};
+use quillmark_automerge::{Held, merge3};
+use quillmark_content::change::{AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step, apply_traced};
 use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::{Anchor, BlockKind, Container, ContainerKind, Content, ISLAND_SLOT, Mark, MarkKind};
 use quillmark_content::table::{Row, Table};
@@ -75,19 +75,17 @@ fn a_mark_keeps_its_edges_where_both_sides_typed_beside_it() {
 }
 
 #[test]
-fn an_anchor_put_on_text_deleted_since_is_named() {
+fn an_anchor_put_on_text_deleted_since_lands_nowhere() {
     let d = from_markdown("Hello brave world").unwrap().content;
     let cut = Change::new(vec![Step::Splice(Splice::new(5, " brave", ""))]);
     let place = Change::new(vec![
         Step::Splice(Splice::new(0, "", "Oh ")),
         Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-1", 9, 14), quote: Some("brave".into()) }),
     ]);
-    let (mine, _) = apply_traced(&d, &place).unwrap();
     let done = merge3(&d, &place, &cut).unwrap().content;
     assert_eq!((done.text.as_str(), done.anchor("c-1")), ("Oh Hello world", None));
-    assert_eq!(deleted(&mine.applied, &mine.content, &done).map(|c| (c.step, c.reason)), Some((1, Reason::Deleted)));
     let kept = merge3(&d, &place, &Change::new(vec![Step::Splice(Splice::new(0, "", "Yes, "))])).unwrap().content;
-    assert_eq!(deleted(&mine.applied, &mine.content, &kept), None);
+    assert_eq!(kept.anchor("c-1").map(|a| (a.start, a.end)), Some((14, 19)));
 }
 
 #[test]
@@ -151,7 +149,7 @@ fn revises_of_different_short_paragraphs_merge() {
 }
 
 #[test]
-fn a_step_by_id_conflicts_only_where_the_other_set_or_removed_what_it_names() {
+fn a_step_by_id_lands_beside_what_the_other_side_set() {
     let d = from_markdown("lead\n\n| aa | bb |\n| - | - |\n| cc | dd |\n\ntail").unwrap().content;
     let island = d.islands[0].clone();
     let grid = Table::read(&island.props).unwrap();
@@ -167,10 +165,7 @@ fn a_step_by_id_conflicts_only_where_the_other_set_or_removed_what_it_names() {
         &[],
     );
     let drop_last = table_change(&d, |g| { g.rows.pop(); }, &[]);
-    let refused = |since: &Change, mine: &Change| conflict(&d, &apply(&d, since).unwrap().content, mine).map(|c| (c.step, c.reason));
-    assert_eq!(refused(&add_row, &add_column), Some((0, Reason::Changed)));
-    for (mine, since) in [(&drop_last, &cell(&first)), (&add_column, &cell(&last)), (&cell(&last), &add_column)] {
-        assert_eq!(refused(since, mine), None);
+    for (mine, since) in [(&add_column, &add_row), (&drop_last, &cell(&first)), (&add_column, &cell(&last)), (&cell(&last), &add_column)] {
         merge3(&d, mine, since).unwrap();
     }
     let done = merge3(&d, &cell(&last), &add_column).unwrap().content;
@@ -179,7 +174,6 @@ fn a_step_by_id_conflicts_only_where_the_other_set_or_removed_what_it_names() {
     let at = d.text.chars().position(|ch| ch == ISLAND_SLOT).unwrap();
     let typed = Change::new(vec![Step::Splice(Splice::new(0, "", "x"))]);
     let drop_table = Change::new(vec![Step::Splice(Splice::new(at - 1, "\n\u{FFFC}", ""))]);
-    assert_eq!(refused(&drop_table, &typed), None);
     assert_eq!(merge3(&d, &drop_table, &typed).unwrap().content.text, "xlead\ntail");
 
     let tail = d.blocks.last().unwrap().id.clone();
@@ -188,15 +182,11 @@ fn a_step_by_id_conflicts_only_where_the_other_set_or_removed_what_it_names() {
         Step::Container(ContainerStep::Set(Container::new("q-n", ContainerKind::Quote))),
         Step::SetBlock(SetBlock { id: tail.clone(), path: Some(vec!["q-n".into()]), ..SetBlock::default() }),
     ]);
-    assert_eq!(refused(&set(2), &set(3)), Some((0, Reason::Changed)));
     for (mine, since) in [(&set(2), &quote), (&quote, &set(2))] {
-        assert_eq!(refused(since, mine), None);
         let done = merge3(&d, mine, since).unwrap().content;
         let b = done.blocks.last().unwrap();
         assert_eq!((&b.kind, &b.path), (&BlockKind::Heading { level: 2 }, &vec!["q-n".to_string()]));
     }
-    let unquote = Change::new(vec![Step::SetBlock(SetBlock { id: tail, path: Some(Vec::new()), ..SetBlock::default() })]);
-    assert_eq!(refused(&quote, &unquote), Some((0, Reason::Changed)));
 }
 
 #[test]
@@ -214,13 +204,10 @@ fn text_typed_at_the_edge_of_a_mark_put_since_takes_no_part_in_it() {
 }
 
 #[test]
-fn a_change_deleting_text_formatted_since_is_named_and_one_elsewhere_is_not() {
+fn a_reword_merges_with_typing_elsewhere() {
     let d = from_markdown("Hello world, again").unwrap().content;
-    let link = Change::new(vec![Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Link { url: "https://x.io".into() }), quote: None })]);
     let mine = quillmark_automerge::revise(&d, "Hello World, again").unwrap().change;
-    let (_, refused) = merge3_checked(&d, &mine, &link).unwrap();
-    assert_eq!(refused.map(|c| c.reason), Some(Reason::Changed));
     let typed = Change::new(vec![Step::Splice(Splice::new(0, "", "Oh, "))]);
-    let (done, refused) = merge3_checked(&d, &mine, &typed).unwrap();
-    assert_eq!((done.content.text.as_str(), refused), ("Oh, Hello World, again", None));
+    let done = merge3(&d, &mine, &typed).unwrap();
+    assert_eq!(done.content.text, "Oh, Hello World, again");
 }

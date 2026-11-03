@@ -109,7 +109,6 @@ fn measure(n: usize) -> (usize, usize, [f64; 5]) {
             let at_base = live.fork_at(&heads, None).unwrap();
             let mut fork = at_base.clone();
             fork.write(&ours_trace, &ours.content);
-            assert!(Held::restyled(&at_base, &fork, &live, &ours_trace, &ours.applied).is_none());
             let (at_ours, at_theirs) = (fork.heads(), live.heads());
             live.merge(&mut fork).unwrap();
             live.clip(&at_ours, &at_theirs, &ours_trace);
