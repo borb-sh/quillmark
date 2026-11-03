@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 
 /// Why a value did not decode.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ParseError {
     Shape(String),
     Json(String),
@@ -81,7 +82,8 @@ impl Content {
     pub fn from_value(v: &Value) -> Result<Content, ParseError> {
         let c = match decoded(v)? {
             Decoded::Migrated(c) => c,
-            Decoded::Read(c) => {
+            Decoded::Read(c, keys) => {
+                keys?;
                 c.validate()?;
                 c.check_canonical()?;
                 c
@@ -98,12 +100,12 @@ impl Content {
     pub fn from_value_lenient(v: &Value) -> Result<Lenient, ParseError> {
         match decoded(v)? {
             Decoded::Migrated(content) => Ok(Lenient { content, rewritten: false }),
-            Decoded::Read(read) => {
+            Decoded::Read(read, keys) => {
                 let mut content = read.clone();
                 let joined = !content.join_cells().is_empty();
                 content.normalize();
                 content.validate()?;
-                let rewritten = joined || content != read;
+                let rewritten = joined || keys.is_err() || content != read;
                 Ok(Lenient { content, rewritten })
             }
         }
@@ -128,8 +130,9 @@ pub struct Lenient {
 enum Decoded {
     /// A v1 value, migrated: the canonical form, ids minted.
     Migrated(Content),
-    /// A value as spelled, within its bounds.
-    Read(Content),
+    /// A value as spelled, within its bounds, and whether it holds only the
+    /// keys its shape defines.
+    Read(Content, Result<(), ParseError>),
 }
 
 /// `v` decoded within the JSON depth and its bounds, a v1 value migrated.
@@ -147,7 +150,7 @@ fn decoded(v: &Value) -> Result<Decoded, ParseError> {
     }
     let c = decode(v)?;
     c.check_bounds()?;
-    Ok(Decoded::Read(c))
+    Ok(Decoded::Read(c, check_keys(v)))
 }
 
 /// The canonical form serialized as it is read: every object's keys in
@@ -463,6 +466,96 @@ pub(crate) fn attrs(v: &Value) -> Result<Map<String, Value>, ParseError> {
         Some(Value::Object(m)) => Ok(m.clone()),
         Some(_) => Err(shape("`attrs` is not an object")),
     }
+}
+
+/// Refuses a key of `v` that `at` does not define.
+pub(crate) fn only(v: &Value, at: &'static str, keys: &[&str]) -> Result<(), ParseError> {
+    match v.as_object().and_then(|m| m.keys().find(|k| !keys.contains(&k.as_str()))) {
+        Some(key) => Err(ParseError::UnknownKey { at, key: key.clone() }),
+        None => Ok(()),
+    }
+}
+
+/// Refuses an `attrs` key a built-in member does not define; an `x-`
+/// member's bag is open.
+fn only_attrs(v: &Value, name: &str, at: &'static str, defined: &[&str]) -> Result<(), ParseError> {
+    if is_ext_name(name) {
+        return Ok(());
+    }
+    match v.get("attrs") {
+        Some(a @ Value::Object(_)) => only(a, at, defined),
+        _ => Ok(()),
+    }
+}
+
+/// Refuses a key the value's shape does not define, at every depth but the
+/// opaque bags (`props`, an `x-` member's `attrs`): the decoder reads only the
+/// keys it names, so a key a newer build adds would otherwise drop on a read.
+pub(crate) fn check_keys(v: &Value) -> Result<(), ParseError> {
+    only(v, "a content value", &["text", "blocks", "containers", "marks", "anchors", "islands", "codec"])?;
+    for b in array(v, "blocks")? {
+        check_block_keys(b)?;
+    }
+    for c in array(v, "containers")? {
+        only(c, "a container", &["id", "kind", "attrs"])?;
+        check_container_attrs(c)?;
+    }
+    for m in array(v, "marks")? {
+        check_mark_keys(m)?;
+    }
+    for a in array(v, "anchors")? {
+        only(a, "an anchor", &["id", "start", "end"])?;
+    }
+    for i in array(v, "islands")? {
+        check_island_keys(i)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn check_container_attrs(c: &Value) -> Result<(), ParseError> {
+    let kind = c.get("kind").and_then(Value::as_str).unwrap_or_default();
+    let defined: &[&str] = match kind {
+        "list" => &["ordered", "start"],
+        "item" => &["checked"],
+        _ => &[],
+    };
+    only_attrs(c, kind, "a container's `attrs`", defined)
+}
+
+pub(crate) fn check_block_keys(b: &Value) -> Result<(), ParseError> {
+    only(b, "a block", &["id", "kind", "attrs", "path"])?;
+    let kind = b.get("kind").and_then(Value::as_str).unwrap_or_default();
+    let defined: &[&str] = match kind {
+        "heading" => &["level"],
+        "code" => &["lang"],
+        _ => &[],
+    };
+    only_attrs(b, kind, "a block's `attrs`", defined)
+}
+
+pub(crate) fn check_mark_keys(m: &Value) -> Result<(), ParseError> {
+    only(m, "a mark", &["start", "end", "type", "attrs"])?;
+    check_mark_attrs(m)
+}
+
+pub(crate) fn check_mark_attrs(m: &Value) -> Result<(), ParseError> {
+    let ty = m.get("type").and_then(Value::as_str).unwrap_or_default();
+    let defined: &[&str] = match ty {
+        "link" => &["url"],
+        "font_family" => &["name"],
+        _ => &[],
+    };
+    only_attrs(m, ty, "a mark's `attrs`", defined)
+}
+
+pub(crate) fn check_island_keys(i: &Value) -> Result<(), ParseError> {
+    only(i, "an island", &["id", "type", "props", "slots"])?;
+    if let Some(Value::Object(slots)) = i.get("slots") {
+        for s in slots.values() {
+            check_keys(s)?;
+        }
+    }
+    Ok(())
 }
 
 /// Decode without normalizing or validating.
@@ -852,5 +945,35 @@ mod tests {
         assert_eq!(c.anchors, [Anchor::new("c1", 0, 3)]);
         assert!(c.marks.is_empty());
         assert_eq!(Content::from_value(&v1).unwrap().to_json(), c.to_json());
+    }
+
+    #[test]
+    fn a_key_the_shape_does_not_define_is_refused_and_read_as_rewritten() {
+        let cases: Vec<Box<dyn Fn(&mut Value)>> = vec![
+            Box::new(|v| v["future"] = json!(1)),
+            Box::new(|v| v["blocks"][0]["pth"] = json!([])),
+            Box::new(|v| v["blocks"][1]["attrs"] = json!({"align": "center"})),
+            Box::new(|v| v["containers"][0]["attrs"]["style"] = json!("roman")),
+            Box::new(|v| v["marks"][0]["weight"] = json!(700)),
+            Box::new(|v| v["anchors"][0]["author"] = json!("ann")),
+            Box::new(|v| v["islands"][0]["caption"] = json!("x")),
+            Box::new(|v| v["islands"][0]["slots"]["s0"]["future"] = json!(1)),
+        ];
+        for edit in cases {
+            let mut v = memo();
+            edit(&mut v);
+            assert!(matches!(Content::from_value(&v), Err(ParseError::UnknownKey { .. })), "{v}");
+            let read = Content::from_value_lenient(&v).unwrap();
+            assert!(read.rewritten);
+            assert_eq!(read.content, Content::from_value(&memo()).unwrap());
+        }
+    }
+
+    #[test]
+    fn an_opaque_bag_keeps_every_key() {
+        let mut v = memo();
+        v["islands"][0]["props"]["caption"] = json!("x");
+        v["blocks"][1] = json!({"id": "b1", "kind": "x-callout", "attrs": {"tone": "warn"}});
+        assert!(Content::from_value(&v).is_ok());
     }
 }
