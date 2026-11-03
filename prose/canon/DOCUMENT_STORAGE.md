@@ -45,8 +45,9 @@ crate-internal to `quillmark-core` and never a storage option.
    match.
 3. **Decoupled from the live model**: internal refactors of `Document` and
    its components only touch conversion code, never the wire format.
-4. **Transparent API**: `Document` serializes through the envelope via
-   `#[serde(into / try_from)]`; callers use `serde_json` directly.
+4. **Transparent API**: `Document` serializes to the envelope from its cards
+   and deserializes through `#[serde(try_from)]`; callers use `serde_json`
+   directly.
 
 ## The Format
 

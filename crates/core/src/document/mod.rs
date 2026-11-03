@@ -975,8 +975,8 @@ impl Serialize for SeedOverlay {
 /// Parse-time warnings are *not* document state: they ride out-of-band on
 /// [`Parsed`] from [`Document::parse`], the single owner. Equality and the
 /// storage DTO therefore cover only structural content (`main` and `cards`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(into = "StoredDocument", try_from = "StoredDocument")]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(try_from = "StoredDocument")]
 pub struct Document {
     main: Card,
     cards: Vec<Card>,
