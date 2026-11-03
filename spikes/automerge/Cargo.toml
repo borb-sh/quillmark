@@ -1,0 +1,22 @@
+[package]
+name = "quillmark-automerge-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+quillmark-content = { path = "../../crates/content" }
+automerge = { version = "0.12", default-features = false }
+serde_json = "1"
+
+[dev-dependencies]
+proptest = "1"
+
+
+# automerge's `seek_list_opid` debug-asserts that its fast and slow seeks
+# agree, and they disagree on a cursor whose element was deleted; a release
+# build runs the fast one, which these tests then run too.
+[profile.dev.package.automerge]
+debug-assertions = false
