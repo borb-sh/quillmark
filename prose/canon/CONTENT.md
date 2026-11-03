@@ -132,6 +132,8 @@ The cost is stated: a live document's bytes depend on which actor typed, so equa
 
 A `Change` is a list of steps. Each step reads the value the step before it left, and `apply` runs all of them or none.
 
+A `Change` is session-scoped, not a storage format: its JSON carries no version, and a later build may decode a change an earlier one wrote otherwise or refuse it. A host persists the value, never the changes that reached it; a receipt's `applied` serves undo and rebase within the process that took the write, as the change log does (§ "Writing a value").
+
 | Step | Shape | What it does |
 |---|---|---|
 | `splice` | `{at, delete, insert, marks?, blocks?, islands?}` | Replaces text. `delete` is the removed text itself, and the step fails if the value holds anything else there. `marks` is the formatting the inserted text carries; omitted, it carries none. Each `\n` in `insert` brings the record of the block it opens, and each `U+FFFC` its island. The removed records, marks and islands travel with the step as `removed`, for inversion. |
