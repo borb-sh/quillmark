@@ -35,6 +35,12 @@ use crate::version::QuillReference;
 /// field schema: it is the serde tag [`StoredDocument`] dispatches on, and
 /// retagging it would break the versioning it exists to serve.
 ///
+/// It shares [`STORAGE_V0_134_0`]'s tree and adds the `codec` key to a
+/// content value, which a `0.134` reader does not decode.
+pub const STORAGE_V0_135_0: &str = "quillmark/document@0.135.0";
+
+/// The tag before [`STORAGE_V0_135_0`], read through the same tree.
+///
 /// A row a pre-release build wrote under this tag holds the line form, and
 /// loads migrated as an older tag's row does.
 pub const STORAGE_V0_134_0: &str = "quillmark/document@0.134.0";
@@ -71,6 +77,8 @@ pub fn peek_storage_version(json: &str) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "schema")]
 pub enum StoredDocument {
+    #[serde(rename = "quillmark/document@0.135.0")]
+    V0_135_0(DocumentV0_134_0),
     #[serde(rename = "quillmark/document@0.134.0")]
     V0_134_0(DocumentV0_134_0),
     #[serde(rename = "quillmark/document@0.131.0")]
@@ -87,6 +95,7 @@ pub enum StoredDocument {
 /// non-malicious caller hits. Every other defect can only arise from a
 /// hand-crafted storage DTO and reports through [`Self::Malformed`].
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum StorageError {
     /// A stored quill reference string could not be parsed.
     InvalidQuillReference {
@@ -331,7 +340,7 @@ pub enum CommentPathSegmentV0_124_0 {
 
 impl From<Document> for StoredDocument {
     fn from(doc: Document) -> Self {
-        StoredDocument::V0_134_0(DocumentV0_134_0::from(&doc))
+        StoredDocument::V0_135_0(DocumentV0_134_0::from(&doc))
     }
 }
 
@@ -517,7 +526,7 @@ impl TryFrom<DocumentV0_134_0> for Document {
 /// value the read rewrote to its canonical form.
 pub fn from_stored(stored: StoredDocument) -> Result<super::Parsed, StorageError> {
     match stored {
-        StoredDocument::V0_134_0(payload) => document_from_stored(payload),
+        StoredDocument::V0_135_0(payload) | StoredDocument::V0_134_0(payload) => document_from_stored(payload),
         StoredDocument::V0_131_0(payload) | StoredDocument::V0_129_0(payload) => {
             document_from_stored(DocumentV0_134_0::from(payload))
         }
@@ -1135,7 +1144,7 @@ This body and the metadata above are an indorsement card.
         let rewritten = serde_json::to_string(&doc).unwrap();
         assert_eq!(
             peek_storage_version(&rewritten).as_deref(),
-            Some(STORAGE_V0_134_0)
+            Some(STORAGE_V0_135_0)
         );
     }
 
@@ -1149,7 +1158,7 @@ This body and the metadata above are an indorsement card.
         let stored = serde_json::to_string(&doc).unwrap();
         assert_eq!(
             peek_storage_version(&stored).as_deref(),
-            Some(STORAGE_V0_134_0)
+            Some(STORAGE_V0_135_0)
         );
         assert!(stored.contains(r#""checked":true"#), "{stored}");
         assert!(stored.contains(r#""checked":false"#), "{stored}");
@@ -1222,7 +1231,7 @@ This body and the metadata above are an indorsement card.
         let json = serde_json::to_string(&doc).unwrap();
         assert_eq!(
             peek_storage_version(&json).as_deref(),
-            Some(STORAGE_V0_134_0)
+            Some(STORAGE_V0_135_0)
         );
 
         let future = r#"{"schema":"quillmark/document@0.99.0","main":{}}"#;
@@ -1652,7 +1661,7 @@ title: Hi
         );
         assert_eq!(
             peek_storage_version(&first).as_deref(),
-            Some(STORAGE_V0_134_0)
+            Some(STORAGE_V0_135_0)
         );
     }
 
@@ -1693,7 +1702,7 @@ title: Hi
     fn a_card_id_saves_under_the_newest_tag() {
         let doc = sample();
         let row: serde_json::Value = serde_json::to_value(&doc).unwrap();
-        assert_eq!(row["schema"], STORAGE_V0_134_0);
+        assert_eq!(row["schema"], STORAGE_V0_135_0);
         let id = doc.cards()[0].id().unwrap().to_string();
         assert!(
             row["cards"][0]["payload"]["items"]
@@ -1756,7 +1765,7 @@ title: Hi
         let intro = quillmark_content::lines::serial::to_canonical_value(
             &super::super::import_body("**hi** there").unwrap(),
         );
-        for schema in [STORAGE_V0_134_0, STORAGE_V0_131_0, STORAGE_V0_129_0] {
+        for schema in [STORAGE_V0_135_0, STORAGE_V0_134_0, STORAGE_V0_131_0, STORAGE_V0_129_0] {
             let row = serde_json::json!({
                 "schema": schema,
                 "main": {
@@ -1780,7 +1789,7 @@ title: Hi
             let field = first.main().payload().get("intro").unwrap().as_json();
             assert!(ContentModel::from_value(field).is_ok() && field.get("lines").is_none(), "{schema}");
             let saved = serde_json::to_value(&first).unwrap();
-            assert_eq!(saved["schema"], STORAGE_V0_134_0);
+            assert_eq!(saved["schema"], STORAGE_V0_135_0);
             assert_eq!(serde_json::from_value::<Document>(saved).unwrap(), first);
         }
     }
