@@ -105,15 +105,16 @@ fn renumber(e: StepError, n: usize) -> StepError {
     }
 }
 
-/// Lowers `change` into the value `root`, which reads as `view`.
+/// Lowers `change` into the value `root`, which reads as `read` where
+/// given and is read from the document otherwise.
 ///
 /// Each step is checked against the value as the steps before it left it,
 /// and a step that does not place refuses the whole change: the caller
 /// rolls the transaction back.
-pub(crate) fn lower(doc: &mut AutoCommit, root: &ObjId, change: &Change) -> Result<Lowered, StepError> {
+pub(crate) fn lower(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<&Content>) -> Result<Lowered, StepError> {
     let mut out = Lowered::default();
     let mut scopes = HashMap::new();
-    lower_in(doc, root, change, &mut out, &mut scopes)?;
+    lower_in(doc, root, change, read.cloned(), &mut out, &mut scopes)?;
     Ok(out)
 }
 
@@ -146,20 +147,19 @@ fn note_scope(doc: &AutoCommit, root: &ObjId, given: &Content, scopes: &mut Scop
     scopes.insert(root.clone(), map);
 }
 
-fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, out: &mut Lowered, scopes: &mut Scopes) -> Result<(), StepError> {
+fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Content>, out: &mut Lowered, scopes: &mut Scopes) -> Result<(), StepError> {
     let t = value::text(doc, root).ok_or(StepError::Bad { step: 0, reason: "the value holds no text" })?;
     let mut ids: HashMap<String, String> = scopes.get(root).cloned().unwrap_or_default();
+    let mut next = read;
     for (n, step) in change.steps.iter().enumerate() {
-        let view = current(doc, root);
+        let view = next.take().unwrap_or_else(|| current(doc, root));
         check(&view, step, n)?;
+        let landed = quillmark_content::change::apply(&view, &Change::new(vec![step.clone()])).ok();
         match step {
             Step::Splice(s) => {
                 splice(doc, &t, s, &mut ids, out, scopes);
-                let one = Change::new(vec![step.clone()]);
-                if let Ok(landed) = quillmark_content::change::apply(&view, &one) {
-                    for d in landed.dropped {
-                        value::unplace(doc, root, &t, &d.context.id);
-                    }
+                for d in landed.iter().flat_map(|l| &l.dropped) {
+                    value::unplace(doc, root, &t, &d.context.id);
                 }
             }
             Step::SetBlock(s) => set_block(doc, &t, s, &ids, n)?,
@@ -233,7 +233,7 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, out: &mut Lower
                 let ty = view
                     .islands
                     .iter()
-                    .find(|i| i.id == id_of(&m))
+                    .find(|i| i.id == id_of(&m) || i.id == *id)
                     .map(|i| i.island_type.clone())
                     .ok_or_else(|| unknown(n, "island", id))?;
                 let mut probe = Island::new(id.as_str(), ty).with_props(props.clone());
@@ -263,9 +263,10 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, out: &mut Lower
                 let slot_root = obj(doc, &m, SLOTS)
                     .and_then(|s| obj(doc, &s, slot))
                     .ok_or_else(|| unknown(n, "slot", slot))?;
-                lower_in(doc, &slot_root, change, out, scopes).map_err(|e| renumber(e, n))?;
+                lower_in(doc, &slot_root, change, None, out, scopes).map_err(|e| renumber(e, n))?;
             }
         }
+        next = landed.filter(|_| matches!(step, Step::Splice(_) | Step::Mark(_) | Step::Anchor(_))).map(|l| l.content);
     }
     Ok(())
 }

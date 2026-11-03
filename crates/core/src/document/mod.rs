@@ -1016,6 +1016,9 @@ pub(crate) struct Live {
     /// The heads before each of the latest writes, newest last: where a hash
     /// no write noted is looked for.
     history: Vec<Vec<quillmark_automerge::automerge::ChangeHash>>,
+    /// The latest value noted: its address, the heads it was read at and its
+    /// hash.
+    last: Option<(String, Vec<quillmark_automerge::automerge::ChangeHash>, String)>,
 }
 
 /// How many of the latest writes' heads a base hash is looked for at.
@@ -1044,7 +1047,7 @@ impl Document {
     pub(crate) fn read_from(doc: quillmark_automerge::model::Doc, mints: card_id::ActorMints) -> Result<Self, String> {
         let (main, cards) = held::read(&doc)?;
         let synced = (main.clone(), cards.clone());
-        Ok(Self { main, cards, mints, live: Bound(Some(Live { doc, synced, seen: Default::default(), history: Vec::new() })) })
+        Ok(Self { main, cards, mints, live: Bound(Some(Live { doc, synced, seen: Default::default(), history: Vec::new(), last: None })) })
     }
 
     /// Holds the document in an Automerge document where it is not yet,
@@ -1058,7 +1061,7 @@ impl Document {
         let doc = held::build(&self.main, &self.cards);
         let (main, cards) = held::read(&doc).expect("built cards read back");
         let synced = (main.clone(), cards.clone());
-        self.live = Bound(Some(Live { doc, synced, seen: Default::default(), history: Vec::new() }));
+        self.live = Bound(Some(Live { doc, synced, seen: Default::default(), history: Vec::new(), last: None }));
         if cards.len() == self.cards.len() {
             self.main = main;
             self.cards = cards;

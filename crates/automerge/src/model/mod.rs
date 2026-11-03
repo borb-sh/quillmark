@@ -348,16 +348,42 @@ impl Doc {
         change: &Change,
         heads: Option<&[ChangeHash]>,
     ) -> Result<(Lowered, Vec<Patch>), StepError> {
-        let root = root.clone();
-        let saved = self.doc.clone();
-        let (lowered, patches) = self.write(heads, |doc| step::lower(doc, &root, change));
+        self.apply_from(root, change, heads, None)
+    }
+
+    /// [`apply`](Self::apply), with `read` the value `root` reads as at
+    /// `heads`, so the lowering reads no view of its own.
+    pub fn apply_from(
+        &mut self,
+        root: &ObjId,
+        change: &Change,
+        heads: Option<&[ChangeHash]>,
+        read: Option<&Content>,
+    ) -> Result<(Lowered, Vec<Patch>), StepError> {
+        self.doc.commit();
+        self.doc.update_diff_cursor();
+        let before = self.doc.get_heads();
+        let isolated = heads.filter(|h| *h != before.as_slice());
+        if let Some(h) = isolated {
+            self.doc.isolate(h);
+        }
+        let lowered = step::lower(&mut self.doc, root, change, read);
         match lowered {
-            Ok(l) => Ok((l, patches)),
-            Err(e) => {
-                self.doc = saved;
-                Err(e)
+            Ok(_) => {
+                self.doc.commit();
+            }
+            Err(_) => {
+                self.doc.rollback();
             }
         }
+        if isolated.is_some() {
+            self.doc.integrate();
+        }
+        let lowered = lowered?;
+        let after = self.doc.get_heads();
+        let patches = self.doc.diff(&before, &after);
+        self.doc.update_diff_cursor();
+        Ok((lowered, patches))
     }
 
     /// Puts `content` under `key` of the map `parent` as a new value.

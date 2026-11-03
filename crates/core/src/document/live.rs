@@ -4,7 +4,7 @@
 //! heads its base was left at or now, and lowers it as one Automerge change:
 //! at earlier heads it is concurrent with every change since and merges with
 //! them as Automerge merges, refusing nothing a concurrent change did. The
-//! card is then read again from the document.
+//! card then takes the value the write left.
 
 use std::collections::BTreeMap;
 
@@ -70,6 +70,30 @@ fn renamed(change: &Change, minted: &BTreeMap<String, String>) -> Change {
     Change::from_value(&walk(&change.to_value(), minted)).unwrap_or_else(|_| change.clone())
 }
 
+/// `content` with each id `minted` renames renamed.
+fn renamed_content(content: &Content, minted: &BTreeMap<String, String>) -> Content {
+    fn walk(v: &serde_json::Value, m: &BTreeMap<String, String>) -> serde_json::Value {
+        use serde_json::Value;
+        match v {
+            Value::String(s) => Value::String(m.get(s).cloned().unwrap_or_else(|| s.clone())),
+            Value::Array(a) => Value::Array(a.iter().map(|x| walk(x, m)).collect()),
+            Value::Object(o) => Value::Object(
+                o.iter()
+                    .map(|(k, x)| match matches!(k.as_str(), "text" | "kind" | "type") {
+                        true => (k.clone(), x.clone()),
+                        false => (k.clone(), walk(x, m)),
+                    })
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
+    }
+    if minted.is_empty() {
+        return content.clone();
+    }
+    Content::from_value(&walk(&content.to_value(), minted)).unwrap_or_else(|_| content.clone())
+}
+
 fn removed_by(change: &Change, out: &mut Vec<String>) {
     for step in &change.steps {
         match step {
@@ -99,12 +123,13 @@ impl Document {
     /// where it holds its content as JSON or holds nothing; `true` with it
     /// where the field was absent and is put now.
     fn value_obj(&mut self, at: Option<usize>, target: Target<'_>) -> Result<(ObjId, bool), EditError> {
-        let content = self.card_at(at).read(target)?;
         let mut put = false;
+        let mut content = None;
         if let Target::Field(name) = target {
+            let read = content.insert(self.card_at(at).read(target)?).to_value();
             let card = self.card_at_mut(at);
             if card.payload().get(name).is_none() {
-                card.payload_mut().insert(name.to_string(), QuillValue::from_json(content.to_value())).map_err(EditError::InvalidPayload)?;
+                card.payload_mut().insert(name.to_string(), QuillValue::from_json(read)).map_err(EditError::InvalidPayload)?;
                 put = true;
             }
         }
@@ -125,7 +150,7 @@ impl Document {
         if doc.am().get(&fields, name).unwrap().is_some() {
             doc.am_mut().delete(&fields, name).unwrap();
         }
-        let v = doc.put_value(&fields, name, &content);
+        let v = doc.put_value(&fields, name, &content.expect("a field target reads its value"));
         doc.am_mut().commit();
         self.reread();
         Ok((v, put))
@@ -163,13 +188,39 @@ impl Document {
         Err(EditError::Base(BaseError::Stale { current, field: target.field().map(str::to_string) }))
     }
 
+    /// Notes `content`, the value at `target` of the card at `at` now, as
+    /// read at the document's heads, and answers its hash.
     fn note(&mut self, at: Option<usize>, target: Target<'_>, content: &Content) -> String {
-        let hash = content_hash(content);
-        let key = (self.address_of(at, target), hash.clone());
-        let heads = self.live().heads();
-        super::remember(self.history(), heads.clone());
-        self.seen().entry(key).or_insert(heads);
+        let address = self.address_of(at, target);
+        let live = self.held();
+        let heads = live.doc.heads();
+        let hash = match &live.last {
+            Some((a, h, hash)) if *a == address && *h == heads => hash.clone(),
+            _ => content_hash(content),
+        };
+        super::remember(&mut live.history, heads.clone());
+        live.seen.entry((address.clone(), hash.clone())).or_insert_with(|| heads.clone());
+        live.last = Some((address, heads, hash.clone()));
         hash
+    }
+
+    /// Takes `after`, what the value at `target` of the card at `at` reads as
+    /// once a write landed, into the cards: a body in place, a field by
+    /// reading the cards again.
+    fn set_read(&mut self, at: Option<usize>, target: Target<'_>, after: &Content) {
+        let Target::Body = target else { return self.reread() };
+        self.card_at_mut(at).set_body(after.clone());
+        let synced = &mut self.held().synced;
+        match at {
+            None => synced.0.set_body(after.clone()),
+            Some(i) => synced.1[i].set_body(after.clone()),
+        }
+        #[cfg(debug_assertions)]
+        {
+            let (main, cards) = (self.main.clone(), self.cards.clone());
+            self.reread();
+            debug_assert!(self.main == main && self.cards == cards, "a body write reads as the document does");
+        }
     }
 
     /// The value at `target` of the card at `at` as its writer read it under
@@ -208,10 +259,11 @@ impl Document {
     fn write_on<U: Units>(&mut self, at: Option<usize>, target: Target<'_>, root: &ObjId, edit: Edit<'_>, opts: WriteOptions<'_>, u: Option<U>) -> Result<Receipt, EditError> {
         let root = root.clone();
         let heads = self.heads_for(at, target, &root, opts.base)?;
-        let now = self.live().view(&root).content;
+        let now = self.card_at(at).read(target)?;
+        debug_assert_eq!(now, self.held().doc.view(&root).content);
         self.note(at, target, &now);
         let read = match &heads {
-            Some(h) => self.live().view_at(&root, h).content,
+            Some(h) => self.held().doc.view_at(&root, h).content,
             None => now.clone(),
         };
         let (change, warnings, diffed) = match edit {
@@ -244,18 +296,27 @@ impl Document {
         if diffed {
             keeps_ext_islands(&read, &mine.content)?;
         }
-        let doc = self.live();
+        let doc = &mut self.held().doc;
         let actor = doc.am().get_actor().clone();
         if let Some(a) = opts.actor {
             doc.set_actor(ActorId::from(a.as_bytes()));
         }
-        let lowered = doc.apply(&root, &change, heads.as_deref());
+        let lowered = doc.apply_from(&root, &change, heads.as_deref(), Some(&read));
         if opts.actor.is_some() {
             doc.set_actor(actor);
         }
         let (lowered, _) = lowered.map_err(step_error)?;
-        let after = doc.view(&root).content;
         let merged = heads.is_some();
+        let named: BTreeMap<String, String> = mine.minted.iter().filter_map(|(placeholder, id)| Some((id.clone(), lowered.minted.get(placeholder)?.clone()))).collect();
+        let after = match merged || diffed {
+            true => doc.view(&root).content,
+            false => {
+                let held: BTreeMap<String, String> = lowered.minted.iter().map(|(given, id)| (mine.minted.get(given).unwrap_or(given).clone(), id.clone())).collect();
+                let after = renamed_content(&mine.content, &held);
+                debug_assert_eq!(after, doc.view(&root).content);
+                after
+            }
+        };
         let (dropped_anchors, moved_anchors) = match merged || diffed {
             false => (mine.dropped.clone(), mine.moved.clone()),
             true => {
@@ -269,16 +330,13 @@ impl Document {
         };
         let applied = match merged || diffed {
             true => diff::diff(&now, &after).map_err(|e| EditError::change(e.into()))?,
-            false => {
-                let named = mine.minted.iter().filter_map(|(placeholder, id)| Some((id.clone(), lowered.minted.get(placeholder)?.clone()))).collect();
-                renamed(&mine.applied, &named)
-            }
+            false => renamed(&mine.applied, &named),
         };
         let applied = match u {
             Some(u) => units::change_from_scalars(&applied, &now, u).map_err(EditError::change)?,
             None => applied,
         };
-        self.reread();
+        self.set_read(at, target, &after);
         let hash = self.note(at, target, &after);
         let minted = match diffed {
             true => BTreeMap::new(),
