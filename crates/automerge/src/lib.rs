@@ -1,7 +1,7 @@
 //! A Quillmark content value held in an Automerge document.
 //!
 //! [`Held`] keeps one value under the root key [`KEY`] in the shape the
-//! `map` module states, takes each [`Change`] as the Automerge operations its
+//! `map` module states, takes each [`Change`](quillmark_content::change::Change) as the Automerge operations its
 //! [`Trace`] lowers to, and reads back the raw value [`repair`] takes, so
 //! every peer holding one merged state reads one valid value. A write made
 //! from earlier heads lowers on [`Held::fork_at`] and merges back. [`merge3`]

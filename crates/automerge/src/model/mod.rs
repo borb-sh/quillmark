@@ -8,7 +8,7 @@
 //! The root holds `schema`, `quill`, `main` (a card), `cards` (cards by
 //! `$id`) and `order` (the `$id`s in document order). A card holds `kind`,
 //! `layout` (the payload's items in source order, each field by key and each comment whole), `fields`, `nestedComments`, `ext`, `seed` and `body`; a body or
-//! content field is a value in the shape [`value`] states.
+//! content field is a value in the shape `value` states.
 
 pub mod json;
 mod step;
