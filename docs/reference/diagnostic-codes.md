@@ -175,7 +175,6 @@ A mutator or typed write the document refuses.
 - `edit::invalid_field_name`
 - `edit::invalid_kind_name`
 - `edit::invalid_payload`
-- `edit::rebase_conflict`
 - `edit::reserved_kind`
 - `edit::root_only_entry`
 - `edit::stale_base`

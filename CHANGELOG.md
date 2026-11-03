@@ -4,56 +4,41 @@
 
 Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
 
-- feat(core)!: **a stale write merges through Automerge.** Each content
-  value keeps a live Automerge document beside its `Content`, built on its
-  first write and in memory only, and each write lowers its change into it.
-  A write whose `base` names an earlier hash forks the document at the heads
-  that hash was left at, lands there and merges back, read through repair.
-  Text both sides edited keeps both edits, where it threw
-  `edit::rebase_conflict`; a record, container or island's props both set
-  still conflicts, `reason` `changed` or `missing`. A stale step on a block
-  or island gone since, or on an id a record minted since holds, and one
-  placing or moving an anchor removed since refuse as `missing`; one whose
-  anchor lost its text to a change since refuses as `deleted`; one deleting
-  text a change since formatted otherwise refuses as `changed` rather than
-  dropping the formatting. An anchor or
-  mark either side put keeps its edges over text the other typed there,
-  whichever actor sorts first. `edit::stale_base` names a
-  hash no write this document took left, every base read before a load from
-  storage among them. The change log, `LOG_STEPS`, `change::rebase`,
-  `compose` and `diff::revise` are gone; `MAX_CHANGE_STEPS` is 16384, and
-  `Card::read_at` takes `&mut self`. Storage is unchanged.
-- feat(automerge): **`quillmark-automerge` holds a content value in an
-  Automerge 0.12 document**: `Held` maps a value both ways, lowers a change
-  from the trace `apply_traced` answers, and forks at earlier heads;
-  `merge3`, `conflict` and `revise` sit beside it. A point anchor is a pair
-  of one-character marks, not a cursor. A held value is made at an address,
-  which its first change carries; a fork starts from a checkpoint rather
-  than replaying the history.
-- feat(core): **`Card::save`, `load`, `generate_sync_message` and
-  `receive_sync_message`** reach a value's live document, and
-  `edit::bad_live_bytes` names bytes or a message it refuses, its `reason`
-  `decode`, `address`, `shape` or `content`, and changes nothing. A value's
-  live document is addressed by its card and field, so bytes or a message
-  from another value's document are refused as `address`; a write with no
-  actor writes under the document's own random actor, so two peers writing
-  with none sync. `quillmark_core::document` re-exports the sync protocol's
-  `SyncState` and `SyncMessage` and the `LoadError` these verbs carry.
-- feat(wasm): **a value's live document crosses the boundary.**
-  `doc.save(addr)` answers its Automerge bytes as a `Uint8Array`,
-  `doc.load(addr, bytes)` replaces it, and two peers sync it through
-  `new SyncState()` (or `Document.syncState()`), an opaque handle that
-  `state.encode()` and `SyncState.decode(bytes)` keep across a restart, with
-  `doc.generateSyncMessage(addr, state)` and
-  `doc.receiveSyncMessage(addr, state, message)`. All five verbs name a card
-  by `$id` and throw on an index. A load and a received message answer a
-  `Receipt`, offsets in UTF-16, naming the anchors the merge dropped or
-  moved. The core surface `init` resolves to holds `SyncState`.
-- feat(python): **the same live document in snake case**: `doc.save`,
-  `doc.load(data)`, `SyncState()` (or `Document.sync_state()`) with
-  `encode` / `SyncState.decode`, `doc.generate_sync_message` and
-  `doc.receive_sync_message`, `bytes` in and out, receipts in code points;
-  each names a card by its id, never an index.
+- feat(core)!: **a document is one Automerge document.** Every `Document`
+  holds its cards in one Automerge 0.12 document, and the cards are a view of
+  it: the root holds `schema`, `main`, `cards` by `$id` and `order`, a content
+  value is a text object, and any other value is maps, lists and scalars.
+  Inside a document a block, container or island id is its record's
+  Automerge object id, minted by the write that puts it; a moved block or
+  island takes a new one.
+- feat(core)!: **a stale write merges as Automerge merges, and nothing
+  refuses.** A write whose `base` names an earlier hash lands as one change at
+  the heads that hash was left at, concurrent with every change since: text
+  both sides edited interleaves, a record or field both set reads as the
+  later write, and an anchor or mark put at earlier heads takes in text typed
+  since at its start. `edit::rebase_conflict`, `DocumentRevised.conflicts`
+  and `MergeConflict` are gone; `edit::stale_base` names a base the
+  document's history does not reach, every base read before a load from a
+  stored row among them. A whole-document `DocumentBase::Stored` lands the
+  writer's revise at the heads it was read at.
+- feat(core)!: **bytes are the row.** `Document::to_bytes` and `from_bytes`
+  save and read the whole document with its history; `heads`, `save_since`
+  and `merge` move changes between peers; `generate_sync_message` and
+  `receive_sync_message` run Automerge's sync protocol over the whole
+  document. `edit::bad_live_bytes` names bytes or a message that would leave
+  the document outside its schema, its `reason` `decode`, `shape` or
+  `schema`, and changes nothing. The per-value `Card::save`, `load` and sync
+  verbs are gone. `StoredDocument` JSON stays the history-free interchange,
+  and a `0.134.0` row reads into a new document.
+- feat(wasm)!: **the document crosses as bytes.** `doc.save()`,
+  `Document.fromBytes(bytes)`, `doc.heads()`, `doc.saveSince(heads)`,
+  `doc.merge(bytes)`, and `doc.generateSyncMessage(state)` /
+  `doc.receiveSyncMessage(state, message)` with the opaque `SyncState`.
+  `reviseDocument`'s `baseStored` takes the `save()` bytes the writer read.
+- feat(python)!: **the same in snake case**: `doc.save()`,
+  `Document.from_bytes`, `doc.heads()`, `doc.save_since`, `doc.merge`,
+  `doc.generate_sync_message(state)` and `doc.receive_sync_message(state,
+  message)`; `revise_document`'s `base_stored` takes `bytes`.
 
 ## v0.134.1 - 2026-11-02
 
