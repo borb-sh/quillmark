@@ -12,6 +12,7 @@
 mod lower;
 mod map;
 mod merge;
+pub mod model;
 mod own;
 
 pub use automerge;
