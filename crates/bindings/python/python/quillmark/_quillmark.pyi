@@ -371,7 +371,7 @@ class Writer:
         self,
         text: str,
         field: str | None = None,
-        card: int | str | None = None,
+        card: str | None = None,
         *,
         base_hash: str | None = None,
         base_content: dict[str, Any] | None = None,

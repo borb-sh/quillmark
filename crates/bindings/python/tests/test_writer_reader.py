@@ -267,13 +267,14 @@ def test_markdown_writes_return_their_drops_at_the_body_written():
     assert drops(w.revise("a <kbd>b</kbd>")["warnings"]) == [
         ("parse::dropped_construct", "main.body", "kbd")
     ]
-    assert drops(w.add_card("quotes", {"author": "A"}, "x <span>y</span>")["warnings"]) == [
+    added = w.add_card("quotes", {"author": "A"}, "x <span>y</span>")
+    assert drops(added["warnings"]) == [
         ("parse::dropped_construct", "cards.quotes[0].body", "span")
     ]
     assert drops(w.add_card("quotes", {"author": "B"}, "<em>z</em>", at=0)["warnings"]) == [
         ("parse::dropped_construct", "cards.quotes[0].body", "em")
     ]
-    assert drops(w.revise("c <kbd>d</kbd>", card=1)["warnings"]) == [
+    assert drops(w.revise("c <kbd>d</kbd>", card=added["id"])["warnings"]) == [
         ("parse::dropped_construct", "cards.quotes[1].body", "kbd")
     ]
     assert doc.to_markdown_at(card=1) == "c d"

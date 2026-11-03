@@ -1397,8 +1397,9 @@ impl PyWriter {
         .map_err(|errs| convert_edit_errors(errs, &target.base))
     }
 
-    /// Revise the body (`field=None`) or the content field `field` on `card`
-    /// (`None` for the main card) from authored text; anchors ride their text. A field
+    /// Revise the body (`field=None`) or the content field `field` on the
+    /// card whose `$id` is `card` (`None` for the main card; an index raises)
+    /// from authored text; anchors ride their text. A field
     /// is typed as well: the codec comes from its declared type (`richtext`
     /// diffs markdown, `text` the literal text, the body being `richtext`),
     /// the diffed result is schema-conformed, so a one-paragraph `richtext`
@@ -1429,6 +1430,7 @@ impl PyWriter {
         base_hash: Option<&str>,
         base_content: Option<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyDict>> {
+        require_card_id(&card, "revise")?;
         let read = ReadBase::from_py(base_hash, base_content.as_ref())?;
         let read = read.as_ref().map(ReadBase::as_base);
         let quill = self.quill.borrow(py);

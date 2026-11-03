@@ -740,7 +740,8 @@ export declare class DocumentWriter {
 	 * `applied` the change from the value before, its warnings at the value,
 	 * and the anchors the write dropped or moved. A bare string is `Addr`
 	 * shorthand for `{ field }`; an absent `addr.field` is the body, an absent
-	 * `addr.card` the main card.
+	 * `addr.card` the main card, and a composable card is named by its `$id`,
+	 * an index throwing.
 	 *
 	 * The codec comes from the declared type, the body's being `richtext`:
 	 * `richtext` diffs markdown, while `text` diffs the literal text and never
@@ -810,8 +811,11 @@ export declare class CardWriter {
 	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**
 	 * The card twin of {@link DocumentWriter.revise}: no `field` revises the
-	 * card's body. Throws `UnknownField` for an undeclared name and
-	 * `IndexOutOfRange` for a bad bound index.
+	 * card's body, the card the bound index names at the call. Throws
+	 * `UnknownField` for an undeclared name and `IndexOutOfRange` for a bad
+	 * bound index. A base names its card by `$id`, which a cursor holds none
+	 * of, so `opts` naming one throws: a based revise goes through
+	 * `writer.revise({ card: id, field }, ...)`.
 	 */
 	revise(addr: { field?: string } | string, text: string, opts?: BaseOptions): Receipt;
 }

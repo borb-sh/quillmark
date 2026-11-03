@@ -988,7 +988,9 @@ export class CardWriter {
 	 * @returns {import('../core/wasm.js').Receipt}
 	 */
 	revise(addr, text, opts) {
-		return this.#doc._revise(this.#quill, { card: this.#index, field: cardField(addr) }, text, opts);
+		const based = opts != null && ('baseHash' in opts || 'baseContent' in opts);
+		const card = based ? this.#index : this.#doc.card(this.#index).id;
+		return this.#doc._revise(this.#quill, { card, field: cardField(addr) }, text, opts);
 	}
 }
 

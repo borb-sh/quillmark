@@ -39,6 +39,11 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   `Document.load`, `doc.heads()`, `doc.save_since`, `doc.merge`,
   `doc.generate_sync_message(state)` and `doc.receive_sync_message(state,
   message)`; `revise_document`'s `base_stored` takes `bytes`.
+- feat(bindings)!: **the writer's `revise` names its card by `$id`.** WASM
+  `writer.revise({ card })` and Python `writer.revise(card=)` take a
+  composable card's `$id` and throw on an index, as `apply`, `revise` and
+  `replace` do. The WASM card cursor's `revise` revises the card its index
+  names at the call and refuses a base.
 
 ## v0.134.1 - 2026-11-02
 

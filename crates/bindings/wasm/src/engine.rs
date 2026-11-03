@@ -1604,7 +1604,7 @@ impl Document {
         #[wasm_bindgen(unchecked_optional_param_type = "BaseOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
         let read = ReadBase::from_js(opts, "revise", "baseContent")?;
-        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
+        let addr = Addr::for_write(&addr, &self.inner, "revise")?;
         let base = self.addr_base(&addr);
         let card_id = self.addr_card_ref(&addr)?.id().map(str::to_string);
         let target = quillmark_core::document::Target::from(addr.field.as_deref());
