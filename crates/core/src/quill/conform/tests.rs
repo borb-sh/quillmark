@@ -65,7 +65,7 @@ fn quill() -> Quill {
 }
 
 fn bytes(doc: &Document) -> String {
-    serde_json::to_string(&StoredDocument::from(doc.clone())).expect("storage DTO serializes")
+    serde_json::to_string(&StoredDocument::from(doc.by_place())).expect("storage DTO serializes")
 }
 
 fn parse_bound(quill: &Quill, md: &str) -> (Document, Vec<crate::error::Diagnostic>) {
@@ -549,8 +549,8 @@ fn revise_document_revises_then_conforms() {
     );
     for name in ["subject", "note", "tags"] {
         assert_eq!(
-            doc.main().payload().get(name),
-            expected.main().payload().get(name),
+            doc.by_place().main().payload().get(name),
+            expected.by_place().main().payload().get(name),
             "{name} rests as the bound parse lands it"
         );
     }

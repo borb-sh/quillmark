@@ -149,16 +149,25 @@ impl Document {
             return Ok(None);
         }
         let key = (self.address_of(at, target), hash);
-        match self.seen().get(&key) {
-            Some(heads) => Ok(Some(heads.clone())),
-            None => Err(EditError::Base(BaseError::Stale { current, field: target.field().map(str::to_string) })),
+        if let Some(heads) = self.seen().get(&key) {
+            return Ok(Some(heads.clone()));
         }
+        let history = self.history().clone();
+        for heads in history.iter().rev() {
+            let read = self.live().try_view_at(root, heads);
+            if read.is_some_and(|v| content_hash(&v.content) == key.1) {
+                self.seen().insert(key, heads.clone());
+                return Ok(Some(heads.clone()));
+            }
+        }
+        Err(EditError::Base(BaseError::Stale { current, field: target.field().map(str::to_string) }))
     }
 
     fn note(&mut self, at: Option<usize>, target: Target<'_>, content: &Content) -> String {
         let hash = content_hash(content);
         let key = (self.address_of(at, target), hash.clone());
         let heads = self.live().heads();
+        super::remember(self.history(), heads.clone());
         self.seen().entry(key).or_insert(heads);
         hash
     }

@@ -114,7 +114,7 @@ fn arb_field_value() -> impl Strategy<Value = (&'static str, serde_json::Value)>
 fn rest(doc: &Document) -> Vec<Option<serde_json::Value>> {
     CONTENT_FIELDS
         .iter()
-        .map(|name| doc.main().payload().get(name).map(|v| v.as_json().clone()))
+        .map(|name| doc.by_place().main().payload().get(name).map(|v| v.as_json().clone()))
         .collect()
 }
 

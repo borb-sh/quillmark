@@ -876,25 +876,9 @@ impl<'a> CardMut<'a> {
         self.doc.read_under(self.at, target, base)
     }
 
-    /// [`Card::save`].
-    pub fn save(&mut self, target: super::Target<'_>) -> Result<Vec<u8>, EditError> {
-        self.card().save(target)
-    }
 
-    /// [`Card::load`].
-    pub fn load(&mut self, target: super::Target<'_>, bytes: &[u8]) -> Result<super::Receipt, EditError> {
-        self.card().load(target, bytes)
-    }
 
-    /// [`Card::generate_sync_message`].
-    pub fn generate_sync_message(&mut self, target: super::Target<'_>, state: &mut quillmark_automerge::automerge::sync::State) -> Result<Option<quillmark_automerge::automerge::sync::Message>, EditError> {
-        self.card().generate_sync_message(target, state)
-    }
 
-    /// [`Card::receive_sync_message`].
-    pub fn receive_sync_message(&mut self, target: super::Target<'_>, state: &mut quillmark_automerge::automerge::sync::State, message: quillmark_automerge::automerge::sync::Message) -> Result<super::Receipt, EditError> {
-        self.card().receive_sync_message(target, state, message)
-    }
 
     /// [`write`](Self::write) of [`Edit::Replace`](super::Edit::Replace).
     pub fn replace<'o>(&mut self, target: super::Target<'_>, content: &quillmark_content::model::Content, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
@@ -959,6 +943,13 @@ impl<'a> CardMut<'a> {
         self.card().commit_field(name, value, schema)
     }
 
+    /// A markdown revise of the value at `target` under `base`, its
+    /// receipt counted in scalars on the value it landed on.
+    pub(crate) fn revise_counted(&mut self, target: super::Target<'_>, markdown: &str, base: Option<Base<'_>>) -> Result<super::Receipt, EditError> {
+        let before = self.read(target)?;
+        Ok(self.write(target, super::Edit::Revise(markdown), super::WriteOptions { base, actor: None })?.counted_on(before))
+    }
+
     #[doc(hidden)]
     pub fn revise_field_checked(&mut self, name: &str, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
         self.card().revise_field_checked(name, body, schema)
@@ -969,9 +960,40 @@ impl<'a> CardMut<'a> {
         std::ops::Deref::deref(self).field_hash_checked(name, schema)
     }
 
+    /// [`revise_field_checked`](Self::revise_field_checked) under `base`. A
+    /// content field the base names an earlier value of is revised as its
+    /// writer read it, and the change from that read lands at the heads it
+    /// was read at, merged with every change since.
     #[doc(hidden)]
     pub fn revise_field_checked_against(&mut self, name: &str, base: Base<'_>, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
-        self.card().revise_field_checked_against(name, base, body, schema)
+        let read_hash = match base {
+            Base::Hash(h) => h.to_string(),
+            Base::Content(c) => super::base::content_hash(c),
+        };
+        let content = matches!(schema.r#type, FieldType::Text { .. } | FieldType::RichText { .. });
+        if !content || read_hash == self.field_hash_checked(name, schema)? {
+            return self.revise_field_checked(name, body, schema);
+        }
+        let target = super::Target::Field(name);
+        let read = self.doc.read_under(self.at, target, Some(&read_hash)).map_err(|e| match e {
+            EditError::Base(e) => EditError::Base(e.at_field(name)),
+            other => other,
+        })?;
+        let mut scratch = Card::from_parts(Payload::new(), quillmark_content::model::Content::empty());
+        scratch.payload_mut().insert(name.to_string(), QuillValue::from_json(read.to_value())).map_err(EditError::InvalidPayload)?;
+        let revised = scratch.revise_field_checked(name, body, schema)?;
+        let wanted = scratch.read(target)?;
+        let change = quillmark_content::diff::diff(&read, &wanted).map_err(|e| EditError::change(e.into()))?;
+        let before = self.read(target)?;
+        let mut receipt = self.write(target, super::Edit::Apply(change), super::WriteOptions { base: Some(base), actor: None })?;
+        receipt.warnings = revised.warnings;
+        Ok(receipt.counted_on(before))
+    }
+}
+
+impl Drop for CardMut<'_> {
+    fn drop(&mut self) {
+        self.doc.settle();
     }
 }
 

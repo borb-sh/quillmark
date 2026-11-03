@@ -663,7 +663,6 @@ mod dto;
 pub mod edit;
 pub mod emit;
 pub mod fences;
-pub mod merge;
 pub mod meta;
 pub mod payload;
 pub(crate) mod prescan;
@@ -679,7 +678,6 @@ pub use dto::{
 };
 pub use edit::{CardMut, EditError, Unchecked};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
-pub use merge::MergeConflict;
 pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
 pub use payload::{MetaKey, Payload, PayloadItem};
 /// Returned by [`Document::reattach`], so nameable from here.
@@ -749,8 +747,6 @@ pub struct Card {
     /// `body` lowered to the line form the codecs and renderers read, made
     /// when first read.
     lines: Lowered,
-    live: write::Values,
-    hashes: Hashes,
 }
 
 /// A body's line form, lowered when first read: a write that no renderer
@@ -768,38 +764,6 @@ impl PartialEq for Lowered {
 impl std::fmt::Debug for Lowered {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Lowered")
-    }
-}
-
-/// The hash a write left on the body and on each richtext field it wrote,
-/// so the next write reads it rather than hashing the value again. A body
-/// set forgets the body's, and any payload write every field's. Derived from
-/// the values, so it takes no part in equality.
-#[derive(Clone, Default)]
-pub(crate) struct Hashes {
-    body: Option<String>,
-    fields: std::collections::HashMap<String, String>,
-}
-
-impl Hashes {
-    pub(crate) fn body(&self) -> Option<&str> {
-        self.body.as_deref()
-    }
-
-    pub(crate) fn field(&self, name: &str) -> Option<&str> {
-        self.fields.get(name).map(String::as_str)
-    }
-}
-
-impl PartialEq for Hashes {
-    fn eq(&self, _: &Self) -> bool {
-        true
-    }
-}
-
-impl std::fmt::Debug for Hashes {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Hashes")
     }
 }
 
@@ -848,7 +812,7 @@ impl Card {
     /// Create a `Card` from its parts without validation.
     pub(crate) fn from_parts(payload: Payload, body: impl IntoBody) -> Self {
         let body = body.into_body();
-        Self { payload, body, lines: Lowered::default(), live: write::Values::default(), hashes: Hashes::default() }
+        Self { payload, body, lines: Lowered::default() }
     }
 
     pub fn quill(&self) -> Option<&QuillReference> {
@@ -880,7 +844,6 @@ impl Card {
     }
 
     pub(crate) fn payload_mut(&mut self) -> &mut Payload {
-        self.hashes.fields.clear();
         &mut self.payload
     }
 
@@ -905,18 +868,7 @@ impl Card {
 
     pub(crate) fn set_body(&mut self, body: Content) {
         self.lines = Lowered::default();
-        self.hashes.body = None;
         self.body = body;
-    }
-
-    /// Note the hash a write left at `field`, `None` the body.
-    pub(crate) fn remember_hash(&mut self, field: Option<&str>, hash: String) {
-        match field {
-            None => self.hashes.body = Some(hash),
-            Some(name) => {
-                self.hashes.fields.insert(name.to_string(), hash);
-            }
-        }
     }
 
     /// Read a content-valued user field back through `codec`: the field-level
@@ -1030,6 +982,15 @@ pub struct Document {
     live: Bound,
 }
 
+pub(crate) fn remember(history: &mut Vec<Vec<quillmark_automerge::automerge::ChangeHash>>, heads: Vec<quillmark_automerge::automerge::ChangeHash>) {
+    if history.last() != Some(&heads) {
+        history.push(heads);
+    }
+    if history.len() > HISTORY {
+        history.remove(0);
+    }
+}
+
 /// The [`Live`] a document is held in, once it is: no part of what the
 /// document equals.
 #[derive(Clone, Debug, Default)]
@@ -1050,7 +1011,13 @@ pub(crate) struct Live {
     synced: (Card, Vec<Card>),
     /// The heads each value's hash was first read at, by the value's address.
     seen: std::collections::HashMap<(String, String), Vec<quillmark_automerge::automerge::ChangeHash>>,
+    /// The heads before each of the latest writes, newest last: where a hash
+    /// no write noted is looked for.
+    history: Vec<Vec<quillmark_automerge::automerge::ChangeHash>>,
 }
+
+/// How many of the latest writes' heads a base hash is looked for at.
+const HISTORY: usize = 1024;
 
 impl PartialEq for Live {
     fn eq(&self, _: &Self) -> bool {
@@ -1075,7 +1042,7 @@ impl Document {
     pub(crate) fn read_from(doc: quillmark_automerge::model::Doc, mints: card_id::ActorMints) -> Result<Self, String> {
         let (main, cards) = held::read(&doc)?;
         let synced = (main.clone(), cards.clone());
-        Ok(Self { main, cards, mints, live: Bound(Some(Live { doc, synced, seen: Default::default() })) })
+        Ok(Self { main, cards, mints, live: Bound(Some(Live { doc, synced, seen: Default::default(), history: Vec::new() })) })
     }
 
     /// Holds the document in an Automerge document where it is not yet,
@@ -1089,7 +1056,7 @@ impl Document {
         let doc = held::build(&self.main, &self.cards);
         let (main, cards) = held::read(&doc).expect("built cards read back");
         let synced = (main.clone(), cards.clone());
-        self.live = Bound(Some(Live { doc, synced, seen: Default::default() }));
+        self.live = Bound(Some(Live { doc, synced, seen: Default::default(), history: Vec::new() }));
         if cards.len() == self.cards.len() {
             self.main = main;
             self.cards = cards;
@@ -1111,7 +1078,8 @@ impl Document {
         if live.synced.0 == self.main && live.synced.1 == self.cards {
             return;
         }
-        let Live { doc, synced, .. } = live;
+        let Live { doc, synced, history, .. } = live;
+        remember(history, doc.heads());
         held::flush(doc, (&synced.0, &synced.1), (&self.main, &self.cards));
         let (main, cards) = held::read(doc).expect("flushed cards read back");
         *synced = (main.clone(), cards.clone());
@@ -1123,6 +1091,10 @@ impl Document {
     pub(crate) fn live(&mut self) -> &mut quillmark_automerge::model::Doc {
         self.flush();
         &mut self.held().doc
+    }
+
+    pub(crate) fn history(&mut self) -> &mut Vec<Vec<quillmark_automerge::automerge::ChangeHash>> {
+        &mut self.held().history
     }
 
     pub(crate) fn seen(&mut self) -> &mut std::collections::HashMap<(String, String), Vec<quillmark_automerge::automerge::ChangeHash>> {
@@ -1137,6 +1109,47 @@ impl Document {
         live.synced = (main.clone(), cards.clone());
         self.main = main;
         self.cards = cards;
+    }
+
+    /// This document with each id its Automerge document gave a content part
+    /// spelled as that part's place, so documents of other histories that
+    /// read alike compare and spell alike.
+    #[cfg(test)]
+    pub(crate) fn by_place(&self) -> Document {
+        let card = |c: &Card| Card::from_parts(payload_by_place(&c.payload), c.body.by_place());
+        Document::assembled(card(&self.main), self.cards.iter().map(card).collect(), self.mints.clone())
+    }
+
+    /// The heads of the Automerge document this one is held in, where it is
+    /// held in one and its cards read as that document does.
+    pub(crate) fn held_heads(&self) -> Option<Vec<quillmark_automerge::automerge::ChangeHash>> {
+        let mut live = self.live.0.clone()?;
+        (live.synced.0 == self.main && live.synced.1 == self.cards).then(|| live.doc.heads())
+    }
+
+    /// Writes what the cards changed into the Automerge document, where the
+    /// document is held in one.
+    pub(crate) fn settle(&mut self) {
+        if self.live.0.is_some() {
+            self.flush();
+        }
+    }
+
+    /// Whether this document's history holds `heads`.
+    pub(crate) fn holds(&mut self, heads: &[quillmark_automerge::automerge::ChangeHash]) -> bool {
+        self.live().holds(heads)
+    }
+
+    /// Lands the cards of `wanted`, made from this document as it was at
+    /// `heads`, as one change at those heads: concurrent with every change
+    /// since, and merged with them.
+    pub(crate) fn land_at(&mut self, heads: &[quillmark_automerge::automerge::ChangeHash], wanted: &Document) {
+        self.flush();
+        self.held().doc.isolated(heads, |d| {
+            let (main, cards) = held::read(d).expect("a held document reads as cards");
+            held::flush(d, (&main, &cards), (&wanted.main, &wanted.cards));
+        });
+        self.reread();
     }
 
     /// The document's bytes: what a host stores and [`from_bytes`] loads.

@@ -302,6 +302,29 @@ impl Doc {
         View { content, repairs }
     }
 
+    /// Whether the document's history holds every change `heads` names.
+    pub fn holds(&self, heads: &[ChangeHash]) -> bool {
+        heads.iter().all(|h| ReadDoc::get_change_by_hash(&self.doc, h).is_some())
+    }
+
+    /// Runs `f` on the document as it was at `heads`: what it reads is that
+    /// state, and what it writes is one change concurrent with every change
+    /// since, which merges with them.
+    pub fn isolated<T>(&mut self, heads: &[ChangeHash], f: impl FnOnce(&mut Doc) -> T) -> T {
+        self.doc.commit();
+        self.doc.isolate(heads);
+        let out = f(self);
+        self.doc.commit();
+        self.doc.integrate();
+        out
+    }
+
+    /// What the value `root` read as at `heads`, `None` where it held no
+    /// value then.
+    pub fn try_view_at(&mut self, root: &ObjId, heads: &[ChangeHash]) -> Option<View> {
+        self.isolated(heads, |d| value::text(&d.doc, root).is_some().then(|| d.view(root)))
+    }
+
     /// What the value `root` read as at `heads`.
     pub fn view_at(&mut self, root: &ObjId, heads: &[ChangeHash]) -> View {
         self.doc.commit();

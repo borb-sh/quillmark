@@ -15,11 +15,8 @@ use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
 use super::edit::{EditError, is_valid_field_name};
-use super::merge::{MergeConflict, merge_documents};
-use super::revise::align_cards;
-use super::{Card, Codec, Document, Parsed, Receipt, Revising, Target};
+use super::{Card, Codec, Document};
 use crate::error::{Diagnostic, diag_args};
-use crate::path::{DocPath, DocSeg};
 use crate::quill::{BoundParseError, FieldSchema, FieldType, QuillConfig};
 
 /// What a revise's writer read, checked against the value stored at the write.
@@ -47,10 +44,10 @@ pub enum DocumentBase<'a> {
     /// A document that now hashes otherwise refuses the write with
     /// [`BaseError::Stale`]: a whole document keeps no history.
     Hash(&'a str),
-    /// The document the writer read, as stored. The writer's edit of it and
-    /// the change made since merge card by card and field by field; a place
-    /// both changed keeps its value now and is named in
-    /// [`DocumentRevised::conflicts`](super::DocumentRevised::conflicts).
+    /// The document the writer read. The writer's edit of it lands as one
+    /// Automerge change at the heads it was read at, merged with every change
+    /// since; one this document's history does not reach refuses with
+    /// [`BaseError::Stale`] unless it reads as the document now.
     Stored(&'a Document),
 }
 
@@ -125,7 +122,7 @@ impl BaseError {
         }
     }
 
-    fn at_field(mut self, name: &str) -> Self {
+    pub(crate) fn at_field(mut self, name: &str) -> Self {
         match &mut self {
             BaseError::Stale { field, .. } | BaseError::Conflict { field, .. } => {
                 *field = Some(name.to_string());
@@ -197,27 +194,19 @@ fn sorted(value: &JsonValue) -> JsonValue {
     }
 }
 
-/// The hash of a content's canonical form: what [`Card::hash_of`] answers for
-/// a body or a richtext field, however the field rests.
+/// The hash of a content's canonical form, each id its document gave a part
+/// read as its place: what [`Card::hash_of`] answers for a body or a
+/// richtext field, however the field rests.
 pub fn content_hash(content: &Content) -> String {
-    digesting(|w| content.write_canonical(w))
-}
-
-fn at_field(err: EditError, name: &str) -> EditError {
-    match err {
-        EditError::Base(e) => EditError::Base(e.at_field(name)),
-        other => other,
-    }
+    let placed = content.by_place();
+    digesting(|w| placed.write_canonical(w))
 }
 
 impl Card {
     /// The hash of the body's canonical form, the [`Base::Hash`] a body revise
     /// checks.
     pub(crate) fn body_hash(&self) -> String {
-        match self.hashes.body() {
-            Some(hash) => hash.to_string(),
-            None => content_hash(self.body()),
-        }
+        content_hash(self.body())
     }
 
     /// The body's annotated read ([`to_markdown_annotated`]): the scoped read
@@ -241,10 +230,7 @@ impl Card {
     /// the empty content. **Richtext only**: the typed writer's `hash_of` is
     /// the door for a field of another type.
     pub(crate) fn field_hash(&self, name: &str) -> Result<String, EditError> {
-        match self.hashes.field(name) {
-            Some(hash) => Ok(hash.to_string()),
-            None => Ok(content_hash(&self.richtext_value(name)?)),
-        }
+        Ok(content_hash(&self.richtext_value(name)?))
     }
 
     /// [`field_hash`](Self::field_hash) through the field's schema: a content
@@ -260,21 +246,18 @@ impl Card {
     ) -> Result<String, EditError> {
         match schema.r#type {
             FieldType::RichText { .. } => self.field_hash(name),
-            FieldType::Text { .. } => match self.hashes.field(name) {
-                Some(hash) => Ok(hash.to_string()),
-                None => {
-                    if !is_valid_field_name(name) {
-                        return Err(EditError::InvalidFieldName(name.to_string()));
-                    }
-                    let content = match self.payload().get(name) {
-                        None => Content::empty_as(Codec::Text.content()),
-                        Some(v) => Codec::Text
-                            .decode_content(v.as_json())
-                            .map_err(|e| super::edit::field_decode(name, &[], Codec::Text, e))?,
-                    };
-                    Ok(content_hash(&content))
+            FieldType::Text { .. } => {
+                if !is_valid_field_name(name) {
+                    return Err(EditError::InvalidFieldName(name.to_string()));
                 }
-            },
+                let content = match self.payload().get(name) {
+                    None => Content::empty_as(Codec::Text.content()),
+                    Some(v) => Codec::Text
+                        .decode_content(v.as_json())
+                        .map_err(|e| super::edit::field_decode(name, &[], Codec::Text, e))?,
+                };
+                Ok(content_hash(&content))
+            }
             _ => {
                 if !is_valid_field_name(name) {
                     return Err(EditError::InvalidFieldName(name.to_string()));
@@ -286,57 +269,6 @@ impl Card {
                 ))
             }
         }
-    }
-
-    /// [`revise_body`](Self::revise_body) under `base`.
-    pub(crate) fn revise_body_against(&mut self, base: Base<'_>, body: impl Into<String>) -> Result<Receipt, EditError> {
-        self.revise_counted_from(Target::Body, &body.into(), Some(base))
-    }
-
-    /// [`revise_field_checked`](Self::revise_field_checked) under `base`, its
-    /// hash [`field_hash_checked`](Self::field_hash_checked). A `text` field
-    /// merges its literal text; a field of any other type but `richtext`
-    /// revises as it does with no base.
-    #[doc(hidden)]
-    pub fn revise_field_checked_against(
-        &mut self,
-        name: &str,
-        base: Base<'_>,
-        body: impl Into<String>,
-        schema: &FieldSchema,
-    ) -> Result<Receipt, EditError> {
-        let body = body.into();
-        if !matches!(
-            schema.r#type,
-            FieldType::Text { .. } | FieldType::RichText { .. }
-        ) {
-            return self.revise_field_checked(name, body, schema);
-        }
-        let read = match base {
-            Base::Hash(read) => read.to_string(),
-            Base::Content(read) => content_hash(read),
-        };
-        if read == self.field_hash_checked(name, schema)? {
-            return self.revise_field_checked(name, body, schema);
-        }
-        let body = match schema.r#type {
-            FieldType::Text { .. } => super::edit::committed_text(name, body, schema)?,
-            _ => body,
-        };
-        self.merge_checked(name, &body, base, schema)
-    }
-
-    /// A typed field revise of `body` under a `base` the field has moved on
-    /// from: the content revise merged with the change since, held to the
-    /// field's schema, or nothing written.
-    fn merge_checked(&mut self, name: &str, body: &str, base: Base<'_>, schema: &FieldSchema) -> Result<Receipt, EditError> {
-        let mut card = self.clone();
-        let receipt = card.revise_counted_from(Target::Field(name), body, Some(base)).map_err(|e| at_field(e, name))?;
-        if let Some(value) = card.payload().get(name) {
-            super::edit::resolve_field_write(name, value, schema, &DocPath::new())?;
-        }
-        *self = card;
-        Ok(receipt)
     }
 }
 
@@ -356,104 +288,4 @@ pub(crate) fn conformed(config: &QuillConfig, doc: &Document) -> Result<Document
     let mut doc = doc.clone();
     config.conform(&mut doc)?;
     Ok(doc)
-}
-
-/// Parse `markdown` as a revise of `doc` under `base`: the writer's markdown,
-/// or the merge of its edit onto what changed since its read, carrying the
-/// writer's own parse warnings at their cards' places in the merge. The read
-/// and the value now are spelled as their conformed annotated reads, and the
-/// writer's edit as the read revised by it, so the three sides are spelled
-/// alike, a token survives the merge, and a tag the writer moved pins where
-/// the merge keeps its line. A merge that does not parse as a document, or
-/// names another quill, is a [`BaseError::Conflict`], since the writer's own
-/// markdown parsed. A read that conforms to the document now takes the
-/// writer's own.
-pub(crate) fn parse_against(
-    config: &QuillConfig,
-    doc: &Document,
-    base: DocumentBase<'_>,
-    markdown: &str,
-) -> Result<(Revising, Vec<MergeConflict>), BoundParseError> {
-    let hash = || conformed(config, doc).map(|d| d.hash());
-    let stored = match base {
-        DocumentBase::Hash(read) => {
-            let current = hash()?;
-            if current != read {
-                return Err(BaseError::Stale { current, field: None }.into());
-            }
-            return Ok((Document::parse_revising(markdown)?, Vec::new()));
-        }
-        DocumentBase::Stored(read) => read,
-    };
-    let revising = Document::parse_revising(markdown)?;
-    config.check_quill_reference(&revising.parsed.document)?;
-    let read = conformed(config, stored)?;
-    let now = conformed(config, doc)?;
-    if read.hash() == now.hash() {
-        return Ok((revising, Vec::new()));
-    }
-    let spell = |side: Revising| -> Result<String, BoundParseError> {
-        let mut revised = read.clone();
-        let _ = revised.revise_parsed(side);
-        Ok(conformed(config, &revised)?
-            .to_markdown_annotated()
-            .markdown)
-    };
-    let now = now.to_markdown_annotated().markdown;
-    let read = read.to_markdown_annotated().markdown;
-    let new = spell(Revising {
-        parsed: Parsed {
-            document: revising.parsed.document.clone(),
-            warnings: Vec::new(),
-        },
-        bodies: revising.bodies.clone(),
-    })?;
-    let conflict = || BaseError::Conflict {
-        current: hash().unwrap_or_default(),
-        field: None,
-        step: None,
-        reason: None,
-    };
-    let parse = |markdown: &str| Document::parse_revising(markdown).map_err(|_| conflict());
-    let (merged, conflicts) =
-        merge_documents(config, parse(&read)?, parse(&now)?, parse(&new)?).ok_or_else(conflict)?;
-    config
-        .check_quill_reference(&merged.parsed.document)
-        .map_err(|_| conflict())?;
-    let pairs = align_cards(
-        &merged.parsed.document.cards,
-        &revising.parsed.document.cards,
-    );
-    let warnings = revising
-        .parsed
-        .warnings
-        .into_iter()
-        .map(
-            |w| match w.path.as_deref().and_then(|p| p.parse::<DocPath>().ok()) {
-                Some(path) => match recard(&path, &pairs) {
-                    Some(moved) => w.with_path(moved.to_string()),
-                    None => w,
-                },
-                None => w,
-            },
-        )
-        .collect();
-    let merged = Revising {
-        parsed: Parsed {
-            document: merged.parsed.document,
-            warnings,
-        },
-        bodies: merged.bodies,
-    };
-    Ok((merged, conflicts))
-}
-
-/// `path` with its card index moved through `pairs`, the writer's cards to the
-/// merge's; `None` where it names no paired card.
-fn recard(path: &DocPath, pairs: &[Option<(usize, super::align::Pairing)>]) -> Option<DocPath> {
-    let Some(DocSeg::Card { index, .. }) = path.segs().first() else {
-        return None;
-    };
-    let (to, _) = (*pairs.get(*index)?)?;
-    path.with_card_index(to)
 }

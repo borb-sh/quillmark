@@ -127,7 +127,7 @@ impl<'a> TypedWriter<'a> {
         base: Option<Base<'_>>,
     ) -> Result<Receipt, EditError> {
         let schema = Some(&self.config.main.fields);
-        revise_impl(self.doc.main_card_mut(), schema, target.into(), base, text)
+        revise_impl(self.doc.main_mut(), schema, target.into(), base, text)
     }
 
     /// Replace the document with `markdown` through [`Document::revise`], then
@@ -153,10 +153,39 @@ impl<'a> TypedWriter<'a> {
         base: DocumentBase<'_>,
         markdown: &str,
     ) -> Result<DocumentRevised, BoundParseError> {
-        let (parsed, conflicts) =
-            crate::document::base::parse_against(self.config, self.doc, base, markdown)?;
-        let mut revised = self.revise_parsed(parsed)?;
-        revised.conflicts = conflicts;
+        let read = match base {
+            DocumentBase::Hash(read) => {
+                let current = self.hash()?;
+                if current != read {
+                    return Err(crate::document::BaseError::Stale { current, field: None }.into());
+                }
+                return self.revise_document(markdown);
+            }
+            DocumentBase::Stored(read) => read,
+        };
+        let heads = read.held_heads().filter(|h| self.doc.holds(h));
+        let Some(heads) = heads else {
+            let current = self.hash()?;
+            if crate::document::base::conformed(self.config, read)?.hash() == current {
+                return self.revise_document(markdown);
+            }
+            return Err(crate::document::BaseError::Stale { current, field: None }.into());
+        };
+        let mut wanted = read.clone();
+        let mut revised = TypedWriter::new(self.config, &mut wanted).revise_document(markdown)?;
+        self.doc.land_at(&heads, &wanted);
+        let recard = |path: &str| -> Option<String> {
+            let path: crate::path::DocPath = path.parse().ok()?;
+            let Some(crate::path::DocSeg::Card { index, .. }) = path.segs().first() else { return None };
+            let id = wanted.card(*index)?.id()?;
+            Some(path.with_card_index(self.doc.card_index(id)?)?.to_string())
+        };
+        for w in &mut revised.warnings {
+            if let Some(moved) = w.path.as_deref().and_then(recard) {
+                w.path = Some(moved);
+            }
+        }
+        revised.warnings.extend(self.config.conform(self.doc).expect("the landed document carries the checked `$quill`"));
         Ok(revised)
     }
 
@@ -325,7 +354,8 @@ impl<'a> CardWriter<'a> {
         base: Option<Base<'_>>,
     ) -> Result<Receipt, EditError> {
         let schema = self.fields_schema();
-        revise_impl(self.card_mut(), schema, target.into(), base, text)
+        let card = self.doc.card_mut(self.index).expect("bound in range, and cards cannot move while this cursor holds the document");
+        revise_impl(card, schema, target.into(), base, text)
     }
 
     /// The card twin of [`TypedWriter::hash_of`].
@@ -371,7 +401,7 @@ fn commit_impl(
 /// The anchor-preserving twin of [`commit_impl`], shared by the writers'
 /// `revise`.
 fn revise_impl(
-    card: &mut Card,
+    mut card: crate::document::CardMut<'_>,
     fields_schema: Option<&IndexMap<String, FieldSchema>>,
     target: Target<'_>,
     base: Option<Base<'_>>,
@@ -379,10 +409,7 @@ fn revise_impl(
 ) -> Result<Receipt, EditError> {
     let name = match target {
         Target::Body => {
-            return match base {
-                None => card.revise_body(text),
-                Some(base) => card.revise_body_against(base, text),
-            };
+            return card.revise_counted(Target::Body, text, base);
         }
         Target::Field(name) => name,
     };

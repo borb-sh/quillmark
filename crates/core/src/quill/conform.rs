@@ -120,6 +120,7 @@ impl QuillConfig {
             };
             conform_card(schema, card, &DocPath::card(Some(&kind), index), &mut diags);
         }
+        doc.settle();
         Ok(diags)
     }
 }

@@ -293,7 +293,7 @@ fn splice(
     scopes: &mut Scopes,
 ) {
     let (del, ins): (Vec<char>, Vec<char>) = (s.delete.chars().collect(), s.insert.chars().collect());
-    let kept = |a: &char, b: &char| a == b && *a != quillmark_content::model::ISLAND_SLOT;
+    let kept = |a: &char, b: &char| a == b && *a == '\n';
     let pre = del.iter().zip(&ins).take_while(|(a, b)| kept(a, b)).count();
     let suf = del[pre..].iter().rev().zip(ins[pre..].iter().rev()).take_while(|(a, b)| kept(a, b)).count();
     let breaks = |cs: &[char]| cs.iter().filter(|c| **c == '\n').count();
