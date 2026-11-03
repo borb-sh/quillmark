@@ -248,9 +248,12 @@ pub enum EditError {
     InvalidActor(String),
 
     /// Bytes or a sync message the live Automerge document of a value does
-    /// not take.
-    #[error("the live document refuses the bytes: {0}")]
-    Automerge(String),
+    /// not take: `reason` is the refusal's name, `decode` where they do not
+    /// decode or apply, `shape` where the document they leave holds no value
+    /// in the shape a live document takes, and `content` where its value
+    /// does not read as content.
+    #[error("the live document refuses the bytes ({reason}): {detail}")]
+    BadLiveBytes { reason: &'static str, detail: String },
 
     /// A revise's [`Base`] refused the write.
     #[error(transparent)]
@@ -265,6 +268,11 @@ impl EditError {
             quillmark_content::change::ApplyError::Invalid(inv) => Self::bound(inv).unwrap_or(EditError::Change(e)),
             _ => EditError::Change(e),
         }
+    }
+
+    /// The refusal of bytes or a sync message a live document does not take.
+    pub fn bad_live_bytes(e: quillmark_automerge::LoadError) -> Self {
+        EditError::BadLiveBytes { reason: e.name(), detail: e.to_string() }
     }
 
     /// A refused import, as [`InputTooLarge`](Self::InputTooLarge) where its
@@ -323,7 +331,7 @@ impl EditError {
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
             EditError::InvalidActor(_) => "edit::invalid_actor",
-            EditError::Automerge(_) => "edit::automerge",
+            EditError::BadLiveBytes { .. } => "edit::bad_live_bytes",
             EditError::Base(e) => e.code(),
         }
     }
@@ -394,7 +402,7 @@ impl EditError {
                 "type" => kind,
             },
             EditError::InvalidActor(actor) => diag_args! { "actor" => actor },
-            EditError::Automerge(_) => diag_args! {},
+            EditError::BadLiveBytes { reason, .. } => diag_args! { "reason" => *reason },
             EditError::Base(e) => e.args(),
         }
     }

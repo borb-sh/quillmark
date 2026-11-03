@@ -355,7 +355,7 @@ impl Card {
         if let Some(c) = quillmark_automerge::conflict(since.base(), &read.now, &change) {
             return Err(EditError::Base(BaseError::rebase_conflict(current, target.field().map(str::to_string), &c)));
         }
-        let merge = self.merged(target, &read, &change)?;
+        let merge = self.merged(target, &read, &change, opts.actor)?;
         let landed = (|| {
             let to_merge = diff::diff(&read.now, &merge.content).map_err(|e| EditError::change(e.into()))?;
             let (applied, trace) = change::apply_traced(&read.now, &to_merge).map_err(EditError::change)?;
@@ -390,9 +390,10 @@ impl Card {
     /// `change`, made from the value its base names, merged with what
     /// changed since: lowered on the fork of the live document at the heads
     /// the base was left at and merged back, the document reading as the
-    /// merge, repairs written back; for a base the live document never held,
-    /// merged with the diff from it to the value now, landing nowhere yet.
-    fn merged(&mut self, target: Target<'_>, read: &Reading, change: &Change) -> Result<Merged, EditError> {
+    /// merge, a repair it needs written back under `actor` where none of it
+    /// inserts; for a base the live document never held, merged with the
+    /// diff from it to the value now, landing nowhere yet.
+    fn merged(&mut self, target: Target<'_>, read: &Reading, change: &Change, actor: Option<&str>) -> Result<Merged, EditError> {
         let since = read.since.as_ref().expect("a merge reads an earlier value");
         let (mine, trace) = change::apply_traced(since.base(), change).map_err(EditError::change)?;
         let removed: HashSet<String> = change::lost_anchors(since.base(), &mine.content, |_| true)
@@ -406,11 +407,9 @@ impl Card {
                 let mut fork = fork.clone();
                 fork.write(&trace, &mine.content);
                 let live = self.live.at(target, &read.now, hash);
-                live.held.merge(&mut fork).map_err(|e| EditError::Automerge(e.to_string()))?;
+                live.held.merge(&mut fork).expect("a fork merges back into the document it forked from");
                 let merged = live.held.read();
-                if !merged.repairs.is_empty() {
-                    live.held.sync_to(&merged.content);
-                }
+                live.write_back(&merged, actor);
                 Ok(Merged { content: merged.content, removed, lowered: true })
             }
             Since::Content { base } => {
@@ -536,9 +535,10 @@ impl Card {
         let live = self.live.at(target, &before, &before_hash);
         live.held.set_actor(actor);
         match lowering {
-            Lowering::Trace(trace) => live.held.write(trace, &content),
-            Lowering::Sync => {
+            Lowering::Trace(trace) if !live.repaired => live.held.write(trace, &content),
+            Lowering::Trace(_) | Lowering::Sync => {
                 live.held.sync_to(&content);
+                live.repaired = false;
             }
             Lowering::Done => {}
         }
@@ -573,11 +573,11 @@ impl Card {
     /// base read before it is stale; a repair its merged state needs is
     /// written back.
     pub fn load(&mut self, target: Target<'_>, bytes: &[u8]) -> Result<Receipt, EditError> {
-        let held = Held::load(bytes).map_err(|e| EditError::Automerge(e.to_string()))?;
+        let (held, read) = Held::load(bytes).map_err(EditError::bad_live_bytes)?;
         self.taking(target, |live| {
             live.held = held;
             live.heads.clear();
-            Ok(())
+            Ok(read)
         })
     }
 
@@ -594,21 +594,18 @@ impl Card {
     /// tracks into the live document at `target`, and store what it reads as
     /// then: the receipt of a write from the value before.
     pub fn receive_sync_message(&mut self, target: Target<'_>, state: &mut sync::State, message: sync::Message) -> Result<Receipt, EditError> {
-        self.taking(target, |live| live.held.receive_sync_message(state, message).map_err(|e| EditError::Automerge(e.to_string())))
+        self.taking(target, |live| live.held.receive_sync_message(state, message).map_err(EditError::bad_live_bytes))
     }
 
-    /// Run `take` on the live document at `target`, then store what the
-    /// document reads as, repairs written back.
-    fn taking(&mut self, target: Target<'_>, take: impl FnOnce(&mut Live) -> Result<(), EditError>) -> Result<Receipt, EditError> {
+    /// Run `take` on the live document at `target`, which answers what the
+    /// document reads as then, and store that, a repair none of which
+    /// inserts written back.
+    fn taking(&mut self, target: Target<'_>, take: impl FnOnce(&mut Live) -> Result<quillmark_automerge::Read, EditError>) -> Result<Receipt, EditError> {
         let before = self.read(target)?;
         let before_hash = self.hash_now(target, &before);
         let live = self.live.at(target, &before, &before_hash);
-        take(live)?;
-        let read = live.held.read();
-        if !read.repairs.is_empty() {
-            live.held.set_actor(None);
-            live.held.sync_to(&read.content);
-        }
+        let read = take(live)?;
+        live.write_back(&read, None);
         let reading = Reading { now: before.clone(), hash: Some(before_hash), since: None };
         let change = diff::diff(&before, &read.content).map_err(|e| EditError::change(e.into()))?;
         let applied = change::apply(&before, &change).map_err(EditError::change)?;
@@ -755,14 +752,17 @@ pub(crate) struct Values {
     values: Vec<(Option<String>, Live)>,
 }
 
-/// One value's live document, the hash of the value it reads as, and the
-/// heads at which each hash a write left reads, the latest write's for a
-/// hash two writes left.
+/// One value's live document, the hash of the value it reads as, the heads
+/// at which each hash a write left reads, the latest write's for a hash two
+/// writes left, and whether the document reads through a repair it does not
+/// hold, one that inserts, so a write lowers into it as a diff rather than
+/// at its trace's offsets.
 #[derive(Clone)]
 pub(crate) struct Live {
     held: Held,
     hash: String,
     heads: HashMap<String, Vec<ChangeHash>>,
+    repaired: bool,
 }
 
 impl PartialEq for Values {
@@ -778,6 +778,18 @@ impl std::fmt::Debug for Values {
 }
 
 impl Live {
+    /// Write back what repair made of the merged state `read`, under
+    /// `actor`, where it repaired anything and none of it inserts; a repair
+    /// that inserts stays unwritten, the document reading through it.
+    fn write_back(&mut self, read: &quillmark_automerge::Read, actor: Option<&str>) {
+        if read.repairs.iter().any(|r| r.inserts()) {
+            self.repaired = true;
+        } else if !read.repairs.is_empty() {
+            self.held.set_actor(actor);
+            self.held.sync_to(&read.content);
+        }
+    }
+
     /// Note the heads the document is at as where `hash` reads.
     fn wrote(&mut self, hash: String) {
         self.heads.insert(hash.clone(), self.held.heads());
@@ -798,7 +810,7 @@ impl Values {
         let k = match self.position(target) {
             Some(k) => k,
             None => {
-                let mut live = Live { held: Held::new(now), hash: String::new(), heads: HashMap::new() };
+                let mut live = Live { held: Held::new(now), hash: String::new(), heads: HashMap::new(), repaired: false };
                 live.wrote(hash.to_string());
                 self.values.push((target.field().map(str::to_string), live));
                 self.values.len() - 1
@@ -808,6 +820,7 @@ impl Values {
         if live.hash != hash {
             live.held.set_actor(None);
             live.held.sync_to(now);
+            live.repaired = false;
             live.wrote(hash.to_string());
         }
         live
@@ -819,9 +832,12 @@ impl Values {
         self.position(target)?;
         let live = self.at(target, now, hash);
         let heads = live.heads.get(base)?.clone();
-        let fork = live.held.fork_at(&heads, actor).ok()?;
-        let read = fork.read().content;
-        (super::base::content_hash(&read) == base).then(|| Since::Heads { base: read, fork: Box::new(fork) })
+        let mut fork = live.held.fork_at(&heads, actor).ok()?;
+        let read = fork.read();
+        if read.repairs.iter().any(|r| r.inserts()) {
+            fork.sync_to(&read.content);
+        }
+        (super::base::content_hash(&read.content) == base).then(|| Since::Heads { base: read.content, fork: Box::new(fork) })
     }
 
     /// Bring the live document of `target` back to `now` after a write that
@@ -831,6 +847,7 @@ impl Values {
             let live = &mut self.values[k].1;
             live.held.set_actor(None);
             live.held.sync_to(now);
+            live.repaired = false;
             live.wrote(hash.to_string());
         }
     }

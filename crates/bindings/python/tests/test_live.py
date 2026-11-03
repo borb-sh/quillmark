@@ -43,9 +43,9 @@ def test_a_live_document_saves_to_bytes_another_loads():
     with raises_edit_code("edit::stale_base"):
         other.apply({"steps": []}, base=before)
 
-    with raises_edit_code("edit::automerge"):
+    with raises_edit_code("edit::bad_live_bytes"):
         other.load(b"\x01\x02\x03")
-    with raises_edit_code("edit::automerge"):
+    with raises_edit_code("edit::bad_live_bytes"):
         other.receive_sync_message(Document.sync_state(), b"\x01\x02\x03")
     assert other.read() == doc.read()
 

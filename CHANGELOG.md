@@ -23,7 +23,8 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   of one-character marks, not a cursor.
 - feat(core): **`Card::save`, `load`, `generate_sync_message` and
   `receive_sync_message`** reach a value's live document, and
-  `edit::automerge` names bytes or a message it refuses.
+  `edit::bad_live_bytes` names bytes or a message it refuses, its `reason`
+  `decode`, `shape` or `content`, and changes nothing.
 - feat(wasm): **a value's live document crosses the boundary.**
   `doc.save(addr)` answers its Automerge bytes as a `Uint8Array`,
   `doc.load(addr, bytes)` replaces it, and two peers sync it through

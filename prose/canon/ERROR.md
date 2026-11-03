@@ -122,8 +122,8 @@ change since, and a write that sets what the change since set refuses under
 `edit::rebase_conflict`, carrying `current`, the `step` of the writer's change
 that conflicts, and the `reason` (`changed`, `missing`). A base no write the
 document took left refuses under `edit::stale_base`, carrying `current`.
-Automerge bytes or a sync message a value's live document refuses are
-`edit::automerge`. A change that does not apply to the value, or would leave it
+Bytes or a sync message a value's live document refuses are
+`edit::bad_live_bytes`, carrying the `reason` (`decode`, `shape`, `content`). A change that does not apply to the value, or would leave it
 invalid, is `edit::content_apply`, and writes nothing; its `reason` names the refusal (`stale`, `unknown_block`, `unknown_container`, `container_kind`, `container_in_use`, `unknown_anchor`, `anchor_held`, `unknown_island`, `unknown_slot`, `bad_step`, `invalid`), with the `step` it refuses at for `stale` and `bad_step` ([CONTENT.md](CONTENT.md)); the whole-document revise reports it as a warning at the value it leaves as stored.
 Four bounds refuse under codes of their own, each carrying the `max` it
 passed ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content
@@ -605,7 +605,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::rebase_conflict` | `current`, `step`?, `reason`? | structured |
 | `edit::drops_ext_island` | `island`, `type` | structured |
 | `edit::invalid_actor` | `actor` | structured |
-| `edit::automerge` | — | fallback |
+| `edit::bad_live_bytes` | `reason` | structured |
 | `conform::invalid_field_name` | `field` | structured |
 | `conform::value_too_deep` | `max` | structured |
 | `conform::field_not_single_line` | `field`, `codec` | structured |

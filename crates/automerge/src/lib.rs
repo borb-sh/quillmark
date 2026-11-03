@@ -19,7 +19,8 @@ pub use merge::{Conflict, Reason, conflict, merge3, revise, revise_keeping};
 use automerge::sync::{self, SyncDoc};
 use std::collections::HashSet;
 
-use automerge::{ActorId, AutoCommit, AutomergeError, ChangeHash, LoadOptions, ObjId, ObjType, ROOT, ReadDoc, TextEncoding};
+use automerge::transaction::CommitOptions;
+use automerge::{ActorId, AutoCommit, AutomergeError, ChangeHash, LoadOptions, ObjId, ROOT, TextEncoding};
 use quillmark_content::change::{Change, Trace};
 use quillmark_content::model::Content;
 use quillmark_content::repair::{Raw, Repair, repair};
@@ -27,24 +28,20 @@ use quillmark_content::repair::{Raw, Repair, repair};
 /// The root key a value sits under.
 pub const KEY: &str = "value";
 
-/// The actor a write with none of its own writes under: a byte no actor
-/// spells.
-const NO_ACTOR: &[u8] = b"~";
+/// The actor of a value's first change: a byte no actor spells.
+const FIRST: &[u8] = b"~";
 
 /// The byte between an actor's id and its fork's level in a fork's id.
 const FORK: &[u8] = b"\x1f";
 
-/// The Automerge actor of a write's actor: its bytes, or for a write with no
-/// actor one byte no actor spells.
-pub fn actor_id(actor: Option<&str>) -> ActorId {
-    ActorId::from(actor.map_or(NO_ACTOR, str::as_bytes))
-}
-
-/// A value held in an Automerge document.
+/// A value held in an Automerge document. A write with no actor of its own
+/// writes under the document's own random actor, which a clone keeps: a
+/// clone that writes is the same peer, and another peer loads a save.
 #[derive(Debug, Clone)]
 pub struct Held {
     doc: AutoCommit,
     root: ObjId,
+    own: ActorId,
 }
 
 /// The value a document reads as: what repair made of its merged state, what
@@ -56,37 +53,52 @@ pub struct Read {
     pub change: Change,
 }
 
-/// Bytes that do not load as a held value.
+/// Bytes or a sync message a held value refuses.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LoadError {
-    #[error("the bytes are not an Automerge document: {0}")]
-    Automerge(String),
-    #[error("the document holds no content value under `{KEY}`")]
-    NoValue,
+    #[error("the bytes do not decode as Automerge: {0}")]
+    Decode(String),
+    #[error("the document holds no content value under `{KEY}` in the shape a held value takes")]
+    Shape,
+    #[error("the value the document holds does not read as content: {0}")]
+    Content(String),
+}
+
+impl LoadError {
+    /// The refusal's name, as a diagnostic's `reason` arg carries it.
+    pub fn name(&self) -> &'static str {
+        match self {
+            LoadError::Decode(_) => "decode",
+            LoadError::Shape => "shape",
+            LoadError::Content(_) => "content",
+        }
+    }
 }
 
 impl Held {
-    /// A new document holding `content`, written in one change under no
-    /// actor.
+    /// A new document holding `content`. Its first change is written under
+    /// one actor at time 0, so every process builds one value's first change
+    /// as the same bytes, and two documents built from equal values share
+    /// their origin and sync.
     pub fn new(content: &Content) -> Held {
-        let mut doc = AutoCommit::new_with_encoding(TextEncoding::UnicodeCodePoint).with_actor(actor_id(None));
+        let mut doc = AutoCommit::new_with_encoding(TextEncoding::UnicodeCodePoint).with_actor(ActorId::from(FIRST));
         let root = map::create(&mut doc, &ROOT, KEY, content);
-        doc.commit();
-        Held { doc, root }
+        doc.commit_with(CommitOptions::default().with_time(0));
+        let own = ActorId::random();
+        doc.set_actor(own.clone());
+        Held { doc, root, own }
     }
 
-    /// The value a document's bytes hold.
-    pub fn load(bytes: &[u8]) -> Result<Held, LoadError> {
+    /// The value a document's bytes hold, and what it reads as. Refused
+    /// where the bytes do not decode, the document holds no value in the
+    /// shape [`map`](crate) writes, or its raw value does not read as
+    /// content.
+    pub fn load(bytes: &[u8]) -> Result<(Held, Read), LoadError> {
         let options = LoadOptions::new().text_encoding(TextEncoding::UnicodeCodePoint);
-        let doc = AutoCommit::load_with_options(bytes, options).map_err(|e| LoadError::Automerge(e.to_string()))?;
-        let mut held = Held { root: ROOT, doc: doc.with_actor(actor_id(None)) };
-        held.root = held.value_root().ok_or(LoadError::NoValue)?;
-        Ok(held)
-    }
-
-    fn value_root(&self) -> Option<ObjId> {
-        let root = map::obj(&self.doc, &ROOT, KEY)?;
-        (self.doc.object_type(&root).ok()? == ObjType::Map && map::obj(&self.doc, &root, "text").is_some()).then_some(root)
+        let doc = AutoCommit::load_with_options(bytes, options).map_err(|e| LoadError::Decode(e.to_string()))?;
+        let own = ActorId::random();
+        let (root, read) = checked(&doc)?;
+        Ok((Held { doc: doc.with_actor(own.clone()), root, own }, read))
     }
 
     /// The document's bytes.
@@ -99,9 +111,16 @@ impl Held {
         self.doc.get_heads()
     }
 
-    /// Writes from here on under `actor`'s [`actor_id`].
+    /// The Automerge actor of a write's actor: its bytes, or for a write
+    /// with no actor the document's own.
+    fn actor_id(&self, actor: Option<&str>) -> ActorId {
+        actor.map_or_else(|| self.own.clone(), |a| ActorId::from(a.as_bytes()))
+    }
+
+    /// Writes from here on under `actor`'s Automerge actor, the document's
+    /// own for none.
     pub fn set_actor(&mut self, actor: Option<&str>) {
-        let id = actor_id(actor);
+        let id = self.actor_id(actor);
         if *self.doc.get_actor() != id {
             self.doc.set_actor(id);
         }
@@ -110,8 +129,7 @@ impl Held {
     /// The value the document reads as.
     pub fn read(&self) -> Read {
         let raw = Raw::from_value(&self.raw()).expect("a held document reads as raw content");
-        let (content, repairs, change) = repair(raw);
-        Read { content, repairs, change }
+        read(raw)
     }
 
     /// The raw value the document holds, before repair.
@@ -134,13 +152,13 @@ impl Held {
         differed
     }
 
-    /// The document as at `heads`, writing under `actor`'s [`actor_id`]
+    /// The document as at `heads`, writing under `actor`'s Automerge actor
     /// where no change since `heads` was written under it, and otherwise
     /// under the first of its forks' ids none was: a write on the fork,
     /// merged back, is concurrent with every change since.
     pub fn fork_at(&mut self, heads: &[ChangeHash], actor: Option<&str>) -> Result<Held, AutomergeError> {
         let since: HashSet<ActorId> = self.doc.get_changes(heads).iter().map(|c| c.actor_id().clone()).collect();
-        let own = actor_id(actor);
+        let own = self.actor_id(actor);
         let id = (0u32..)
             .map(|level| match level {
                 0 => own.clone(),
@@ -149,9 +167,8 @@ impl Held {
             .find(|id| !since.contains(id))
             .expect("some fork id no change holds");
         let doc = self.doc.fork_at(heads)?.with_actor(id);
-        let mut held = Held { doc, root: ROOT };
-        held.root = held.value_root().expect("a document holds its value at every heads it reached");
-        Ok(held)
+        let root = map::value_root(&doc).expect("a document holds its value at every heads it reached");
+        Ok(Held { doc, root, own: ActorId::random() })
     }
 
     /// Takes every change `other` holds that this document does not.
@@ -159,23 +176,38 @@ impl Held {
         self.doc.merge(&mut other.doc).map(|_| ())
     }
 
-    /// Takes the changes an Automerge save or incremental save holds.
-    pub fn load_incremental(&mut self, bytes: &[u8]) -> Result<(), AutomergeError> {
-        self.doc.load_incremental(bytes).map(|_| ())
-    }
-
     /// The next message of the sync protocol to the peer `state` tracks.
     pub fn generate_sync_message(&mut self, state: &mut sync::State) -> Option<sync::Message> {
         self.doc.sync().generate_sync_message(state)
     }
 
-    /// Takes a message of the sync protocol from the peer `state` tracks.
-    pub fn receive_sync_message(&mut self, state: &mut sync::State, message: sync::Message) -> Result<(), AutomergeError> {
-        self.doc.sync().receive_sync_message(state, message)
+    /// Takes a message of the sync protocol from the peer `state` tracks,
+    /// and answers what the document reads as then. A message that does not
+    /// apply, or leaves the document holding no value [`load`](Held::load)
+    /// takes, is refused, and the document and `state` stay as they were.
+    pub fn receive_sync_message(&mut self, state: &mut sync::State, message: sync::Message) -> Result<Read, LoadError> {
+        let (mut doc, mut next) = (self.doc.clone(), state.clone());
+        doc.sync().receive_sync_message(&mut next, message).map_err(|e| LoadError::Decode(e.to_string()))?;
+        let (root, read) = checked(&doc)?;
+        (self.doc, self.root, *state) = (doc, root, next);
+        Ok(read)
     }
 
     /// The document.
     pub fn doc(&self) -> &AutoCommit {
         &self.doc
     }
+}
+
+/// The value root of `doc` and what it reads as, where it holds one in the
+/// shape `map` writes and its raw value reads as content.
+fn checked(doc: &AutoCommit) -> Result<(ObjId, Read), LoadError> {
+    let root = map::value_root(doc).filter(|root| map::shaped(doc, root)).ok_or(LoadError::Shape)?;
+    let raw = Raw::from_value(&map::read(doc, &root)).map_err(|e| LoadError::Content(e.to_string()))?;
+    Ok((root, read(raw)))
+}
+
+fn read(raw: Raw) -> Read {
+    let (content, repairs, change) = repair(raw);
+    Read { content, repairs, change }
 }

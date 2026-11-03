@@ -35,6 +35,55 @@ pub(crate) const BEFORE: char = '<';
 pub(crate) const AFTER: char = '>';
 const EXT_SEP: char = '\u{1f}';
 
+/// The map a document holds its value in, under [`KEY`](crate::KEY).
+pub(crate) fn value_root(doc: &AutoCommit) -> Option<ObjId> {
+    obj(doc, &automerge::ROOT, crate::KEY)
+}
+
+/// Whether `root` holds a value in the shape this module writes, at every
+/// depth: a map holding a Text `text` that opens with a block marker and
+/// holds only map markers and characters, none of them a `\n` or `U+FFFC`
+/// a marker spells, a map `containers`, and on each
+/// island marker a map `slots` of values of this same shape. Every read and
+/// write of this module takes such a value without a panic.
+pub(crate) fn shaped(doc: &AutoCommit, root: &ObjId) -> bool {
+    let is = |o: &ObjId, ty: ObjType| doc.object_type(o).ok() == Some(ty);
+    if !is(root, ObjType::Map) || !obj(doc, root, "containers").is_some_and(|cs| is(&cs, ObjType::Map)) {
+        return false;
+    }
+    let Some(t) = obj(doc, root, "text").filter(|t| is(t, ObjType::Text)) else { return false };
+    let mut n = 0;
+    for (v, id) in doc.values(&t) {
+        match v {
+            AmValue::Object(ObjType::Map) => {
+                let island = get_str(doc, &id, KIND).is_some_and(|k| k != BLOCK);
+                if n == 0 && island {
+                    return false;
+                }
+                if island {
+                    let Some(slots) = obj(doc, &id, "slots").filter(|s| is(s, ObjType::Map)) else { return false };
+                    for k in doc.keys(&slots).collect::<Vec<_>>() {
+                        if !obj(doc, &slots, &k).is_some_and(|slot| shaped(doc, &slot)) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            AmValue::Object(_) => return false,
+            AmValue::Scalar(s) => match s.as_ref() {
+                ScalarValue::Str(s) if s.chars().count() == 1 => {
+                    if n == 0 || s.starts_with(['\n', ISLAND_SLOT]) {
+                        return false;
+                    }
+                }
+                _ => continue,
+            },
+        }
+        n += 1;
+    }
+    n > 0 && n == doc.length(&t)
+}
+
 /// Puts `content` at `key` of `parent` as a new value.
 pub(crate) fn create(doc: &mut AutoCommit, parent: &ObjId, key: &str, content: &Content) -> ObjId {
     let root = doc.put_object(parent, key, ObjType::Map).unwrap();

@@ -39,7 +39,7 @@ proptest! {
     fn every_value_reads_back_as_itself(d in document()) {
         let mut held = Held::new(&d);
         reads_as(&held, &d)?;
-        let loaded = Held::load(&held.save()).unwrap();
+        let (loaded, _) = Held::load(&held.save()).unwrap();
         reads_as(&loaded, &d)?;
     }
 
@@ -164,7 +164,7 @@ fn session(d: &Content, rounds: &[Round], out: &mut Outcome) {
     }
     for held in peers.iter_mut() {
         let live = held.raw();
-        if Held::load(&held.save()).unwrap().raw() != live {
+        if Held::load(&held.save()).unwrap().0.raw() != live {
             out.reload += 1;
             break;
         }

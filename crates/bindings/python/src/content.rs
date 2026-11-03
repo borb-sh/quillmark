@@ -95,9 +95,9 @@ pub struct PySyncState {
     pub(crate) inner: sync::State,
 }
 
-/// The `edit::automerge` refusal of a sync message that does not decode.
+/// The `edit::bad_live_bytes` refusal of a sync message that does not decode.
 pub(crate) fn sync_message(bytes: &[u8]) -> Result<sync::Message, EditError> {
-    sync::Message::decode(bytes).map_err(|e| EditError::Automerge(e.to_string()))
+    sync::Message::decode(bytes).map_err(|e| EditError::bad_live_bytes(quillmark_automerge::LoadError::Decode(e.to_string())))
 }
 
 /// `receipt` as it crosses, its dropped anchors' selectors at `path` on the

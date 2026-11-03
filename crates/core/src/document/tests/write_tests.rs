@@ -739,5 +739,111 @@ fn a_live_document_saves_loads_and_syncs() {
         }
     }
     assert_eq!(doc.main().body(), other.main().body());
-    assert!(matches!(doc.main_mut().load(Target::Body, b"not a document"), Err(EditError::Automerge(_))));
+    assert!(matches!(doc.main_mut().load(Target::Body, b"not a document"), Err(EditError::BadLiveBytes { .. })));
+}
+
+/// Runs the sync protocol between the bodies of `a` and `b` until neither
+/// has a message left.
+fn sync(a: &mut Document, b: &mut Document) {
+    use quillmark_automerge::automerge::sync::State;
+    let (mut ours, mut theirs) = (State::new(), State::new());
+    for _ in 0..16 {
+        let mut quiet = true;
+        if let Some(m) = a.main_mut().generate_sync_message(Target::Body, &mut ours).unwrap() {
+            b.main_mut().receive_sync_message(Target::Body, &mut theirs, m).unwrap();
+            quiet = false;
+        }
+        if let Some(m) = b.main_mut().generate_sync_message(Target::Body, &mut theirs).unwrap() {
+            a.main_mut().receive_sync_message(Target::Body, &mut ours, m).unwrap();
+            quiet = false;
+        }
+        if quiet {
+            return;
+        }
+    }
+    panic!("the peers still have messages after sixteen rounds");
+}
+
+/// Two peers writing with no actor sync and converge, one loaded from the
+/// other's save or both built from one value, since each live document
+/// writes under its own actor and equal values build one first change.
+#[test]
+fn peers_writing_with_no_actor_sync_from_one_origin() {
+    let typed = |doc: &mut Document, at: usize, s: &str| {
+        doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(at, "", s))]), None).unwrap();
+    };
+    let mut a = parse(SOURCE);
+    typed(&mut a, 0, "A");
+    let mut b = parse("~~~\n$quill: q\n~~~\n\nelse\n");
+    b.main_mut().load(Target::Body, &a.main_mut().save(Target::Body).unwrap()).unwrap();
+    typed(&mut a, 0, "1");
+    typed(&mut b, 0, "2");
+    sync(&mut a, &mut b);
+    assert_eq!(a.main().body(), b.main().body());
+    assert!(["12ARevenue", "21ARevenue"].iter().any(|s| a.main().body().text.starts_with(s)), "{:?}", a.main().body().text);
+
+    let (mut a, mut b) = (parse(SOURCE), parse(SOURCE));
+    typed(&mut a, 0, "1");
+    typed(&mut b, 7, "2");
+    sync(&mut a, &mut b);
+    assert_eq!(a.main().body(), b.main().body());
+    assert_eq!(a.main().body().text, "1Revenue2 grew 12%.\nShip v2");
+}
+
+/// Bytes or a sync message that leave the live document holding no value
+/// in its shape are refused as `edit::bad_live_bytes` with their reason, and
+/// the value, its document and the sync state stay as they were.
+#[test]
+fn a_live_document_refuses_bytes_or_a_message_it_cannot_read() {
+    use quillmark_automerge::automerge::sync::{State, SyncDoc};
+    use quillmark_automerge::automerge::transaction::Transactable;
+    use quillmark_automerge::automerge::{AutoCommit, ObjType, ROOT, ReadDoc};
+    let mut bad = AutoCommit::new();
+    let v = bad.put_object(&ROOT, "value", ObjType::Map).unwrap();
+    let t = bad.put_object(&v, "text", ObjType::Text).unwrap();
+    bad.splice_text(&t, 0, 0, "hi\nthere").unwrap();
+
+    let mut doc = parse(SOURCE);
+    let before = doc.main().body().clone();
+    let err = doc.main_mut().load(Target::Body, &bad.save()).unwrap_err();
+    assert_eq!((err.code(), err.args()["reason"].as_str()), ("edit::bad_live_bytes", Some("shape")));
+    let err = doc.main_mut().load(Target::Body, b"not a document").unwrap_err();
+    assert_eq!(err.args()["reason"].as_str(), Some("decode"));
+
+    let mut peer = AutoCommit::load(&doc.main_mut().save(Target::Body).unwrap()).unwrap();
+    let v = peer.get(&ROOT, "value").unwrap().unwrap().1;
+    peer.delete(&v, "containers").unwrap();
+    let (mut ours, mut theirs) = (State::new(), State::new());
+    let refused = (0..8).find_map(|_| {
+        if let Some(m) = doc.main_mut().generate_sync_message(Target::Body, &mut ours).unwrap() {
+            peer.sync().receive_sync_message(&mut theirs, m).unwrap();
+        }
+        let m = peer.sync().generate_sync_message(&mut theirs)?;
+        let held = ours.clone();
+        doc.main_mut().receive_sync_message(Target::Body, &mut ours, m).err().map(|e| (e, held))
+    });
+    let (err, held) = refused.expect("the message that brings the bad value is refused");
+    assert_eq!(err.args()["reason"].as_str(), Some("shape"));
+    assert_eq!((doc.main().body(), &ours), (&before, &held));
+    doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(0, "", "x"))]), None).unwrap();
+    assert_eq!(doc.main().body().text, "xRevenue grew 12%.\nShip v2");
+}
+
+/// A merge whose repair inserts stores the repaired value and leaves the
+/// repair unwritten, so the live document reads through it; the next write
+/// lowers into the document as a diff and lands where its offsets say.
+#[test]
+fn a_merge_whose_repair_inserts_leaves_it_unwritten() {
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\nabc\n\n| aa | bb |\n| - | - |\n| cc | dd |\n");
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(0, "abc\n", ""))]), None).unwrap();
+    let receipt = doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(3, "", "d"))]), Some(base.as_str())).unwrap();
+    assert!(receipt.rebased);
+    let merged = doc.main().body().clone();
+    let (_, read) = quillmark_automerge::Held::load(&doc.main_mut().save(Target::Body).unwrap()).unwrap();
+    assert_eq!(read.content, merged);
+    assert!(read.repairs.iter().any(|r| r.inserts()), "{:?}", read.repairs);
+
+    doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(0, "", "x"))]), None).unwrap();
+    assert_eq!(doc.main().body().text, format!("x{}", merged.text));
 }

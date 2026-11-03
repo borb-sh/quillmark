@@ -42,8 +42,8 @@ describe('the live document', () => {
     expect(receipt.applied.steps.length).toBeGreaterThan(0)
     expectEditCode(() => other.apply({}, { steps: [] }, { base: before }), 'edit::stale_base')
 
-    expectEditCode(() => other.load({}, new Uint8Array([1, 2, 3])), 'edit::automerge')
-    expectEditCode(() => other.receiveSyncMessage({}, Document.syncState(), new Uint8Array([1, 2, 3])), 'edit::automerge')
+    expectEditCode(() => other.load({}, new Uint8Array([1, 2, 3])), 'edit::bad_live_bytes')
+    expectEditCode(() => other.receiveSyncMessage({}, Document.syncState(), new Uint8Array([1, 2, 3])), 'edit::bad_live_bytes')
     expect(other.read({})).toEqual(doc.read({}))
   })
 

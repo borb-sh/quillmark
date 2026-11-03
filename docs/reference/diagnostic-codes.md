@@ -159,7 +159,7 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 
 A mutator or typed write the document refuses.
 
-- `edit::automerge`
+- `edit::bad_live_bytes`
 - `edit::content_apply`
 - `edit::drops_ext_island`
 - `edit::duplicate_card_id`
@@ -168,8 +168,8 @@ A mutator or typed write the document refuses.
 - `edit::field_not_content`
 - `edit::field_not_single_line`
 - `edit::import`
-- `edit::input_too_large`
 - `edit::index_out_of_range`
+- `edit::input_too_large`
 - `edit::invalid_actor`
 - `edit::invalid_card_id`
 - `edit::invalid_field_name`

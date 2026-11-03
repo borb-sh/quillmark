@@ -51,7 +51,7 @@ impl Document {
     /// write from the value before. The document keeps the history the bytes
     /// hold but notes no hash before the load, so a base read before it
     /// throws `edit::stale_base`. Bytes that hold no value throw
-    /// `edit::automerge`; the card is named by `$id`, as a content write's
+    /// `edit::bad_live_bytes`; the card is named by `$id`, as a content write's
     /// is.
     #[wasm_bindgen(js_name = load, unchecked_return_type = "Receipt")]
     pub fn load(
@@ -94,7 +94,7 @@ impl Document {
     /// and answer the `Receipt` of a write from the value before: its
     /// `droppedAnchors` each anchor the merge left nowhere, its
     /// `movedAnchors` each one it moved. A message the document refuses
-    /// throws `edit::automerge`; the card is named by `$id`, as a content
+    /// throws `edit::bad_live_bytes`; the card is named by `$id`, as a content
     /// write's is.
     #[wasm_bindgen(js_name = receiveSyncMessage, unchecked_return_type = "Receipt")]
     pub fn receive_sync_message(
@@ -106,7 +106,7 @@ impl Document {
         let addr = Addr::for_write(&addr, &self.inner, "receiveSyncMessage")?;
         let t = target(&addr);
         let receipt = taking(&mut self.inner, &addr, |card| {
-            let message = sync::Message::decode(message).map_err(|e| EditError::Automerge(e.to_string()))?;
+            let message = sync::Message::decode(message).map_err(|e| EditError::bad_live_bytes(quillmark_automerge::LoadError::Decode(e.to_string())))?;
             card.receive_sync_message(t, &mut state.inner, message)
         })?;
         serialize_or_throw(&receipt, "receiveSyncMessage")
