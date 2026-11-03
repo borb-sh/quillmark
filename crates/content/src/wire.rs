@@ -901,7 +901,8 @@ mod tests {
 
     #[test]
     fn a_key_the_shape_does_not_define_is_refused_and_read_as_rewritten() {
-        let cases: Vec<Box<dyn Fn(&mut Value)>> = vec![
+        type Edit = Box<dyn Fn(&mut Value)>;
+        let cases: Vec<Edit> = vec![
             Box::new(|v| v["future"] = json!(1)),
             Box::new(|v| v["blocks"][0]["pth"] = json!([])),
             Box::new(|v| v["blocks"][1]["attrs"] = json!({"align": "center"})),

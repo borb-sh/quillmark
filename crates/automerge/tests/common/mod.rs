@@ -73,7 +73,7 @@ pub fn document() -> impl Strategy<Value = Content> {
 /// On some documents, a reserved `x-` name on each axis: an island holding a
 /// slot at the start, a block's kind and a mark.
 pub fn with_ext(mut c: Content, seed: u8) -> Content {
-    if seed % 5 == 0 {
+    if seed.is_multiple_of(5) {
         let island = Island::new("isl-x", IslandType::Ext("x-chart".into()))
             .with_props(json!({"series": [1, 2], "style": {"tone": "warm"}}))
             .with_slots([("cap".to_string(), quillmark_content::markdown::from_plaintext("caption"))].into());
@@ -82,12 +82,12 @@ pub fn with_ext(mut c: Content, seed: u8) -> Content {
             c = done.content;
         }
     }
-    if seed % 4 == 0 {
+    if seed.is_multiple_of(4) {
         let k = seed as usize / 4 % c.blocks.len();
         c.blocks[k].kind = BlockKind::Ext { name: "x-callout".into(), attrs: json!({"tone": "warm"}).as_object().unwrap().clone() };
     }
     let len = c.len_scalars();
-    if seed % 3 == 0 && len > 1 {
+    if seed.is_multiple_of(3) && len > 1 {
         c.marks.push(Mark::new(1, len.min(5), MarkKind::Ext { name: "x-glow".into(), attrs: Default::default() }));
     }
     c
@@ -122,7 +122,7 @@ pub fn splice_on(c: &Content, x: usize, y: usize, z: u8, k: usize) -> Splice {
     let cs = chars(c);
     let len = cs.len();
     let at = x % (len + 1);
-    let reach = if y / 16 % 3 == 0 { 16 } else { 4 };
+    let reach = if (y / 16).is_multiple_of(3) { 16 } else { 4 };
     let dn = y % (len - at + 1).min(reach);
     let insert = INSERTS[z as usize % INSERTS.len()];
     let shape = c.blocks[c.block_at(at)].clone();
@@ -133,7 +133,7 @@ pub fn splice_on(c: &Content, x: usize, y: usize, z: u8, k: usize) -> Splice {
         .map(|(j, _)| Block { id: format!("n{k}x{j}"), ..shape.clone() })
         .collect();
     let mut s = Splice { blocks, ..Splice::new(at, cs[at..at + dn].iter().collect::<String>(), insert) };
-    if z % 3 == 0 && !insert.is_empty() {
+    if z.is_multiple_of(3) && !insert.is_empty() {
         s.marks.push(Mark::new(0, insert.chars().count(), MarkKind::Strong));
     }
     s
@@ -142,7 +142,7 @@ pub fn splice_on(c: &Content, x: usize, y: usize, z: u8, k: usize) -> Splice {
 /// The text `c` holds over `[start, end)`, the quote a writer that read it
 /// gives, on every other `seed`.
 pub fn quote_of(c: &Content, start: usize, end: usize, seed: usize) -> Option<String> {
-    (seed / 2 % 2 == 0).then(|| chars(c)[start..end].iter().collect())
+    (seed / 2).is_multiple_of(2).then(|| chars(c)[start..end].iter().collect())
 }
 
 /// An anchor step to `anchor`: a move of the one `c`'s text holds under its
@@ -340,7 +340,7 @@ pub fn island_move(c: &Content, x: usize, y: usize, z: u8) -> Option<Step> {
     };
     let insert = |at| Step::Splice(Splice { blocks: blocks.clone(), islands: vec![island.clone()], ..Splice::new(at, "", chunk.clone()) });
     let delete = |at| Step::Splice(Splice::new(at, chunk.clone(), ""));
-    let steps = match (z % 2 == 0, to < from) {
+    let steps = match (z.is_multiple_of(2), to < from) {
         (true, true) => vec![insert(to), delete(from + n)],
         (true, false) => vec![insert(to), delete(from)],
         (false, true) => vec![delete(from), insert(to)],

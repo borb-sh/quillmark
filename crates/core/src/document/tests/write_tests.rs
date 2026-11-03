@@ -600,7 +600,7 @@ fn a_remembered_hash_is_the_values_own() {
 fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
     use crate::document::WriteOptions;
     use quillmark_content::structural::Wrap;
-    let under = |id: &str, actor: &str| id.ends_with(&format!("{}", actor.bytes().map(|b| format!("{b:02x}")).collect::<String>()));
+    let under = |id: &str, actor: &str| id.ends_with(&actor.bytes().map(|b| format!("{b:02x}")).collect::<String>());
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nalpha\n\nbravo\n\ncharlie\n");
     let read = block_ids(doc.main().body());
     let base = doc.main().hash_of(Target::Body).unwrap();

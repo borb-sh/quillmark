@@ -130,10 +130,10 @@ fn put_field(d: &mut Doc, fields: &ObjId, key: &str, was: Option<&Value>, want: 
             if now == content {
                 return;
             }
-            if let Ok(change) = quillmark_content::diff::diff(&now, &content) {
-                if d.apply(&root, &change, None).is_ok() {
-                    return;
-                }
+            if let Ok(change) = quillmark_content::diff::diff(&now, &content)
+                && d.apply(&root, &change, None).is_ok()
+            {
+                return;
             }
         }
         if d.am().get(fields, key).unwrap().is_some() {
@@ -186,10 +186,10 @@ pub(crate) fn read_card(d: &Doc, c: &ObjId) -> Result<Card, String> {
     }
     if let Some(f) = fields.as_ref() {
         for key in d.am().keys(f).collect::<Vec<_>>() {
-            if seen.insert(key.clone()) {
-                if let Some(v) = value_of(&key) {
-                    items.push(json!({ "type": "field", "key": key, "value": v }));
-                }
+            if seen.insert(key.clone())
+                && let Some(v) = value_of(&key)
+            {
+                items.push(json!({ "type": "field", "key": key, "value": v }));
             }
         }
     }
