@@ -20,7 +20,9 @@ pub(crate) fn scalar(v: &Value) -> ScalarValue {
     }
 }
 
-pub(crate) fn json_scalar(s: &ScalarValue) -> Value {
+/// An Automerge scalar read back as JSON: a float JSON cannot spell, a
+/// NaN or an infinity, reads as `null`.
+pub fn json_scalar(s: &ScalarValue) -> Value {
     match s {
         ScalarValue::Null => Value::Null,
         ScalarValue::Boolean(b) => Value::Bool(*b),
