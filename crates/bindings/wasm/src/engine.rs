@@ -8,7 +8,6 @@ use serde::Serialize;
 use std::collections::HashMap;
 #[cfg(feature = "render")]
 use quillmark_content::units::Utf16;
-use quillmark_core::Content;
 #[cfg(feature = "render")]
 use tsify::Ts;
 use wasm_bindgen::prelude::*;
@@ -282,7 +281,7 @@ export interface CardInput {
  * The content writes (`apply`, `revise`, `replace`) take a
  * card by `$id` only, and throw on an index: a card moved or inserted between
  * a writer's read and its write shifts an index onto another card, and an
- * equal body there would pass the `base` check.
+ * equal body there would take the write.
  *
  * On the `Addr`-taking verbs a **bare string** is shorthand for `{ field: name }`
  * (`doc.removeField("qty")`); a bare number is *not* an addr.
@@ -323,32 +322,17 @@ export interface Delta {
 }
 
 /**
- * What a `revise`'s writer read, its optional last argument. Name one or
- * neither; a key present with no value throws. `baseHash` is the hash the
- * writer read (`writer.hashAt`); `baseContent` is the value itself, the
- * `Content` `reader.getContent` returned. On a value that has moved on, the write merges with the change
- * since as Automerge merges (CONTENT.md § "Live state and merge"). A base the
- * document's history does not reach, as any read before the document was
- * loaded from its stored row, throws `edit::stale_base`, its `args.current`
- * the hash now, and leaves the value unchanged.
+ * What a `revise` or `reviseDocument`'s writer read, its optional last
+ * argument: `heads`, the document's revision then (`doc.heads()`). A key
+ * present with no string array throws. The writer's change lands at those
+ * heads and merges with every change since as Automerge merges (CONTENT.md
+ * § "Live state and merge"); a field both sides set reads as the later
+ * write. Heads the document's history does not hold, as any read before the
+ * document was loaded from its stored row, throw `edit::stale_base` before
+ * any mutation.
  */
-export interface BaseOptions {
-    baseHash?: string;
-    baseContent?: Content;
-}
-
-/**
- * What a `reviseDocument`'s writer read, its optional last argument. Name one
- * or neither. A stale `baseHash` (`writer.hash`) throws `edit::stale_base`.
- * `baseStored` is the `save()` bytes the writer read, or a `toStored()` row
- * as a string or its bytes: under bytes of this document's history the
- * writer's change lands at the heads they were saved at and merges with every
- * change since as Automerge merges; a row, or bytes of another history, holds
- * only where it reads as the document now.
- */
-export interface DocumentBaseOptions {
-    baseHash?: string;
-    baseStored?: Uint8Array | string;
+export interface HeadsOptions {
+    heads?: string[];
 }
 
 /**
@@ -1045,39 +1029,6 @@ impl Document {
         serialize_or_throw(&js, "toMarkdown")
     }
 
-    /// With no `addr`, the hash of the document's stored form, the quill-free
-    /// twin of `writer.hash()`: equal documents hash alike, whatever order a
-    /// store kept their keys in. With one, the hash of the `Content` at
-    /// `addr`, the `base` a write to it names. Throws as `read`.
-    #[wasm_bindgen(js_name = hash)]
-    pub fn hash(
-        &self,
-        #[wasm_bindgen(unchecked_optional_param_type = "Addr | string")] addr: JsValue,
-    ) -> Result<String, JsValue> {
-        if addr.is_undefined() {
-            return Ok(self.inner.hash());
-        }
-        self.hash_at(addr)
-    }
-
-    /// The hash of the body or richtext field at `addr`, the `baseHash` a
-    /// revise at `addr` checks: the hash of its content, an absent field the
-    /// empty content. An absent `addr.field` reads the body, an absent
-    /// `addr.card` the main card. Richtext only; the
-    /// typed `writer.hashAt` reads a field of any type through its schema.
-    /// Throws on an out-of-range card, a malformed field name, or a present
-    /// non-content field value.
-    #[wasm_bindgen(js_name = hashAt)]
-    pub fn hash_at(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-    ) -> Result<String, JsValue> {
-        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
-        self.addr_card_ref(&addr)?
-            .hash_of(quillmark_core::document::Target::from(addr.field.as_deref()))
-            .map_err(|e| edit_error_to_js(&e, &self.addr_base(&addr)))
-    }
-
     /// Every anchor of every body and content value with its context, a table
     /// cell's or a note's included, in the order the annotated `toMarkdown` lists
     /// anchors: the selector a host stores beside a comment thread and hands
@@ -1590,9 +1541,9 @@ impl Document {
     /// absent `addr.field` targets the body, an absent `addr.card` the main
     /// card.
     ///
-    /// `opts` names what the writer read (`BaseOptions`): a value that has
-    /// moved on from its `baseHash` or `baseContent` merges the write with the
-    /// change since as Automerge merges (CONTENT.md § "Live state and merge").
+    /// `opts.heads` names the revision the writer read (`HeadsOptions`): the
+    /// write lands there and merges with the change since as Automerge
+    /// merges (CONTENT.md § "Live state and merge").
     ///
     /// An undeclared name throws `edit::unknown_field`; an out-of-range card,
     /// a malformed field name, or an over-nested markdown input throws.
@@ -1602,20 +1553,20 @@ impl Document {
         quill: &Quill,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         text: &str,
-        #[wasm_bindgen(unchecked_optional_param_type = "BaseOptions")] opts: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "HeadsOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let read = ReadBase::from_js(opts, "revise", "baseContent")?;
+        let heads = heads_options(&opts, "revise")?;
         let addr = Addr::for_write(&addr, &self.inner, "revise")?;
         let base = self.addr_base(&addr);
         let card_id = self.addr_card_ref(&addr)?.id().map(str::to_string);
         let target = quillmark_core::document::Target::from(addr.field.as_deref());
         let mut writer = quill.inner.writer(&mut self.inner);
         let receipt = match addr.card {
-            None => writer.revise(target, text, read.as_base()),
+            None => writer.revise(target, text, heads.as_ref()),
             Some(index) => writer
                 .card(index)
                 .map_err(|e| edit_error_to_js(&e, &base))?
-                .revise(target, text, read.as_base()),
+                .revise(target, text, heads.as_ref()),
         }
         .map_err(|e| edit_error_to_js(&e, &base))?;
         let path = match &addr.field {
@@ -1635,53 +1586,17 @@ impl Document {
         &mut self,
         quill: &Quill,
         markdown: &str,
-        #[wasm_bindgen(unchecked_optional_param_type = "DocumentBaseOptions")] opts: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "HeadsOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let read = ReadBase::from_js(opts, "reviseDocument", "baseStored")?;
+        let heads = heads_options(&opts, "reviseDocument")?;
         let mut writer = quill.inner.writer(&mut self.inner);
-        let revised = match read.as_document_base() {
+        let revised = match heads {
             None => writer.revise_document(markdown),
-            Some(read) => writer.revise_document_against(read, markdown),
+            Some(heads) => writer.revise_document_at(&heads, markdown),
         }
         .map_err(|e| js_err(e.to_diagnostics()))?;
         self.parse_warnings.clear();
         serialize_or_throw(&DocumentRevisedJs::from(revised), "reviseDocument")
-    }
-
-    /// The ABI under `writer.hash`: the hash of the document as `quill`
-    /// conforms it, the `baseHash` `writer.reviseDocument` checks. Throws when
-    /// the document declares a `$quill` this quill does not answer to.
-    #[wasm_bindgen(js_name = _hash, skip_typescript)]
-    pub fn hash_abi(&mut self, quill: &Quill) -> Result<String, JsValue> {
-        quill
-            .inner
-            .writer(&mut self.inner)
-            .hash()
-            .map_err(|e| js_err(e.to_diagnostics()))
-    }
-
-    /// The ABI under `writer.hashAt`: the body's hash, or a field's through its
-    /// schema (a `richtext` or `text` field its content however it is stored, any
-    /// other type its stored value), the `baseHash` `writer.revise` checks. An
-    /// undeclared name throws `edit::unknown_field`, an out-of-range card throws.
-    #[wasm_bindgen(js_name = _hashAt, skip_typescript)]
-    pub fn hash_at_abi(
-        &mut self,
-        quill: &Quill,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-    ) -> Result<String, JsValue> {
-        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
-        let base = self.addr_base(&addr);
-        let target = quillmark_core::document::Target::from(addr.field.as_deref());
-        let mut writer = quill.inner.writer(&mut self.inner);
-        match addr.card {
-            None => writer.hash_of(target),
-            Some(index) => writer
-                .card(index)
-                .map_err(|e| edit_error_to_js(&e, &base))?
-                .hash_of(target),
-        }
-        .map_err(|e| edit_error_to_js(&e, &base))
     }
 
     /// Typed field write at `addr`, resolving the field's schema `type` from
@@ -2079,88 +1994,23 @@ fn markdown_options(opts: &JsValue, verb: &str) -> Result<bool, JsValue> {
     Ok(opts.annotated.unwrap_or(false))
 }
 
-/// What a revise's writer read, off a `BaseOptions` or a
-/// `DocumentBaseOptions`.
-enum ReadBase {
-    None,
-    Hash(String),
-    Content(Content),
-    Stored(Box<quillmark_core::document::Document>),
-}
-
-impl ReadBase {
-    /// `other` is the key beside `baseHash`: `baseContent` on `revise`,
-    /// `baseStored` on `reviseDocument`.
-    fn from_js(opts: JsValue, verb: &str, other: &str) -> Result<Self, JsValue> {
-        if opts.is_undefined() || opts.is_null() {
-            return Ok(ReadBase::None);
-        }
-        let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
-        if !opts.is_object() {
-            return Err(invalid("options must be an object".into()));
-        }
-        let keys = js_sys::Object::keys(opts.unchecked_ref::<js_sys::Object>());
-        for key in keys.iter() {
-            let key = key.as_string().unwrap_or_default();
-            if key != "baseHash" && key != other {
-                return Err(invalid(format!("unknown option `{key}`; expected baseHash or {other}")));
-            }
-        }
-        // A key that is present but holds nothing is a caller bug (a lookup
-        // that found nothing, a missing `await`), and would otherwise fall
-        // through to an unguarded write.
-        let get = |key: &str| -> Result<Option<JsValue>, JsValue> {
-            if !js_sys::Reflect::has(&opts, &key.into()).unwrap_or(false) {
-                return Ok(None);
-            }
-            let v = js_sys::Reflect::get(&opts, &key.into()).unwrap_or(JsValue::UNDEFINED);
-            if v.is_undefined() || v.is_null() {
-                return Err(invalid(format!("{key} must be given a value when present")));
-            }
-            Ok(Some(v))
-        };
-        match (get("baseHash")?, get(other)?) {
-            (None, None) => Ok(ReadBase::None),
-            (Some(_), Some(_)) => Err(invalid(format!("name baseHash or {other}, not both"))),
-            (Some(hash), None) => hash
-                .as_string()
-                .map(ReadBase::Hash)
-                .ok_or_else(|| invalid("baseHash must be a string".into())),
-            (None, Some(v)) if other == "baseStored" => {
-                use quillmark_core::document::{Document, StoredError};
-                let data = match v.as_string() {
-                    Some(json) => json.into_bytes(),
-                    None if v.is_instance_of::<js_sys::Uint8Array>() => js_sys::Uint8Array::from(v).to_vec(),
-                    None => return Err(invalid("baseStored must be save() bytes or a toStored string".into())),
-                };
-                Document::from_stored_any(&data)
-                    .map(|parsed| ReadBase::Stored(Box::new(parsed.document)))
-                    .map_err(|e| match e {
-                        StoredError::Bytes(e) => invalid(format!("baseStored: bytes that hold no document: {e}")),
-                        StoredError::Row(e) => invalid(format!("baseStored: invalid storage DTO: {e}")),
-                    })
-            }
-            (None, Some(v)) => content::content_in(v, &format!("{verb}: baseContent")).map(ReadBase::Content),
+/// The `heads` of a `HeadsOptions`, none where `opts` is absent or names
+/// none. Another key, or a `heads` that is no string array, throws.
+fn heads_options(opts: &JsValue, verb: &str) -> Result<Option<quillmark_core::document::Heads>, JsValue> {
+    if opts.is_undefined() || opts.is_null() {
+        return Ok(None);
+    }
+    let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
+    if !opts.is_object() {
+        return Err(invalid("options must be an object".into()));
+    }
+    for key in js_sys::Object::keys(opts.unchecked_ref::<js_sys::Object>()).iter() {
+        let key = key.as_string().unwrap_or_default();
+        if key != "heads" {
+            return Err(invalid(format!("unknown option `{key}`; expected heads")));
         }
     }
-
-    fn as_base(&self) -> Option<quillmark_core::document::Base<'_>> {
-        use quillmark_core::document::Base;
-        match self {
-            ReadBase::None | ReadBase::Stored(_) => None,
-            ReadBase::Hash(hash) => Some(Base::Hash(hash)),
-            ReadBase::Content(content) => Some(Base::Content(content)),
-        }
-    }
-
-    fn as_document_base(&self) -> Option<quillmark_core::document::DocumentBase<'_>> {
-        use quillmark_core::document::DocumentBase;
-        match self {
-            ReadBase::None | ReadBase::Content(_) => None,
-            ReadBase::Hash(hash) => Some(DocumentBase::Hash(hash)),
-            ReadBase::Stored(doc) => Some(DocumentBase::Stored(doc)),
-        }
-    }
+    content::heads_opt(opts, verb)
 }
 
 /// The canonical form of `rt`, read without a document: the one spelling

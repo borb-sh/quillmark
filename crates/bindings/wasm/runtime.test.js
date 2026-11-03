@@ -157,10 +157,8 @@ card_kinds:
     const doc = blankDoc()
     const ed = quill.writer(doc)
     const receipt = ed.revise({}, 'New **body**.')
-    expect(Object.keys(receipt).sort()).toEqual(['applied', 'droppedAnchors', 'hash', 'heads', 'minted', 'movedAnchors', 'rebased', 'warnings'])
-    expect(receipt.hash).toBe(doc.hashAt({}))
+    expect(Object.keys(receipt).sort()).toEqual(['applied', 'droppedAnchors', 'heads', 'minted', 'movedAnchors', 'warnings'])
     expect(receipt.heads).toEqual(doc.heads())
-    expect(receipt.rebased).toBe(false)
     expect(doc.toMarkdown({})).toBe('New **body**.')
     const { warnings } = ed.revise('subject', 'Q3 <kbd>**results**</kbd>')
     expect(warnings.map((w) => [w.code, w.path])).toEqual([
@@ -202,40 +200,45 @@ card_kinds:
     ])
   })
 
-  it('a stale baseHash or baseContent merges a revise, an unknown hash refuses, and a baseStored merges a document', () => {
+  it('a revise at stale heads merges, unknown heads refuse, and a document revise at heads merges', () => {
     const doc = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nAlpha.\n\nBeta.\n\nGamma.')
     const ed = buildQuill().writer(doc)
     const read = doc.toMarkdown(undefined, { annotated: true }).markdown
-    const stored = doc.save()
-    const base = doc.read({})
+    const first = doc.heads()
     ed.revise({}, 'Alpha, edited.\n\nBeta.\n\nGamma.')
-    const editedHash = doc.hashAt({})
+    const edited = doc.heads()
     ed.revise({}, 'Alpha, edited.\n\nBeta, two.\n\nGamma.')
-    expect(ed.revise({}, 'Alpha, edited, again.\n\nBeta.\n\nGamma.', { baseHash: editedHash }).rebased).toBe(true)
+    ed.revise({}, 'Alpha, edited, again.\n\nBeta.\n\nGamma.', { heads: edited })
     expect(doc.toMarkdown({})).toBe('Alpha, edited, again.\n\nBeta, two.\n\nGamma.')
-    expect(() => ed.revise({}, 'Other.', { baseHash: 'never-read' })).toThrow(
-      expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base', args: { current: doc.hashAt({}) } })] }),
+    const foreign = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nElsewhere.')
+    foreign.revise({}, 'Elsewhere, edited.')
+    expect(() => ed.revise({}, 'Other.', { heads: foreign.heads() })).toThrow(
+      expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base' })] }),
     )
-    ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { baseStored: stored })
+    ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { heads: first })
     expect(doc.toMarkdown({})).toBe('Alpha, edited, again.\n\nBeta, two.\n\nGamma, rewritten.')
-    expect(ed.revise({}, 'Alpha.\n\nBeta.\n\nGamma.\n\nDelta.', { baseContent: base }).rebased).toBe(true)
+    ed.revise({}, 'Alpha.\n\nBeta.\n\nGamma.\n\nDelta.', { heads: first })
     expect(doc.toMarkdown({})).toBe('Alpha, edited, again.\n\nBeta, two.\n\nGamma, rewritten.\n\nDelta.')
-    expect(() => ed.reviseDocument(read, { baseHash: 'x', baseStored: stored })).toThrow(/not both/)
-    expect(() => ed.revise({}, 'x', { baseHash: undefined })).toThrow(/baseHash must be given a value/)
+    expect(() => ed.reviseDocument(read, { heads: first, baseStored: doc.save() })).toThrow(/unknown option `baseStored`/)
+    expect(() => ed.revise({}, 'x', { heads: undefined })).toThrow(/heads must be a string array/)
+    expect(() => ed.reviseDocument(read, { heads: foreign.heads() })).toThrow(
+      expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base' })] }),
+    )
   })
 
-  it('writer.hashAt reads a field through its schema, so a string at rest and its conformed content agree', () => {
-    const doc = Document.parse('~~~card-yaml\n$quill: editor_test\nsubject: Hello *world*\n~~~\n\nBody.')
+  it('a document loaded from its row holds no earlier heads, and a session ends at the row', () => {
+    const doc = buildQuill().parse('~~~card-yaml\n$quill: editor_test\nsubject: Hello\n~~~\n\nBody.')
     const ed = buildQuill().writer(doc)
-    const hash = ed.hashAt('subject')
-    expect(hash).toBe(doc.hashAt('subject'))
-    expect(ed.hashAt({})).toBe(doc.hashAt({}))
-    const whole = ed.hash()
+    const read = doc.heads()
     ed.revise({}, 'Other body.')
-    expect(ed.hashAt('subject')).toBe(hash)
-    expect(ed.hash()).not.toBe(whole)
-    ed.revise('subject', 'Hello _world_, hi', { baseHash: hash })
-    expectEditCode(() => ed.hashAt('nope'), 'edit::unknown_field')
+    const reloaded = Document.fromStored(doc.toStored())
+    expect(() => buildQuill().writer(reloaded).revise({}, 'Mine.', { heads: read })).toThrow(
+      expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base' })] }),
+    )
+    const peer = Document.load(doc.save())
+    buildQuill().writer(peer).revise('subject', 'Hello, mine', { heads: read })
+    expect(peer.toMarkdown()).toContain('subject: Hello, mine')
+    expect(peer.toMarkdown({})).toBe('Other body.')
   })
 
   it('addCard commits fields and body; removeCard returns the card', () => {
@@ -482,7 +485,7 @@ card_kinds:
     expect(read.markdown).toBe('# Plan\n\nMain <qm-anchor ref="c1"></qm-anchor>**body**.')
     expect(read.anchors).toEqual([{ id: 'c1', path: 'main.body', line: 'Main body.' }])
     expect(doc.toMarkdown('subject', { annotated: true })).toEqual({ markdown: 'Q3 **results**', anchors: [] })
-    const receipt = quill.writer(doc).revise({}, read.markdown.replace('Main', 'The main'), { baseContent: doc.read({}) })
+    const receipt = quill.writer(doc).revise({}, read.markdown.replace('Main', 'The main'), { heads: doc.heads() })
     expect(receipt.droppedAnchors).toEqual([])
     expect(doc.anchorContext('c1')).toMatchObject({ quote: 'body' })
   })

@@ -11,50 +11,71 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   Inside a document a block, container or island id is its record's
   Automerge object id, minted by the write that puts it; a moved block or
   island takes a new one.
-- feat(core)!: **a stale write merges as Automerge merges, and nothing
-  refuses.** A write whose `base` names an earlier hash lands as one change at
-  the heads that hash was left at, concurrent with every change since: text
-  both sides edited interleaves, a record or field both set reads as the
-  later write, and an anchor or mark put at earlier heads takes in text typed
-  since at its start. `edit::rebase_conflict`, `DocumentRevised.conflicts`
-  and `MergeConflict` are gone; `edit::stale_base` names a base the
-  document's history does not reach, every base read before a load from a
-  stored row among them; a base read after the load, before any write,
-  merges. A whole-document `DocumentBase::Stored` lands the
-  writer's revise at the heads it was read at.
-- feat(core)!: **bytes are the row.** `Document::save` and `load`
-  save and read the whole document with its history; `heads`, `save_since`
-  and `merge` move changes between peers; `generate_sync_message` and
-  `receive_sync_message` run Automerge's sync protocol over the whole
-  document, through `quillmark-automerge`'s `Heads`, `SyncState` and
-  `SyncMessage`, each with `encode` and `decode`, so no `automerge` type
-  crosses core's API. `edit::bad_live_bytes` names bytes or a message that
-  would leave the document outside its schema, its `reason` `decode`,
-  `shape`, `schema`, or `apply` for a sync message that decodes and does not
-  apply, and changes nothing; `load`, `merge` and `receive_sync_message`
-  answer it as an `EditError`. `Document::from_stored_any` reads either
-  carrier, telling Automerge bytes by their leading bytes. The per-value
-  `Card::save`, `load` and sync verbs are gone. `StoredDocument` JSON stays the history-free interchange,
-  and a `0.134.0` row reads into a new document.
-- feat(wasm)!: **the document crosses as bytes.** `doc.save()`,
-  `Document.load(bytes)`, `doc.heads()`, `doc.saveSince(heads)`,
-  `doc.merge(bytes)`, and `doc.generateSyncMessage(state)` /
-  `doc.receiveSyncMessage(state, message)` with the opaque `SyncState`.
-  `reviseDocument`'s `baseStored` takes the `save()` bytes the writer read,
-  or a row as a string or bytes.
+- feat(core)!: **heads are the only base, and a stale write merges as
+  Automerge merges.** A write names what its writer read by the document's
+  heads then: `WriteOptions { heads, actor }` on `Card::apply`, `revise`,
+  `replace` and the structural edits, `heads` on `TypedWriter::revise` and
+  `CardWriter::revise`, and `TypedWriter::revise_document_at(heads, md)`.
+  The write lands as one change at those heads, concurrent with every change
+  since: text both sides edited interleaves, a record or field both set reads
+  as the later write, and an anchor or mark put at earlier heads takes in
+  text typed since at its start; a document revise at heads merges a card
+  both sides changed field by field. `edit::rebase_conflict`,
+  `DocumentRevised.conflicts` and `MergeConflict` are gone; `edit::stale_base`
+  names heads the document's history does not hold, every heads read before
+  a load from a stored row among them, and carries no args. The hash base is
+  gone with everything that served it: `Base`, `DocumentBase`, `BaseError`,
+  `Document::hash`, `Card::hash_of`, `body_hash`, `field_hash`,
+  `TypedWriter::hash`, `hash_of` and `revise_document_against`,
+  `content_hash`, `value_hash` and the `quillmark/hash@1` tag;
+  `Receipt.hash` and `rebased`; `Document::history`, `seen` and `held_heads`.
+  `Document::holds(heads)` says whether the history holds heads, and
+  `Document::at(heads)` reads the document as it was there.
+- feat(core)!: **bytes carry a live session; the row is the envelope.**
+  `Document::save` and `load` save and read the whole document with its
+  history; `heads`, `save_since` and `merge` move changes between peers;
+  `generate_sync_message` and `receive_sync_message` run Automerge's sync
+  protocol over the whole document, through `quillmark-automerge`'s `Heads`,
+  `SyncState` and `SyncMessage`, each with `encode` and `decode`, so no
+  `automerge` type crosses core's API. A session lasts as long as its peers
+  share one history: heads read anywhere in it resolve on every peer loaded
+  from its bytes. `StoredDocument` JSON (`to_stored` / `from_stored`) stays
+  the row: a reload from it starts a new session, in which no earlier heads
+  resolve, and every process loads one row to one origin. `edit::bad_live_bytes`
+  names bytes or a message that would leave the document outside its schema,
+  its `reason` `decode`, `shape`, `schema`, or `apply` for a sync message that
+  decodes and does not apply, and changes nothing; `load`, `merge` and
+  `receive_sync_message` answer it as an `EditError`.
+  `Document::from_stored_any` reads either carrier, telling Automerge bytes
+  by their leading bytes. The per-value `Card::save`, `load` and sync verbs
+  are gone, and a `0.134.0` row reads into a new document.
+- feat(wasm)!: **a live session crosses as bytes, and every write takes
+  `heads`.** `doc.save()`, `Document.load(bytes)`, `doc.heads()`,
+  `doc.saveSince(heads)`, `doc.merge(bytes)`, and
+  `doc.generateSyncMessage(state)` / `doc.receiveSyncMessage(state, message)`
+  with the opaque `SyncState`. `WriteOptions` is `{ heads, actor }`, and
+  `writer.revise` and `writer.reviseDocument` take `HeadsOptions`,
+  `{ heads }`; `base`, `baseHash`, `baseContent`, `baseStored`,
+  `BaseOptions` and `DocumentBaseOptions` are gone, as are `doc.hash`,
+  `doc.hashAt`, `writer.hash` and `writer.hashAt`. A receipt is
+  `{ applied, heads, droppedAnchors, movedAnchors, warnings, minted }`.
 - feat(python)!: **the same in snake case**: `doc.save()`,
   `Document.load`, `doc.heads()`, `doc.save_since`, `doc.merge`,
   `doc.generate_sync_message(state)` and `doc.receive_sync_message(state,
-  message)`; `revise_document`'s `base_stored` takes `bytes`.
+  message)`; `heads=` on `doc.apply`, `revise` and `replace`, on
+  `writer.revise` and on `writer.revise_document`, where `base=`,
+  `base_hash=`, `base_content=` and `base_stored=` were; `doc.hash`,
+  `doc.hash_at`, `writer.hash` and `writer.hash_at` are gone, and a receipt
+  dict holds no `hash` or `rebased`.
 - feat: **a receipt carries the heads its write left.** `Receipt` and
   `DocumentRevised` gain `heads`, the document's heads after the write, as
-  `heads()` answers them; a card no document holds answers none. WASM and
-  Python carry them as hex strings.
+  `heads()` answers them, the next write's `heads`; a card no document holds
+  answers none. WASM and Python carry them as hex strings.
 - feat(bindings)!: **the writer's `revise` names its card by `$id`.** WASM
   `writer.revise({ card })` and Python `writer.revise(card=)` take a
   composable card's `$id` and throw on an index, as `apply`, `revise` and
   `replace` do. The WASM card cursor's `revise` revises the card its index
-  names at the call and refuses a base.
+  names at the call and refuses `heads`.
 
 ## v0.134.1 - 2026-11-02
 

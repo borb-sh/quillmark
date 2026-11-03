@@ -657,7 +657,6 @@ pub(crate) mod held;
 mod land;
 pub mod anchors;
 pub mod assemble;
-pub mod base;
 pub mod card_id;
 mod dto;
 pub mod edit;
@@ -672,7 +671,6 @@ pub mod write;
 pub(crate) mod yaml_hints;
 
 pub use anchors::AnchorSelector;
-pub use base::{Base, BaseError, DocumentBase, HASH_TAG, content_hash, value_hash};
 pub use dto::{
     STORAGE_V0_134_0, STORAGE_V0_135_0, StorageError, StoredDocument, peek_storage_version,
 };
@@ -995,15 +993,6 @@ pub struct Document {
     held: Bound,
 }
 
-pub(crate) fn remember(history: &mut Vec<Vec<quillmark_automerge::automerge::ChangeHash>>, heads: Vec<quillmark_automerge::automerge::ChangeHash>) {
-    if history.last() != Some(&heads) {
-        history.push(heads);
-    }
-    if history.len() > HISTORY {
-        history.remove(0);
-    }
-}
-
 /// The [`Held`] a document is held in, once it is: no part of what the
 /// document equals.
 #[derive(Clone, Debug, Default)]
@@ -1022,22 +1011,11 @@ pub(crate) struct Held {
     doc: quillmark_automerge::model::Doc,
     /// The cards were written to since they last read as the document.
     dirty: bool,
-    /// The heads each value's hash was first read at, by the value's address.
-    seen: std::collections::HashMap<(String, String), Vec<quillmark_automerge::automerge::ChangeHash>>,
-    /// The heads before each of the latest writes, newest last: where a hash
-    /// no write noted is looked for.
-    history: Vec<Vec<quillmark_automerge::automerge::ChangeHash>>,
-    /// The latest value noted: its address, the heads it was read at and its
-    /// hash.
-    last: Option<(String, Vec<quillmark_automerge::automerge::ChangeHash>, String)>,
 }
-
-/// How many of the latest writes' heads a base hash is looked for at.
-pub(crate) const HISTORY: usize = 1024;
 
 impl Held {
     fn new(doc: quillmark_automerge::model::Doc, dirty: bool) -> Held {
-        Held { doc, dirty, seen: Default::default(), history: Vec::new(), last: None }
+        Held { doc, dirty }
     }
 }
 
@@ -1063,9 +1041,7 @@ impl Document {
     /// The document `doc` holds, its cards read from it.
     pub(crate) fn read_from(doc: quillmark_automerge::model::Doc, mints: card_id::ActorMints) -> Result<Self, String> {
         let (main, cards) = held::read(&doc)?;
-        let mut read = Self { main, cards, mints, held: Bound(Some(Held::new(doc, false))) };
-        read.note_held();
-        Ok(read)
+        Ok(Self { main, cards, mints, held: Bound(Some(Held::new(doc, false))) })
     }
 
     /// Holds the document in an Automerge document where it is not yet,
@@ -1083,22 +1059,6 @@ impl Document {
         self.main = main;
         if !unplaced {
             self.cards = cards;
-        }
-        self.note_held();
-    }
-
-    /// Notes the hash of each body and content field the Automerge document
-    /// holds at its heads now, so a base read before any write is found.
-    fn note_held(&mut self) {
-        let held = self.held.0.as_mut().expect("bound");
-        let heads = held.doc.heads();
-        for card in std::iter::once(&self.main).chain(self.cards.iter().filter(|c| c.id().is_some())) {
-            let fields = card.payload().iter().filter(|(_, v)| v.as_json().is_object()).map(|(name, _)| write::Target::Field(name));
-            for target in std::iter::once(write::Target::Body).chain(fields) {
-                if let Ok(hash) = card.hash_of(target) {
-                    held.seen.entry((write::address(card.id(), target), hash)).or_insert_with(|| heads.clone());
-                }
-            }
         }
     }
 
@@ -1123,8 +1083,7 @@ impl Document {
         if !held.dirty {
             return;
         }
-        let Held { doc, history, .. } = held;
-        remember(history, doc.heads());
+        let doc = &mut held.doc;
         let was = held::read(doc).expect("a held document reads as cards");
         held::flush(doc, (&was.0, &was.1), (&self.main, &self.cards));
         self.reread();
@@ -1134,14 +1093,6 @@ impl Document {
     pub(crate) fn doc(&mut self) -> &mut quillmark_automerge::model::Doc {
         self.flush();
         &mut self.held().doc
-    }
-
-    pub(crate) fn history(&mut self) -> &mut Vec<Vec<quillmark_automerge::automerge::ChangeHash>> {
-        &mut self.held().history
-    }
-
-    pub(crate) fn seen(&mut self) -> &mut std::collections::HashMap<(String, String), Vec<quillmark_automerge::automerge::ChangeHash>> {
-        &mut self.held().seen
     }
 
     /// Reads the cards again from the Automerge document, after a change
@@ -1163,13 +1114,6 @@ impl Document {
         Document::assembled(card(&self.main), self.cards.iter().map(card).collect(), self.mints.clone())
     }
 
-    /// The heads of the Automerge document this one is held in, where it is
-    /// held in one and its cards read as that document does.
-    pub(crate) fn held_heads(&mut self) -> Option<Vec<quillmark_automerge::automerge::ChangeHash>> {
-        let held = self.held.0.as_mut().filter(|h| !h.dirty)?;
-        Some(held.doc.heads())
-    }
-
     /// Writes what the cards changed into the Automerge document, where the
     /// document is held in one.
     pub(crate) fn settle(&mut self) {
@@ -1179,16 +1123,28 @@ impl Document {
     }
 
     /// Whether this document's history holds `heads`.
-    pub(crate) fn holds(&mut self, heads: &[quillmark_automerge::automerge::ChangeHash]) -> bool {
-        self.doc().holds(heads)
+    pub fn holds(&mut self, heads: &Heads) -> bool {
+        self.doc().holds(heads.hashes())
+    }
+
+    /// This document as it was at `heads`, read from its history: what a
+    /// writer that read then read. `None` where the history does not hold
+    /// `heads`.
+    pub fn at(&mut self, heads: &Heads) -> Option<Document> {
+        if !self.holds(heads) {
+            return None;
+        }
+        let mints = self.mints.clone();
+        let (main, cards) = self.doc().isolated(heads.hashes(), |d| held::read(d).expect("a held document reads as cards"));
+        Some(Self::assembled(main, cards, mints))
     }
 
     /// Lands the cards of `wanted`, made from this document as it was at
     /// `heads`, as one change at those heads: concurrent with every change
     /// since, and merged with them.
-    pub(crate) fn land_at(&mut self, heads: &[quillmark_automerge::automerge::ChangeHash], wanted: &Document) {
+    pub(crate) fn land_at(&mut self, heads: &Heads, wanted: &Document) {
         self.flush();
-        self.held().doc.isolated(heads, |d| {
+        self.held().doc.isolated(heads.hashes(), |d| {
             let (main, cards) = held::read(d).expect("a held document reads as cards");
             held::flush(d, (&main, &cards), (&wanted.main, &wanted.cards));
         });

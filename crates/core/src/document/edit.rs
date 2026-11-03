@@ -15,7 +15,6 @@ use quillmark_content::lines::import::ImportError;
 #[cfg(test)]
 use quillmark_content::lines::model::Lines;
 
-use crate::document::base::{Base, BaseError};
 use crate::document::meta::{CardKindError, validate_composable_kind};
 use crate::document::payload::MetaKey;
 use crate::document::{Card, Codec, ContentDecodeError, Document, Payload, PayloadItem};
@@ -256,9 +255,13 @@ pub enum EditError {
     #[error("the document refuses the bytes ({reason}): {detail}")]
     BadLiveBytes { reason: &'static str, detail: String },
 
-    /// A revise's [`Base`] refused the write.
-    #[error(transparent)]
-    Base(BaseError),
+    /// The write names heads the document's history does not hold: the
+    /// writer read in another session, before the document was loaded from
+    /// its stored row, or a card outside a document. A writer reads again
+    /// and writes from the document now. `field` is the field written, for
+    /// the diagnostic's anchor; `None` for a body or a document.
+    #[error("the document does not hold the heads the writer read")]
+    StaleHeads { field: Option<String> },
 }
 
 impl EditError {
@@ -333,7 +336,7 @@ impl EditError {
             EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
             EditError::InvalidActor(_) => "edit::invalid_actor",
             EditError::BadLiveBytes { .. } => "edit::bad_live_bytes",
-            EditError::Base(e) => e.code(),
+            EditError::StaleHeads { .. } => "edit::stale_base",
         }
     }
 
@@ -404,7 +407,7 @@ impl EditError {
             },
             EditError::InvalidActor(actor) => diag_args! { "actor" => actor },
             EditError::BadLiveBytes { reason, .. } => diag_args! { "reason" => *reason },
-            EditError::Base(e) => e.args(),
+            EditError::StaleHeads { .. } => diag_args! {},
         }
     }
 
@@ -441,7 +444,7 @@ impl EditError {
             | EditError::FieldNotSingleLine { field: f, .. }
             | EditError::FieldCoercionFailed { field: f, .. } => Some(base.field(f)),
             EditError::IndexOutOfRange { index, .. } => Some(DocPath::card(None, *index)),
-            EditError::Base(e) if e.field().is_some() => e.field().map(|f| base.field(f)),
+            EditError::StaleHeads { field: Some(f) } => Some(base.field(f)),
             _ => (!base.segs().is_empty()).then(|| base.clone()),
         }
     }
@@ -553,7 +556,7 @@ fn check_field(name: &str, value: &serde_json::Value) -> Result<(), EditError> {
 
 /// `value` with each content value it holds, at any depth, decoded as a body
 /// write decodes one and held in its canonical form: a field's content
-/// validates, stores, compares and hashes as a body's does.
+/// validates, stores and compares as a body's does.
 /// [`EditError::FieldDecode`] at the first content value that does not
 /// decode.
 pub(crate) fn canonical_field(name: &str, mut value: serde_json::Value) -> Result<serde_json::Value, EditError> {
@@ -870,10 +873,11 @@ impl<'a> CardMut<'a> {
         self.write(target, super::Edit::Revise(markdown), opts)
     }
 
-    /// The value at `target` as the writer that read `base` read it,
-    /// refused with `edit::stale_base` where no write left it.
-    pub fn read_at(&mut self, target: super::Target<'_>, base: Option<&str>) -> Result<quillmark_content::model::Content, EditError> {
-        self.doc.read_under(self.at, target, base)
+    /// The value at `target` as the writer that read at `heads` read it,
+    /// refused with `edit::stale_base` where the document's history does
+    /// not hold them.
+    pub fn read_at(&mut self, target: super::Target<'_>, heads: Option<&super::Heads>) -> Result<quillmark_content::model::Content, EditError> {
+        self.doc.read_under(self.at, target, heads)
     }
 
     /// [`write`](Self::write) of [`Edit::Replace`](super::Edit::Replace).
@@ -939,11 +943,11 @@ impl<'a> CardMut<'a> {
         self.card().commit_field(name, value, schema)
     }
 
-    /// A markdown revise of the value at `target` under `base`, its
-    /// receipt counted in scalars on the value it landed on.
-    pub(crate) fn revise_counted(&mut self, target: super::Target<'_>, markdown: &str, base: Option<Base<'_>>) -> Result<super::Receipt, EditError> {
+    /// A markdown revise of the value at `target` at `heads`, its receipt
+    /// counted in scalars on the value it landed on.
+    pub(crate) fn revise_counted(&mut self, target: super::Target<'_>, markdown: &str, heads: Option<&super::Heads>) -> Result<super::Receipt, EditError> {
         let before = self.read(target)?;
-        Ok(self.write(target, super::Edit::Revise(markdown), super::WriteOptions { base, actor: None })?.counted_on(before))
+        Ok(self.write(target, super::Edit::Revise(markdown), super::WriteOptions { heads, actor: None })?.counted_on(before))
     }
 
     #[doc(hidden)]
@@ -952,37 +956,25 @@ impl<'a> CardMut<'a> {
         Ok(receipt.at(self.doc.heads()))
     }
 
+    /// [`revise_field_checked`](Self::revise_field_checked) at `heads`. A
+    /// content field is revised as its writer read it at `heads`, and the
+    /// change from that read lands there, merged with every change since;
+    /// a field of another type revises the value now.
     #[doc(hidden)]
-    pub fn field_hash_checked(&self, name: &str, schema: &FieldSchema) -> Result<String, EditError> {
-        std::ops::Deref::deref(self).field_hash_checked(name, schema)
-    }
-
-    /// [`revise_field_checked`](Self::revise_field_checked) under `base`. A
-    /// content field the base names an earlier value of is revised as its
-    /// writer read it, and the change from that read lands at the heads it
-    /// was read at, merged with every change since.
-    #[doc(hidden)]
-    pub fn revise_field_checked_against(&mut self, name: &str, base: Base<'_>, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
-        let read_hash = match base {
-            Base::Hash(h) => h.to_string(),
-            Base::Content(c) => super::base::content_hash(c),
-        };
+    pub fn revise_field_checked_at(&mut self, name: &str, heads: &super::Heads, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
         let content = matches!(schema.r#type, FieldType::Text { .. } | FieldType::RichText { .. });
-        if !content || read_hash == self.field_hash_checked(name, schema)? {
+        if !content {
             return self.revise_field_checked(name, body, schema);
         }
         let target = super::Target::Field(name);
-        let read = self.doc.read_under(self.at, target, Some(&read_hash)).map_err(|e| match e {
-            EditError::Base(e) => EditError::Base(e.at_field(name)),
-            other => other,
-        })?;
+        let read = self.doc.read_under(self.at, target, Some(heads))?;
         let mut scratch = Card::from_parts(Payload::new(), quillmark_content::model::Content::empty());
         scratch.payload_mut().insert(name.to_string(), QuillValue::from_json(read.to_value())).map_err(EditError::InvalidPayload)?;
         let revised = scratch.revise_field_checked(name, body, schema)?;
         let wanted = scratch.read(target)?;
         let change = quillmark_content::diff::diff(&read, &wanted).map_err(|e| EditError::change(e.into()))?;
         let before = self.read(target)?;
-        let mut receipt = self.write(target, super::Edit::Apply(change), super::WriteOptions { base: Some(base), actor: None })?;
+        let mut receipt = self.write(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads), actor: None })?;
         receipt.warnings = revised.warnings;
         Ok(receipt.counted_on(before))
     }

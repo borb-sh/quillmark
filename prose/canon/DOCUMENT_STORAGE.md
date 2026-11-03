@@ -5,25 +5,32 @@
 ## TL;DR
 
 `Document` is the typed in-memory model of a Quillmark Markdown file, held in
-one Automerge document. A document persists as that Automerge document's
-**bytes**: the row is the bytes, the revision is the heads, a write's patch is
-its receipt, and sync is Automerge's own (§ "The Automerge layout"). The
-**versioned JSON envelope**, `StoredDocument`, whose wire format is frozen per
-schema version, is the history-free interchange and the migration form: a
-`0.134.0` row is JSON, and reads into a new document.
+one Automerge document. A document persists as the **versioned JSON
+envelope**, `StoredDocument`, whose wire format is frozen per schema version:
+the row is the envelope, and a `0.134.0` row reads into a new document. The
+Automerge document's **bytes** are the form of a live editing session: the
+revision is the heads, a write's patch is its receipt, peers move changes as
+bytes and sync is Automerge's own (§ "The Automerge layout"). A session lasts
+as long as its peers share one history; a reload from the row starts a new one.
 
 ## When to use it
 
 | Form | Round-trips? | Stable for storage? |
 |---|---|---|
 | Markdown (`Document::to_markdown`) | No: anchors and ids drop ([CONTENT.md](CONTENT.md) § "What markdown keeps") | No: syntax evolves |
-| Automerge bytes (`Document::save`) | Yes: lossless, history included | Yes: the row; its root's `schema` names the layout |
-| `StoredDocument` JSON | Yes: lossless but for history | Yes: frozen per schema version |
+| `StoredDocument` JSON (`Document::to_stored`) | Yes: lossless but for history | Yes: the row, frozen per schema version |
+| Automerge bytes (`Document::save`) | Yes: lossless, history included | No: a live session's form; its root's `schema` names the layout |
 
-Store the bytes whenever a `Document` must survive a process restart or a
-crate upgrade and keep merging: database rows, sync peers, message payloads.
-Store or send the JSON where a reader holds no Automerge, or where history
-must not travel.
+Store the JSON: it is the row a `Document` survives a process restart or a
+crate upgrade as, and the form a reader holding no Automerge reads. Move the
+bytes within a live editing session: `Document::load` of a `save`, and a peer
+synced from it, hold every heads the saving document held, so a write at heads
+read anywhere in the session resolves (`WriteOptions.heads`, [CONTENT.md](CONTENT.md)
+§ "Live state and merge"). A reload from the row (`Document::from_stored`)
+starts a new session: no heads read before it resolve, and peers rejoin from
+the row, which every process loads to one origin, since a document's first
+change is written under one actor at time 0. History is session state, not a
+row's: a changelog serves live editing, and nothing in storage reads it.
 
 What a schema-bound read hands a consumer is the values form: the stored value
 with content as its codec's text, sparse, and carrying neither anchors nor
