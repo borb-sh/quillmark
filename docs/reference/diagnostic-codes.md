@@ -159,6 +159,7 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 
 A mutator or typed write the document refuses.
 
+- `edit::automerge`
 - `edit::content_apply`
 - `edit::drops_ext_island`
 - `edit::duplicate_card_id`

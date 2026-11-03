@@ -739,7 +739,7 @@ describe('Document apply: the write primitive', () => {
     expect(doc.read({})).toEqual(before)
   })
 
-  it('a stale base rebases a write over the change since, offsets in UTF-16 as the writer read them', () => {
+  it('a stale base merges a write with the change since, offsets in UTF-16 as the writer read them', () => {
     const doc = blankDoc()
     doc.replace({}, importMarkdown('😀 hello world').content)
     const base = doc.hash({})
@@ -752,7 +752,13 @@ describe('Document apply: the write primitive', () => {
 
     const reworded = { steps: [{ splice: { at: 9, delete: 'world', insert: 'there' } }] }
     doc.apply({}, { steps: [{ splice: { at: 14, delete: 'r', insert: 'R' } }] })
-    const err = expectEditCode(() => doc.apply({}, reworded, { base }), 'edit::rebase_conflict')
+    expect(doc.apply({}, reworded, { base }).rebased).toBe(true)
+
+    const id = doc.read({}).blocks[0].id
+    const heading = (level) => ({ steps: [{ setBlock: { id, kind: 'heading', attrs: { level } } }] })
+    const read = doc.hash({})
+    doc.apply({}, heading(2))
+    const err = expectEditCode(() => doc.apply({}, heading(3), { base: read }), 'edit::rebase_conflict')
     expect(err.diagnostics[0].args).toMatchObject({ current: doc.hash({}), step: 0, reason: 'changed' })
   })
 

@@ -50,7 +50,7 @@ def test_a_quoted_step_refuses_text_its_writer_did_not_read():
     assert receipt["applied"]["steps"][0]["mark"]["quote"] == "world"
 
 
-def test_a_stale_base_rebases_over_the_change_since():
+def test_a_stale_base_merges_with_the_change_since():
     doc = Document.parse(MD)
     base = doc.hash_at()
     doc.apply({"steps": [{"splice": {"at": 0, "insert": "XX "}}]})
@@ -58,9 +58,18 @@ def test_a_stale_base_rebases_over_the_change_since():
     assert receipt["rebased"] is True
     assert doc.read()["anchors"] == [{"id": "a1", "start": 9, "end": 14}]
     doc.apply({"steps": [{"splice": {"at": 9, "delete": "w", "insert": "W"}}]})
+    assert doc.apply({"steps": [{"splice": {"at": 6, "delete": "world", "insert": "there"}}]}, base=base)["rebased"] is True
+
+    block = doc.read()["blocks"][0]["id"]
+
+    def heading(level):
+        return {"steps": [{"setBlock": {"id": block, "kind": "heading", "attrs": {"level": level}}}]}
+
+    read = doc.hash_at()
+    doc.apply(heading(2))
     with raises_edit_code("edit::rebase_conflict") as err:
-        doc.apply({"steps": [{"splice": {"at": 6, "delete": "world", "insert": "there"}}]}, base=base)
-    assert err.value.diagnostics[0].args == {"current": doc.hash_at(), "step": 0, "reason": "deleted"}
+        doc.apply(heading(3), base=read)
+    assert err.value.diagnostics[0].args == {"current": doc.hash_at(), "step": 0, "reason": "changed"}
 
 
 def test_a_placeholder_is_minted_under_the_writers_actor():

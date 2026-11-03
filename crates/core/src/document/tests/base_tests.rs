@@ -107,15 +107,16 @@ fn a_read_lands_the_writer_edit_beside_the_change_since_and_keeps_anchors() {
     assert_eq!(anchor_ids(card.body_lines()), ["c1"]);
     assert!(revised.dropped_anchors.is_empty());
 
-    let stored = card.body_lines().clone();
-    let err = card
+    let revised = card
         .revise_body_against(
             Base::Content(&base),
             "Alpha uno!\n\nBeta two.\n\nGamma three.",
         )
-        .unwrap_err();
-    assert_eq!(current_of(err), ("conflict", card.body_hash()));
-    assert_eq!(card.body_lines(), &stored);
+        .unwrap();
+    assert!(revised.rebased);
+    let text = card.body_lines().text.clone();
+    assert!(text.contains("uno!") && text.contains("edited") && text.contains("rewritten"), "{text}");
+    assert_eq!(anchor_ids(card.body_lines()), ["c1"]);
 }
 
 #[test]
@@ -149,8 +150,13 @@ fn a_text_field_merges_its_literal_text() {
     let mut w = TypedWriter::new(&config, &mut doc);
     let read = w.hash_of("note").unwrap();
     let _ = w.revise(crate::document::Target::from("note"), "x", None).unwrap();
+    let _ = w.revise(crate::document::Target::from("note"), "y", Some(Base::Hash(&read))).unwrap();
+    let note = doc.main().payload().get("note").unwrap().as_json().clone();
+    assert_eq!(crate::quill::text_of(&note), "yx");
+
+    let mut w = TypedWriter::new(&config, &mut doc);
     let err = w
-        .revise(crate::document::Target::from("note"), "y", Some(Base::Hash(&read)))
+        .revise(crate::document::Target::from("note"), "z", Some(Base::Hash("not-a-read")))
         .unwrap_err();
     assert_eq!(
         err.doc_path(&crate::path::DocPath::main())

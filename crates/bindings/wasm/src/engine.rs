@@ -323,10 +323,12 @@ export interface Delta {
  * What a `revise`'s writer read, its optional last argument. Name one or
  * neither; a key present with no value throws. `baseHash` is the hash the
  * writer read (`writer.hashAt`); `baseContent` is the value itself, the
- * `Content` `reader.getContent` returned. On a value that has moved on, the write rebases over the change
- * since and throws `edit::rebase_conflict` where the two touch. A `baseHash`
- * throws `edit::stale_base` where the log no longer reaches it; a
- * `baseContent` holds however long ago it was read. Each refusal's
+ * `Content` `reader.getContent` returned. On a value that has moved on, the write merges with the change
+ * since and throws `edit::rebase_conflict` where the two set one block record,
+ * container or island's props. A `baseHash` throws `edit::stale_base` where
+ * no write this document took left it, as for any base read before the
+ * document was loaded from storage; a `baseContent` holds however long ago it
+ * was read. Each refusal's
  * `args.current` is the hash now, and leaves the value unchanged.
  */
 export interface BaseOptions {
@@ -1593,7 +1595,7 @@ impl Document {
     /// `addr` from authored text, typed *and* anchor-preserving. The codec is
     /// the declared type's, the body's being `richtext`: `richtext` imports the
     /// markdown, `text` takes the literal text and drops nothing. The text is
-    /// diffed against the current value, surviving anchors rebase, and a field's
+    /// diffed against the current value, surviving anchors ride their text, and a field's
     /// result is schema-conformed, so a one-paragraph `richtext` field rejects a
     /// multi-block result with `edit::field_not_single_line`. Returns the
     /// `Receipt` a content write answers: `applied`, the change from the value
@@ -1604,8 +1606,9 @@ impl Document {
     /// card.
     ///
     /// `opts` names what the writer read (`BaseOptions`): a value that has
-    /// moved on from its `baseHash` or `baseContent` rebases the write over the
-    /// change since, throwing `edit::rebase_conflict` where the two touch.
+    /// moved on from its `baseHash` or `baseContent` merges the write with the
+    /// change since, throwing `edit::rebase_conflict` where the two set one
+    /// record.
     ///
     /// An undeclared name throws `edit::unknown_field`; an out-of-range card,
     /// a malformed field name, or an over-nested markdown input throws.

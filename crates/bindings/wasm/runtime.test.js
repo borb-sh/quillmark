@@ -200,7 +200,7 @@ card_kinds:
     ])
   })
 
-  it('a stale baseHash or baseContent rebases a revise, an unknown hash refuses, and a baseStored merges a document', () => {
+  it('a stale baseHash or baseContent merges a revise, an unknown hash refuses, and a baseStored merges a document', () => {
     const doc = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nAlpha.\n\nBeta.\n\nGamma.')
     const ed = buildQuill().writer(doc)
     const read = doc.toMarkdown(undefined, { annotated: true }).markdown
@@ -229,10 +229,7 @@ card_kinds:
     ])
     expect(ed.revise({}, 'Alpha.\n\nBeta, mine.\n\nGamma.', { baseContent: base }).rebased).toBe(true)
     expect(doc.toMarkdown({})).toBe('Alpha, edited.\n\nBeta, mine.\n\nGamma, rewritten.')
-    expectEditCode(
-      () => ed.revise({}, 'Alph!\n\nBeta.\n\nGamma.', { baseContent: base }),
-      'edit::rebase_conflict',
-    )
+    expect(ed.revise({}, 'Alph!\n\nBeta.\n\nGamma.', { baseContent: base }).rebased).toBe(true)
     expect(() => ed.reviseDocument(read, { baseHash: 'x', baseStored: stored })).toThrow(/not both/)
     expect(() => ed.revise({}, 'x', { baseHash: undefined })).toThrow(/baseHash must be given a value/)
   })

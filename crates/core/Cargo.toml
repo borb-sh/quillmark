@@ -18,6 +18,7 @@ publish = true
 # deltas, and markdown codecs. `core` depends on it for the storage/body content
 # type and the markdown-string normalizer; the parser (pulldown) it carries is
 # reachable only through the codecs, so no-feature `pkg/core` ships without it.
+quillmark-automerge = { workspace = true }
 quillmark-content = { workspace = true }
 serde = { workspace = true }
 serde-saphyr = { workspace = true }

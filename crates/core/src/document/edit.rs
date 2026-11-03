@@ -247,6 +247,11 @@ pub enum EditError {
     #[error("invalid actor '{0}': must be 1 to 57 of [A-Za-z0-9_-], opening with a letter or digit")]
     InvalidActor(String),
 
+    /// Bytes or a sync message the live Automerge document of a value does
+    /// not take.
+    #[error("the live document refuses the bytes: {0}")]
+    Automerge(String),
+
     /// A revise's [`Base`] refused the write.
     #[error(transparent)]
     Base(BaseError),
@@ -318,6 +323,7 @@ impl EditError {
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
             EditError::InvalidActor(_) => "edit::invalid_actor",
+            EditError::Automerge(_) => "edit::automerge",
             EditError::Base(e) => e.code(),
         }
     }
@@ -388,6 +394,7 @@ impl EditError {
                 "type" => kind,
             },
             EditError::InvalidActor(actor) => diag_args! { "actor" => actor },
+            EditError::Automerge(_) => diag_args! {},
             EditError::Base(e) => e.args(),
         }
     }
@@ -857,6 +864,40 @@ impl<'a> CardMut<'a> {
     /// [`Card::revise`].
     pub fn revise<'o>(&mut self, target: super::Target<'_>, markdown: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
         self.0.revise(target, markdown, opts)
+    }
+
+    /// [`Card::read_at`].
+    pub fn read_at(&mut self, target: super::Target<'_>, base: Option<&str>) -> Result<quillmark_content::model::Content, EditError> {
+        self.0.read_at(target, base)
+    }
+
+    /// [`Card::save`].
+    pub fn save(&mut self, target: super::Target<'_>) -> Result<Vec<u8>, EditError> {
+        self.0.save(target)
+    }
+
+    /// [`Card::load`].
+    pub fn load(&mut self, target: super::Target<'_>, bytes: &[u8]) -> Result<super::Receipt, EditError> {
+        self.0.load(target, bytes)
+    }
+
+    /// [`Card::generate_sync_message`].
+    pub fn generate_sync_message(
+        &mut self,
+        target: super::Target<'_>,
+        state: &mut quillmark_automerge::automerge::sync::State,
+    ) -> Result<Option<quillmark_automerge::automerge::sync::Message>, EditError> {
+        self.0.generate_sync_message(target, state)
+    }
+
+    /// [`Card::receive_sync_message`].
+    pub fn receive_sync_message(
+        &mut self,
+        target: super::Target<'_>,
+        state: &mut quillmark_automerge::automerge::sync::State,
+        message: quillmark_automerge::automerge::sync::Message,
+    ) -> Result<super::Receipt, EditError> {
+        self.0.receive_sync_message(target, state, message)
     }
 
     /// [`Card::replace`].
@@ -1489,17 +1530,11 @@ impl Card {
     /// [`revise`](Self::revise) builds it, landed nowhere.
     fn revision(
         &self,
-        target: super::Target<'_>,
         before: &quillmark_content::model::Content,
         markdown: &str,
     ) -> Result<quillmark_content::diff::Revision, EditError> {
-        quillmark_content::diff::revise(before, markdown).map_err(|e| match e {
+        quillmark_automerge::revise(before, markdown).map_err(|e| match e {
             quillmark_content::diff::ReviseError::Import(e) => EditError::import(e),
-            quillmark_content::diff::ReviseError::Conflict(c) => EditError::Base(super::BaseError::rebase_conflict(
-                super::content_hash(before),
-                target.field().map(str::to_string),
-                &c,
-            )),
             quillmark_content::diff::ReviseError::Refused(e) => EditError::change(e),
         })
     }
@@ -1530,14 +1565,14 @@ impl Card {
                 Some(v) => Codec::Text.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Text, e))?,
             };
             before.codec = Codec::Text.content();
-            let revised = self.revision(target, &before, &text)?;
+            let revised = self.revision(&before, &text)?;
             let stored = QuillValue::from_json(revised.content.to_value());
             return self.revising(target, Vec::new(), |card| {
                 card.payload_mut().insert(name.to_string(), stored).map(|_| ()).map_err(EditError::InvalidPayload)
             });
         }
         let before = self.richtext_value(name)?;
-        let revised = self.revision(target, &before, &body.into())?;
+        let revised = self.revision(&before, &body.into())?;
         super::write::keeps_ext_islands(&before, &revised.content)?;
         let (stored, _) = resolve_field_write(
             name,

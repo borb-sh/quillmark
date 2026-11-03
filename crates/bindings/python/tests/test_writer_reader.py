@@ -154,8 +154,8 @@ def test_writer_revise_document():
     assert doc.to_markdown() == before
 
 
-def test_a_base_rebases_a_stale_revise_and_merges_a_read():
-    """base_hash or base_content rebases a write onto a value changed since
+def test_a_base_merges_a_stale_revise_and_a_read():
+    """base_hash or base_content merges a write with a value changed since
     the read, and a base_hash refuses one it cannot reach, naming the hash
     now; base_stored merges a whole document."""
     quill = richtext_quill()

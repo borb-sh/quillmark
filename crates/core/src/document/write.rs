@@ -3,15 +3,20 @@
 //! [`Card::write`] lands an [`Edit`] on a body or a richtext field and
 //! answers a [`Receipt`]: a [`Change`], or one built from a structural edit, a
 //! writer's markdown or a whole value. Each takes the hash its writer read as
-//! [`WriteOptions::base`]. A base the value has moved on from rebases the
-//! write over what changed since, which the card's change log holds; a write
-//! that conflicts with it is refused with `edit::rebase_conflict`, and a base
-//! the log no longer reaches with `edit::stale_base`.
+//! [`WriteOptions::base`]. Each value a card writes keeps a live Automerge
+//! document beside it, and a base the value has moved on from lowers the
+//! write at the heads that base was left at and merges it with what changed
+//! since. A write that sets a record or island props a change since also
+//! set is refused with `edit::rebase_conflict`, and a base no heads reach
+//! with `edit::stale_base`.
 
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
-use quillmark_content::change::{self, Change, Dropped, Moved, RebaseError, Step};
+use quillmark_automerge::Held;
+use quillmark_automerge::automerge::ChangeHash;
+use quillmark_automerge::automerge::sync;
+use quillmark_content::change::{self, Change, Dropped, Moved, Step};
 use quillmark_content::diff;
 use quillmark_content::structural::{StructuralEdit, Wrap};
 use quillmark_content::ids::is_actor;
@@ -76,7 +81,7 @@ impl<'a> From<Option<&'a str>> for Target<'a> {
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct WriteOptions<'a> {
     /// What the writer read, which a write over a value that has moved on
-    /// rebases from.
+    /// merges from.
     pub base: Option<Base<'a>>,
     /// Who writes, scoping each id the write mints: `{actor}:{prefix}{n}`
     /// where it is given, `{prefix}{n}` where not. A live client passes one
@@ -137,12 +142,11 @@ pub struct Receipt {
     /// The markdown import's warnings, for a revise.
     pub warnings: Vec<ImportWarning>,
     /// The base was a value the field had moved on from, and the write was
-    /// rebased over what changed since, or, for a writer's revise under its
-    /// markdown read, merged with it.
+    /// merged with what changed since.
     pub rebased: bool,
     /// Each placeholder the change gave a record it put, and the id the
-    /// write minted for it past every id the value it landed on, the value
-    /// its base named and the writes since hold.
+    /// write minted for it past every id the value it landed on and the
+    /// value its base named hold.
     pub minted: BTreeMap<String, String>,
     counted: Counted,
 }
@@ -269,11 +273,12 @@ impl Card {
     }
 
     /// Land `edit` on the value at `target`, all of it or none. A base the
-    /// value has moved on from rebases the edit's change over what changed
-    /// since; a revise or replace diffs from the value the base names, so what
-    /// changed since is rebased over rather than undone, and is refused where
-    /// it would drop an `x-` island. Each id it mints is minted under the
-    /// options' actor where one is given.
+    /// value has moved on from merges the edit's change, made on the value
+    /// the base names, with what changed since; a revise or replace diffs
+    /// from the value the base names, so what changed since is merged with
+    /// rather than undone, and is refused where it would drop an `x-` island.
+    /// Each id it mints is minted under the options' actor where one is
+    /// given, and the live document takes the write under that actor.
     pub fn write<'o>(&mut self, target: Target<'_>, edit: Edit<'_>, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
         self.write_with(target, edit, opts.into(), None::<units::Scalars>)
     }
@@ -292,9 +297,8 @@ impl Card {
         if let Some(actor) = opts.actor.filter(|a| !is_actor(a)) {
             return Err(EditError::InvalidActor(actor.to_string()));
         }
-        let read = self.reading(target, opts.base)?;
-        let since = read.since.as_ref().map(|since| &since.change);
-        let fill = |change: &Change| mint::fill(change, &[read.read(), &read.now], since, opts.actor).map_err(EditError::change);
+        let read = self.reading(target, opts.base, opts.actor)?;
+        let fill = |change: &Change| mint::fill(change, &[read.read(), &read.now], opts.actor).map_err(EditError::change);
         let mut minted = BTreeMap::new();
         let (change, warnings, diffed) = match edit {
             Edit::Apply(change) => {
@@ -315,19 +319,12 @@ impl Card {
                 (filled.change, Vec::new(), false)
             }
             Edit::Revise(markdown) => {
-                let revision = diff::revise_keeping(read.read(), markdown, &read.now).map_err(|e| match e {
+                let revision = quillmark_automerge::revise_keeping(read.read(), markdown, &read.now).map_err(|e| match e {
                     diff::ReviseError::Import(e) => EditError::import(e),
-                    diff::ReviseError::Conflict(c) => {
-                        EditError::Base(BaseError::rebase_conflict(
-                            read.hash.clone().unwrap_or_else(|| self.hash_now(target, &read.now)),
-                            target.field().map(str::to_string),
-                            &c,
-                        ))
-                    }
                     diff::ReviseError::Refused(e) => EditError::change(e),
                 })?;
                 let change = match opts.actor {
-                    Some(actor) => mint::remint(&revision.change, read.read(), None, &[read.read(), &read.now], since, actor),
+                    Some(actor) => mint::remint(&revision.change, read.read(), None, &[read.read(), &read.now], actor),
                     None => revision.change,
                 };
                 (change, revision.warnings, true)
@@ -335,28 +332,93 @@ impl Card {
             Edit::Replace(content) => {
                 let change = diff::replace_holding(read.read(), &content, &read.now).map_err(|e| EditError::change(e.into()))?;
                 let change = match opts.actor {
-                    Some(actor) => mint::remint(&change, read.read(), Some(&content), &[read.read(), &read.now], since, actor),
+                    Some(actor) => mint::remint(&change, read.read(), Some(&content), &[read.read(), &read.now], actor),
                     None => change,
                 };
                 (change, Vec::new(), true)
             }
         };
-        let change = match &read.since {
-            None => change,
-            Some(since) => read.rebase(target, since, &change)?,
+        let Some(since) = &read.since else {
+            let (mut applied, trace) = change::apply_traced(&read.now, &change).map_err(EditError::change)?;
+            if diffed {
+                keeps_ext_islands(&read.now, &applied.content)?;
+                applied.dropped = change::lost_anchors(&read.now, &applied.content, |_| true);
+            }
+            let shown = match u {
+                Some(u) => units::change_from_scalars(&applied.applied, &read.now, u).map_err(EditError::change)?,
+                None => applied.applied.clone(),
+            };
+            let hash = self.land(target, read, applied.content, Lowering::Trace(&trace), opts.actor)?;
+            return Ok(Receipt { applied: shown, hash, dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, rebased: false, minted, counted: Counted::Host });
         };
-        let mut applied = change::apply(&read.now, &change).map_err(EditError::change)?;
-        if diffed {
-            keeps_ext_islands(&read.now, &applied.content)?;
-            applied.dropped = change::lost_anchors(&read.now, &applied.content, |_| true);
+        let current = read.hash.clone().unwrap_or_default();
+        if let Some(c) = quillmark_automerge::conflict(since.base(), &read.now, &change) {
+            return Err(EditError::Base(BaseError::rebase_conflict(current, target.field().map(str::to_string), &c)));
         }
-        let shown = match u {
-            Some(u) => units::change_from_scalars(&applied.applied, &read.now, u).map_err(EditError::change)?,
-            None => applied.applied.clone(),
+        let merge = self.merged(target, &read, &change)?;
+        let landed = (|| {
+            let to_merge = diff::diff(&read.now, &merge.content).map_err(|e| EditError::change(e.into()))?;
+            let (applied, trace) = change::apply_traced(&read.now, &to_merge).map_err(EditError::change)?;
+            if diffed {
+                keeps_ext_islands(&read.now, &applied.content)?;
+            }
+            let shown = match u {
+                Some(u) => units::change_from_scalars(&applied.applied, &read.now, u).map_err(EditError::change)?,
+                None => applied.applied.clone(),
+            };
+            Ok((applied, trace, shown))
+        })();
+        let (applied, trace, shown) = match landed {
+            Ok(landed) => landed,
+            Err(e) => {
+                if merge.lowered {
+                    self.live.forget(target, &read.now, &current);
+                }
+                return Err(e);
+            }
         };
-        let rebased = read.since.is_some();
-        let hash = self.land(target, read, applied.content, applied.applied)?;
-        Ok(Receipt { applied: shown, hash, dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, rebased, minted, counted: Counted::Host })
+        let dropped = change::lost_anchors(&read.now, &applied.content, |id| diffed || !merge.removed.contains(id));
+        let lowering = match (merge.lowered, applied.content == merge.content) {
+            (false, _) => Lowering::Trace(&trace),
+            (true, true) => Lowering::Done,
+            (true, false) => Lowering::Sync,
+        };
+        let hash = self.land(target, read, applied.content, lowering, opts.actor)?;
+        Ok(Receipt { applied: shown, hash, dropped_anchors: dropped, moved_anchors: applied.moved, warnings, rebased: true, minted, counted: Counted::Host })
+    }
+
+    /// `change`, made from the value its base names, merged with what
+    /// changed since: lowered on the fork of the live document at the heads
+    /// the base was left at and merged back, the document reading as the
+    /// merge, repairs written back; for a base the live document never held,
+    /// merged with the diff from it to the value now, landing nowhere yet.
+    fn merged(&mut self, target: Target<'_>, read: &Reading, change: &Change) -> Result<Merged, EditError> {
+        let since = read.since.as_ref().expect("a merge reads an earlier value");
+        let (mine, trace) = change::apply_traced(since.base(), change).map_err(EditError::change)?;
+        let removed: HashSet<String> = change::lost_anchors(since.base(), &mine.content, |_| true)
+            .into_iter()
+            .map(|d| d.context.id)
+            .filter(|id| !mine.dropped.iter().any(|d| &d.context.id == id))
+            .collect();
+        match since {
+            Since::Heads { fork, .. } => {
+                let hash = read.hash.as_deref().unwrap_or_default();
+                let mut fork = fork.clone();
+                fork.write(&trace, &mine.content);
+                let live = self.live.at(target, &read.now, hash);
+                live.held.merge(&mut fork).map_err(|e| EditError::Automerge(e.to_string()))?;
+                let merged = live.held.read();
+                if !merged.repairs.is_empty() {
+                    live.held.sync_to(&merged.content);
+                }
+                Ok(Merged { content: merged.content, removed, lowered: true })
+            }
+            Since::Content { base } => {
+                let theirs = diff::diff(base, &read.now).map_err(|e| EditError::change(e.into()))?;
+                let merged = quillmark_automerge::merge3(base, change, &theirs).map_err(EditError::change)?;
+                Ok(Merged { content: merged.content, removed, lowered: false })
+            }
+        }
     }
 
     /// [`revise`](Self::revise) with no base, its receipt counted in scalars
@@ -376,8 +438,9 @@ impl Card {
 
     /// Run `write`, which stores a new value at `target`, and answer its
     /// receipt: the change from the value before to the value after, in
-    /// scalars, logged as a write through [`write`](Self::write) logs its own,
-    /// so a later write naming the hash before rebases over it.
+    /// scalars, lowered into the live document as a write through
+    /// [`write`](Self::write) lowers its own, so a later write naming the
+    /// hash before merges with it.
     pub(crate) fn revising(
         &mut self,
         target: Target<'_>,
@@ -389,13 +452,16 @@ impl Card {
         write(self)?;
         let after = self.read(target)?;
         let change = diff::diff(&before, &after).map_err(|e| EditError::change(e.into()))?;
-        let applied = change::apply(&before, &change).map_err(EditError::change)?;
+        let (applied, trace) = change::apply_traced(&before, &change).map_err(EditError::change)?;
         let dropped_anchors = change::lost_anchors(&before, &after, |_| true);
         let hash = self.hash_now(target, &after);
-        let before = Arc::new(before);
         if hash != before_hash {
-            self.log.record(target, before_hash, Content::clone(&before), applied.applied.clone(), hash.clone());
+            let live = self.live.at(target, &before, &before_hash);
+            live.held.set_actor(None);
+            live.held.write(&trace, &after);
+            live.wrote(hash.clone());
         }
+        let before = Arc::new(before);
         Ok(Receipt {
             applied: applied.applied,
             hash,
@@ -409,18 +475,20 @@ impl Card {
     }
 
     /// The value the hash `base` names at `target`: the value now, where
-    /// `base` is absent or its hash, or the value the card's log holds for an
-    /// earlier hash. Refused with `edit::stale_base` where the log reaches no
-    /// value that hashes to `base`.
-    pub fn read_at(&self, target: Target<'_>, base: Option<&str>) -> Result<Content, EditError> {
-        let read = self.reading(target, base.map(Base::Hash))?;
+    /// `base` is absent or its hash, or the value the live document reads as
+    /// at the heads a write left that hash at. Refused with
+    /// `edit::stale_base` where no heads reach a value that hashes to `base`.
+    pub fn read_at(&mut self, target: Target<'_>, base: Option<&str>) -> Result<Content, EditError> {
+        let read = self.reading(target, base.map(Base::Hash), None)?;
         Ok(match read.since {
-            Some(since) => since.base,
+            Some(Since::Heads { base, .. } | Since::Content { base }) => base,
             None => read.now,
         })
     }
 
-    fn reading(&self, target: Target<'_>, base: Option<Base<'_>>) -> Result<Reading, EditError> {
+    /// The value a write under `base` by `actor` reads now, and the earlier
+    /// value its base names, with the fork the write lowers on.
+    fn reading(&mut self, target: Target<'_>, base: Option<Base<'_>>, actor: Option<&str>) -> Result<Reading, EditError> {
         let now = self.read(target)?;
         let Some(base) = base else {
             return Ok(Reading { now, hash: None, since: None });
@@ -429,15 +497,16 @@ impl Card {
         let since = match base {
             Base::Hash(read) if read == hash => None,
             Base::Hash(read) => {
-                let since = self.log.since(target, read, &hash);
+                let since = self.live.read_at(target, &now, &hash, read, actor);
                 let stale = || BaseError::Stale { current: hash.clone(), field: target.field().map(str::to_string) };
                 Some(since.ok_or_else(|| EditError::Base(stale()))?)
             }
             Base::Content(read) if *read == now => None,
-            Base::Content(read) => {
-                let change = diff::diff(read, &now).map_err(|e| EditError::change(e.into()))?;
-                Some(Since { base: read.clone(), change })
-            }
+            Base::Content(read) => Some(
+                self.live
+                    .read_at(target, &now, &hash, &content_hash(read), actor)
+                    .unwrap_or_else(|| Since::Content { base: read.clone() }),
+            ),
         };
         Ok(Reading { now, hash: Some(hash), since })
     }
@@ -453,8 +522,8 @@ impl Card {
     }
 
     /// Store `content` at `target`, where it differs from the value read,
-    /// log `applied` as the change that made it, and answer its hash.
-    fn land(&mut self, target: Target<'_>, read: Reading, content: Content, applied: Change) -> Result<String, EditError> {
+    /// bring the live document to it as `lowering` says, and answer its hash.
+    fn land(&mut self, target: Target<'_>, read: Reading, content: Content, lowering: Lowering<'_>, actor: Option<&str>) -> Result<String, EditError> {
         let Reading { now: before, hash: before_hash, .. } = read;
         let before_hash = before_hash.unwrap_or_else(|| self.hash_now(target, &before));
         let (hash, value) = match target {
@@ -464,17 +533,98 @@ impl Card {
                 (super::base::digest(&value), Some(value))
             }
         };
+        let live = self.live.at(target, &before, &before_hash);
+        live.held.set_actor(actor);
+        match lowering {
+            Lowering::Trace(trace) => live.held.write(trace, &content),
+            Lowering::Sync => {
+                live.held.sync_to(&content);
+            }
+            Lowering::Done => {}
+        }
+        live.wrote(hash.clone());
         if hash != before_hash {
             match (target, value) {
                 (Target::Field(name), Some(value)) => {
-                    self.payload_mut().insert(name.to_string(), QuillValue::from_json(value)).map_err(EditError::InvalidPayload)?;
+                    if let Err(e) = self.payload_mut().insert(name.to_string(), QuillValue::from_json(value)) {
+                        self.live.forget(target, &before, &before_hash);
+                        return Err(EditError::InvalidPayload(e));
+                    }
                 }
                 _ => self.set_body(content),
             }
-            self.log.record(target, before_hash, before, applied, hash.clone());
         }
         self.remember_hash(target.field(), hash.clone());
         Ok(hash)
+    }
+
+    /// The live document of the value at `target`, as Automerge bytes: made
+    /// from the value where no write has made it yet.
+    pub fn save(&mut self, target: Target<'_>) -> Result<Vec<u8>, EditError> {
+        let now = self.read(target)?;
+        let hash = self.hash_now(target, &now);
+        Ok(self.live.at(target, &now, &hash).held.save())
+    }
+
+    /// Replace the live document of the value at `target` with the one
+    /// `bytes` hold, and store what it reads as there: the receipt of a
+    /// write from the value before. The document keeps the history the bytes
+    /// hold, for a sync to read, but notes no heads before the load, so a
+    /// base read before it is stale; a repair its merged state needs is
+    /// written back.
+    pub fn load(&mut self, target: Target<'_>, bytes: &[u8]) -> Result<Receipt, EditError> {
+        let held = Held::load(bytes).map_err(|e| EditError::Automerge(e.to_string()))?;
+        self.taking(target, |live| {
+            live.held = held;
+            live.heads.clear();
+            Ok(())
+        })
+    }
+
+    /// The next message of the Automerge sync protocol from the live
+    /// document at `target` to the peer `state` tracks, `None` where the
+    /// peer holds everything.
+    pub fn generate_sync_message(&mut self, target: Target<'_>, state: &mut sync::State) -> Result<Option<sync::Message>, EditError> {
+        let now = self.read(target)?;
+        let hash = self.hash_now(target, &now);
+        Ok(self.live.at(target, &now, &hash).held.generate_sync_message(state))
+    }
+
+    /// Take a message of the Automerge sync protocol from the peer `state`
+    /// tracks into the live document at `target`, and store what it reads as
+    /// then: the receipt of a write from the value before.
+    pub fn receive_sync_message(&mut self, target: Target<'_>, state: &mut sync::State, message: sync::Message) -> Result<Receipt, EditError> {
+        self.taking(target, |live| live.held.receive_sync_message(state, message).map_err(|e| EditError::Automerge(e.to_string())))
+    }
+
+    /// Run `take` on the live document at `target`, then store what the
+    /// document reads as, repairs written back.
+    fn taking(&mut self, target: Target<'_>, take: impl FnOnce(&mut Live) -> Result<(), EditError>) -> Result<Receipt, EditError> {
+        let before = self.read(target)?;
+        let before_hash = self.hash_now(target, &before);
+        let live = self.live.at(target, &before, &before_hash);
+        take(live)?;
+        let read = live.held.read();
+        if !read.repairs.is_empty() {
+            live.held.set_actor(None);
+            live.held.sync_to(&read.content);
+        }
+        let reading = Reading { now: before.clone(), hash: Some(before_hash), since: None };
+        let change = diff::diff(&before, &read.content).map_err(|e| EditError::change(e.into()))?;
+        let applied = change::apply(&before, &change).map_err(EditError::change)?;
+        let lowering = if applied.content == read.content { Lowering::Done } else { Lowering::Sync };
+        let dropped_anchors = change::lost_anchors(&before, &applied.content, |_| true);
+        let hash = self.land(target, reading, applied.content, lowering, None)?;
+        Ok(Receipt {
+            applied: applied.applied,
+            hash,
+            dropped_anchors,
+            moved_anchors: applied.moved,
+            warnings: Vec::new(),
+            rebased: false,
+            minted: BTreeMap::new(),
+            counted: Counted::Content(Arc::new(before)),
+        })
     }
 }
 
@@ -502,8 +652,8 @@ pub(crate) fn keeps_ext_islands(before: &Content, after: &Content) -> Result<(),
     }
 }
 
-/// The value a write reads now and its hash, and where its base is an earlier
-/// hash the log reaches, what changed since.
+/// The value a write reads now and its hash, and where its base names an
+/// earlier value, that value.
 struct Reading {
     now: Content,
     /// Hashed only where a base asks for it.
@@ -511,41 +661,54 @@ struct Reading {
     since: Option<Since>,
 }
 
-/// The value a base names, and the change from it to the value now.
-struct Since {
-    base: Content,
-    change: Change,
+/// The earlier value a base names.
+enum Since {
+    /// Read on the fork of the live document at the heads a write left its
+    /// hash at, which the write lowers on.
+    Heads { base: Content, fork: Box<Held> },
+    /// A value the live document never held, which a base gave whole.
+    Content { base: Content },
+}
+
+impl Since {
+    fn base(&self) -> &Content {
+        match self {
+            Since::Heads { base, .. } | Since::Content { base } => base,
+        }
+    }
 }
 
 impl Reading {
     /// The value the writer read.
     fn read(&self) -> &Content {
-        self.since.as_ref().map_or(&self.now, |since| &since.base)
-    }
-
-    /// `change`, made from the value `since` names, rebased over the change
-    /// since: a conflict refused with `edit::rebase_conflict`.
-    fn rebase(&self, target: Target<'_>, since: &Since, change: &Change) -> Result<Change, EditError> {
-        change::rebase(&since.base, change, &since.change).map_err(|e| match e {
-            RebaseError::Apply(e) => EditError::change(e),
-            RebaseError::Conflict(c) => EditError::Base(BaseError::rebase_conflict(self.hash.clone().unwrap_or_default(), target.field().map(str::to_string), &c)),
-        })
+        self.since.as_ref().map_or(&self.now, Since::base)
     }
 }
 
-/// The steps, nested ones counted, a card's log reaches back for one value.
-/// A base rebases while the writes since it hold at most this many steps,
-/// and the base the newest write read rebases however many that write
-/// holds. The log holds at most twice this many steps, or the newest write
-/// alone where it holds more.
-pub const LOG_STEPS: usize = 4096;
+/// A write's change merged with what changed since its base.
+struct Merged {
+    content: Content,
+    /// Each anchor the write's own `anchor` steps removed.
+    removed: HashSet<String>,
+    /// The live document holds the merge already.
+    lowered: bool,
+}
+
+/// How [`Card::land`] brings the live document to the value it stores.
+enum Lowering<'a> {
+    /// The change's trace, lowered from the value read.
+    Trace(&'a [change::Trace]),
+    /// A diff from what the document reads as.
+    Sync,
+    /// The document reads as it already.
+    Done,
+}
 
 /// The steps one change a host writes may hold, nested ones counted. Each
-/// step is applied, mapped through a rebase and logged on its own, and a
-/// rebase maps each over every step before it, so a change past this is
-/// refused before any of that runs; a writer splits a larger edit into
-/// several changes.
-pub const MAX_CHANGE_STEPS: usize = 4 * LOG_STEPS;
+/// step is applied and lowered into the live document on its own, so a
+/// change past this is refused before any of that runs; a writer splits a
+/// larger edit into several changes.
+pub const MAX_CHANGE_STEPS: usize = 16384;
 
 /// Refuses a change of more than [`MAX_CHANGE_STEPS`] steps, as
 /// [`EditError::TooManySteps`]. Every [`Card::write`] of a change runs it,
@@ -583,41 +746,93 @@ pub fn check_content_value(v: &serde_json::Value) -> Result<(), EditError> {
     }
 }
 
-/// A card's recent writes, per value it holds, in memory only: no store,
-/// hash or comparison sees it. Per value it holds one snapshot, the value
-/// its oldest write wrote over, and for each write the change in its
-/// normalized form and the hash it left, so a write whose base is a hash it
-/// holds rebases over the changes since. A write the log did not see breaks
-/// the chain, and the log forgets what came before it. A write that takes
-/// it past twice [`LOG_STEPS`] folds its oldest writes into the snapshot,
-/// never the newest, until it holds at most [`LOG_STEPS`].
+/// Each value's live Automerge document, made on the first write to it, in
+/// memory only: no store, hash or comparison sees it. A document loaded from
+/// storage has none, so a base it names that is not the value now reaches no
+/// heads.
 #[derive(Clone, Default)]
-pub(crate) struct ChangeLog {
-    targets: Vec<(Option<String>, Track)>,
+pub(crate) struct Values {
+    values: Vec<(Option<String>, Live)>,
 }
 
+/// One value's live document, the hash of the value it reads as, and the
+/// heads at which each hash a write left reads, the latest write's for a
+/// hash two writes left.
 #[derive(Clone)]
-struct Track {
-    floor: Arc<Content>,
-    floor_hash: String,
-    entries: VecDeque<Arc<Entry>>,
-    steps: usize,
+pub(crate) struct Live {
+    held: Held,
+    hash: String,
+    heads: HashMap<String, Vec<ChangeHash>>,
 }
 
-struct Entry {
-    applied: Change,
-    after_hash: String,
-}
-
-impl PartialEq for ChangeLog {
+impl PartialEq for Values {
     fn eq(&self, _: &Self) -> bool {
         true
     }
 }
 
-impl std::fmt::Debug for ChangeLog {
+impl std::fmt::Debug for Values {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("ChangeLog")
+        f.write_str("Values")
+    }
+}
+
+impl Live {
+    /// Note the heads the document is at as where `hash` reads.
+    fn wrote(&mut self, hash: String) {
+        self.heads.insert(hash.clone(), self.held.heads());
+        self.hash = hash;
+    }
+}
+
+impl Values {
+    fn position(&self, target: Target<'_>) -> Option<usize> {
+        let key = target.field();
+        self.values.iter().position(|(k, _)| k.as_deref() == key)
+    }
+
+    /// The live document of `target`, reading as `now`, which hashes to
+    /// `hash`: made from it where none is, and brought to it by a diff where
+    /// a write the document did not see moved the value on.
+    fn at(&mut self, target: Target<'_>, now: &Content, hash: &str) -> &mut Live {
+        let k = match self.position(target) {
+            Some(k) => k,
+            None => {
+                let mut live = Live { held: Held::new(now), hash: String::new(), heads: HashMap::new() };
+                live.wrote(hash.to_string());
+                self.values.push((target.field().map(str::to_string), live));
+                self.values.len() - 1
+            }
+        };
+        let live = &mut self.values[k].1;
+        if live.hash != hash {
+            live.held.set_actor(None);
+            live.held.sync_to(now);
+            live.wrote(hash.to_string());
+        }
+        live
+    }
+
+    /// The value `base` names at `target`, read on a fork for `actor` at
+    /// the heads a write left it at, where it hashes to `base` there.
+    fn read_at(&mut self, target: Target<'_>, now: &Content, hash: &str, base: &str, actor: Option<&str>) -> Option<Since> {
+        self.position(target)?;
+        let live = self.at(target, now, hash);
+        let heads = live.heads.get(base)?.clone();
+        let fork = live.held.fork_at(&heads, actor).ok()?;
+        let read = fork.read().content;
+        (super::base::content_hash(&read) == base).then(|| Since::Heads { base: read, fork: Box::new(fork) })
+    }
+
+    /// Bring the live document of `target` back to `now` after a write that
+    /// lowered into it and then failed.
+    fn forget(&mut self, target: Target<'_>, now: &Content, hash: &str) {
+        if let Some(k) = self.position(target) {
+            let live = &mut self.values[k].1;
+            live.held.set_actor(None);
+            live.held.sync_to(now);
+            live.wrote(hash.to_string());
+        }
     }
 }
 
@@ -630,125 +845,4 @@ fn steps_in(change: &Change) -> usize {
             _ => 1,
         })
         .sum()
-}
-
-/// `changes` as one change, composed by halves so each step is copied once
-/// per level rather than once per change after it.
-fn composed(changes: &[&Change]) -> Change {
-    match changes {
-        [] => Change::default(),
-        [one] => (*one).clone(),
-        _ => {
-            let (head, tail) = changes.split_at(changes.len() / 2);
-            change::compose(&composed(head), &composed(tail))
-        }
-    }
-}
-
-impl Track {
-    fn new(before_hash: String, before: Content) -> Self {
-        Track { floor: Arc::new(before), floor_hash: before_hash, entries: VecDeque::new(), steps: 0 }
-    }
-
-    /// The hash write `k` read.
-    fn read(&self, k: usize) -> &str {
-        match k {
-            0 => &self.floor_hash,
-            _ => &self.entries[k - 1].after_hash,
-        }
-    }
-
-    fn changes(&self, range: impl std::ops::RangeBounds<usize>) -> Change {
-        composed(&self.entries.range(range).map(|e| &e.applied).collect::<Vec<_>>())
-    }
-
-    /// The value write `k` read: the snapshot, with the writes before it
-    /// applied as one change.
-    fn value_read(&self, k: usize) -> Option<Content> {
-        match k {
-            0 => Some(Content::clone(&self.floor)),
-            _ => change::apply(&self.floor, &self.changes(..k)).ok().map(|a| a.content),
-        }
-    }
-
-    /// Fold the oldest writes into the snapshot once the track holds more
-    /// than twice [`LOG_STEPS`], so a fold, one apply over the value, comes
-    /// at most once per [`LOG_STEPS`] steps written, or right after a write
-    /// that alone holds more. `false` where the fold does not apply, and the
-    /// track is to be forgotten.
-    fn fold(&mut self) -> bool {
-        if self.steps <= 2 * LOG_STEPS {
-            return true;
-        }
-        let (mut k, mut steps) = (0, self.steps);
-        while k + 1 < self.entries.len() && steps > LOG_STEPS {
-            steps -= steps_in(&self.entries[k].applied);
-            k += 1;
-        }
-        if k == 0 {
-            return true;
-        }
-        let Ok(folded) = change::apply(&self.floor, &self.changes(..k)) else { return false };
-        self.floor = Arc::new(folded.content);
-        self.floor_hash = self.read(k).to_string();
-        self.entries.drain(..k);
-        self.steps = steps;
-        true
-    }
-}
-
-impl ChangeLog {
-    fn track(&self, target: Target<'_>) -> Option<&Track> {
-        let key = target.field();
-        self.targets.iter().find(|(k, _)| k.as_deref() == key).map(|(_, t)| t)
-    }
-
-    /// Log a write that read `before`, which hashes to `before_hash`, applied
-    /// `applied` and left `after_hash`.
-    fn record(
-        &mut self,
-        target: Target<'_>,
-        before_hash: String,
-        before: Content,
-        applied: Change,
-        after_hash: String,
-    ) {
-        let key = target.field();
-        let at = match self.targets.iter().position(|(k, _)| k.as_deref() == key) {
-            Some(at) => {
-                let track = &mut self.targets[at].1;
-                if track.read(track.entries.len()) != before_hash {
-                    *track = Track::new(before_hash, before);
-                }
-                at
-            }
-            None => {
-                self.targets.push((key.map(str::to_string), Track::new(before_hash, before)));
-                self.targets.len() - 1
-            }
-        };
-        let track = &mut self.targets[at].1;
-        track.steps += steps_in(&applied);
-        track.entries.push_back(Arc::new(Entry { applied, after_hash }));
-        if !track.fold() {
-            self.targets.remove(at);
-        }
-    }
-
-    /// The value `base` named at `target` and the change from it to the
-    /// value now, which hashes to `current`: from the latest write that read
-    /// `base` through the newest, when the newest left `current`. A value
-    /// rebuilt from the snapshot that does not hash to `base` reaches none.
-    fn since(&self, target: Target<'_>, base: &str, current: &str) -> Option<Since> {
-        let track = self.track(target)?;
-        if track.entries.back()?.after_hash != current {
-            return None;
-        }
-        let from = (0..track.entries.len()).rposition(|k| track.read(k) == base)?;
-        let read = track.value_read(from)?;
-        if content_hash(&read) != base {
-            return None;
-        }
-        Some(Since { base: read, change: track.changes(from..) })
-    }
 }

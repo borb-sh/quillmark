@@ -178,7 +178,7 @@ export type Step =
  * `warnings` holds a `parse::dropped_construct` per construct a revise's
  * markdown dropped.
  * `rebased` says the write's `base` was a value the field had moved on from,
- * and the write was rebased over what changed since. `minted` maps each
+ * and the write was merged with what changed since. `minted` maps each
  * placeholder the change gave a record it put to the id the write minted for
  * it; a structural edit's own are `"?0"`, `"?1"` and on, in the order it puts them.
  */
@@ -210,10 +210,11 @@ export interface DroppedAnchor extends AnchorContext {
     slot?: string;
 }
 
-/** `base` is the hash a writer read. A value that has changed since rebases
- *  the write over the change, refusing it with `edit::rebase_conflict` where
- *  the two touch the same text or record, and with `edit::stale_base` where
- *  the document no longer holds the change since. Pass it: a write without one
+/** `base` is the hash a writer read. A value that has changed since merges
+ *  the write with the change, refusing it with `edit::rebase_conflict` where
+ *  the two set one block record, container or island's props, and with
+ *  `edit::stale_base` where no write this document took left that hash, as
+ *  for any base read before it was loaded from storage. Pass it: a write without one
  *  lands over whatever the value now holds.
  *
  *  `actor` names the writer, one per live session: each id the write mints
@@ -583,10 +584,9 @@ impl Document {
     /// **Apply** `change` to the value at `addr`, all its steps or none, and
     /// answer the `Receipt`. `opts.base` is the hash the writer read
     /// (`hash(addr)`), and the change's offsets are into the value it names:
-    /// one the value has moved on from rebases the change over the change
-    /// since, throwing `edit::rebase_conflict` where they touch the same text or
-    /// record and `edit::stale_base` where the document no longer holds the change
-    /// since. A refused change throws `edit::content_apply` and writes
+    /// one the value has moved on from merges the change with the change
+    /// since, throwing `edit::rebase_conflict` where they set one record and
+    /// `edit::stale_base` where no write this document took left the hash. A refused change throws `edit::content_apply` and writes
     /// nothing.
     #[wasm_bindgen(js_name = apply, unchecked_return_type = "Receipt")]
     pub fn apply(

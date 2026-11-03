@@ -1,7 +1,7 @@
 use quillmark_content::change::{AnchorStep, Change, Splice, Step, apply, invert};
 use quillmark_content::model::{Anchor, Block, BlockKind};
 
-use crate::document::{Card, EditError, LOG_STEPS, Target};
+use crate::document::{Card, Document, EditError, Target};
 
 use super::parse;
 
@@ -47,17 +47,17 @@ fn type_keys(doc: &mut crate::document::Document, writes: impl IntoIterator<Item
         .collect()
 }
 
-/// A base read before a thousand keystrokes at two places rebases a write
+/// A base read before a thousand keystrokes at two places merges a write
 /// onto the text it read, and `read_at` answers the value it named, as does
 /// a base read halfway through.
 #[test]
-fn a_base_from_before_a_thousand_keystrokes_rebases() {
+fn a_base_from_before_a_thousand_keystrokes_merges() {
     let mut doc = parse(SOURCE);
     let base = doc.main().hash_of(Target::Body).unwrap();
     let hashes = type_keys(&mut doc, (0..500).chain(525..1025).map(|at| (at, 1)));
     let typed = "x".repeat(500);
-    assert_eq!(doc.main().read_at(Target::Body, Some(&base)).unwrap(), parse(SOURCE).main().read(Target::Body).unwrap());
-    assert_eq!(doc.main().read_at(Target::Body, Some(&hashes[499])).unwrap().text, format!("{typed}Revenue grew 12%.\nShip v2"));
+    assert_eq!(doc.main_mut().read_at(Target::Body, Some(&base)).unwrap(), parse(SOURCE).main().read(Target::Body).unwrap());
+    assert_eq!(doc.main_mut().read_at(Target::Body, Some(&hashes[499])).unwrap().text, format!("{typed}Revenue grew 12%.\nShip v2"));
     let receipt = doc
         .main_mut()
         .apply(Target::Body, &split_at(7, "b8"), Some(base.as_str()))
@@ -66,52 +66,41 @@ fn a_base_from_before_a_thousand_keystrokes_rebases() {
     assert_eq!(doc.main().body().text, format!("{typed}Revenue\ngrew 12%.\nShip v2{typed}"));
 }
 
-/// A write past twice `LOG_STEPS` folds the oldest writes into the log's
-/// snapshot: a base read before the latest `LOG_STEPS` steps refuses the
-/// write, which changes nothing, and one read at that bound still rebases
-/// from the folded snapshot. A refused change writes nothing.
+/// A document read from storage holds no history, so a base it was left at
+/// before the store reaches no heads and refuses the write, which changes
+/// nothing; a refused change writes nothing either.
 #[test]
-fn a_base_past_the_step_bound_or_a_refused_change_writes_nothing() {
-    const EACH: usize = 64;
+fn a_base_from_before_storage_or_a_refused_change_writes_nothing() {
     let mut doc = parse(SOURCE);
-    let hashes = type_keys(&mut doc, (0..=2 * LOG_STEPS / EACH).map(|_| (0, EACH)));
-    let read_at = hashes.len() - 1 - LOG_STEPS / EACH;
-    let (folded, reach) = (&hashes[read_at - 1], &hashes[read_at]);
-    let typed = (read_at + 1) * EACH;
-    let read = doc.main().read_at(Target::Body, Some(reach)).unwrap();
-    assert_eq!(read.text, format!("{}Revenue grew 12%.\nShip v2", "x".repeat(typed)));
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    type_keys(&mut doc, [(0, 3)]);
+    let mut doc = Document::from_stored(&serde_json::to_string(&doc).unwrap()).unwrap().document;
     let held = doc.clone();
     let err = doc
         .main_mut()
-        .apply(Target::Body, &split_at(7, "b8"), Some(folded.as_str()))
+        .apply(Target::Body, &split_at(7, "b8"), Some(base.as_str()))
         .unwrap_err();
     assert_eq!(err.code(), "edit::stale_base");
     let err = doc.main_mut().apply(Target::Body, &split_at(2, "b8"), None).unwrap_err();
     assert!(matches!(err, EditError::Change(_)), "{err:?}");
     assert_eq!(doc, held);
-    let receipt = doc
-        .main_mut()
-        .apply(Target::Body, &split_at(typed + 7, "b8"), Some(reach.as_str()))
-        .unwrap();
-    assert!(receipt.rebased);
-    assert_eq!(doc.main().body().text, format!("{}Revenue\ngrew 12%.\nShip v2", "x".repeat(hashes.len() * EACH)));
+    assert_eq!(doc.main().body().text, "xxxRevenue grew 12%.\nShip v2");
 }
 
-/// The newest write stays however many steps it holds, the writes before it
-/// folded into the snapshot, so a write from the base it read rebases over
-/// it.
+/// A base read before a write of more steps than a keystroke's thousands
+/// merges with it.
 #[test]
-fn the_newest_write_stays_past_the_step_bound() {
+fn a_base_merges_with_a_write_of_many_steps() {
     let mut doc = parse(SOURCE);
     type_keys(&mut doc, (0..3).map(|at| (at, 1)));
     let base = doc.main().hash_of(Target::Body).unwrap();
-    type_keys(&mut doc, [(0, 2 * LOG_STEPS + 1)]);
+    type_keys(&mut doc, [(0, 8193)]);
     let receipt = doc
         .main_mut()
         .apply(Target::Body, &split_at(10, "b8"), Some(base.as_str()))
         .unwrap();
     assert!(receipt.rebased);
-    assert_eq!(doc.main().body().text, format!("{}Revenue\ngrew 12%.\nShip v2", "x".repeat(2 * LOG_STEPS + 4)));
+    assert_eq!(doc.main().body().text, format!("{}Revenue\ngrew 12%.\nShip v2", "x".repeat(8196)));
 }
 
 /// A base the value has moved on from rebases the write over what changed
@@ -200,18 +189,31 @@ fn a_stale_replace_reusing_ids_introduced_since_lands_beside_them() {
     assert_eq!(quillmark_content::markdown::to_markdown(body), "Alpha[^1]\n\n- one\n\nGamma[^2]\n\n- two\n\n[^1]: first\n\n[^2]: second");
 }
 
-/// Two writers who rewrote the same text conflict, and the later one is
+/// Two writers who rewrote the same text both land, as Automerge merges
+/// them; two who set one block record conflict, and the later one is
 /// refused with the step that conflicts and why, writing nothing.
 #[test]
-fn overlapping_edits_refuse_with_a_rebase_conflict() {
+fn overlapping_text_merges_and_a_record_both_set_refuses() {
     let mut doc = parse(SOURCE);
     let base = doc.main().hash_of(Target::Body).unwrap();
     doc.main_mut().revise(Target::Body, "Revenue grew 15%.\n\nShip v2", None).unwrap();
+    let receipt = doc.main_mut().revise(Target::Body, "Revenue grew 14%.\n\nShip v2", Some(base.as_str())).unwrap();
+    assert!(receipt.rebased);
+    let text = doc.main().body().text.clone();
+    assert!(text.contains('4') && text.contains('5') && !text.contains("12"), "{text}");
+
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    let heading = |level: u8| {
+        Change::new(vec![Step::SetBlock(quillmark_content::change::SetBlock {
+            id: "b1".into(),
+            kind: Some("heading".into()),
+            attrs: serde_json::json!({ "level": level }).as_object().cloned(),
+            path: None,
+        })])
+    };
+    doc.main_mut().apply(Target::Body, &heading(2), None).unwrap();
     let held = doc.clone();
-    let err = doc
-        .main_mut()
-        .revise(Target::Body, "Revenue grew 14%.\n\nShip v2", Some(base.as_str()))
-        .unwrap_err();
+    let err = doc.main_mut().apply(Target::Body, &heading(3), Some(base.as_str())).unwrap_err();
     assert_eq!(err.code(), "edit::rebase_conflict");
     let args = err.args();
     assert_eq!(args["current"], serde_json::json!(doc.main().hash_of(Target::Body).unwrap()));
@@ -254,8 +256,8 @@ fn a_stale_write_keeps_a_record_changed_since_or_refuses() {
 
 /// A write mints from the value it lands on and the value its base names
 /// alone, so equal values take one write to equal bytes whatever the card's
-/// history; a stale step on the block it read refuses rather than landing on
-/// the paragraph minted since under its freed id.
+/// history; a stale step on the block it read lands on that block, gone
+/// since, rather than on the paragraph minted since under its freed id.
 #[test]
 fn a_write_mints_from_the_values_alone_and_a_stale_step_misses_a_freed_id() {
     let source = "~~~\n$quill: q\n~~~\n\nAlpha\n\nBeta\n\nGamma\n";
@@ -271,23 +273,23 @@ fn a_write_mints_from_the_values_alone_and_a_stale_step_misses_a_freed_id() {
     let ids: Vec<&str> = doc.main().body().blocks.iter().map(|b| b.id.as_str()).collect();
     assert_eq!(ids, ["b0", "b1", "b2"]);
 
-    let held = doc.clone();
-    let err = doc.main_mut().revise(Target::Body, "Alpha\n\nBeta\n\n## Gamma", Some(base.as_str())).unwrap_err();
-    assert_eq!((err.code(), err.args()["reason"].clone()), ("edit::rebase_conflict", serde_json::json!("missing")));
-    assert_eq!(doc, held);
+    let held = doc.main().body().clone();
+    doc.main_mut().revise(Target::Body, "Alpha\n\nBeta\n\n## Gamma", Some(base.as_str())).unwrap();
     let heading = Change::new(vec![Step::SetBlock(quillmark_content::change::SetBlock {
         id: "b2".into(),
         kind: Some("heading".into()),
         attrs: serde_json::json!({"level": 1}).as_object().cloned(),
         path: None,
     })]);
-    let err = doc.main_mut().apply(Target::Body, &heading, Some(base.as_str())).unwrap_err();
-    assert_eq!((err.code(), err.args()["reason"].clone()), ("edit::rebase_conflict", serde_json::json!("missing")));
-    assert_eq!(doc, held);
+    doc.main_mut().apply(Target::Body, &heading, Some(base.as_str())).unwrap();
+    let body = doc.main().body();
+    let delta = body.blocks.iter().position(|b| b.id == "b2").unwrap();
+    assert_eq!((&body.blocks[delta], body.block_texts()[delta].as_str()), (&held.blocks[2], "Delta"));
 }
 
 /// A live editor that deletes a block and mints its id again for a new one
-/// writes through `apply`; a stale step by that id refuses there too.
+/// writes through `apply`; a stale step by that id lands on the block it
+/// read, gone since, there too.
 #[test]
 fn a_stale_step_misses_an_id_a_live_editor_minted_again() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nalpha\n\nbravo\n\ncharlie\n");
@@ -303,11 +305,9 @@ fn a_stale_step_misses_an_id_a_live_editor_minted_again() {
         attrs: serde_json::json!({"level": 1}).as_object().cloned(),
         path: None,
     })]);
-    let err = doc.main_mut().apply(Target::Body, &heading, Some(base.as_str())).unwrap_err();
-    assert_eq!((err.code(), err.args()["reason"].clone()), ("edit::rebase_conflict", serde_json::json!("missing")));
-    let err = doc.main_mut().revise(Target::Body, "alpha\n\nbravo\n\n# charlie", Some(base.as_str())).unwrap_err();
-    assert_eq!(err.code(), "edit::rebase_conflict");
-    assert_eq!(doc, held);
+    doc.main_mut().apply(Target::Body, &heading, Some(base.as_str())).unwrap();
+    doc.main_mut().revise(Target::Body, "alpha\n\nbravo\n\n# charlie", Some(base.as_str())).unwrap();
+    assert_eq!(doc.main().body(), held.main().body());
 }
 
 /// A stale revise that moves a block another writer re-kinded since refuses
@@ -515,8 +515,8 @@ fn a_revise_with_the_annotated_read_keeps_what_markdown_cannot_spell() {
 }
 
 /// A revise that rewrites the text under what its read could not spell
-/// lands as written, and one that rewrites what the read re-spelled refuses
-/// with a rebase conflict rather than dropping it.
+/// lands as written, and one that rewrites what the read re-spelled lands
+/// merged with what the read lost.
 #[test]
 fn a_revise_over_what_its_read_could_not_spell_lands_as_written_or_conflicts() {
     let shape = |name: &str| unspelled().into_iter().find(|(n, _)| *n == name).unwrap().1;
@@ -529,11 +529,11 @@ fn a_revise_over_what_its_read_could_not_spell_lands_as_written_or_conflicts() {
 
     let mut doc = parse(SOURCE);
     doc.main_mut().replace(Target::Body, &shape("cell: two breaks"), None).unwrap();
-    let held = doc.clone();
     let read = quillmark_content::markdown::to_markdown_annotated(doc.main().body()).markdown;
-    let err = doc.main_mut().revise(Target::Body, &read.replace("a<br><br>b", "z"), None).unwrap_err();
-    assert_eq!(err.code(), "edit::rebase_conflict", "{read:?}");
-    assert_eq!(doc, held);
+    doc.main_mut().revise(Target::Body, &read.replace("a<br><br>b", "z"), None).unwrap();
+    let island = &doc.main().body().islands[0];
+    let cell = &island.slots[&island.slot_order()[1]].text;
+    assert!(cell.starts_with('z') && !cell.contains(['a', 'b']), "{cell:?}");
 }
 
 fn anchored(body: &str, anchors: &[(&str, &str)]) -> crate::document::Document {
@@ -689,4 +689,55 @@ fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
     let err = doc.main_mut().join_blocks(Target::Body, "b1", WriteOptions { base: None, actor: Some("a:b") }).unwrap_err();
     assert_eq!(err.code(), "edit::invalid_actor");
     assert_eq!(doc, held);
+}
+
+
+/// A stale write and a change since that each delete part of an anchor's
+/// text take it out together, and the receipt names it though neither alone
+/// dropped it.
+#[test]
+fn a_merge_names_an_anchor_two_deletions_took_out_together() {
+    let mut doc = anchored("Hello brave new world", &[("c-1", "brave new")]);
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(6, "brave ", ""))]), None).unwrap();
+    assert!(doc.main().body().anchor("c-1").is_some());
+    let receipt = doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(11, " new", ""))]), Some(base.as_str())).unwrap();
+    assert!(receipt.rebased);
+    assert_eq!(doc.main().body().text, "Hello  world");
+    assert_eq!(receipt.dropped_anchors.iter().map(|d| d.context.id.as_str()).collect::<Vec<_>>(), ["c-1"]);
+}
+
+/// A value's live document saves to bytes another document loads, where a
+/// base read before the load is stale and one read after it merges, and two
+/// documents synced by messages read as one value.
+#[test]
+fn a_live_document_saves_loads_and_syncs() {
+    use quillmark_automerge::automerge::sync::State;
+    let mut doc = parse(SOURCE);
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    type_keys(&mut doc, [(0, 2)]);
+    let bytes = doc.main_mut().save(Target::Body).unwrap();
+
+    let mut other = parse("~~~\n$quill: q\n~~~\n\nelse\n");
+    let receipt = other.main_mut().load(Target::Body, &bytes).unwrap();
+    assert_eq!(other.main().body(), doc.main().body());
+    assert_eq!(receipt.hash, doc.main().hash_of(Target::Body).unwrap());
+    let err = other.main_mut().apply(Target::Body, &split_at(7, "b8"), Some(base.as_str())).unwrap_err();
+    assert_eq!(err.code(), "edit::stale_base");
+    let loaded = other.main().hash_of(Target::Body).unwrap();
+    type_keys(&mut other, [(0, 1)]);
+    other.main_mut().apply(Target::Body, &split_at(9, "b8"), Some(loaded.as_str())).unwrap();
+    assert_eq!(other.main().body().text, "xxxRevenue\ngrew 12%.\nShip v2");
+
+    let (mut ours, mut theirs) = (State::new(), State::new());
+    for _ in 0..8 {
+        if let Some(m) = other.main_mut().generate_sync_message(Target::Body, &mut ours).unwrap() {
+            doc.main_mut().receive_sync_message(Target::Body, &mut theirs, m).unwrap();
+        }
+        if let Some(m) = doc.main_mut().generate_sync_message(Target::Body, &mut theirs).unwrap() {
+            other.main_mut().receive_sync_message(Target::Body, &mut ours, m).unwrap();
+        }
+    }
+    assert_eq!(doc.main().body(), other.main().body());
+    assert!(matches!(doc.main_mut().load(Target::Body, b"not a document"), Err(EditError::Automerge(_))));
 }

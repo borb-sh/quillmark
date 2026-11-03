@@ -830,6 +830,7 @@ mod args_canon {
                 kind: "x-chart".into(),
             },
             EditError::InvalidActor("a:b".into()),
+            EditError::Automerge("not a document".into()),
         ] {
             add(e.code(), e.args());
         }

@@ -62,7 +62,7 @@ impl Document {
     /// markdown string in a field where the stored field holds a content
     /// object, at any depth, by key in an object and by index in an array,
     /// revise as [`Card::revise`] does, so
-    /// surviving anchors rebase. A body or value whose revise does not
+    /// surviving anchors ride their text. A body or value whose revise does not
     /// validate keeps its stored value, with a warning. Everything else
     /// lands as the markdown spells it: scalars, `$quill`, `$seed`, YAML
     /// comments, inserted cards, and removed cards dropped.
@@ -285,21 +285,14 @@ fn revise_card(
 }
 
 /// `markdown` revising `stored` as [`Card::revise`] revises a value with no
-/// base. Where the markdown rewrites what the stored value's annotated read
-/// does not spell, which that revise refuses, the revise is the cold diff
-/// against `stored`, dropping what the markdown cannot spell rather than
-/// refusing the document. `None` on an over-nested input, and the refusal
-/// where the markdown imports to a value that does not validate.
+/// base. `None` on an over-nested input, and the refusal where the markdown
+/// imports to a value that does not validate.
 fn revised(stored: &Content, markdown: &str) -> Result<Option<quillmark_content::diff::Revision>, ApplyError> {
-    use quillmark_content::diff::{ReviseError, revise, revise_holding};
-    let revision = match revise(stored, markdown) {
-        Err(ReviseError::Conflict(_)) => revise_holding(stored, markdown, stored),
-        revision => revision,
-    };
-    match revision {
+    use quillmark_content::diff::ReviseError;
+    match quillmark_automerge::revise(stored, markdown) {
         Ok(revision) => Ok(Some(revision)),
         Err(ReviseError::Refused(e)) => Err(e),
-        Err(ReviseError::Import(_) | ReviseError::Conflict(_)) => Ok(None),
+        Err(ReviseError::Import(_)) => Ok(None),
     }
 }
 
@@ -467,7 +460,7 @@ fn drop_report(
 /// any depth, against what `revised` holds at its place, an array item's
 /// place the one `moves` names for it. A content object
 /// stored out of canonical order counts too, though a revise lands over it as
-/// authored rather than rebasing it.
+/// authored rather than merging with it.
 fn drop_value(
     stored: &JsonValue,
     revised: Option<&JsonValue>,

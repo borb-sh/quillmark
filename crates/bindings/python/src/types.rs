@@ -944,10 +944,9 @@ impl PyDocument {
     /// the write minted. `actor` scopes each id the write mints,
     /// `{actor}:{prefix}{n}`. `base` is the hash the writer read
     /// (`hash_at`); pass it. One the value has
-    /// moved on from rebases the change over the change since, raising
-    /// `edit::rebase_conflict` where they touch the same text or
-    /// record and `edit::stale_base` where the document no longer holds the change
-    /// since. A refused change raises `edit::content_apply` and writes
+    /// moved on from merges the change with the change since, raising
+    /// `edit::rebase_conflict` where they set one record and
+    /// `edit::stale_base` where no write this document took left the hash. A refused change raises `edit::content_apply` and writes
     /// nothing.
     #[pyo3(signature = (change, field=None, card=None, base=None, actor=None))]
     fn apply<'py>(
@@ -1350,7 +1349,7 @@ impl PyWriter {
     }
 
     /// Revise the body (`field=None`) or the content field `field` on `card`
-    /// (`None` for the main card) from authored text; anchors rebase. A field
+    /// (`None` for the main card) from authored text; anchors ride their text. A field
     /// is typed as well: the codec comes from its declared type (`richtext`
     /// diffs markdown, `text` the literal text, the body being `richtext`),
     /// the diffed result is schema-conformed, so a one-paragraph `richtext`
@@ -1362,13 +1361,14 @@ impl PyWriter {
     /// splice over its literal text); `hash`; `dropped_anchors` and
     /// `moved_anchors`; `warnings`, the import's `parse::dropped_construct` as
     /// `Diagnostic` objects anchored at the value; and `rebased`, set where the
-    /// write rebased over a change since its base.
+    /// write merged with a change since its base.
     ///
     /// `base_hash` or `base_content` names what the writer read: its hash
     /// (`hash_at`), or the value itself as canonical Content-JSON (`read`). A
-    /// value that has moved on rebases the write over the change since,
-    /// raising `edit::rebase_conflict` where the two touch; a `base_hash`
-    /// raises `edit::stale_base` where the log no longer reaches it, and a
+    /// value that has moved on merges the write with the change since,
+    /// raising `edit::rebase_conflict` where the two set one record; a
+    /// `base_hash` raises `edit::stale_base` where no write this document took
+    /// left it, as for any base read before it was loaded from storage, and a
     /// `base_content` holds however long ago it was read. Either refusal's
     /// `args["current"]` is the hash now.
     #[pyo3(signature = (text, field=None, card=None, *, base_hash=None, base_content=None))]

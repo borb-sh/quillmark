@@ -2,8 +2,8 @@
 //!
 //! A revise diffs its markdown against the value stored now, so an edit made
 //! between a writer's read and its write reads as text the writer deleted. A
-//! [`Base`] names the read, and the write rebases over the change since: the
-//! change the card's log holds from a [`Base::Hash`], or the diff from a
+//! [`Base`] names the read, and the write merges with the change since: in
+//! the value's live Automerge document from a [`Base::Hash`], or with the diff from a
 //! [`Base::Content`] to the value now. A whole-document revise names its read
 //! with a [`DocumentBase`].
 
@@ -27,14 +27,14 @@ use crate::quill::{BoundParseError, FieldSchema, FieldType, QuillConfig};
 pub enum Base<'a> {
     /// The hash of the value the writer read: [`Card::hash_of`] or
     /// [`content_hash`] on the content write, and the typed writer's
-    /// `hash_of`. A value that now hashes otherwise rebases the write over
-    /// the change the card's log holds since: refused with
+    /// `hash_of`. A value that now hashes otherwise merges the write with
+    /// the change since, at the heads a write left the hash at: refused with
     /// [`BaseError::Conflict`] where the two touch, and with
-    /// [`BaseError::Stale`] where the log no longer reaches the base.
+    /// [`BaseError::Stale`] where no write the card took left the base.
     Hash(&'a str),
     /// The value the writer read, in its canonical form (a `text` field's
     /// content spelling `codec: "plain"`). A value that has moved on from it
-    /// rebases the write over the diff from it to the value now, so the base
+    /// merges the write with the diff from it to the value now, so the base
     /// holds however long ago it was read: refused with [`BaseError::Conflict`]
     /// where the two touch, never stale.
     Content(&'a Content),
@@ -45,7 +45,7 @@ pub enum Base<'a> {
 pub enum DocumentBase<'a> {
     /// The document's hash, [`Document::hash`] or the typed writer's `hash`.
     /// A document that now hashes otherwise refuses the write with
-    /// [`BaseError::Stale`]: a whole document keeps no log.
+    /// [`BaseError::Stale`]: a whole document keeps no history.
     Hash(&'a str),
     /// The document the writer read, as stored. The writer's edit of it and
     /// the change made since merge card by card and field by field; a place
@@ -72,8 +72,8 @@ pub enum BaseError {
         current: String,
         field: Option<String>,
         /// The step of the writer's change that conflicts, and why
-        /// ([`Reason::name`](quillmark_content::rebase::Reason::name)), for a
-        /// content write rebased over the change since; `None` for a merge
+        /// ([`Reason::name`](quillmark_automerge::Reason::name)), for a
+        /// content write merged with the change since; `None` for a merge
         /// by line.
         step: Option<usize>,
         reason: Option<&'static str>,
@@ -81,13 +81,12 @@ pub enum BaseError {
 }
 
 impl BaseError {
-    /// The refusal of a content write whose change, rebased over the change
-    /// since its base, conflicts with it; `current` is the hash of the value
-    /// now.
+    /// The refusal of a content write whose change sets what the change
+    /// since its base also set; `current` is the hash of the value now.
     pub fn rebase_conflict(
         current: String,
         field: Option<String>,
-        conflict: &quillmark_content::rebase::Conflict,
+        conflict: &quillmark_automerge::Conflict,
     ) -> Self {
         BaseError::Conflict {
             current,
@@ -324,13 +323,13 @@ impl Card {
             FieldType::Text { .. } => super::edit::committed_text(name, body, schema)?,
             _ => body,
         };
-        self.rebase_checked(name, &body, base, schema)
+        self.merge_checked(name, &body, base, schema)
     }
 
     /// A typed field revise of `body` under a `base` the field has moved on
-    /// from: the content revise rebased over the change since, held to the
+    /// from: the content revise merged with the change since, held to the
     /// field's schema, or nothing written.
-    fn rebase_checked(&mut self, name: &str, body: &str, base: Base<'_>, schema: &FieldSchema) -> Result<Receipt, EditError> {
+    fn merge_checked(&mut self, name: &str, body: &str, base: Base<'_>, schema: &FieldSchema) -> Result<Receipt, EditError> {
         let mut card = self.clone();
         let receipt = card.revise_counted_from(Target::Field(name), body, Some(base)).map_err(|e| at_field(e, name))?;
         if let Some(value) = card.payload().get(name) {

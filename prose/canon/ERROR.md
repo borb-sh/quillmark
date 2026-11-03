@@ -100,10 +100,12 @@ routing coercion-vs-undeclared is `edit::field_coercion_failed` vs.
 
 A revise guarded by what its writer read (a `Base`) refuses under two more:
 `edit::stale_base` when the value no longer hashes to the writer's
-`baseHash` and the card's change log no longer reaches it (a whole document
-always, since it keeps no log; a body or field rebases while the log reaches
-the base), and `edit::rebase_conflict` when the writer's edit of its base and the
-change made since touch the same text or record. A whole
+`baseHash` and no write the document took left that hash (a whole document
+always, since it keeps no history; a body or field merges while its live
+document noted the base, which none has for a base read before the document
+was loaded from storage), and `edit::rebase_conflict` when the writer's edit of
+its base and the change made since set one block record, container or
+island's props. A whole
 document under `baseStored` refuses only where no merge can stand (a side
 reordered the cards, or both changed a card's `$quill`, `$seed` or `$ext`
 apart); a place both changed is not an error but an entry in the receipt's
@@ -115,13 +117,13 @@ anchors at the field. The whole-document revise raises them through
 `BoundParseError::Base`, as it raises a parse failure, before any mutation.
 
 The content writes (`apply`, `revise`, `replace`) take a
-`base` hash. A base the value has moved on from rebases the write over the
-change since, and a write that conflicts with it refuses under
+`base` hash. A base the value has moved on from merges the write with the
+change since, and a write that sets what the change since set refuses under
 `edit::rebase_conflict`, carrying `current`, the `step` of the writer's change
-that conflicts, and the `reason` (`deleted`, `changed`, `missing`, `refused`).
-A base the document no longer holds the change since for refuses under
-`edit::stale_base`, carrying `current`. The pure `rebase` raises the same
-conflict, its `current` the hash of the value `since` left. A change that does not apply to the value, or would leave it
+that conflicts, and the `reason` (`changed`, `missing`). A base no write the
+document took left refuses under `edit::stale_base`, carrying `current`.
+Automerge bytes or a sync message a value's live document refuses are
+`edit::automerge`. A change that does not apply to the value, or would leave it
 invalid, is `edit::content_apply`, and writes nothing; its `reason` names the refusal (`stale`, `unknown_block`, `unknown_container`, `container_kind`, `container_in_use`, `unknown_anchor`, `anchor_held`, `unknown_island`, `unknown_slot`, `bad_step`, `invalid`), with the `step` it refuses at for `stale` and `bad_step` ([CONTENT.md](CONTENT.md)); the whole-document revise reports it as a warning at the value it leaves as stored.
 Four bounds refuse under codes of their own, each carrying the `max` it
 passed ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content
@@ -243,7 +245,7 @@ families:
   `revise_document`) carries the parse's warnings, then each revised content
   field's at the field, on `DocumentRevised.warnings`. `add_card` returns it
   at the placed card's body, on `CardAdded.warnings` beside the card's `id`,
-  WASM `importMarkdown` and `rebase` beside the content with no `path`.
+  WASM `importMarkdown` beside the content with no `path`.
   Python's `add_card` returns them under its dict's `warnings`, beside `id`,
   and its `revise` / `revise_document` under the dict receipt's
   `warnings`, as `Diagnostic` objects. A typed `set` / `set_all` returns
@@ -603,6 +605,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::rebase_conflict` | `current`, `step`?, `reason`? | structured |
 | `edit::drops_ext_island` | `island`, `type` | structured |
 | `edit::invalid_actor` | `actor` | structured |
+| `edit::automerge` | — | fallback |
 | `conform::invalid_field_name` | `field` | structured |
 | `conform::value_too_deep` | `max` | structured |
 | `conform::field_not_single_line` | `field`, `codec` | structured |

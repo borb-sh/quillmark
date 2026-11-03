@@ -89,7 +89,7 @@ reference and owns neither: bind, write, discard.
 w = quill.writer(doc)
 w.set("title", "On Taro")                 # typed-commit one field (mismatch raises now)
 w.set_all({"title": "T", "author": "A"})  # atomic batch; one diagnostic per bad field
-w.revise("A **taro** essay.")             # body write: no field is the body (edit semantics, anchors rebase)
+w.revise("A **taro** essay.")             # body write: no field is the body (edit semantics, anchors ride their text)
 w.revise("make it **bold**", "bio")       # typed *and* anchor-preserving content write (codec by declared type)
 w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit + insert (at appends/inserts)
                                           # set and set_all return the parse::dropped_construct
@@ -97,7 +97,7 @@ w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit
                                           # add_card returns {"id", "warnings": [Diagnostic, ...]}
                                           # revise returns its receipt:
                                           # {"delta", "warnings": [Diagnostic, ...], "dropped_anchors": [{"id", "line"}]}
-w.revise_document(markdown)               # whole-document write: cards align by $kind and text, anchors rebase,
+w.revise_document(markdown)               # whole-document write: cards align by $kind and text, anchors ride their text,
                                           # then conform; returns {"dropped_anchors": [{"id", "path", "line"}],
                                           # "warnings": [Diagnostic, ...], "from": [int | None]}, clears doc.warnings
 w.remove_card(0)

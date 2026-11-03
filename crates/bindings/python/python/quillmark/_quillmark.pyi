@@ -227,8 +227,7 @@ class Receipt(TypedDict):
     moved_anchors: list[MovedAnchor]
     warnings: list[Diagnostic]
     # The base was a value the field had moved on from, and the write was
-    # rebased over what changed since, or, for a writer's revise under its
-    # markdown read, merged with it.
+    # merged with what changed since.
     rebased: bool
     # Each placeholder id the change gave a record it put, and the id the
     # write minted for it.

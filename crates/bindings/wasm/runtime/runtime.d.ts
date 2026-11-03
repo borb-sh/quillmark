@@ -735,7 +735,7 @@ export declare class DocumentWriter {
 	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**
 	 * Revise the body or content field at `addr` from authored text: anchors
-	 * rebase, and the write answers the `Receipt` a content write does,
+	 * ride their text, and the write answers the `Receipt` a content write does,
 	 * `applied` the change from the value before, its warnings at the value,
 	 * and the anchors the write dropped or moved. A bare string is `Addr`
 	 * shorthand for `{ field }`; an absent `addr.field` is the body, an absent
@@ -750,9 +750,10 @@ export declare class DocumentWriter {
 	 *
 	 * `opts` names what the writer read: its `baseHash` (from {@link hashAt})
 	 * or its `baseContent` (the `Content` `doc.read` returned). A value that has
-	 * moved on rebases the write over the change since and sets `rebased`,
-	 * throwing `edit::rebase_conflict` where the two touch; a `baseHash` throws
-	 * `edit::stale_base` where the log no longer reaches it.
+	 * moved on merges the write with the change since and sets `rebased`,
+	 * throwing `edit::rebase_conflict` where the two set one record; a
+	 * `baseHash` throws `edit::stale_base` where no write this document took
+	 * left it.
 	 */
 	revise(addr: Addr | string, text: string, opts?: BaseOptions): Receipt;
 	/**
