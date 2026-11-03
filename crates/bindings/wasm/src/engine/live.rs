@@ -50,9 +50,9 @@ impl Document {
     /// hold (`save`'s), store what it reads as, and answer the `Receipt` of a
     /// write from the value before. The document keeps the history the bytes
     /// hold but notes no hash before the load, so a base read before it
-    /// throws `edit::stale_base`. Bytes that hold no value throw
-    /// `edit::bad_live_bytes`; the card is named by `$id`, as a content write's
-    /// is.
+    /// throws `edit::stale_base`. Bytes that hold no value, or the live
+    /// document of another card or field, throw `edit::bad_live_bytes`; the
+    /// card is named by `$id`, as a content write's is.
     #[wasm_bindgen(js_name = load, unchecked_return_type = "Receipt")]
     pub fn load(
         &mut self,
@@ -93,8 +93,9 @@ impl Document {
     /// live document of the value at `addr`, store what it then reads as,
     /// and answer the `Receipt` of a write from the value before: its
     /// `droppedAnchors` each anchor the merge left nowhere, its
-    /// `movedAnchors` each one it moved. A message the document refuses
-    /// throws `edit::bad_live_bytes`; the card is named by `$id`, as a content
+    /// `movedAnchors` each one it moved. A message the document refuses, one
+    /// from the live document of another card or field among them, throws
+    /// `edit::bad_live_bytes`; the card is named by `$id`, as a content
     /// write's is.
     #[wasm_bindgen(js_name = receiveSyncMessage, unchecked_return_type = "Receipt")]
     pub fn receive_sync_message(

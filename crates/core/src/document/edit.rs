@@ -249,9 +249,10 @@ pub enum EditError {
 
     /// Bytes or a sync message the live Automerge document of a value does
     /// not take: `reason` is the refusal's name, `decode` where they do not
-    /// decode or apply, `shape` where the document they leave holds no value
-    /// in the shape a live document takes, and `content` where its value
-    /// does not read as content.
+    /// decode or apply, `address` where they hold the history of another
+    /// value's live document, `shape` where the document they leave holds no
+    /// value in the shape a live document takes, and `content` where its
+    /// value does not read as content.
     #[error("the live document refuses the bytes ({reason}): {detail}")]
     BadLiveBytes { reason: &'static str, detail: String },
 

@@ -59,6 +59,7 @@ def test_a_stale_base_merges_with_the_change_since():
     assert doc.read()["anchors"] == [{"id": "a1", "start": 9, "end": 14}]
     doc.apply({"steps": [{"splice": {"at": 9, "delete": "w", "insert": "W"}}]})
     assert doc.apply({"steps": [{"splice": {"at": 6, "delete": "world", "insert": "there"}}]}, base=base)["rebased"] is True
+    assert doc.read()["text"] in ("XX hello thereW", "XX hello Wthere")
 
     block = doc.read()["blocks"][0]["id"]
 

@@ -753,6 +753,7 @@ describe('Document apply: the write primitive', () => {
     const reworded = { steps: [{ splice: { at: 9, delete: 'world', insert: 'there' } }] }
     doc.apply({}, { steps: [{ splice: { at: 14, delete: 'r', insert: 'R' } }] })
     expect(doc.apply({}, reworded, { base }).rebased).toBe(true)
+    expect(doc.read({}).text).toBe('🎉 😀 hello thereR')
 
     const id = doc.read({}).blocks[0].id
     const heading = (level) => ({ steps: [{ setBlock: { id, kind: 'heading', attrs: { level } } }] })

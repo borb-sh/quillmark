@@ -83,3 +83,21 @@ def test_a_receipt_names_an_anchor_a_merge_took_out():
     sync(a, b, field="note")
     assert b.read(field="note") == a.read(field="note")
     assert isinstance(Document.sync_state(), SyncState)
+
+
+def test_bytes_or_a_message_from_another_values_live_document_are_refused():
+    two = Document.parse(
+        "~~~\n$quill: q\n~~~\n\n~~~card-yaml\n$kind: note\n$id: aaa\n~~~\n\nHello\n\n"
+        "~~~card-yaml\n$kind: note\n$id: bbb\n~~~\n\nHello\n"
+    )
+    with raises_edit_code("edit::bad_live_bytes") as err:
+        two.load(two.save(card="aaa"), card="bbb")
+    assert err.value.diagnostics[0].args["reason"] == "address"
+
+    peer = Document.parse(two.to_markdown())
+    to_peer, to_two = Document.sync_state(), Document.sync_state()
+    peer.receive_sync_message(to_two, two.generate_sync_message(to_peer, card="bbb"), card="aaa")
+    reply = peer.generate_sync_message(to_two, card="aaa")
+    with raises_edit_code("edit::bad_live_bytes") as err:
+        two.receive_sync_message(to_peer, reply, card="bbb")
+    assert err.value.diagnostics[0].args["reason"] == "address"

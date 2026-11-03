@@ -83,4 +83,18 @@ describe('the live document', () => {
     expect(b.read({ field: 'note' })).toEqual(a.read({ field: 'note' }))
     expect(Document.syncState()).toBeInstanceOf(SyncState)
   })
+
+  it('refuses bytes or a message from the live document of another value, however equal', () => {
+    const two = Document.parse('~~~\n$quill: q\n~~~\n\n~~~card-yaml\n$kind: note\n$id: aaa\n~~~\n\nHello\n\n~~~card-yaml\n$kind: note\n$id: bbb\n~~~\n\nHello\n')
+    const [aaa, bbb] = [{ card: 'aaa' }, { card: 'bbb' }]
+    const err = expectEditCode(() => two.load(bbb, two.save(aaa)), 'edit::bad_live_bytes')
+    expect(err.diagnostics[0].args.reason).toBe('address')
+
+    const peer = Document.parse(two.toMarkdown())
+    const [toPeer, toTwo] = [Document.syncState(), Document.syncState()]
+    peer.receiveSyncMessage(aaa, toTwo, two.generateSyncMessage(bbb, toPeer))
+    const reply = peer.generateSyncMessage(aaa, toTwo)
+    const refused = expectEditCode(() => two.receiveSyncMessage(bbb, toPeer, reply), 'edit::bad_live_bytes')
+    expect(refused.diagnostics[0].args.reason).toBe('address')
+  })
 })

@@ -1021,8 +1021,9 @@ impl PyDocument {
     /// one `data` holds (`save`'s), store what it reads as, and return the
     /// receipt of a write from the value before. The document keeps the
     /// history `data` holds but notes no hash before the load, so a base read
-    /// before it raises `edit::stale_base`. Bytes that hold no value raise
-    /// `edit::bad_live_bytes`; `card` is a card's id, as a content write's is.
+    /// before it raises `edit::stale_base`. Bytes that hold no value, or the
+    /// live document of another card or field, raise `edit::bad_live_bytes`;
+    /// `card` is a card's id, as a content write's is.
     #[pyo3(signature = (data, field=None, card=None))]
     fn load<'py>(&mut self, py: Python<'py>, data: &[u8], field: Option<&str>, card: Option<CardSel>) -> PyResult<Bound<'py, PyDict>> {
         require_card_id(&card, "load")?;
@@ -1059,9 +1060,9 @@ impl PyDocument {
     /// live document of the value at `field` on `card`, store what it then
     /// reads as, and return the receipt of a write from the value before:
     /// its `dropped_anchors` each anchor the merge left nowhere, its
-    /// `moved_anchors` each one it moved. A message the document refuses
-    /// raises `edit::bad_live_bytes`; `card` is a card's id, as a content write's
-    /// is.
+    /// `moved_anchors` each one it moved. A message the document refuses, one
+    /// from the live document of another card or field among them, raises
+    /// `edit::bad_live_bytes`; `card` is a card's id, as a content write's is.
     #[pyo3(signature = (state, message, field=None, card=None))]
     fn receive_sync_message<'py>(
         &mut self,

@@ -11,7 +11,12 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   that hash was left at, lands there and merges back, read through repair.
   Text both sides edited keeps both edits, where it threw
   `edit::rebase_conflict`; a record, container or island's props both set
-  still conflicts, `reason` `changed` or `missing`. `edit::stale_base` names a
+  still conflicts, `reason` `changed` or `missing`. A stale step on a block
+  or island gone since, or on an id a record minted since holds, and one
+  placing or moving an anchor removed since refuse as `missing`; one whose
+  anchor lost its text to a change since refuses as `deleted`. An anchor or
+  mark either side put keeps its edges over text the other typed there,
+  whichever actor sorts first. `edit::stale_base` names a
   hash no write this document took left, every base read before a load from
   storage among them. The change log, `LOG_STEPS`, `change::rebase`,
   `compose` and `diff::revise` are gone; `MAX_CHANGE_STEPS` is 16384, and
@@ -20,11 +25,17 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   Automerge 0.12 document**: `Held` maps a value both ways, lowers a change
   from the trace `apply_traced` answers, and forks at earlier heads;
   `merge3`, `conflict` and `revise` sit beside it. A point anchor is a pair
-  of one-character marks, not a cursor.
+  of one-character marks, not a cursor. A held value is made at an address,
+  which its first change carries; a fork starts from a checkpoint rather
+  than replaying the history.
 - feat(core): **`Card::save`, `load`, `generate_sync_message` and
   `receive_sync_message`** reach a value's live document, and
   `edit::bad_live_bytes` names bytes or a message it refuses, its `reason`
-  `decode`, `shape` or `content`, and changes nothing.
+  `decode`, `address`, `shape` or `content`, and changes nothing. A value's
+  live document is addressed by its card and field, so bytes or a message
+  from another value's document are refused as `address`; a write with no
+  actor writes under the document's own random actor, so two peers writing
+  with none sync.
 - feat(wasm): **a value's live document crosses the boundary.**
   `doc.save(addr)` answers its Automerge bytes as a `Uint8Array`,
   `doc.load(addr, bytes)` replaces it, and two peers sync it through

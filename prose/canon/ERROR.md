@@ -123,7 +123,7 @@ change since, and a write that sets what the change since set refuses under
 that conflicts, and the `reason` (`changed`, `missing`). A base no write the
 document took left refuses under `edit::stale_base`, carrying `current`.
 Bytes or a sync message a value's live document refuses are
-`edit::bad_live_bytes`, carrying the `reason` (`decode`, `shape`, `content`). A change that does not apply to the value, or would leave it
+`edit::bad_live_bytes`, carrying the `reason` (`decode`, `address`, `shape`, `content`). A change that does not apply to the value, or would leave it
 invalid, is `edit::content_apply`, and writes nothing; its `reason` names the refusal (`stale`, `unknown_block`, `unknown_container`, `container_kind`, `container_in_use`, `unknown_anchor`, `anchor_held`, `unknown_island`, `unknown_slot`, `bad_step`, `invalid`), with the `step` it refuses at for `stale` and `bad_step` ([CONTENT.md](CONTENT.md)); the whole-document revise reports it as a warning at the value it leaves as stored.
 Four bounds refuse under codes of their own, each carrying the `max` it
 passed ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content

@@ -230,6 +230,7 @@ card_kinds:
     expect(ed.revise({}, 'Alpha.\n\nBeta, mine.\n\nGamma.', { baseContent: base }).rebased).toBe(true)
     expect(doc.toMarkdown({})).toBe('Alpha, edited.\n\nBeta, mine.\n\nGamma, rewritten.')
     expect(ed.revise({}, 'Alph!\n\nBeta.\n\nGamma.', { baseContent: base }).rebased).toBe(true)
+    expect(doc.toMarkdown({})).toBe('Alph!, edited\n\nBeta, mine.\n\nGamma, rewritten.')
     expect(() => ed.reviseDocument(read, { baseHash: 'x', baseStored: stored })).toThrow(/not both/)
     expect(() => ed.revise({}, 'x', { baseHash: undefined })).toThrow(/baseHash must be given a value/)
   })
