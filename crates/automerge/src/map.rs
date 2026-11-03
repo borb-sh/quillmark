@@ -25,7 +25,7 @@ use automerge::{AutoCommit, ObjId, ObjType, ReadDoc, ScalarValue, Value as AmVal
 use quillmark_content::model::{Block, Content, ISLAND_SLOT, Island, Mark, MarkKind};
 use quillmark_content::wire;
 use serde_json::{Map, Number, Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 pub(crate) const KIND: &str = "k";
 pub(crate) const BLOCK: &str = "b";
@@ -41,11 +41,11 @@ pub(crate) fn value_root(doc: &AutoCommit) -> Option<ObjId> {
 }
 
 /// Whether `root` holds a value in the shape this module writes, at every
-/// depth: a map holding a Text `text` that opens with a block marker and
-/// holds only map markers and characters, none of them a `\n` or `U+FFFC`
-/// a marker spells, a map `containers`, and on each
-/// island marker a map `slots` of values of this same shape. Every read and
-/// write of this module takes such a value without a panic.
+/// depth: a map holding a map `containers` and a Text `text` that opens with
+/// a block marker and holds only map markers and characters, no character a
+/// `\n` or `U+FFFC` that a marker spells, and on each island marker a map
+/// `slots` of values of this same shape. Every read and write of this module
+/// takes such a value without a panic.
 pub(crate) fn shaped(doc: &AutoCommit, root: &ObjId) -> bool {
     let is = |o: &ObjId, ty: ObjType| doc.object_type(o).ok() == Some(ty);
     if !is(root, ObjType::Map) || !obj(doc, root, "containers").is_some_and(|cs| is(&cs, ObjType::Map)) {
@@ -325,7 +325,7 @@ pub(crate) fn sync_marks(doc: &mut AutoCommit, t: &ObjId, want: &[Mark]) {
 
 /// Where an anchor of the text `t` reads: a range's extent, or a point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Held {
+pub(crate) enum Placed {
     Range(usize, usize),
     Point(usize),
 }
@@ -333,7 +333,7 @@ pub(crate) enum Held {
 /// Each anchor the marks of `t` hold, by id, at value offsets: a range from
 /// the first character its marks cover to the last, a point as the module
 /// reads it.
-pub(crate) fn anchors_held(doc: &AutoCommit, t: &ObjId) -> BTreeMap<String, Held> {
+pub(crate) fn anchors_placed(doc: &AutoCommit, t: &ObjId) -> BTreeMap<String, Placed> {
     let mut ranges: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     let mut before: BTreeMap<String, usize> = BTreeMap::new();
     let mut after: BTreeMap<String, usize> = BTreeMap::new();
@@ -356,12 +356,12 @@ pub(crate) fn anchors_held(doc: &AutoCommit, t: &ObjId) -> BTreeMap<String, Held
             _ => {}
         }
     }
-    let mut out: BTreeMap<String, Held> = ranges.into_iter().map(|(id, (s, e))| (id, Held::Range(s, e))).collect();
+    let mut out: BTreeMap<String, Placed> = ranges.into_iter().map(|(id, (s, e))| (id, Placed::Range(s, e))).collect();
     for (id, p) in after.into_iter().chain(before) {
         out.entry(id).and_modify(|h| *h = match h {
-            Held::Range(..) => *h,
-            Held::Point(_) => Held::Point(p),
-        }).or_insert(Held::Point(p));
+            Placed::Range(..) => *h,
+            Placed::Point(_) => Placed::Point(p),
+        }).or_insert(Placed::Point(p));
     }
     out
 }
@@ -394,17 +394,17 @@ pub(crate) fn place(doc: &mut AutoCommit, t: &ObjId, id: &str, start: usize, end
 }
 
 fn sync_anchors(doc: &mut AutoCommit, t: &ObjId, target: &Content) {
-    let held = anchors_held(doc, t);
+    let held = anchors_placed(doc, t);
     let want: BTreeMap<&str, (usize, usize)> = target.anchors.iter().map(|a| (a.id.as_str(), (a.start, a.end))).collect();
     for (id, h) in &held {
         if !want.contains_key(id.as_str()) {
-            unplace(doc, t, id, Some(matches!(h, Held::Range(..))));
+            unplace(doc, t, id, Some(matches!(h, Placed::Range(..))));
         }
     }
     for (id, (start, end)) in want {
         let at = match start == end {
-            true => Held::Point(start),
-            false => Held::Range(start, end),
+            true => Placed::Point(start),
+            false => Placed::Range(start, end),
         };
         match held.get(id) {
             Some(h) if *h == at => {}
@@ -513,11 +513,11 @@ pub(crate) fn read(doc: &AutoCommit, root: &ObjId) -> Value {
         .filter(|m| !is_anchor_mark(m.name()) && m.end > 1)
         .map(|m| mark_json(m.name(), m.value(), m.start.saturating_sub(1), m.end - 1))
         .collect();
-    let anchors: Vec<Value> = anchors_held(doc, &t)
+    let anchors: Vec<Value> = anchors_placed(doc, &t)
         .into_iter()
         .map(|(id, h)| match h {
-            Held::Range(start, end) => json!({ "id": id, "start": start, "end": end, "range": true }),
-            Held::Point(at) => json!({ "id": id, "start": at, "end": at }),
+            Placed::Range(start, end) => json!({ "id": id, "start": start, "end": end, "range": true }),
+            Placed::Point(at) => json!({ "id": id, "start": at, "end": at }),
         })
         .collect();
     let mut v = json!({
@@ -570,13 +570,13 @@ pub(crate) fn reach(doc: &AutoCommit, root: &ObjId, path: &[(String, String)]) -
 
 /// Each marker of the text `t` by the id its record holds, the first where
 /// two hold one.
-pub(crate) fn markers(doc: &AutoCommit, t: &ObjId) -> std::collections::HashMap<String, ObjId> {
-    let mut out = std::collections::HashMap::new();
+pub(crate) fn markers(doc: &AutoCommit, t: &ObjId) -> HashMap<String, ObjId> {
+    let mut out = HashMap::new();
     for e in elements(doc, t) {
-        if let Element::Marker(m, _) = e {
-            if let Some(id) = get_str(doc, &m, "id") {
-                out.entry(id).or_insert(m);
-            }
+        if let Element::Marker(m, _) = e
+            && let Some(id) = get_str(doc, &m, "id")
+        {
+            out.entry(id).or_insert(m);
         }
     }
     out

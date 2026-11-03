@@ -124,6 +124,7 @@ impl std::fmt::Display for Conflict {
 /// splice that deletes or puts back a block or island `base` holds counts as
 /// setting all of it. Only what `base` held is checked: a record the change
 /// puts is its own.
+#[doc(hidden)]
 pub fn conflict(base: &Content, now: &Content, change: &Change) -> Option<Conflict> {
     let applied = apply(base, change).ok()?.applied;
     first_conflict(base, now, &applied.steps).map(|(step, reason)| Conflict { step, reason })
@@ -201,6 +202,7 @@ fn first_conflict(base: &Content, now: &Content, steps: &[Step]) -> Option<(usiz
 /// The first step of `applied`, a change as `apply` normalized it, that
 /// places or moves an anchor `mine`, the value it gave, holds and `merged`
 /// holds nowhere: the merge deleted the text it was put on.
+#[doc(hidden)]
 pub fn deleted(applied: &Change, mine: &Content, merged: &Content) -> Option<Conflict> {
     let (put, kept) = (anchor_ids(mine), anchor_ids(merged));
     first_putting(applied, |id| put.contains(id) && !kept.contains(id), Reason::Deleted)
@@ -209,6 +211,7 @@ pub fn deleted(applied: &Change, mine: &Content, merged: &Content) -> Option<Con
 /// The first step of `applied`, a change made from `base`, that places or
 /// moves an anchor `base` holds and `now`, the value since, holds nowhere:
 /// the anchor was removed since, and the step would bring it back.
+#[doc(hidden)]
 pub fn resolved(applied: &Change, base: &Content, now: &Content) -> Option<Conflict> {
     let (was, kept) = (anchor_ids(base), anchor_ids(now));
     first_putting(applied, |id| was.contains(id) && !kept.contains(id), Reason::Missing)
@@ -246,6 +249,7 @@ fn first_putting(applied: &Change, hit: impl Fn(&str) -> bool, reason: Reason) -
 /// value `was` holds, that names a block or island record by an id `now`
 /// holds on another record: the one the step read is gone, and its id was
 /// minted again since.
+#[doc(hidden)]
 pub fn reminted(was: &Held, now: &Held, applied: &Change) -> Option<Conflict> {
     fn first(was: &Held, now: &Held, path: &mut Vec<(String, String)>, steps: &[Step]) -> bool {
         fn by_id(s: &Step) -> Option<&str> {

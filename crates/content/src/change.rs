@@ -327,7 +327,6 @@ pub fn invert(change: &Change, before: &Content) -> Result<Change, ApplyError> {
 
 /// [`apply`], and each step as a store holding the value beside it lowers
 /// it ([`Trace`]).
-#[doc(hidden)]
 pub fn apply_traced(before: &Content, change: &Change) -> Result<(Applied, Vec<Trace>), ApplyError> {
     let mut run = Run::new(false);
     run.trace = Some(Vec::new());
