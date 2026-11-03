@@ -1166,17 +1166,16 @@ impl Document {
         self.reread();
     }
 
-    /// The document's bytes: what a host stores and [`from_bytes`] loads.
-    ///
-    /// [`from_bytes`]: Document::from_bytes
-    pub fn to_bytes(&mut self) -> Vec<u8> {
+    /// The document's bytes: what a host stores and [`load`](Document::load)
+    /// reads back.
+    pub fn save(&mut self) -> Vec<u8> {
         self.doc().save()
     }
 
-    /// The document `bytes` hold: a [`to_bytes`](Document::to_bytes) or a
-    /// merge of several. Bytes that do not decode, or hold no Quillmark
-    /// document of a schema this build reads, are refused.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, LoadError> {
+    /// The document `bytes` hold: a [`save`](Document::save) or a merge of
+    /// several. Bytes that do not decode, or hold no Quillmark document of a
+    /// schema this build reads, are refused.
+    pub fn load(bytes: &[u8]) -> Result<Self, LoadError> {
         let doc = quillmark_automerge::model::Doc::load(bytes)?;
         Self::read_from(doc, Default::default()).map_err(|_| LoadError::Shape)
     }

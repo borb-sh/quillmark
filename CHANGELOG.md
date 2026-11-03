@@ -21,7 +21,7 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   document's history does not reach, every base read before a load from a
   stored row among them. A whole-document `DocumentBase::Stored` lands the
   writer's revise at the heads it was read at.
-- feat(core)!: **bytes are the row.** `Document::to_bytes` and `from_bytes`
+- feat(core)!: **bytes are the row.** `Document::save` and `load`
   save and read the whole document with its history; `heads`, `save_since`
   and `merge` move changes between peers; `generate_sync_message` and
   `receive_sync_message` run Automerge's sync protocol over the whole
@@ -31,12 +31,12 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   verbs are gone. `StoredDocument` JSON stays the history-free interchange,
   and a `0.134.0` row reads into a new document.
 - feat(wasm)!: **the document crosses as bytes.** `doc.save()`,
-  `Document.fromBytes(bytes)`, `doc.heads()`, `doc.saveSince(heads)`,
+  `Document.load(bytes)`, `doc.heads()`, `doc.saveSince(heads)`,
   `doc.merge(bytes)`, and `doc.generateSyncMessage(state)` /
   `doc.receiveSyncMessage(state, message)` with the opaque `SyncState`.
   `reviseDocument`'s `baseStored` takes the `save()` bytes the writer read.
 - feat(python)!: **the same in snake case**: `doc.save()`,
-  `Document.from_bytes`, `doc.heads()`, `doc.save_since`, `doc.merge`,
+  `Document.load`, `doc.heads()`, `doc.save_since`, `doc.merge`,
   `doc.generate_sync_message(state)` and `doc.receive_sync_message(state,
   message)`; `revise_document`'s `base_stored` takes `bytes`.
 

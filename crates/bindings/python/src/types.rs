@@ -1006,17 +1006,17 @@ impl PyDocument {
     }
 
     /// The document as Automerge bytes, its whole history: the row a host
-    /// stores, which `from_bytes` reads back.
+    /// stores, which `load` reads back.
     fn save<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &self.inner.to_bytes())
+        PyBytes::new(py, &self.inner.save())
     }
 
     /// The document `data` holds, as `save` gave them or a merge of several.
     /// Bytes that do not decode, or hold no Quillmark document of a schema
     /// this build reads, raise `edit::bad_live_bytes`.
     #[staticmethod]
-    fn from_bytes(data: &[u8]) -> PyResult<Self> {
-        let inner = quillmark_core::document::Document::from_bytes(data).map_err(crate::content::refused)?;
+    fn load(data: &[u8]) -> PyResult<Self> {
+        let inner = quillmark_core::document::Document::load(data).map_err(crate::content::refused)?;
         Ok(PyDocument { inner, parse_warnings: Vec::new() })
     }
 
@@ -1487,7 +1487,7 @@ impl PyWriter {
         let stored = match (base_hash, base_stored) {
             (Some(_), Some(_)) => return Err(PyValueError::new_err("name base_hash or base_stored, not both")),
             (_, Some(stored)) => Some(match stored.cast::<PyBytes>() {
-                Ok(bytes) => PyDocument::from_bytes(bytes.as_bytes())?.inner,
+                Ok(bytes) => PyDocument::load(bytes.as_bytes())?.inner,
                 Err(_) => PyDocument::from_stored(stored.extract()?)?.inner,
             }),
             _ => None,

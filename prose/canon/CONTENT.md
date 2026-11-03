@@ -215,7 +215,7 @@ A moved anchor's `reason` is the first of these that holds:
 
 ## Live state and merge
 
-A document holds its cards in one Automerge document (`quillmark-automerge`, `model::Doc`), and the cards a reader sees are a view of it. A parse, `Document::new` and `Document::from_bytes` hold one; a write to the view, such as a typed writer's `set`, is written into it as a diff before the next content write, save or sync, and read back. How the document lays out cards, fields and values is [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)'s; how a value is held, a change lowered and a write isolated at earlier heads is the `quillmark-automerge` rustdoc's.
+A document holds its cards in one Automerge document (`quillmark-automerge`, `model::Doc`), and the cards a reader sees are a view of it. A parse, `Document::new` and `Document::load` hold one; a write to the view, such as a typed writer's `set`, is written into it as a diff before the next content write, save or sync, and read back. How the document lays out cards, fields and values is [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)'s; how a value is held, a change lowered and a write isolated at earlier heads is the `quillmark-automerge` rustdoc's.
 
 A block, container or island id inside a document is the Automerge object id of the record that holds it, `{counter}@{actor}`: the change that puts the record mints it, and it names that record for the document's life. A block or island a write moves is deleted and put again, so it takes a new id. A value outside a document, an import or a `Content` a host builds, keeps the ids § Ids mints, and a write into a document mints its own in their place; `minted` names each placeholder's.
 
@@ -230,7 +230,7 @@ A content write builds its change against the value its writer read and lowers i
 
 The receipt's `applied` is the change from the value before the write to the merge, `rebased` is true where the write landed at earlier heads, `droppedAnchors` names every anchor the value held before the write and the merge holds nowhere, besides one the write's own `anchor` step removed, and `movedAnchors` each one the merge moved.
 
-`Document::to_bytes` answers the whole document as Automerge bytes, its history included, and `Document::from_bytes` reads them back. `heads` answers the document's revision, `save_since(heads)` the changes past it, and `merge(bytes)` takes another peer's changes. `generate_sync_message` and `receive_sync_message` run Automerge's sync protocol with a peer over the whole document. Bytes or a message that leave the document outside its schema refuse with `edit::bad_live_bytes` and a `reason`, and the document and the sync state stay as they were:
+`Document::save` answers the whole document as Automerge bytes, its history included, and `Document::load` reads them back. `heads` answers the document's revision, `save_since(heads)` the changes past it, and `merge(bytes)` takes another peer's changes. `generate_sync_message` and `receive_sync_message` run Automerge's sync protocol with a peer over the whole document. Bytes or a message that leave the document outside its schema refuse with `edit::bad_live_bytes` and a `reason`, and the document and the sync state stay as they were:
 
 - `decode`: the bytes or the message do not decode;
 - `shape`: the document left holds no Quillmark document in the shape this build writes;

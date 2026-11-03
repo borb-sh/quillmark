@@ -60,16 +60,15 @@ impl Document {
     /// The document `bytes` hold, as `save` gave them or a merge of several.
     /// Bytes that do not decode, or hold no Quillmark document of a schema
     /// this build reads, throw `edit::bad_live_bytes`.
-    #[wasm_bindgen(js_name = fromBytes)]
-    pub fn from_bytes(bytes: &[u8]) -> Result<Document, JsValue> {
-        let inner = quillmark_core::document::Document::from_bytes(bytes).map_err(refused)?;
+    pub fn load(bytes: &[u8]) -> Result<Document, JsValue> {
+        let inner = quillmark_core::document::Document::load(bytes).map_err(refused)?;
         Ok(Document { inner, parse_warnings: Vec::new() })
     }
 
     /// The document as Automerge bytes, its whole history: the row a host
-    /// stores, which `fromBytes` reads back.
+    /// stores, which `load` reads back.
     pub fn save(&mut self) -> Vec<u8> {
-        self.inner.to_bytes()
+        self.inner.save()
     }
 
     /// The document's revision: the hashes of its Automerge heads.

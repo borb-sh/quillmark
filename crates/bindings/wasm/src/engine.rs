@@ -2127,7 +2127,7 @@ impl ReadBase {
                 .ok_or_else(|| invalid("baseHash must be a string".into())),
             (None, Some(v)) if other == "baseStored" && v.is_instance_of::<js_sys::Uint8Array>() => {
                 let bytes = js_sys::Uint8Array::from(v).to_vec();
-                quillmark_core::document::Document::from_bytes(&bytes)
+                quillmark_core::document::Document::load(&bytes)
                     .map(|doc| ReadBase::Stored(Box::new(doc)))
                     .map_err(|e| invalid(format!("baseStored: bytes that hold no document: {e}")))
             }

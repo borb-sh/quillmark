@@ -17,7 +17,7 @@ schema version, is the history-free interchange and the migration form: a
 | Form | Round-trips? | Stable for storage? |
 |---|---|---|
 | Markdown (`Document::to_markdown`) | No: anchors and ids drop ([CONTENT.md](CONTENT.md) § "What markdown keeps") | No: syntax evolves |
-| Automerge bytes (`Document::to_bytes`) | Yes: lossless, history included | Yes: the row; its root's `schema` names the layout |
+| Automerge bytes (`Document::save`) | Yes: lossless, history included | Yes: the row; its root's `schema` names the layout |
 | `StoredDocument` JSON | Yes: lossless but for history | Yes: frozen per schema version |
 
 Store the bytes whenever a `Document` must survive a process restart or a
@@ -118,7 +118,7 @@ anchors as Automerge marks, and its containers and islands as records named by
 their object ids. A field holding a string, as a `text` field does before a
 schema-aware write, or any other JSON, is Automerge maps, lists and scalars,
 merged as data, a map's key order held in its `\u{1f}order` list, since an
-Automerge map holds none. `Document::from_bytes` refuses bytes whose
+Automerge map holds none. `Document::load` refuses bytes whose
 root holds no document in this shape, or names a schema this build does not
 read (`edit::bad_live_bytes`). The root's `schema` tag names the layout
 version of the live document.

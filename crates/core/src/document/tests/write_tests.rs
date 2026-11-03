@@ -669,7 +669,7 @@ fn a_document_saves_loads_and_syncs() {
     use crate::document::SyncState;
     let mut doc = parse(SOURCE);
     type_keys(&mut doc, [(0, 2)]);
-    let mut other = Document::from_bytes(&doc.to_bytes()).unwrap();
+    let mut other = Document::load(&doc.save()).unwrap();
     assert_eq!(other.main().body(), doc.main().body());
     assert_eq!(other.heads(), doc.heads());
     let loaded = other.main().hash_of(Target::Body).unwrap();
@@ -687,7 +687,7 @@ fn a_document_saves_loads_and_syncs() {
         }
     }
     assert_eq!(doc.main().body(), other.main().body());
-    assert!(Document::from_bytes(b"not a document").is_err());
+    assert!(Document::load(b"not a document").is_err());
 }
 
 /// Runs the sync protocol between `a` and `b` until neither has a message
@@ -722,7 +722,7 @@ fn peers_writing_with_no_actor_sync_from_one_origin() {
     };
     let mut a = parse(SOURCE);
     typed(&mut a, 0, "A");
-    let mut b = Document::from_bytes(&a.to_bytes()).unwrap();
+    let mut b = Document::load(&a.save()).unwrap();
     typed(&mut a, 0, "1");
     typed(&mut b, 0, "2");
     sync(&mut a, &mut b);
@@ -746,12 +746,12 @@ fn a_document_refuses_bytes_or_a_message_it_cannot_read() {
     use quillmark_automerge::automerge::sync::SyncDoc;
     use quillmark_automerge::automerge::transaction::Transactable;
     use quillmark_automerge::automerge::{AutoCommit, ROOT};
-    assert!(Document::from_bytes(b"not a document").is_err());
-    assert!(Document::from_bytes(&AutoCommit::new().save()).is_err());
+    assert!(Document::load(b"not a document").is_err());
+    assert!(Document::load(&AutoCommit::new().save()).is_err());
 
     let mut doc = parse(SOURCE);
     let before = doc.clone();
-    let mut peer = AutoCommit::load(&doc.to_bytes()).unwrap();
+    let mut peer = AutoCommit::load(&doc.save()).unwrap();
     peer.put(&ROOT, "schema", "elsewhere@1").unwrap();
     let (mut ours, mut theirs) = (SyncState::new(), SyncState::new());
     let refused = (0..8).find_map(|_| {
