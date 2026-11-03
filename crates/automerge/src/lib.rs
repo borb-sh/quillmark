@@ -36,6 +36,9 @@ const FIRST: &[u8] = b"~";
 /// The byte between an actor's id and its fork's level in a fork's id.
 const FORK: &[u8] = b"\x1f";
 
+/// The changes a document takes between the checkpoints a fork starts from.
+const CHECKPOINT_EVERY: usize = 256;
+
 /// A value held in an Automerge document, at an address: the name of the
 /// place the value sits, which its first change carries, so the documents
 /// of two addresses share no history and neither takes the other's changes.
@@ -48,6 +51,7 @@ pub struct Held {
     root: ObjId,
     own: ActorId,
     checkpoint: Arc<Checkpoint>,
+    changes: usize,
 }
 
 /// The document as it was at `heads`, which a fork at heads after them
@@ -65,13 +69,12 @@ impl Checkpoint {
     }
 }
 
-/// The value a document reads as: what repair made of its merged state, what
-/// it changed, and the change from the merged text to the value's.
+/// The value a document reads as: what repair made of its merged state, and
+/// what it changed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Read {
     pub content: Content,
     pub repairs: Vec<Repair>,
-    pub change: Change,
 }
 
 /// Bytes or a sync message a held value refuses.
@@ -112,7 +115,7 @@ impl Held {
         let own = ActorId::random();
         doc.set_actor(own.clone());
         let checkpoint = Checkpoint::of(&mut doc);
-        Held { doc, root, own, checkpoint }
+        Held { doc, root, own, checkpoint, changes: 0 }
     }
 
     /// The value a document's bytes hold at `address`, and what it reads
@@ -128,11 +131,11 @@ impl Held {
         if origins != [Some(address.to_string())] {
             return Err(LoadError::Address);
         }
-        let own = ActorId::random();
         let (root, read) = checked(&doc)?;
+        let own = ActorId::random();
         let mut doc = doc.with_actor(own.clone());
         let checkpoint = Checkpoint::of(&mut doc);
-        Ok((Held { doc, root, own, checkpoint }, read))
+        Ok((Held { doc, root, own, checkpoint, changes: 0 }, read))
     }
 
     /// The document's bytes.
@@ -167,6 +170,7 @@ impl Held {
     }
 
     /// The raw value the document holds, before repair.
+    #[doc(hidden)]
     pub fn raw(&self) -> serde_json::Value {
         map::read(&self.doc, &self.root)
     }
@@ -175,15 +179,34 @@ impl Held {
     /// as to `after`, and commits it as one change.
     pub fn write(&mut self, trace: &[Trace], after: &Content) {
         lower::lower(&mut self.doc, &self.root, trace, after);
-        self.doc.commit();
+        self.commit();
     }
 
     /// Makes the document read as `target` by diffing what it holds, and
     /// commits that as one change. Answers whether the text differed.
+    #[doc(hidden)]
     pub fn sync_to(&mut self, target: &Content) -> bool {
         let differed = map::sync(&mut self.doc, &self.root, target);
-        self.doc.commit();
+        self.commit();
         differed
+    }
+
+    /// Commits what the document holds uncommitted, and takes a checkpoint
+    /// every [`CHECKPOINT_EVERY`] changes.
+    fn commit(&mut self) {
+        if self.doc.commit().is_some() {
+            self.took(1);
+        }
+    }
+
+    /// Counts `n` changes the document took, and takes a checkpoint where
+    /// they pass a multiple of [`CHECKPOINT_EVERY`].
+    fn took(&mut self, n: usize) {
+        let before = self.changes / CHECKPOINT_EVERY;
+        self.changes += n;
+        if self.changes / CHECKPOINT_EVERY != before {
+            self.checkpoint();
+        }
     }
 
     /// The document as at `heads`, writing under `actor`'s Automerge actor
@@ -204,10 +227,10 @@ impl Held {
             Some(doc) => doc,
             None => self.doc.fork_at(heads)?,
         };
-        let doc = doc.with_actor(id);
+        let doc = doc.with_actor(id.clone());
         let root = map::value_root(&doc).expect("a document holds its value at every heads it reached");
         let checkpoint = self.checkpoint.clone();
-        Ok(Held { doc, root, own: ActorId::random(), checkpoint })
+        Ok(Held { doc, root, own: id, checkpoint, changes: 0 })
     }
 
     /// The document at `heads` made from the checkpoint and the changes
@@ -224,10 +247,10 @@ impl Held {
             let by_hash: HashMap<ChangeHash, &automerge::Change> = since.iter().map(|c| (c.hash(), c)).collect();
             let (mut reach, mut stack) = (HashSet::new(), want.clone());
             while let Some(h) = stack.pop() {
-                if let Some(c) = by_hash.get(&h) {
-                    if reach.insert(h) {
-                        stack.extend(c.deps().iter().copied());
-                    }
+                if let Some(c) = by_hash.get(&h)
+                    && reach.insert(h)
+                {
+                    stack.extend(c.deps().iter().copied());
                 }
             }
             fork.apply_changes(since.iter().filter(|c| reach.contains(&c.hash())).cloned().collect::<Vec<_>>()).ok()?;
@@ -239,6 +262,7 @@ impl Held {
 
     /// Takes the document as it is now as the checkpoint a later fork
     /// starts from.
+    #[doc(hidden)]
     pub fn checkpoint(&mut self) {
         self.checkpoint = Checkpoint::of(&mut self.doc);
     }
@@ -248,10 +272,11 @@ impl Held {
     /// states: `mine` is the heads of the side that lowered `trace` and
     /// `theirs` the other side's. Commits what it changed as one change, and
     /// answers whether it changed anything.
+    #[doc(hidden)]
     pub fn clip(&mut self, mine: &[ChangeHash], theirs: &[ChangeHash], trace: &[Trace]) -> bool {
         let changed = own::clip(&mut self.doc, &self.root, mine, theirs, trace);
         if changed {
-            self.doc.commit();
+            self.commit();
         }
         changed
     }
@@ -261,6 +286,7 @@ impl Held {
     /// `theirs` made from `base` too: the first step of `applied` that
     /// deleted text whose formatting `theirs` changed, as a `changed`
     /// conflict. Each document is read as it stands.
+    #[doc(hidden)]
     pub fn restyled(base: &Held, mine: &Held, theirs: &Held, trace: &[Trace], applied: &Change) -> Option<Conflict> {
         let (path, at) = own::restyled((&base.doc, &base.root), (&mine.doc, &mine.root), (&theirs.doc, &theirs.root), trace)?;
         Some(Conflict { step: merge::step_deleting(applied, &path, at), reason: Reason::Changed })
@@ -289,17 +315,15 @@ impl Held {
             AutomergeError::DuplicateSeqNumber(_, actor) if actor.to_bytes() == FIRST => LoadError::Address,
             e => LoadError::Decode(e.to_string()),
         })?;
-        if doc.get_changes_meta(&heads).iter().any(|c| c.deps.is_empty()) {
+        let brought = doc.get_changes_meta(&heads);
+        if brought.iter().any(|c| c.deps.is_empty()) {
             return Err(LoadError::Address);
         }
+        let brought = brought.len();
         let (root, read) = checked(&doc)?;
         (self.doc, self.root, *state) = (doc, root, next);
+        self.took(brought);
         Ok(read)
-    }
-
-    /// The document.
-    pub fn doc(&self) -> &AutoCommit {
-        &self.doc
     }
 }
 
@@ -312,6 +336,6 @@ fn checked(doc: &AutoCommit) -> Result<(ObjId, Read), LoadError> {
 }
 
 fn read(raw: Raw) -> Read {
-    let (content, repairs, change) = repair(raw);
-    Read { content, repairs, change }
+    let (content, repairs, _) = repair(raw);
+    Read { content, repairs }
 }

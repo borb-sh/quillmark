@@ -137,9 +137,6 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
     table_cell_values(props).map(parse_cell).collect()
 }
 
-// The `table` normalizer below is the primitive `crate::lines::island` dispatches into for
-// `IslandType::Table`; island-type dispatch itself lives there.
-
 /// Repair a table island's props in place to the canonical shape:
 ///
 /// - **One column count.** `cols` is the widest of the header, any body row, and
@@ -198,8 +195,8 @@ pub(crate) fn normalize_table_props(props: &mut Value) {
 /// A table's layout keys, each absent at its default: `widths` holding only
 /// weights and `null`s settles to `cols`, padded with `null` or truncated, and
 /// all `null` is absent; a whole-number `head` settles to at most the row
-/// count, absent at 1. `headless: true` sits beside `head: 0`, which a 0.130
-/// reader cannot read, and is absent beside any other `head`; a stored
+/// count, absent at 1. `headless: true` sits beside `head: 0`, and is absent
+/// beside any other `head`; a stored
 /// `headless: true` settles to `head: 0` where `head` holds no whole number. A
 /// value outside its set stays as written.
 fn normalize_table_layout(obj: &mut Map<String, Value>, widths: Option<Vec<Option<u64>>>, cols: usize) {
@@ -327,9 +324,7 @@ pub(crate) fn canon_cell(cell: &mut Value) {
     }
     let canon = cell_to_value(&text, &crate::lines::model::normalize_marks(marks));
     match (cell.as_object_mut(), canon) {
-        // Overwrite the canonical keys, leave the rest.
         (Some(o), Value::Object(fields)) => o.extend(fields),
-        // A non-object cell holds no keys to preserve.
         (_, canon) => *cell = canon,
     }
 }

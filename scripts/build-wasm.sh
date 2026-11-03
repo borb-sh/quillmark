@@ -204,8 +204,8 @@ report_size "render" pkg/render/wasm_bg.wasm
 # Size budget on the core artifact: the split only pays off if core stays
 # Typst-free. Typst is megabytes, so a leak back into the no-features build
 # would blow past this ceiling; fail rather than ship it silently. The gzip
-# ceiling sits well above core's real size, about 1.56 MB with Automerge, and
-# far below anything carrying Typst.
+# ceiling sits well above core's real size, Automerge included, and far below
+# anything carrying Typst.
 #
 # Only enforced on the size-optimized release profile (where the artifact
 # publishes); the `wasm-ci` profile is unoptimized, so its size is meaningless

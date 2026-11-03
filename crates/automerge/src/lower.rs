@@ -19,9 +19,8 @@ use quillmark_content::wire;
 /// The most inserting splices a trace sheds formatting for one by one.
 const QUERIED: usize = 8;
 
-/// One text a trace writes into: its value root, its text, the islands and
-/// slots that reach it from the value's own text, and whether a splice
-/// inserted into it.
+/// One text a trace writes into: its value root, its text, and the islands
+/// and slots that reach it from the value's own text.
 struct Level {
     root: ObjId,
     t: ObjId,
@@ -98,7 +97,8 @@ pub(crate) fn lower(doc: &mut AutoCommit, root: &ObjId, trace: &[Trace], after: 
                 if map::get_str(doc, &m, KIND).as_deref() != Some(BLOCK) {
                     doc.put(&m, KIND, BLOCK).unwrap();
                 }
-            }            Trace::Container(step) => {
+            }
+            Trace::Container(step) => {
                 let cs = obj(doc, &level.root, "containers").expect("a value holds its containers");
                 match step {
                     ContainerStep::Set(k) => doc.put(&cs, k.id.as_str(), wire::container_value(k).to_string()).unwrap(),

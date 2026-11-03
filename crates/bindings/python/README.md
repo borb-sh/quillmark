@@ -96,10 +96,11 @@ w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit
                                           # warnings their markdown raised: [Diagnostic, ...]
                                           # add_card returns {"id", "warnings": [Diagnostic, ...]}
                                           # revise returns its receipt:
-                                          # {"delta", "warnings": [Diagnostic, ...], "dropped_anchors": [{"id", "line"}]}
+                                          # {"applied", "hash", "dropped_anchors", "moved_anchors",
+                                          #  "warnings": [Diagnostic, ...], "rebased", "minted"}
 w.revise_document(markdown)               # whole-document write: cards align by $kind and text, anchors ride their text,
-                                          # then conform; returns {"dropped_anchors": [{"id", "path", "line"}],
-                                          # "warnings": [Diagnostic, ...], "from": [int | None]}, clears doc.warnings
+                                          # then conform; returns {"dropped_anchors": [AnchorContext, ...],
+                                          # "warnings": [Diagnostic, ...], "from": [int | None], "conflicts"}, clears doc.warnings
 w.remove_card(0)
 w.set("author", "Issa", card=0)           # every verb takes card=: None is main, an int the composable card
 ```

@@ -85,12 +85,9 @@ fn time<T>(f: impl Fn() -> T) -> Duration {
 /// The 288k-character case's limits in milliseconds: five times the targets
 /// of 100 to apply and 200 to invert, and about ten times what a laptop takes
 /// for the diff and the UTF-16 round trip, which a pass that walks the whole
-/// text per step overruns. The merge is a change made at the heads of a live
-/// document that has taken another since, lowered on a fork there made from
-/// the document's checkpoint, checked for text it deleted that was formatted
-/// since, merged back, held to its edges and read; its limit is about 1.3
-/// times the 1.9 s it takes, since lowering 4000 steps into Automerge,
-/// merging and reading the value back each walk the text.
+/// text per step overruns. The merge is a stale write on a live document that
+/// has taken another change since, and its limit is about 1.3 times what it
+/// takes.
 const BUDGET: [(&str, f64); 5] = [("apply", 500.0), ("invert", 1000.0), ("diff", 1500.0), ("merge", 2500.0), ("utf16", 500.0)];
 
 fn measure(n: usize) -> (usize, usize, [f64; 5]) {

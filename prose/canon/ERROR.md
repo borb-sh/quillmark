@@ -104,8 +104,8 @@ A revise guarded by what its writer read (a `Base`) refuses under two more:
 always, since it keeps no history; a body or field merges while its live
 document noted the base, which none has for a base read before the document
 was loaded from storage), and `edit::rebase_conflict` when the writer's edit of
-its base and the change made since set one block record, container or
-island's props. A whole
+its base and the change made since conflict ([CONTENT.md](CONTENT.md) §
+"Live state and merge"). A whole
 document under `baseStored` refuses only where no merge can stand (a side
 reordered the cards, or both changed a card's `$quill`, `$seed` or `$ext`
 apart); a place both changed is not an error but an entry in the receipt's
@@ -120,7 +120,7 @@ The content writes (`apply`, `revise`, `replace`) take a
 `base` hash. A base the value has moved on from merges the write with the
 change since, and a write that sets what the change since set refuses under
 `edit::rebase_conflict`, carrying `current`, the `step` of the writer's change
-that conflicts, and the `reason` (`changed`, `missing`). A base no write the
+that conflicts, and the `reason` (`changed`, `missing`, `deleted`). A base no write the
 document took left refuses under `edit::stale_base`, carrying `current`.
 Bytes or a sync message a value's live document refuses are
 `edit::bad_live_bytes`, carrying the `reason` (`decode`, `address`, `shape`, `content`). A change that does not apply to the value, or would leave it

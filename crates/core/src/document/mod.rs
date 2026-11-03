@@ -689,6 +689,11 @@ pub use quillmark_content::markdown::ImportError;
 /// Taken by [`dropped_construct`], so nameable from here.
 pub use quillmark_content::markdown::{DroppedConstruct, ImportWarning};
 pub use revise::DocumentRevised;
+/// Taken and answered by [`Card::generate_sync_message`] and
+/// [`Card::receive_sync_message`], so nameable from here.
+pub use quillmark_automerge::automerge::sync::{Message as SyncMessage, State as SyncState};
+/// Carried by [`EditError::bad_live_bytes`], so nameable from here.
+pub use quillmark_automerge::LoadError;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};

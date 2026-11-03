@@ -813,9 +813,12 @@ pub(crate) struct Values {
 }
 
 /// The address of the value at `target` on the card `card` names, `None`
-/// for the main card: the message of its live document's first change.
+/// for the main card: the message of its live document's first change,
+/// spelled as the path with the card's `$id` in place of its index,
+/// `main.body`, `main.summary`, `cards[n1].body`, `cards[n1].summary`.
 pub(crate) fn address(card: Option<&str>, target: Target<'_>) -> String {
-    serde_json::json!([card, target.field()]).to_string()
+    let card = card.map_or_else(|| "main".to_string(), |id| format!("cards[{id}]"));
+    format!("{card}.{}", target.field().unwrap_or("body"))
 }
 
 /// One value's live document, the address it was made at, the hash of the
@@ -823,8 +826,7 @@ pub(crate) fn address(card: Option<&str>, target: Target<'_>) -> String {
 /// hashes a write left reads, the latest write's for a hash two writes left,
 /// in the order they were first noted, whether the document reads
 /// through a repair it does not hold, one that inserts, so a write lowers
-/// into it as a diff rather than at its trace's offsets, and the writes it
-/// has taken.
+/// into it as a diff rather than at its trace's offsets.
 #[derive(Clone)]
 pub(crate) struct Live {
     held: Held,
@@ -833,16 +835,11 @@ pub(crate) struct Live {
     heads: HashMap<String, Vec<ChangeHash>>,
     noted: std::collections::VecDeque<String>,
     repaired: bool,
-    writes: usize,
 }
 
 /// The hashes a live document notes heads for, the latest kept: a base
 /// older than these is stale.
 const NOTED_HASHES: usize = 1024;
-
-/// The writes a live document takes between the checkpoints a stale write's
-/// fork starts from.
-const CHECKPOINT_EVERY: usize = 256;
 
 impl PartialEq for Values {
     fn eq(&self, _: &Self) -> bool {
@@ -879,10 +876,6 @@ impl Live {
             }
         }
         self.hash = hash;
-        self.writes += 1;
-        if self.writes % CHECKPOINT_EVERY == 0 {
-            self.held.checkpoint();
-        }
     }
 }
 
@@ -899,7 +892,7 @@ impl Values {
     /// card takes its `$id`.
     fn at(&mut self, address: &str, target: Target<'_>, now: &Content, hash: &str) -> &mut Live {
         let fresh = || {
-            let mut live = Live { held: Held::new(now, address), address: address.to_string(), hash: String::new(), heads: HashMap::new(), noted: Default::default(), repaired: false, writes: 0 };
+            let mut live = Live { held: Held::new(now, address), address: address.to_string(), hash: String::new(), heads: HashMap::new(), noted: Default::default(), repaired: false };
             live.wrote(hash.to_string());
             live
         };

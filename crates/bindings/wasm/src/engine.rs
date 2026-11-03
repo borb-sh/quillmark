@@ -327,8 +327,8 @@ export interface Delta {
  * neither; a key present with no value throws. `baseHash` is the hash the
  * writer read (`writer.hashAt`); `baseContent` is the value itself, the
  * `Content` `reader.getContent` returned. On a value that has moved on, the write merges with the change
- * since and throws `edit::rebase_conflict` where the two set one block record,
- * container or island's props. A `baseHash` throws `edit::stale_base` where
+ * since and throws `edit::rebase_conflict` where the two conflict
+ * (CONTENT.md § "Live state and merge"). A `baseHash` throws `edit::stale_base` where
  * no write this document took left it, as for any base read before the
  * document was loaded from storage; a `baseContent` holds however long ago it
  * was read. Each refusal's
@@ -1610,8 +1610,8 @@ impl Document {
     ///
     /// `opts` names what the writer read (`BaseOptions`): a value that has
     /// moved on from its `baseHash` or `baseContent` merges the write with the
-    /// change since, throwing `edit::rebase_conflict` where the two set one
-    /// record.
+    /// change since, throwing `edit::rebase_conflict` where the two conflict
+    /// (CONTENT.md § "Live state and merge").
     ///
     /// An undeclared name throws `edit::unknown_field`; an out-of-range card,
     /// a malformed field name, or an over-nested markdown input throws.
@@ -1987,13 +1987,13 @@ impl Addr {
         }
     }
 
-    /// The address of a content write, which names a composable card by its
-    /// `$id` alone: an index another writer's move or insert can shift would
-    /// land the write on another card.
+    /// The address of a content write or a live-document verb, which names a
+    /// composable card by its `$id` alone: an index another writer's move or
+    /// insert can shift would land the call on another card.
     fn for_write(value: &JsValue, doc: &quillmark_core::document::Document, verb: &str) -> Result<Addr, JsValue> {
         if value.as_string().is_none() && matches!(Addr::parse(value)?.0, Some(CardSel::Index(_))) {
             return Err(WasmError::from(format!(
-                "{verb}: a content write names its card by `$id` (`{{ card: card.id }}`), not by index"
+                "{verb}: a card is named by `$id` (`{{ card: card.id }}`), not by index"
             ))
             .to_js_value());
         }

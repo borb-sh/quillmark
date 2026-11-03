@@ -37,20 +37,23 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   live document is addressed by its card and field, so bytes or a message
   from another value's document are refused as `address`; a write with no
   actor writes under the document's own random actor, so two peers writing
-  with none sync.
+  with none sync. `quillmark_core::document` re-exports the sync protocol's
+  `SyncState` and `SyncMessage` and the `LoadError` these verbs carry.
 - feat(wasm): **a value's live document crosses the boundary.**
   `doc.save(addr)` answers its Automerge bytes as a `Uint8Array`,
   `doc.load(addr, bytes)` replaces it, and two peers sync it through
-  `Document.syncState()`, an opaque `SyncState`, with
+  `new SyncState()` (or `Document.syncState()`), an opaque handle that
+  `state.encode()` and `SyncState.decode(bytes)` keep across a restart, with
   `doc.generateSyncMessage(addr, state)` and
-  `doc.receiveSyncMessage(addr, state, message)`. A load and a received
-  message answer a `Receipt`, offsets in UTF-16, naming the anchors the
-  merge dropped or moved. The core surface `init` resolves to holds
-  `SyncState`.
+  `doc.receiveSyncMessage(addr, state, message)`. All five verbs name a card
+  by `$id` and throw on an index. A load and a received message answer a
+  `Receipt`, offsets in UTF-16, naming the anchors the merge dropped or
+  moved. The core surface `init` resolves to holds `SyncState`.
 - feat(python): **the same live document in snake case**: `doc.save`,
-  `doc.load(data)`, `Document.sync_state()`, `doc.generate_sync_message`
-  and `doc.receive_sync_message`, `bytes` in and out, receipts in code
-  points.
+  `doc.load(data)`, `SyncState()` (or `Document.sync_state()`) with
+  `encode` / `SyncState.decode`, `doc.generate_sync_message` and
+  `doc.receive_sync_message`, `bytes` in and out, receipts in code points;
+  each names a card by its id, never an index.
 
 ## v0.134.1 - 2026-11-02
 

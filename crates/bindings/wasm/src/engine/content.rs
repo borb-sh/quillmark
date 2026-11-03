@@ -212,7 +212,7 @@ export interface DroppedAnchor extends AnchorContext {
 
 /** `base` is the hash a writer read. A value that has changed since merges
  *  the write with the change, refusing it with `edit::rebase_conflict` where
- *  the two set one block record, container or island's props, and with
+ *  the two conflict (CONTENT.md § "Live state and merge"), and with
  *  `edit::stale_base` where no write this document took left that hash, as
  *  for any base read before it was loaded from storage. Pass it: a write without one
  *  lands over whatever the value now holds.
@@ -585,7 +585,7 @@ impl Document {
     /// answer the `Receipt`. `opts.base` is the hash the writer read
     /// (`hash(addr)`), and the change's offsets are into the value it names:
     /// one the value has moved on from merges the change with the change
-    /// since, throwing `edit::rebase_conflict` where they set one record and
+    /// since, throwing `edit::rebase_conflict` where they conflict (CONTENT.md § "Live state and merge") and
     /// `edit::stale_base` where no write this document took left the hash. A refused change throws `edit::content_apply` and writes
     /// nothing.
     #[wasm_bindgen(js_name = apply, unchecked_return_type = "Receipt")]
