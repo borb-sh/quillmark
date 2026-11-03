@@ -115,7 +115,7 @@ Storage is scalars, and every host speaks its own: storage and core count Unicod
 - `repair` reads a `RawContent` as a merged state, so it refuses no offset: one inside a surrogate pair moves to the character's start and one past the text to its end, and the mend is reported.
 - `invert` converts the change on `before`, and answers in the units of the value it left; `diff` answers in the units of `before`.
 - A content write's change converts on the value its `base` names, which a stale base makes an earlier value than the one it writes over; its receipt's `applied` converts on the value it wrote over.
-- A `load` or a received sync message answers a receipt whose `applied` converts on the value before it; the bytes and messages hold no offset a host reads.
+- `merge` and `receiveSyncMessage` answer nothing: a host reads the document again, and the bytes and messages hold no offset a host reads.
 - The render seam ([PREVIEW.md](PREVIEW.md)) converts on the text of the content value the compile read at each field: a region's `span`, `positionAt`'s `pos`, and `locate`'s `pos`, which answers nothing inside a surrogate pair. Core's `LiveSession::*_in` and `Engine::render_in` take the units.
 - A writer revise's `Receipt.applied` converts on the value it revised (`Receipt::in_units`), and `reattach` reads each change it takes on the value's text now, the text that write left.
 - A diagnostic's `location` is a line and column in a source file, not a content offset, and crosses as the parser counts it.

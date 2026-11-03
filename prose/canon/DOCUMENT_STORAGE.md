@@ -10,7 +10,8 @@ one Automerge document. A document persists as that Automerge document's
 its receipt, and sync is Automerge's own (§ "The Automerge layout"). The
 **versioned JSON envelope**, `StoredDocument`, whose wire format is frozen per
 schema version, is the history-free interchange and the migration form: a
-`0.134.0` row is JSON, and reads into a new document.
+`0.134.0` row is JSON, and reads into a new document. The JSON form is the
+migration reader and the render handoff, not a row to keep.
 
 ## When to use it
 
@@ -109,14 +110,19 @@ The document's root holds `schema` (`quillmark/document@0.135.0`), `main`,
 `cards` and `order`: `cards` maps each composable card's `$id` to its card,
 and `order` lists the `$id`s in document order. A card holds `layout`, its
 payload items' order and comments; `fields`, each field by key; `ext`; `seed`;
-`nestedComments`; and `body`. A content value, a body or a `richtext` or
-`text` field, is an Automerge text object with its blocks as `split_block`
-markers, its marks and anchors as Automerge marks, and its containers and
-islands as records named by their object ids. Any other value is Automerge
-maps, lists and scalars, a map's key order held in its `\u{1f}order` list,
-since an Automerge map holds none. `Document::from_bytes` refuses bytes whose
+`nestedComments`; and `body`. A body, and a field holding a content value (a
+`richtext` or `text` field in its stored form, [SCHEMAS.md](SCHEMAS.md)
+§ "Content fields are stored per codec"), is an Automerge text object with its
+blocks as markers, maps keyed `type`, `attrs` and `parents`, its marks and
+anchors as Automerge marks, and its containers and islands as records named by
+their object ids. A field holding a string, as a `text` field does before a
+schema-aware write, or any other JSON, is Automerge maps, lists and scalars,
+merged as data, a map's key order held in its `\u{1f}order` list, since an
+Automerge map holds none. `Document::from_bytes` refuses bytes whose
 root holds no document in this shape, or names a schema this build does not
-read (`edit::bad_live_bytes`).
+read (`edit::bad_live_bytes`). The `schema` tag names the model version, the
+JSON envelope's tag the same: which carrier a row is, bytes or JSON, its
+leading bytes tell.
 
 Concurrent changes merge as Automerge merges them: a field, a card or a record
 two writers set reads as the later in Automerge's order, text both edited
