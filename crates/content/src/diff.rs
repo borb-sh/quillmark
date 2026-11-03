@@ -199,7 +199,8 @@ fn containers_by_id(c: &Content) -> HashMap<&str, &Container> {
 
 fn fresh_id(id: &str, before: &Content, after: &Content) -> String {
     let taken: HashSet<&str> = before.containers.iter().chain(&after.containers).map(|k| k.id.as_str()).collect();
-    (1..).map(|n| format!("{id}-{n}")).find(|c| !taken.contains(c.as_str())).expect("a free id")
+    let base: String = id.chars().take(crate::ids::MAX_ID_LEN - 12).collect();
+    (1..).map(|n| format!("{base}-{n}")).find(|c| !taken.contains(c.as_str())).expect("a free id")
 }
 
 /// The splices of a word-aligned diff of the two texts, a kept `\n` or slot
@@ -426,7 +427,9 @@ fn text_ops(a: &str, b: &str) -> Vec<Op> {
 
 /// `ops` with each run of edits that follows a kept `\n` and ends in a `\n` on
 /// both sides moved one character back: the same texts, with the kept `\n`
-/// now the one after the run, so it still opens the block it opened.
+/// now the one after the run, so it still opens the block it opened. A run at
+/// the start that ends in a `\n` on both sides keeps that `\n`, since the
+/// first block's record rides none.
 fn opening(ops: Vec<Op>, a: &[char]) -> Vec<Op> {
     let mut out: Vec<Op> = Vec::with_capacity(ops.len());
     let (mut i, mut k) = (0usize, 0usize);
@@ -445,7 +448,17 @@ fn opening(ops: Vec<Op>, a: &[char]) -> Vec<Op> {
             && a[i - 1] == '\n'
             && (dn == 0 || a[i + dn - 1] == '\n')
             && (ins.is_empty() || ins.ends_with('\n'));
-        if !slides {
+        let first = out.is_empty() && dn > 0 && a[dn - 1] == '\n' && ins.ends_with('\n');
+        if first {
+            if dn > 1 {
+                push(&mut out, Op::Delete(dn - 1));
+            }
+            let kept = &ins[..ins.len() - 1];
+            if !kept.is_empty() {
+                push(&mut out, Op::Insert(kept.to_string()));
+            }
+            push(&mut out, Op::Retain(1));
+        } else if !slides {
             out.extend(run.iter().cloned());
         } else {
             if let Some(Op::Retain(r)) = out.last_mut() {

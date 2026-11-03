@@ -325,8 +325,10 @@ fn line_text(line: &str) -> &str {
     line.strip_suffix('\n').unwrap_or(line)
 }
 
+/// The words a pairing compares: the paired diff's own tokens that hold a
+/// letter or digit, so punctuation beside a word never makes it another word.
 fn words(text: &str) -> Vec<&str> {
-    text.split_whitespace().collect()
+    word_tokens(text).into_iter().filter(|w| w.chars().any(char::is_alphanumeric)).collect()
 }
 
 /// Below this [`word_similarity`], two texts are not a rewrite of one another
