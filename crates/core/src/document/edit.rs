@@ -811,216 +811,167 @@ pub(crate) fn committed_text(name: &str, body: String, schema: &FieldSchema) -> 
 /// them, and [`Document::quill_reference`] reads the root's `$quill` without
 /// re-checking. A card built before placement is an ordinary `Card`, so the
 /// verbs stay there and this only withholds the assignment.
-pub struct CardMut<'a>(&'a mut Card);
+pub struct CardMut<'a> {
+    doc: &'a mut Document,
+    at: Option<usize>,
+}
 
 impl<'a> CardMut<'a> {
-    pub(crate) fn new(card: &'a mut Card) -> Self {
-        Self(card)
+    pub(crate) fn new(doc: &'a mut Document, at: Option<usize>) -> Self {
+        Self { doc, at }
+    }
+
+    fn card(&mut self) -> &mut Card {
+        self.doc.card_at_mut(self.at)
     }
 
     pub(crate) fn payload_mut(&mut self) -> &mut Payload {
-        self.0.payload_mut()
+        self.card().payload_mut()
     }
 
     /// [`Card::remove_field`].
     pub fn remove_field(&mut self, name: &str) -> Result<Option<QuillValue>, EditError> {
-        self.0.remove_field(name)
+        self.card().remove_field(name)
     }
 
     /// [`Card::store_ext`].
-    pub fn store_ext(
-        &mut self,
-        value: serde_json::Map<String, serde_json::Value>,
-    ) -> Result<(), EditError> {
-        self.0.store_ext(value)
+    pub fn store_ext(&mut self, value: serde_json::Map<String, serde_json::Value>) -> Result<(), EditError> {
+        self.card().store_ext(value)
     }
 
     /// [`Card::remove_ext`].
     pub fn remove_ext(&mut self) -> Option<serde_json::Map<String, serde_json::Value>> {
-        self.0.remove_ext()
+        self.card().remove_ext()
     }
 
     /// [`Card::store_seed_overlay`].
-    pub fn store_seed_overlay(
-        &mut self,
-        card_kind: impl Into<String>,
-        value: serde_json::Value,
-    ) -> Result<(), EditError> {
-        self.0.store_seed_overlay(card_kind, value)
+    pub fn store_seed_overlay(&mut self, card_kind: impl Into<String>, value: serde_json::Value) -> Result<(), EditError> {
+        self.card().store_seed_overlay(card_kind, value)
     }
 
     /// [`Card::remove_seed_overlay`].
     pub fn remove_seed_overlay(&mut self, card_kind: &str) -> Option<serde_json::Value> {
-        self.0.remove_seed_overlay(card_kind)
+        self.card().remove_seed_overlay(card_kind)
     }
 
     /// [`Card::overwrite_body`].
     #[cfg(test)]
     pub(crate) fn overwrite_body(&mut self, content: impl Into<Lines>) {
-        self.0.overwrite_body(content)
+        self.card().overwrite_body(content)
     }
 
-    /// [`Card::apply`].
-    pub fn apply<'o>(
-        &mut self,
-        target: super::Target<'_>,
-        change: &quillmark_content::change::Change,
-        opts: impl Into<super::WriteOptions<'o>>,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.apply(target, change, opts)
+    /// [`write`](Self::write) of [`Edit::Apply`](super::Edit::Apply).
+    pub fn apply<'o>(&mut self, target: super::Target<'_>, change: &quillmark_content::change::Change, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.write(target, super::Edit::Apply(change.clone()), opts)
     }
 
-    /// [`Card::revise`].
+    /// [`write`](Self::write) of [`Edit::Revise`](super::Edit::Revise).
     pub fn revise<'o>(&mut self, target: super::Target<'_>, markdown: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.revise(target, markdown, opts)
+        self.write(target, super::Edit::Revise(markdown), opts)
     }
 
-    /// [`Card::read_at`].
+    /// The value at `target` as the writer that read `base` read it,
+    /// refused with `edit::stale_base` where no write left it.
     pub fn read_at(&mut self, target: super::Target<'_>, base: Option<&str>) -> Result<quillmark_content::model::Content, EditError> {
-        self.0.read_at(target, base)
+        self.doc.read_under(self.at, target, base)
     }
 
     /// [`Card::save`].
     pub fn save(&mut self, target: super::Target<'_>) -> Result<Vec<u8>, EditError> {
-        self.0.save(target)
+        self.card().save(target)
     }
 
     /// [`Card::load`].
     pub fn load(&mut self, target: super::Target<'_>, bytes: &[u8]) -> Result<super::Receipt, EditError> {
-        self.0.load(target, bytes)
+        self.card().load(target, bytes)
     }
 
     /// [`Card::generate_sync_message`].
-    pub fn generate_sync_message(
-        &mut self,
-        target: super::Target<'_>,
-        state: &mut quillmark_automerge::automerge::sync::State,
-    ) -> Result<Option<quillmark_automerge::automerge::sync::Message>, EditError> {
-        self.0.generate_sync_message(target, state)
+    pub fn generate_sync_message(&mut self, target: super::Target<'_>, state: &mut quillmark_automerge::automerge::sync::State) -> Result<Option<quillmark_automerge::automerge::sync::Message>, EditError> {
+        self.card().generate_sync_message(target, state)
     }
 
     /// [`Card::receive_sync_message`].
-    pub fn receive_sync_message(
-        &mut self,
-        target: super::Target<'_>,
-        state: &mut quillmark_automerge::automerge::sync::State,
-        message: quillmark_automerge::automerge::sync::Message,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.receive_sync_message(target, state, message)
+    pub fn receive_sync_message(&mut self, target: super::Target<'_>, state: &mut quillmark_automerge::automerge::sync::State, message: quillmark_automerge::automerge::sync::Message) -> Result<super::Receipt, EditError> {
+        self.card().receive_sync_message(target, state, message)
     }
 
-    /// [`Card::replace`].
-    pub fn replace<'o>(
-        &mut self,
-        target: super::Target<'_>,
-        content: &quillmark_content::model::Content,
-        opts: impl Into<super::WriteOptions<'o>>,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.replace(target, content, opts)
+    /// [`write`](Self::write) of [`Edit::Replace`](super::Edit::Replace).
+    pub fn replace<'o>(&mut self, target: super::Target<'_>, content: &quillmark_content::model::Content, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.write(target, super::Edit::Replace(content.clone()), opts)
     }
 
-    /// [`Card::split_block`].
+    /// [`Card::split_block`], landed in the document.
     pub fn split_block<'o>(&mut self, target: super::Target<'_>, at: usize, id: Option<&str>, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.split_block(target, at, id, opts)
+        self.structural(target, quillmark_content::structural::StructuralEdit::SplitBlock { at, id: id.map(str::to_string) }, opts)
     }
 
-    /// [`Card::join_blocks`].
+    /// [`Card::join_blocks`], landed in the document.
     pub fn join_blocks<'o>(&mut self, target: super::Target<'_>, id: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.join_blocks(target, id, opts)
+        self.structural(target, quillmark_content::structural::StructuralEdit::JoinBlocks { id: id.to_string() }, opts)
     }
 
-    /// [`Card::delete_range`].
+    /// [`Card::delete_range`], landed in the document.
     pub fn delete_range<'o>(&mut self, target: super::Target<'_>, start: usize, end: usize, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.delete_range(target, start, end, opts)
+        self.structural(target, quillmark_content::structural::StructuralEdit::DeleteRange { start, end }, opts)
     }
 
-    /// [`Card::indent`].
+    /// [`Card::indent`], landed in the document.
     pub fn indent<'o>(&mut self, target: super::Target<'_>, first: &str, last: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.indent(target, first, last, opts)
+        self.structural(target, quillmark_content::structural::StructuralEdit::Indent { first: first.to_string(), last: last.to_string() }, opts)
     }
 
-    /// [`Card::outdent`].
+    /// [`Card::outdent`], landed in the document.
     pub fn outdent<'o>(&mut self, target: super::Target<'_>, first: &str, last: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.outdent(target, first, last, opts)
+        self.structural(target, quillmark_content::structural::StructuralEdit::Outdent { first: first.to_string(), last: last.to_string() }, opts)
     }
 
-    /// [`Card::wrap`].
-    pub fn wrap<'o>(
-        &mut self,
-        target: super::Target<'_>,
-        first: &str,
-        last: &str,
-        with: quillmark_content::structural::Wrap,
-        opts: impl Into<super::WriteOptions<'o>>,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.wrap(target, first, last, with, opts)
+    /// [`Card::wrap`], landed in the document.
+    pub fn wrap<'o>(&mut self, target: super::Target<'_>, first: &str, last: &str, with: quillmark_content::structural::Wrap, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.structural(target, quillmark_content::structural::StructuralEdit::Wrap { first: first.to_string(), last: last.to_string(), with }, opts)
     }
 
-    /// [`Card::write`].
+    fn structural<'o>(&mut self, target: super::Target<'_>, edit: quillmark_content::structural::StructuralEdit, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.write(target, super::Edit::Structural(edit), opts)
+    }
+
+    /// Lands `edit` on the value at `target` in the document's Automerge
+    /// document, built against the value its base names: a base the value
+    /// has moved on from builds at the heads a write left it at, and the
+    /// write merges with every change since as Automerge merges.
     pub fn write<'o>(&mut self, target: super::Target<'_>, edit: super::Edit<'_>, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.write(target, edit, opts)
+        self.doc.write_at(self.at, target, edit, opts.into(), None::<quillmark_content::units::Scalars>)
     }
 
-    /// [`Card::write_in`].
-    pub fn write_in<'o>(
-        &mut self,
-        target: super::Target<'_>,
-        edit: super::Edit<'_>,
-        opts: impl Into<super::WriteOptions<'o>>,
-        u: impl quillmark_content::units::Units,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.write_in(target, edit, opts, u)
+    /// [`write`](Self::write) for a host counting offsets in `u`.
+    pub fn write_in<'o>(&mut self, target: super::Target<'_>, edit: super::Edit<'_>, opts: impl Into<super::WriteOptions<'o>>, u: impl quillmark_content::units::Units) -> Result<super::Receipt, EditError> {
+        self.doc.write_at(self.at, target, edit, opts.into(), Some(u))
     }
 
     /// [`Card::overwrite_field`].
     #[cfg(test)]
-    pub(crate) fn overwrite_field(
-        &mut self,
-        name: &str,
-        content: impl Into<Lines>,
-    ) -> Result<(), EditError> {
-        self.0.overwrite_field(name, content)
+    pub(crate) fn overwrite_field(&mut self, name: &str, content: impl Into<Lines>) -> Result<(), EditError> {
+        self.card().overwrite_field(name, content)
     }
 
     #[doc(hidden)]
-    pub fn commit_field(
-        &mut self,
-        name: &str,
-        value: impl Into<QuillValue>,
-        schema: &FieldSchema,
-    ) -> Result<(), EditError> {
-        self.0.commit_field(name, value, schema)
+    pub fn commit_field(&mut self, name: &str, value: impl Into<QuillValue>, schema: &FieldSchema) -> Result<(), EditError> {
+        self.card().commit_field(name, value, schema)
     }
 
     #[doc(hidden)]
-    pub fn revise_field_checked(
-        &mut self,
-        name: &str,
-        body: impl Into<String>,
-        schema: &FieldSchema,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.revise_field_checked(name, body, schema)
+    pub fn revise_field_checked(&mut self, name: &str, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
+        self.card().revise_field_checked(name, body, schema)
     }
 
     #[doc(hidden)]
-    pub fn field_hash_checked(
-        &self,
-        name: &str,
-        schema: &FieldSchema,
-    ) -> Result<String, EditError> {
-        self.0.field_hash_checked(name, schema)
+    pub fn field_hash_checked(&self, name: &str, schema: &FieldSchema) -> Result<String, EditError> {
+        std::ops::Deref::deref(self).field_hash_checked(name, schema)
     }
 
     #[doc(hidden)]
-    pub fn revise_field_checked_against(
-        &mut self,
-        name: &str,
-        base: Base<'_>,
-        body: impl Into<String>,
-        schema: &FieldSchema,
-    ) -> Result<super::Receipt, EditError> {
-        self.0
-            .revise_field_checked_against(name, base, body, schema)
+    pub fn revise_field_checked_against(&mut self, name: &str, base: Base<'_>, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
+        self.card().revise_field_checked_against(name, base, body, schema)
     }
 }
 
@@ -1028,7 +979,7 @@ impl std::ops::Deref for CardMut<'_> {
     type Target = Card;
 
     fn deref(&self) -> &Card {
-        self.0
+        self.doc.card_at(self.at)
     }
 }
 
@@ -1038,7 +989,7 @@ impl Document {
     }
 
     pub fn card_mut(&mut self, index: usize) -> Option<CardMut<'_>> {
-        self.cards_vec_mut().get_mut(index).map(CardMut::new)
+        (index < self.cards.len()).then(|| CardMut::new(self, Some(index)))
     }
 
     /// The writes no quill schema checks: [`Unchecked`].

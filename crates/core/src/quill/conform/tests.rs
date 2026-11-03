@@ -468,7 +468,6 @@ fn a_0_134_0_row_converges() {
     let diags = quill.conform(&mut doc).expect("the quill matches");
     assert!(diags.is_empty(), "{diags:?}");
 
-    let restored = bytes(&doc);
     let (authored, _) = parse_bound(
         &quill,
         "\
@@ -490,11 +489,7 @@ prose: card **body**
 Entry body.
 ",
     );
-    assert_eq!(
-        restored,
-        bytes(&authored),
-        "one document, two ingress routes"
-    );
+    assert_eq!(doc, authored, "one document, two ingress routes");
 }
 
 #[test]

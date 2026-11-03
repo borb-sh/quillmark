@@ -302,6 +302,15 @@ impl Doc {
         View { content, repairs }
     }
 
+    /// What the value `root` read as at `heads`.
+    pub fn view_at(&mut self, root: &ObjId, heads: &[ChangeHash]) -> View {
+        self.doc.commit();
+        self.doc.isolate(heads);
+        let view = self.view(root);
+        self.doc.integrate();
+        view
+    }
+
     /// The raw value `root` holds, before repair.
     pub fn raw(&self, root: &ObjId) -> Value {
         value::read(&self.doc, root)

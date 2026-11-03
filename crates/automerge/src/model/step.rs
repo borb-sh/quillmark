@@ -14,7 +14,7 @@ use automerge::{AutoCommit, ObjId, ObjType, ReadDoc};
 use quillmark_content::change::{
     AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step,
 };
-use quillmark_content::model::{Content, Island};
+use quillmark_content::model::{Block, Content, Island};
 use quillmark_content::wire;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -153,7 +153,15 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, out: &mut Lower
         let view = current(doc, root);
         check(&view, step, n)?;
         match step {
-            Step::Splice(s) => splice(doc, &t, s, &mut ids, out, scopes),
+            Step::Splice(s) => {
+                splice(doc, &t, s, &mut ids, out, scopes);
+                let one = Change::new(vec![step.clone()]);
+                if let Ok(landed) = quillmark_content::change::apply(&view, &one) {
+                    for d in landed.dropped {
+                        value::unplace(doc, root, &t, &d.context.id);
+                    }
+                }
+            }
             Step::SetBlock(s) => set_block(doc, &t, s, &ids, n)?,
             Step::Container(ContainerStep::Set(c)) => {
                 let v = wire::container_value(c);
@@ -284,15 +292,43 @@ fn splice(
     out: &mut Lowered,
     scopes: &mut Scopes,
 ) {
-    let del = s.delete.chars().count();
-    if del > 0 {
-        doc.splice_text(t, s.at + 1, del as isize, "").unwrap();
+    let (del, ins): (Vec<char>, Vec<char>) = (s.delete.chars().collect(), s.insert.chars().collect());
+    let kept = |a: &char, b: &char| a == b && *a != quillmark_content::model::ISLAND_SLOT;
+    let pre = del.iter().zip(&ins).take_while(|(a, b)| kept(a, b)).count();
+    let suf = del[pre..].iter().rev().zip(ins[pre..].iter().rev()).take_while(|(a, b)| kept(a, b)).count();
+    let breaks = |cs: &[char]| cs.iter().filter(|c| **c == '\n').count();
+    let (pre_blocks, suf_blocks) = (breaks(&ins[..pre]), breaks(&ins[ins.len() - suf..]));
+    let mid_blocks = &s.blocks[pre_blocks.min(s.blocks.len())..s.blocks.len().saturating_sub(suf_blocks).max(pre_blocks.min(s.blocks.len()))];
+    let gone = del.len() - pre - suf;
+    if gone > 0 {
+        doc.splice_text(t, s.at + pre + 1, gone as isize, "").unwrap();
     }
-    let made = value::insert_text(doc, t, s.at + 1, &s.insert, &s.blocks, &s.islands, ids);
-    let (mut blocks, mut islands) = (s.blocks.iter(), s.islands.iter());
+    let mid: String = ins[pre..ins.len() - suf].iter().collect();
+    let made = value::insert_text(doc, t, s.at + pre + 1, &mid, mid_blocks, &s.islands, ids);
+    let mut keep = |doc: &mut AutoCommit, offset: usize, b: Option<&Block>, ids: &mut HashMap<String, String>| {
+        let (Some(b), Ok(Some((_, m)))) = (b, doc.get(t, offset + 1)) else { return };
+        value::put_block(doc, &m, b, ids);
+        ids.insert(b.id.clone(), id_of(&m));
+        out.minted.insert(b.id.clone(), id_of(&m));
+    };
+    let mut n = 0;
+    for (i, c) in ins[..pre].iter().enumerate() {
+        if *c == '\n' {
+            keep(doc, s.at + i, s.blocks.get(n), ids);
+            n += 1;
+        }
+    }
+    let base = s.at + ins.len() - suf;
+    let mut n = s.blocks.len().saturating_sub(suf_blocks);
+    for (i, c) in ins[ins.len() - suf..].iter().enumerate() {
+        if *c == '\n' {
+            keep(doc, base + i, s.blocks.get(n), ids);
+            n += 1;
+        }
+    }
+    let (mut blocks, mut islands) = (mid_blocks.iter(), s.islands.iter());
     for (m, ch) in made.iter().zip(
-        s.insert
-            .chars()
+        mid.chars()
             .filter(|c| *c == '\n' || *c == quillmark_content::model::ISLAND_SLOT),
     ) {
         let given = match ch {

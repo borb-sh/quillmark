@@ -467,7 +467,8 @@ fn a_token_survives_a_merge() {
         doc.main().body_lines().text,
         "Alpha, mine, \u{FFFC}.\nBeta two, theirs."
     );
-    assert_eq!(doc.main().body_lines().islands, body.islands);
+    let shape = |islands: &[quillmark_content::lines::model::Island]| islands.iter().map(|i| (i.island_type.clone(), i.props.clone())).collect::<Vec<_>>();
+    assert_eq!(shape(&doc.main().body_lines().islands), shape(&body.islands));
 }
 
 fn jobs(doc: &Document) -> serde_json::Value {

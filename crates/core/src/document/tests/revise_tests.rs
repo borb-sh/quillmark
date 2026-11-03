@@ -492,12 +492,11 @@ fn an_annotated_read_revises_back_through_its_tags_and_tokens() {
     let body = titled(&anchored(doc.main().body_lines(), "plan", "p1"));
     doc.main_mut().overwrite_body(body.clone());
     let read = doc.to_markdown_annotated().markdown;
-    assert!(read.contains("See <qm-island ref=\"isl-0\"></qm-island> and the <qm-anchor ref=\"p1\"></qm-anchor>plan."), "{read}");
+    let isl = body.islands[0].id.clone();
+    let before = format!("See <qm-island ref=\"{isl}\"></qm-island> and the <qm-anchor ref=\"p1\"></qm-anchor>plan.");
+    assert!(read.contains(&before), "{read}");
 
-    let written = read.replace(
-        "See <qm-island ref=\"isl-0\"></qm-island> and the <qm-anchor ref=\"p1\"></qm-anchor>plan.",
-        "Now <qm-anchor ref=\"p1\"></qm-anchor>the plan, beside <qm-island ref=\"isl-0\"></qm-island>.",
-    );
+    let written = read.replace(&before, &format!("Now <qm-anchor ref=\"p1\"></qm-anchor>the plan, beside <qm-island ref=\"{isl}\"></qm-island>."));
     let receipt = doc.revise(&written).unwrap();
     assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
     assert!(

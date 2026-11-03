@@ -160,6 +160,10 @@ enum Counted {
 }
 
 impl Receipt {
+    pub(crate) fn landed(applied: Change, hash: String, dropped_anchors: Vec<Dropped>, moved_anchors: Vec<Moved>, warnings: Vec<ImportWarning>, rebased: bool, minted: BTreeMap<String, String>) -> Receipt {
+        Receipt { applied, hash, dropped_anchors, moved_anchors, warnings, rebased, minted, counted: Counted::Host }
+    }
+
     /// The receipt with `applied` counted in `u`. A writer's revise answers
     /// its change in scalars, and this converts it on the value it read; a
     /// receipt [`Card::write`] or [`Card::write_in`] answered comes back as
