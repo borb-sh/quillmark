@@ -48,6 +48,7 @@ pub enum Base<'a> {
 /// now, which a writer checks its next read against; retrying the same write
 /// under it would land the revert the base refused.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum BaseError {
     #[error("the value changed since the writer read it")]
     Stale {

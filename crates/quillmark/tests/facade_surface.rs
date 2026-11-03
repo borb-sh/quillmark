@@ -80,13 +80,13 @@ fn content_lane_spells_through_the_facade() {
 
     let _: &Content = doc.main().body();
     let reader: TypedReader = quill.reader(&doc);
-    let _: Option<quillmark_content::model::Content> = reader.get_content("subject").expect("subject is declared");
+    let _: Option<Content> = reader.get_content("subject").expect("subject is declared");
     let _: Annotated = doc.main().body_annotated();
 
     let revised: Result<Receipt, EditError> = doc.main_mut().revise_body("# Body");
     let Receipt { applied, dropped_anchors, .. } = revised.expect("a heading imports");
-    let _: quillmark_content::change::Change = applied;
-    let _: Vec<quillmark_content::change::Dropped> = dropped_anchors;
+    let _: quillmark::Change = applied;
+    let _: Vec<quillmark::Dropped> = dropped_anchors;
     let _: fn(ImportError) -> EditError = EditError::Import;
 
     let read: AnnotatedMarkdown = doc.to_markdown_annotated();
@@ -102,7 +102,7 @@ fn content_lane_spells_through_the_facade() {
 
     let selectors: Vec<AnchorSelector> = doc.anchor_contexts();
     let _: Option<AnchorSelector> = doc.anchor_context("c1");
-    let changes: HashMap<DocPath, quillmark_content::change::Change> = HashMap::new();
+    let changes: HashMap<DocPath, quillmark::Change> = HashMap::new();
     let Reattached {
         reattached,
         orphaned,
