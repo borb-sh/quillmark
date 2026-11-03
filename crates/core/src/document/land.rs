@@ -128,7 +128,7 @@ impl Document {
             }
         }
         let id = self.card_at(at).id().map(str::to_string);
-        let doc = self.live();
+        let doc = self.doc();
         let card = match (at, id) {
             (None, _) => doc.main(),
             (Some(_), Some(id)) => obj(doc, &doc.cards(), &id).expect("a flushed card is held"),
@@ -158,7 +158,7 @@ impl Document {
     /// the heads a write left the hash at otherwise.
     fn heads_for(&mut self, at: Option<usize>, target: Target<'_>, root: &ObjId, base: Option<Base<'_>>) -> Result<Option<Vec<ChangeHash>>, EditError> {
         let Some(base) = base else { return Ok(None) };
-        let now = self.live().view(root).content;
+        let now = self.doc().view(root).content;
         let hash = match base {
             Base::Hash(h) => h.to_string(),
             Base::Content(c) => content_hash(c),
@@ -173,7 +173,7 @@ impl Document {
         }
         let history = self.history().clone();
         for heads in history.iter().rev() {
-            let read = self.live().try_view_at(root, heads);
+            let read = self.doc().try_view_at(root, heads);
             if read.is_some_and(|v| content_hash(&v.content) == key.1) {
                 self.seen().insert(key, heads.clone());
                 return Ok(Some(heads.clone()));
@@ -225,7 +225,7 @@ impl Document {
         }
         let (root, _) = self.value_obj(at, target)?;
         let heads = self.heads_for(at, target, &root, base.map(Base::Hash))?;
-        let doc = self.live();
+        let doc = self.doc();
         Ok(match heads {
             Some(h) => doc.view_at(&root, &h).content,
             None => doc.view(&root).content,

@@ -4,7 +4,7 @@
 //! between a writer's read and its write reads as text the writer deleted. A
 //! [`Base`] names the read by its hash or by the value itself, and the write
 //! lands at the heads the document noted that hash at, merged with the change
-//! since (`live.rs`). A whole-document revise names its read with a
+//! since (`land.rs`). A whole-document revise names its read with a
 //! [`DocumentBase`].
 
 use std::collections::BTreeMap;

@@ -654,7 +654,7 @@ fn with_anchors_of(
 
 pub(crate) mod align;
 pub(crate) mod held;
-mod live;
+mod land;
 pub mod anchors;
 pub mod assemble;
 pub mod base;
@@ -981,7 +981,7 @@ pub struct Document {
     main: Card,
     cards: Vec<Card>,
     mints: card_id::ActorMints,
-    live: Bound,
+    held: Bound,
 }
 
 pub(crate) fn remember(history: &mut Vec<Vec<quillmark_automerge::automerge::ChangeHash>>, heads: Vec<quillmark_automerge::automerge::ChangeHash>) {
@@ -993,10 +993,10 @@ pub(crate) fn remember(history: &mut Vec<Vec<quillmark_automerge::automerge::Cha
     }
 }
 
-/// The [`Live`] a document is held in, once it is: no part of what the
+/// The [`Held`] a document is held in, once it is: no part of what the
 /// document equals.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct Bound(Option<Live>);
+pub(crate) struct Bound(Option<Held>);
 
 impl PartialEq for Bound {
     fn eq(&self, _: &Self) -> bool {
@@ -1008,7 +1008,7 @@ impl PartialEq for Bound {
 /// last written into it. The cards are its view: a write lands in it first,
 /// or reaches it at the next [`Document::flush`].
 #[derive(Clone)]
-pub(crate) struct Live {
+pub(crate) struct Held {
     doc: quillmark_automerge::model::Doc,
     synced: (Card, Vec<Card>),
     /// The heads each value's hash was first read at, by the value's address.
@@ -1024,15 +1024,15 @@ pub(crate) struct Live {
 /// How many of the latest writes' heads a base hash is looked for at.
 pub(crate) const HISTORY: usize = 1024;
 
-impl PartialEq for Live {
+impl PartialEq for Held {
     fn eq(&self, _: &Self) -> bool {
         true
     }
 }
 
-impl std::fmt::Debug for Live {
+impl std::fmt::Debug for Held {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Live")
+        f.write_str("Held")
     }
 }
 
@@ -1040,14 +1040,14 @@ impl Document {
     /// A document holding `main` and `cards`, held in an Automerge
     /// document from its first write, save or [`bind`](Self::bind) on.
     pub(crate) fn assembled(main: Card, cards: Vec<Card>, mints: card_id::ActorMints) -> Self {
-        Self { main, cards, mints, live: Bound(None) }
+        Self { main, cards, mints, held: Bound(None) }
     }
 
     /// The document `doc` holds, its cards read from it.
     pub(crate) fn read_from(doc: quillmark_automerge::model::Doc, mints: card_id::ActorMints) -> Result<Self, String> {
         let (main, cards) = held::read(&doc)?;
         let synced = (main.clone(), cards.clone());
-        Ok(Self { main, cards, mints, live: Bound(Some(Live { doc, synced, seen: Default::default(), history: Vec::new(), last: None })) })
+        Ok(Self { main, cards, mints, held: Bound(Some(Held { doc, synced, seen: Default::default(), history: Vec::new(), last: None })) })
     }
 
     /// Holds the document in an Automerge document where it is not yet,
@@ -1055,13 +1055,13 @@ impl Document {
     /// card holding no id yet stays out of it until a flush after its id is
     /// settled.
     pub(crate) fn bind(&mut self) {
-        if self.live.0.is_some() {
+        if self.held.0.is_some() {
             return;
         }
         let doc = held::build(&self.main, &self.cards);
         let (main, cards) = held::read(&doc).expect("built cards read back");
         let synced = (main.clone(), cards.clone());
-        self.live = Bound(Some(Live { doc, synced, seen: Default::default(), history: Vec::new(), last: None }));
+        self.held = Bound(Some(Held { doc, synced, seen: Default::default(), history: Vec::new(), last: None }));
         if cards.len() == self.cards.len() {
             self.main = main;
             self.cards = cards;
@@ -1070,20 +1070,20 @@ impl Document {
         }
     }
 
-    fn held(&mut self) -> &mut Live {
+    fn held(&mut self) -> &mut Held {
         self.bind();
-        self.live.0.as_mut().expect("bound")
+        self.held.0.as_mut().expect("bound")
     }
 
     /// Writes what the cards changed since they were last written into the
     /// Automerge document, and reads them back from it.
     pub(crate) fn flush(&mut self) {
         self.bind();
-        let live = self.live.0.as_mut().expect("bound");
+        let live = self.held.0.as_mut().expect("bound");
         if live.synced.0 == self.main && live.synced.1 == self.cards {
             return;
         }
-        let Live { doc, synced, history, .. } = live;
+        let Held { doc, synced, history, .. } = live;
         remember(history, doc.heads());
         held::flush(doc, (&synced.0, &synced.1), (&self.main, &self.cards));
         let (main, cards) = held::read(doc).expect("flushed cards read back");
@@ -1093,7 +1093,7 @@ impl Document {
     }
 
     /// The Automerge document, with every change to the cards written in.
-    pub(crate) fn live(&mut self) -> &mut quillmark_automerge::model::Doc {
+    pub(crate) fn doc(&mut self) -> &mut quillmark_automerge::model::Doc {
         self.flush();
         &mut self.held().doc
     }
@@ -1128,21 +1128,21 @@ impl Document {
     /// The heads of the Automerge document this one is held in, where it is
     /// held in one and its cards read as that document does.
     pub(crate) fn held_heads(&self) -> Option<Vec<quillmark_automerge::automerge::ChangeHash>> {
-        let mut live = self.live.0.clone()?;
+        let mut live = self.held.0.clone()?;
         (live.synced.0 == self.main && live.synced.1 == self.cards).then(|| live.doc.heads())
     }
 
     /// Writes what the cards changed into the Automerge document, where the
     /// document is held in one.
     pub(crate) fn settle(&mut self) {
-        if self.live.0.is_some() {
+        if self.held.0.is_some() {
             self.flush();
         }
     }
 
     /// Whether this document's history holds `heads`.
     pub(crate) fn holds(&mut self, heads: &[quillmark_automerge::automerge::ChangeHash]) -> bool {
-        self.live().holds(heads)
+        self.doc().holds(heads)
     }
 
     /// Lands the cards of `wanted`, made from this document as it was at
@@ -1161,7 +1161,7 @@ impl Document {
     ///
     /// [`from_bytes`]: Document::from_bytes
     pub fn to_bytes(&mut self) -> Vec<u8> {
-        self.live().save()
+        self.doc().save()
     }
 
     /// The document `bytes` hold: a [`to_bytes`](Document::to_bytes) or a
@@ -1174,24 +1174,24 @@ impl Document {
 
     /// The document's revision: its Automerge heads.
     pub fn heads(&mut self) -> Vec<quillmark_automerge::automerge::ChangeHash> {
-        self.live().heads()
+        self.doc().heads()
     }
 
     /// The changes since `heads`, as bytes [`merge`](Document::merge) takes.
     pub fn save_since(&mut self, heads: &[quillmark_automerge::automerge::ChangeHash]) -> Vec<u8> {
-        self.live().save_since(heads)
+        self.doc().save_since(heads)
     }
 
     /// The next message of the sync protocol with the peer `state` tracks,
     /// `None` where the peer has everything.
     pub fn generate_sync_message(&mut self, state: &mut SyncState) -> Option<SyncMessage> {
-        self.live().generate_sync_message(state)
+        self.doc().generate_sync_message(state)
     }
 
     /// Takes a peer's sync message and reads the cards again; one that
     /// leaves the document outside its schema is refused and undone.
     pub fn receive_sync_message(&mut self, state: &mut SyncState, message: SyncMessage) -> Result<(), quillmark_automerge::model::LoadError> {
-        self.live().receive_sync_message(state, message)?;
+        self.doc().receive_sync_message(state, message)?;
         self.reread();
         Ok(())
     }
@@ -1199,7 +1199,7 @@ impl Document {
     /// Takes the changes `bytes` hold, another peer's save or
     /// [`save_since`](Document::save_since), and reads the cards again.
     pub fn merge(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
-        self.live().merge(bytes)?;
+        self.doc().merge(bytes)?;
         self.reread();
         Ok(())
     }
