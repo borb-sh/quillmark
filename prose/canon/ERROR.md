@@ -122,7 +122,7 @@ that conflicts, and the `reason` (`deleted`, `changed`, `missing`, `refused`).
 A base the document no longer holds the change since for refuses under
 `edit::stale_base`, carrying `current`. The pure `rebase` raises the same
 conflict, its `current` the hash of the value `since` left. A change that does not apply to the value, or would leave it
-invalid, is `edit::content_apply`, and writes nothing ([CONTENT.md](CONTENT.md)); the whole-document revise reports it as a warning at the value it leaves as stored.
+invalid, is `edit::content_apply`, and writes nothing; its `reason` names the refusal (`stale`, `unknown_block`, `unknown_container`, `container_kind`, `container_in_use`, `unknown_anchor`, `anchor_held`, `unknown_island`, `unknown_slot`, `bad_step`, `invalid`), with the `step` it refuses at for `stale` and `bad_step` ([CONTENT.md](CONTENT.md)); the whole-document revise reports it as a warning at the value it leaves as stored.
 Four bounds refuse under codes of their own, each carrying the `max` it
 passed ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content
 vocabularies" lists them): `edit::too_many_marks` and `edit::too_many_anchors`,
@@ -593,7 +593,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::duplicate_card_id` | `id` | structured |
 | `edit::unknown_card_id` | `id` | structured |
 | `edit::import` | — | fallback |
-| `edit::content_apply` | — | fallback |
+| `edit::content_apply` | `reason`, `step`? | structured, coarser |
 | `edit::input_too_large` | `size`, `max` | structured |
 | `edit::too_many_steps` | `count`, `max` | structured |
 | `edit::too_many_marks` | `count`, `max` | structured |
