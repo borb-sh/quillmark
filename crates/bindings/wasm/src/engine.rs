@@ -327,12 +327,10 @@ export interface Delta {
  * neither; a key present with no value throws. `baseHash` is the hash the
  * writer read (`writer.hashAt`); `baseContent` is the value itself, the
  * `Content` `reader.getContent` returned. On a value that has moved on, the write merges with the change
- * since and throws `edit::rebase_conflict` where the two conflict
- * (CONTENT.md § "Live state and merge"). A `baseHash` throws `edit::stale_base` where
- * no write this document took left it, as for any base read before the
- * document was loaded from storage; a `baseContent` holds however long ago it
- * was read. Each refusal's
- * `args.current` is the hash now, and leaves the value unchanged.
+ * since as Automerge merges (CONTENT.md § "Live state and merge"). A base the
+ * document's history does not reach, as any read before the document was
+ * loaded from its stored row, throws `edit::stale_base`, its `args.current`
+ * the hash now, and leaves the value unchanged.
  */
 export interface BaseOptions {
     baseHash?: string;
@@ -342,15 +340,15 @@ export interface BaseOptions {
 /**
  * What a `reviseDocument`'s writer read, its optional last argument. Name one
  * or neither. A stale `baseHash` (`writer.hash`) throws `edit::stale_base`.
- * `baseStored` is the `toStored()` row the writer read: when the document has
- * changed since, the writer's change and the change since merge card by card
- * and field by field, each place both changed keeps its value now and is named
- * in the receipt's `conflicts`, and the write throws `edit::rebase_conflict`
- * only where no merge can stand.
+ * `baseStored` is the `save()` bytes the writer read, or a `toStored()` row:
+ * under bytes of this document's history the writer's change lands at the
+ * heads they were saved at and merges with every change since as Automerge
+ * merges; a row, or bytes of another history, holds only where it reads as
+ * the document now.
  */
 export interface DocumentBaseOptions {
     baseHash?: string;
-    baseStored?: string;
+    baseStored?: Uint8Array | string;
 }
 
 /**
@@ -362,29 +360,12 @@ export interface DocumentBaseOptions {
  * content, reports no drop. `from` names, for each composable card of the
  * revised document, the index of the stored card it revises, or `null` for an
  * inserted card; a stored card no entry names was removed, and only cards of
- * one `$kind` pair. `conflicts` is empty unless the write carries a
- * `baseStored`.
+ * one `$kind` pair.
  */
 export interface DocumentRevised {
     droppedAnchors: AnchorContext[];
     warnings: Diagnostic[];
     from: (number | null)[];
-    conflicts: MergeConflict[];
-}
-
-/**
- * A place a `reviseDocument` under `baseStored` found changed both by the
- * writer and since its read, which the write leaves as it stands now. `path`
- * is where it stands in the written document, or would stand where the write
- * left it out. Each side is the value there, `null` where that side holds
- * nothing: a field or item absent, a card removed. A body is its markdown,
- * and a whole card an object of its fields beside `$kind` and `$body`.
- */
-export interface MergeConflict {
-    path: string;
-    base: unknown;
-    current: unknown;
-    proposed: unknown;
 }
 
 /** What `toMarkdown` and `exportMarkdown` read: `annotated` spells each
@@ -1610,8 +1591,7 @@ impl Document {
     ///
     /// `opts` names what the writer read (`BaseOptions`): a value that has
     /// moved on from its `baseHash` or `baseContent` merges the write with the
-    /// change since, throwing `edit::rebase_conflict` where the two conflict
-    /// (CONTENT.md § "Live state and merge").
+    /// change since as Automerge merges (CONTENT.md § "Live state and merge").
     ///
     /// An undeclared name throws `edit::unknown_field`; an out-of-range card,
     /// a malformed field name, or an over-nested markdown input throws.
@@ -2145,8 +2125,14 @@ impl ReadBase {
                 .as_string()
                 .map(ReadBase::Hash)
                 .ok_or_else(|| invalid("baseHash must be a string".into())),
+            (None, Some(v)) if other == "baseStored" && v.is_instance_of::<js_sys::Uint8Array>() => {
+                let bytes = js_sys::Uint8Array::from(v).to_vec();
+                quillmark_core::document::Document::from_bytes(&bytes)
+                    .map(|doc| ReadBase::Stored(Box::new(doc)))
+                    .map_err(|e| invalid(format!("baseStored: bytes that hold no document: {e}")))
+            }
             (None, Some(v)) if other == "baseStored" => {
-                let json = v.as_string().ok_or_else(|| invalid("baseStored must be a toStored string".into()))?;
+                let json = v.as_string().ok_or_else(|| invalid("baseStored must be save() bytes or a toStored string".into()))?;
                 quillmark_core::document::Document::from_stored(&json)
                     .map(|parsed| ReadBase::Stored(Box::new(parsed.document)))
                     .map_err(|e| invalid(format!("baseStored: invalid storage DTO: {e}")))
@@ -2235,15 +2221,6 @@ struct DocumentRevisedJs {
     dropped_anchors: Vec<AnchorContextJs>,
     warnings: Vec<Diagnostic>,
     from: Vec<Option<usize>>,
-    conflicts: Vec<MergeConflictJs>,
-}
-
-#[derive(serde::Serialize)]
-struct MergeConflictJs {
-    path: String,
-    base: Option<serde_json::Value>,
-    current: Option<serde_json::Value>,
-    proposed: Option<serde_json::Value>,
 }
 
 #[derive(serde::Serialize)]
@@ -2282,16 +2259,6 @@ impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
                 .collect(),
             warnings: diags(revised.warnings),
             from: revised.from,
-            conflicts: revised
-                .conflicts
-                .into_iter()
-                .map(|c| MergeConflictJs {
-                    path: c.path.to_string(),
-                    base: c.base,
-                    current: c.current,
-                    proposed: c.proposed,
-                })
-                .collect(),
         }
     }
 }

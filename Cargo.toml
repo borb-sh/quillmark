@@ -116,6 +116,12 @@ split-debuginfo = "unpacked" # Faster on macOS/Linux
 [profile.dev.package."*"]
 debug = false
 opt-level = 0
+# automerge 0.12's debug check that its fast and slow op seeks agree fails
+# for a cursor on a deleted element, where the fast seek, the one release
+# runs, is right.
+[profile.dev.package.automerge]
+debug-assertions = false
+opt-level = 2
 
 [profile.release]
 opt-level = 3

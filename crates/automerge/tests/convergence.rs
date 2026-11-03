@@ -8,9 +8,8 @@ mod common;
 
 use common::*;
 use proptest::prelude::*;
-use quillmark_automerge::{Reason, conflict, merge3};
+use quillmark_automerge::merge3;
 use quillmark_content::change::{Change, SetBlock, Step, apply};
-use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::Content;
 
 fn block<'a>(c: &'a Content, id: &str) -> Option<&'a quillmark_content::model::Block> {
@@ -52,18 +51,18 @@ proptest! {
     }
 
     /// A block kind one change set stays where the other neither sets that
-    /// block's record nor removes it, nor conflicts with the change as a
-    /// stale write does, and the merge needed no repair.
+    /// block's record nor removes it nor puts it back, and the merge needed
+    /// no repair.
     #[test]
     fn a_kind_one_side_set_the_other_left_alone_stays(d in document(), mine in ops(), theirs in ops()) {
         let (c, o) = (change_for(&d, &mine), change_from(&d, &theirs, 500));
         let merged = merge3(&d, &c, &o).unwrap();
         prop_assume!(merged.repairs.is_empty());
         let (ours, theirs) = (apply(&d, &c).unwrap().content, apply(&d, &o).unwrap().content);
-        prop_assume!(conflict(&d, &theirs, &c).is_none());
-        let set: Vec<&str> = c.steps.iter().filter_map(|s| match s {
-            Step::SetBlock(SetBlock { id, kind: Some(_), .. }) | Step::SetBlock(SetBlock { id, attrs: Some(_), .. }) => Some(id.as_str()),
-            _ => None,
+        let set: Vec<&str> = c.steps.iter().flat_map(|s| match s {
+            Step::SetBlock(SetBlock { id, kind: Some(_), .. }) | Step::SetBlock(SetBlock { id, attrs: Some(_), .. }) => vec![id.as_str()],
+            Step::Splice(sp) => sp.blocks.iter().map(|b| b.id.as_str()).collect(),
+            _ => Vec::new(),
         }).collect();
         for b in &d.blocks {
             let (Some(t), Some(m), Some(_)) = (block(&theirs, &b.id), block(&merged.content, &b.id), block(&ours, &b.id)) else { continue };
@@ -74,21 +73,3 @@ proptest! {
     }
 }
 
-/// A step setting a block record, a container or an island's props the
-/// change since its base also set conflicts as `changed`, and one naming a
-/// block the change since removed as `missing`; a step by id on a record the
-/// change since left alone does not conflict.
-#[test]
-fn a_record_both_sides_set_conflicts_and_one_side_alone_does_not() {
-    let d = from_markdown("one\n\ntwo\n\nthree").unwrap().content;
-    let set = |id: &str, kind: &str, attrs: Option<serde_json::Value>| {
-        Change::new(vec![Step::SetBlock(SetBlock { id: id.into(), kind: Some(kind.into()), attrs: attrs.and_then(|a| a.as_object().cloned()), path: None })])
-    };
-    let heading = set("b1", "heading", Some(serde_json::json!({"level": 2})));
-    let now = apply(&d, &set("b1", "code", None)).unwrap().content;
-    assert_eq!(conflict(&d, &now, &heading).map(|c| (c.step, c.reason)), Some((0, Reason::Changed)));
-    let other = apply(&d, &set("b2", "code", None)).unwrap().content;
-    assert_eq!(conflict(&d, &other, &heading), None);
-    let joined = apply(&d, &Change::new(vec![Step::Splice(quillmark_content::change::Splice::new(3, "\n", ""))])).unwrap().content;
-    assert_eq!(conflict(&d, &joined, &heading).map(|c| c.reason), Some(Reason::Missing));
-}

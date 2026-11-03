@@ -4,21 +4,26 @@
 
 ## TL;DR
 
-`Document` is the typed in-memory model of a Quillmark Markdown file. Its
-layout tracks the evolving Quillmark model and is **not** a stable interface.
-To persist documents (e.g. in a database) without storing Markdown (whose
-syntax also evolves), `Document` serializes to a **versioned JSON envelope**,
-`StoredDocument`, whose wire format is frozen per schema version.
+`Document` is the typed in-memory model of a Quillmark Markdown file, held in
+one Automerge document. A document persists as that Automerge document's
+**bytes**: the row is the bytes, the revision is the heads, a write's patch is
+its receipt, and sync is Automerge's own (§ "The Automerge layout"). The
+**versioned JSON envelope**, `StoredDocument`, whose wire format is frozen per
+schema version, is the history-free interchange and the migration form: a
+`0.134.0` row is JSON, and reads into a new document.
 
 ## When to use it
 
 | Form | Round-trips? | Stable for storage? |
 |---|---|---|
 | Markdown (`Document::to_markdown`) | No: anchors and ids drop ([CONTENT.md](CONTENT.md) § "What markdown keeps") | No: syntax evolves |
-| `StoredDocument` JSON | Yes: lossless | Yes: frozen per schema version |
+| Automerge bytes (`Document::to_bytes`) | Yes: lossless, history included | Yes: the row; its root's `schema` names the layout |
+| `StoredDocument` JSON | Yes: lossless but for history | Yes: frozen per schema version |
 
-Use `StoredDocument` JSON whenever a `Document` must survive a process
-restart or a crate upgrade: database rows, caches, message payloads.
+Store the bytes whenever a `Document` must survive a process restart or a
+crate upgrade and keep merging: database rows, sync peers, message payloads.
+Store or send the JSON where a reader holds no Automerge, or where history
+must not travel.
 
 What a schema-bound read hands a consumer is the values form: the stored value
 with content as its codec's text, sparse, and carrying neither anchors nor
@@ -97,6 +102,26 @@ reads it is the one to load and save it under a tag still read. A body
 spelled in the line form, the encoding those tags held, fails the load, and
 a field value in it loads as the plain value it spells, read as no content. A
 composable card naming no `$kind` fails the load.
+
+## The Automerge layout
+
+The document's root holds `schema` (`quillmark/document@0.135.0`), `main`,
+`cards` and `order`: `cards` maps each composable card's `$id` to its card,
+and `order` lists the `$id`s in document order. A card holds `layout`, its
+payload items' order and comments; `fields`, each field by key; `ext`; `seed`;
+`nestedComments`; and `body`. A content value, a body or a `richtext` or
+`text` field, is an Automerge text object with its blocks as `split_block`
+markers, its marks and anchors as Automerge marks, and its containers and
+islands as records named by their object ids. Any other value is Automerge
+maps, lists and scalars, a map's key order held in its `\u{1f}order` list,
+since an Automerge map holds none. `Document::from_bytes` refuses bytes whose
+root holds no document in this shape, or names a schema this build does not
+read (`edit::bad_live_bytes`).
+
+Concurrent changes merge as Automerge merges them: a field, a card or a record
+two writers set reads as the later in Automerge's order, text both edited
+keeps both edits, and a card one writer removed while another edited it reads
+as Automerge leaves the two.
 
 ## Byte-stability
 
@@ -421,8 +446,8 @@ A step names the ids of what it lands, and the apply refuses one already live
 in its scope. A live client mints none of its own: a record it puts carries a
 placeholder the write fills, and the write mints under the client's actor,
 `{actor}:{prefix}{n}`, so two clients never mint one id
-([CONTENT.md](CONTENT.md) § Ids). A live document's bytes therefore depend on
-which actors wrote it, and its hash is stable from the moment it is stored
+([CONTENT.md](CONTENT.md) § Ids). A document's ids and bytes therefore depend
+on which actors wrote it, and its hash is stable from the moment it is stored
 rather than equal to a cold import's. Merge repair derives each id it mints
 from the ids involved ([CONTENT.md](CONTENT.md) § "Merge repair").
 
@@ -500,7 +525,7 @@ is written, and never rewritten while its card lives.**
   under its actor and carries the `$id` the placement answers to its peers, so
   two replicas never mint two ids for one card. The mint is a function of the
   document and the writer's actor, so the never-ambient rule of § Island-id
-  determinism holds, narrowed as it is there: a live document's ids depend on
+  determinism holds, narrowed as it is there: a document's ids depend on
   which actors placed its cards. An actor's mint never reissues an id: each
   `Document` value holds, beside its cards and outside its equality and its
   stored row, the index past the last token it minted under each actor since

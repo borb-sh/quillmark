@@ -8,7 +8,7 @@ import json
 import pytest
 from quillmark import Document
 
-from conftest import RESOURCES_PATH
+from conftest import RESOURCES_PATH, by_place
 
 CORPUS = json.loads((RESOURCES_PATH / "parity" / "parity.json").read_text(encoding="utf-8"))
 SPELLED = [e for e in CORPUS if e["markdown"] is not None]
@@ -26,7 +26,7 @@ def parse(body):
 @pytest.mark.parametrize("entry", SPELLED, ids=name)
 def test_a_spelling_parses_to_its_content_warning_at_the_body(entry):
     doc = parse(entry["markdown"])
-    assert doc.read() == entry["content"]
+    assert by_place(doc.read()) == by_place(entry["content"])
     dropped = [{"construct": w.args["construct"], "count": w.args["count"]} for w in doc.warnings]
     assert dropped == entry["signals"]["import"]
     assert {(w.code, w.path) for w in doc.warnings} <= {("parse::dropped_construct", "main.body")}
@@ -37,5 +37,5 @@ def test_stored_content_reads_back(entry):
     stored = json.loads(parse("").to_stored())
     stored["main"]["body"] = entry["content"]
     doc = Document.from_stored(json.dumps(stored))
-    assert doc.read() == entry["content"]
-    assert Document.from_stored(doc.to_stored()).read() == entry["content"]
+    assert by_place(doc.read()) == by_place(entry["content"])
+    assert by_place(Document.from_stored(doc.to_stored()).read()) == by_place(entry["content"])

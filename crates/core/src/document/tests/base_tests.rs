@@ -2,7 +2,7 @@ use quillmark_content::lines::export::to_markdown_annotated;
 use quillmark_content::lines::import::from_markdown;
 
 use crate::document::{
-    Base, BaseError, Card, Document, DocumentBase, EditError, MergeConflict, content_hash, value_hash,
+    Base, BaseError, Card, Document, DocumentBase, EditError, content_hash, value_hash,
 };
 use crate::quill::{BoundParseError, QuillConfig};
 use crate::writer::TypedWriter;
@@ -46,8 +46,42 @@ fn config() -> QuillConfig {
     QuillConfig::from_yaml(QUILL_YAML).expect("valid quill")
 }
 
-fn card_with_body(markdown: &str) -> Card {
-    let mut card = Card::new("note").unwrap();
+/// A `note` card placed in a document, so its writes land in the document's
+/// Automerge document and a stale one merges.
+#[derive(Clone)]
+struct Placed(Document);
+
+impl Placed {
+    fn new(card: Card) -> Placed {
+        let mut doc = Document::new(std::str::FromStr::from_str("memo@1.0.0").unwrap());
+        doc.unchecked().insert_card(None, card, None).unwrap();
+        doc.settle();
+        Placed(doc)
+    }
+
+    fn revise_body(&mut self, markdown: impl AsRef<str>) -> Result<crate::document::Receipt, EditError> {
+        self.0.card_mut(0).unwrap().revise_counted(crate::document::Target::Body, markdown.as_ref(), None)
+    }
+
+    fn revise_body_against(&mut self, base: Base<'_>, markdown: impl AsRef<str>) -> Result<crate::document::Receipt, EditError> {
+        self.0.card_mut(0).unwrap().revise_counted(crate::document::Target::Body, markdown.as_ref(), Some(base))
+    }
+
+    fn overwrite_body(&mut self, content: impl Into<quillmark_content::lines::model::Lines>) {
+        self.0.card_mut(0).unwrap().overwrite_body(content);
+    }
+}
+
+impl std::ops::Deref for Placed {
+    type Target = Card;
+
+    fn deref(&self) -> &Card {
+        &self.0.cards()[0]
+    }
+}
+
+fn card_with_body(markdown: &str) -> Placed {
+    let mut card = Placed::new(Card::new("note").unwrap());
     let _ = card.revise_body(markdown).unwrap();
     card
 }
@@ -55,7 +89,6 @@ fn card_with_body(markdown: &str) -> Card {
 fn current_of(err: EditError) -> (&'static str, String) {
     match err {
         EditError::Base(BaseError::Stale { current, .. }) => ("stale", current),
-        EditError::Base(BaseError::Conflict { current, .. }) => ("conflict", current),
         other => panic!("not a base refusal: {other:?}"),
     }
 }
@@ -87,6 +120,7 @@ fn a_read_lands_the_writer_edit_beside_the_change_since_and_keeps_anchors() {
         .content;
     let mut card = Card::new("note").unwrap();
     card.overwrite_body(anchored(&content, "Beta", "c1"));
+    let mut card = Placed::new(card);
     let read = to_markdown_annotated(card.body_lines()).markdown;
     let base = card.read(crate::document::Target::Body).unwrap();
     assert!(read.contains("<qm-anchor"), "{read}");
@@ -138,7 +172,9 @@ fn a_read_of_the_value_now_is_a_plain_revise() {
 fn a_text_field_merges_its_literal_text() {
     let config = config();
     let mut doc = parse("~~~\n$quill: memo@1.0.0\nnote: \"a *b*\\n\\nc\\n\\nd\"\n~~~\n");
-    let base = doc.main().read("note").unwrap();
+    config.conform(&mut doc).unwrap();
+    let note = doc.main().payload().get("note").unwrap().as_json().clone();
+    let base = crate::document::Codec::Text.decode_content(&note).unwrap();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w.revise(crate::document::Target::from("note"), "a *b*, edited\n\nc\n\nd", None).unwrap();
     let _ = w
@@ -239,6 +275,7 @@ fn an_annotated_document_read_with_a_field_anchor_is_a_fresh_read() {
     let mut card = doc.card_mut(0).unwrap();
     card.overwrite_field("summary", anchored(&summary, "Second", "s1"))
         .unwrap();
+    drop(card);
     let read = doc.to_markdown_annotated().markdown;
     let stored = doc.clone();
     assert!(read.contains("<qm-anchor"), "{read}");
@@ -262,7 +299,7 @@ fn an_annotated_document_read_with_a_field_anchor_is_a_fresh_read() {
 }
 
 #[test]
-fn a_field_both_sides_wrote_keeps_its_value_now_and_warnings_follow_their_card() {
+fn a_field_both_sides_wrote_takes_the_later_write_and_warnings_follow_their_card() {
     let config = config();
     let mut doc = parse(
         "~~~\n$quill: memo@1.0.0\nsubject: Hello\n~~~\n\nBody.\n\n~~~\n$kind: item\n~~~\n\nOne.\n",
@@ -282,18 +319,10 @@ fn a_field_both_sides_wrote_keeps_its_value_now_and_warnings_follow_their_card()
                 .replace("Body.", "Body, mine."),
         )
         .unwrap();
-    assert_eq!(
-        revised.conflicts,
-        [MergeConflict {
-            path: "main.note".parse().unwrap(),
-            base: None,
-            current: Some(json!("theirs")),
-            proposed: Some(json!("mine")),
-        }]
-    );
+    assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     assert_eq!(
         crate::quill::text_of(doc.main().payload().get("note").unwrap().as_json()),
-        "theirs"
+        "mine"
     );
     assert_eq!(doc.main().body_markdown(), "Body, mine.");
 
@@ -400,6 +429,7 @@ fn a_plain_read_of_an_unchanged_value_writes_the_writers_own() {
         .into_content();
     body.islands[0].props["note"] = "kept".into();
     card.overwrite_body(body.into_lines());
+    let mut card = Placed::new(card);
     let read = card.body_markdown();
     let base = card.read(crate::document::Target::Body).unwrap();
     let edited = read.replace("cell", "cell, edited");
@@ -430,11 +460,12 @@ fn a_token_survives_a_merge() {
             .content,
     );
     card.overwrite_body(body.clone());
+    let mut card = Placed::new(card);
     let read = to_markdown_annotated(card.body_lines()).markdown;
     let base = card.read(crate::document::Target::Body).unwrap();
     assert_eq!(
         read,
-        "Alpha <qm-island ref=\"isl-0\"></qm-island>.\n\nBeta two."
+        format!("Alpha <qm-island ref=\"{}\"></qm-island>.\n\nBeta two.", base.islands[0].id)
     );
 
     let _ = card
@@ -448,7 +479,7 @@ fn a_token_survives_a_merge() {
         card.body_lines().text,
         "Alpha, mine, \u{FFFC}.\nBeta two, theirs."
     );
-    assert_eq!(card.body_lines().islands, body.islands);
+    assert_eq!(card.read(crate::document::Target::Body).unwrap().islands, base.islands);
 
     let config = config();
     let mut doc = parse("~~~\n$quill: memo@1.0.0\n~~~\n\nAlpha ![a](u.png).\n\nBeta two.\n");
@@ -467,7 +498,8 @@ fn a_token_survives_a_merge() {
         doc.main().body_lines().text,
         "Alpha, mine, \u{FFFC}.\nBeta two, theirs."
     );
-    assert_eq!(doc.main().body_lines().islands, body.islands);
+    let shape = |islands: &[quillmark_content::lines::model::Island]| islands.iter().map(|i| (i.island_type.clone(), i.props.clone())).collect::<Vec<_>>();
+    assert_eq!(shape(&doc.main().body_lines().islands), shape(&body.islands));
 }
 
 fn jobs(doc: &Document) -> serde_json::Value {
@@ -488,13 +520,11 @@ fn edits_to_two_rows_of_one_array_both_land() {
     let _ = w
         .revise_document(&read.replace("2019", "2019-2020"))
         .unwrap();
-    let revised = w
-        .revise_document_against(
-            DocumentBase::Stored(&stored),
-            &read.replace("Analyst", "Senior analyst"),
-        )
-        .unwrap();
-    assert!(revised.conflicts.is_empty(), "{:?}", revised.conflicts);
+    let _ = w.revise_document_against(
+        DocumentBase::Stored(&stored),
+        &read.replace("Analyst", "Senior analyst"),
+    )
+    .unwrap();
     assert_eq!(
         jobs(&doc),
         json!([
@@ -504,8 +534,8 @@ fn edits_to_two_rows_of_one_array_both_land() {
     );
 }
 
-/// A card the person removed while the writer edited it stays removed and is
-/// reported whole; the writer's other edits land.
+/// A card the person removed while the writer edited it stays removed; the
+/// writer's other edits land.
 #[test]
 fn a_card_removed_since_the_read_and_edited_by_the_writer_stays_removed() {
     let config = config();
@@ -524,23 +554,16 @@ fn a_card_removed_since_the_read_and_edited_by_the_writer_stays_removed() {
                 .replace("Hello", "Goodbye"),
         )
         .unwrap();
-    assert_eq!(revised.conflicts.len(), 1, "{:?}", revised.conflicts);
-    let conflict = &revised.conflicts[0];
-    assert_eq!(conflict.path.to_string(), "cards.item[1]");
-    assert_eq!(conflict.current, None);
-    assert_eq!(
-        conflict.proposed.as_ref().unwrap()["$body"],
-        json!("Two, mine.")
-    );
+    assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     assert_eq!(doc.cards().len(), 1);
     assert_eq!(doc.card(0).unwrap().body_markdown(), "One.");
     assert!(doc.to_markdown().contains("subject: Goodbye"));
 }
 
-/// Two edits to one line of a body keep the body now and report it, while the
-/// writer's edits elsewhere land.
+/// Two edits to one line of a body both land, as Automerge merges text, and
+/// the writer's edits elsewhere land.
 #[test]
-fn a_body_line_both_sides_changed_keeps_the_body_now() {
+fn a_body_line_both_sides_changed_takes_both_edits() {
     let config = config();
     let mut doc = parse("~~~\n$quill: memo@1.0.0\nsubject: Hello\n~~~\n\nAlpha one.\n");
     let read = doc.to_markdown_annotated().markdown;
@@ -557,15 +580,8 @@ fn a_body_line_both_sides_changed_keeps_the_body_now() {
                 .replace("Hello", "Goodbye"),
         )
         .unwrap();
-    assert_eq!(
-        revised.conflicts,
-        [MergeConflict {
-            path: "main.body".parse().unwrap(),
-            base: Some(json!("Alpha one.")),
-            current: Some(json!("Alpha, theirs.")),
-            proposed: Some(json!("Alpha, mine.")),
-        }]
-    );
-    assert_eq!(doc.main().body_markdown(), "Alpha, theirs.");
+    assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
+    let body = doc.main().body_markdown();
+    assert!(body.contains("theirs") && body.contains("mine") && !body.contains("one"), "{body}");
     assert!(doc.to_markdown().contains("subject: Goodbye"));
 }

@@ -86,10 +86,10 @@ pub(crate) fn card_mut(doc: &mut Document, card: Option<usize>) -> CardMut<'_> {
     }
 }
 
-/// What one peer of the Automerge sync protocol is known to hold, for one
-/// value: `SyncState()` makes it, and `generate_sync_message` and
-/// `receive_sync_message` read and advance it. One serves one value and one
-/// peer; `encode` keeps it across a restart.
+/// What one peer of the Automerge sync protocol is known to hold:
+/// `SyncState()` makes it, and `generate_sync_message` and
+/// `receive_sync_message` read and advance it. One serves one peer; `encode`
+/// keeps it across a restart.
 #[pyclass(name = "SyncState")]
 pub struct PySyncState {
     pub(crate) inner: SyncState,
@@ -116,6 +116,20 @@ impl PySyncState {
             .map(|inner| PySyncState { inner })
             .map_err(|e| convert_edit_error(EditError::bad_live_bytes(LoadError::Decode(e.to_string())), &DocPath::new()))
     }
+}
+
+/// The `edit::bad_live_bytes` refusal of bytes the document cannot take.
+pub(crate) fn refused(e: LoadError) -> PyErr {
+    convert_edit_error(EditError::bad_live_bytes(e), &DocPath::new())
+}
+
+/// `heads` as change hashes, refused as `edit::bad_live_bytes` where one is
+/// not a hash.
+pub(crate) fn heads_from(heads: &[String]) -> PyResult<Vec<quillmark_core::document::ChangeHash>> {
+    heads
+        .iter()
+        .map(|h| h.parse().map_err(|e| refused(LoadError::Decode(format!("head `{h}`: {e}")))))
+        .collect()
 }
 
 /// The `edit::bad_live_bytes` refusal of a sync message that does not decode.

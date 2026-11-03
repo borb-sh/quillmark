@@ -68,13 +68,13 @@ backends lower the content.
 
 ### `quillmark-automerge`
 
-A content value held in an Automerge document (`Held`): the mapping between
-the two, a change lowered into Automerge operations from the trace `apply`
-gives, and the read back through merge repair, so every peer holding one
-merged state reads one valid value. `merge3` merges two changes made from one
-value, `conflict` names the record two of them both set, and `revise_keeping`
-is the markdown revise that keeps what its read does not spell by a merge
-([CONTENT.md](CONTENT.md) § "Live state and merge"). It depends on
+The Quillmark document held as one Automerge document (`model::Doc`): the
+root's cards, fields and values, a change lowered into Automerge operations,
+at the document's heads or at earlier ones, and the read back through merge
+repair, so every peer holding one merged state reads one valid value. Bytes,
+heads, incremental saves and the sync protocol are Automerge's own.
+`revise_keeping` is the markdown revise that keeps what its read does not
+spell by a merge ([CONTENT.md](CONTENT.md) § "Live state and merge"). It depends on
 `quillmark-content` and on `automerge`, pinned exactly with no default
 features.
 

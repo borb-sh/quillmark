@@ -492,12 +492,11 @@ fn an_annotated_read_revises_back_through_its_tags_and_tokens() {
     let body = titled(&anchored(doc.main().body_lines(), "plan", "p1"));
     doc.main_mut().overwrite_body(body.clone());
     let read = doc.to_markdown_annotated().markdown;
-    assert!(read.contains("See <qm-island ref=\"isl-0\"></qm-island> and the <qm-anchor ref=\"p1\"></qm-anchor>plan."), "{read}");
+    let isl = body.islands[0].id.clone();
+    let before = format!("See <qm-island ref=\"{isl}\"></qm-island> and the <qm-anchor ref=\"p1\"></qm-anchor>plan.");
+    assert!(read.contains(&before), "{read}");
 
-    let written = read.replace(
-        "See <qm-island ref=\"isl-0\"></qm-island> and the <qm-anchor ref=\"p1\"></qm-anchor>plan.",
-        "Now <qm-anchor ref=\"p1\"></qm-anchor>the plan, beside <qm-island ref=\"isl-0\"></qm-island>.",
-    );
+    let written = read.replace(&before, &format!("Now <qm-anchor ref=\"p1\"></qm-anchor>the plan, beside <qm-island ref=\"{isl}\"></qm-island>."));
     let receipt = doc.revise(&written).unwrap();
     assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
     assert!(
@@ -507,7 +506,8 @@ fn an_annotated_read_revises_back_through_its_tags_and_tokens() {
     );
     let revised = doc.main().body_lines();
     assert_eq!(revised.text, "Now the plan, beside \u{FFFC}.");
-    assert_eq!(revised.islands, body.islands);
+    let shape = |islands: &[quillmark_content::lines::model::Island]| islands.iter().map(|i| (i.island_type.clone(), i.props.clone())).collect::<Vec<_>>();
+    assert_eq!(shape(&revised.islands), shape(&body.islands));
     let p1 = revised
         .marks
         .iter()
@@ -562,8 +562,9 @@ fn a_token_in_a_field_keeps_its_island() {
         .overwrite_field("summary", summary.clone())
         .unwrap();
     let read = doc.to_markdown_annotated().markdown;
+    let held = doc.main().field_content("summary", Codec::Richtext).unwrap().unwrap().islands.clone();
     assert!(
-        read.contains("summary: A <qm-island ref=\"isl-0\"></qm-island> here."),
+        read.contains(&format!("summary: A <qm-island ref=\"{}\"></qm-island> here.", held[0].id)),
         "{read}"
     );
 
@@ -575,5 +576,6 @@ fn a_token_in_a_field_keeps_its_island() {
         .unwrap()
         .unwrap();
     assert_eq!(now.text, "A \u{FFFC} there.");
-    assert_eq!(now.islands, summary.islands);
+    assert_eq!(now.islands, held);
+    assert_eq!(now.islands[0].props, summary.islands[0].props);
 }

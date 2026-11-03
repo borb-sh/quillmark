@@ -511,7 +511,7 @@ pub(super) fn decompose_with_warnings(
         cards.push(Card::from_parts(card_payload, card_body));
     }
 
-    Ok((Document { main, cards, mints: Default::default() }, warnings, bodies))
+    Ok((Document::assembled(main, cards, Default::default()), warnings, bodies))
 }
 
 /// Validate a user field entering the payload from the parse path, mapping a

@@ -1,10 +1,9 @@
-"""A value's live Automerge document across the Python boundary: `save` and
-`load`, and the sync protocol two documents run through
-`generate_sync_message` / `receive_sync_message`. Offsets count code points."""
+"""The document's Automerge history across the Python boundary: `save` and
+`from_bytes`, `heads`, `save_since` and `merge`, and the sync protocol two
+documents run through `generate_sync_message` / `receive_sync_message`.
+Offsets count code points."""
 
-import pytest
-
-from quillmark import Document, SyncState, import_markdown
+from quillmark import Document, SyncState
 
 from conftest import raises_edit_code
 
@@ -13,122 +12,82 @@ def parse(body):
     return Document.parse(f"~~~\n$quill: q\n~~~\n\n{body}\n")
 
 
-def sync(a, b, field=None, states=None):
-    """Run the sync protocol between `a` and `b` at `field` until neither has
-    a message, returning the receipts each received."""
+def sync(a, b, states=None):
+    """Run the sync protocol between `a` and `b` until neither has a message,
+    returning how many messages crossed."""
     to_b, to_a = states or (SyncState(), SyncState())
-    receipts = {"a": [], "b": []}
+    crossed = 0
     for _ in range(16):
-        for_b = a.generate_sync_message(to_b, field=field)
+        for_b = a.generate_sync_message(to_b)
         if for_b is not None:
-            receipts["b"].append(b.receive_sync_message(to_a, for_b, field=field))
-        for_a = b.generate_sync_message(to_a, field=field)
+            b.receive_sync_message(to_a, for_b)
+            crossed += 1
+        for_a = b.generate_sync_message(to_a)
         if for_a is not None:
-            receipts["a"].append(a.receive_sync_message(to_b, for_a, field=field))
+            a.receive_sync_message(to_b, for_a)
+            crossed += 1
         if for_a is None and for_b is None:
-            return receipts
+            return crossed
     raise AssertionError("the sync did not settle")
 
 
-def test_a_live_document_saves_to_bytes_another_loads():
+def test_a_document_saves_to_bytes_from_bytes_reads_back():
     doc = parse("Hello world")
     doc.apply({"steps": [{"splice": {"at": 5, "delete": "", "insert": " brave"}}]})
     data = doc.save()
     assert isinstance(data, bytes)
 
-    other = parse("else")
-    before = other.hash_at()
-    receipt = other.load(data)
+    other = Document.from_bytes(data)
     assert other.read() == doc.read()
-    assert receipt["hash"] == doc.hash_at()
-    assert receipt["applied"]["steps"]
-    with raises_edit_code("edit::stale_base"):
-        other.apply({"steps": []}, base=before)
+    assert other.heads() == doc.heads()
+    assert other.to_markdown() == doc.to_markdown()
 
-    with raises_edit_code("edit::bad_live_bytes"):
-        other.load(b"\x01\x02\x03")
-    with raises_edit_code("edit::bad_live_bytes"):
-        other.receive_sync_message(Document.sync_state(), b"\x01\x02\x03")
-    assert other.read() == doc.read()
+    with raises_edit_code("edit::bad_live_bytes") as err:
+        Document.from_bytes(b"\x01\x02\x03")
+    assert err.value.diagnostics[0].args["reason"] == "decode"
 
 
-def test_two_documents_parsed_from_one_value_sync_to_one_value():
-    a, b = parse("😀 one two"), parse("😀 one two")
+def test_changes_since_heads_merge_into_a_peer():
+    a = parse("Hello world")
+    b = Document.from_bytes(a.save())
+    heads = a.heads()
+    a.apply({"steps": [{"splice": {"at": 5, "delete": "", "insert": " brave"}}]}, actor="ann")
+    b.apply({"steps": [{"splice": {"at": 11, "delete": "", "insert": "!"}}]}, actor="b0")
+
+    b.merge(a.save_since(heads))
+    a.merge(b.save())
+    assert a.read()["text"] == b.read()["text"] == "Hello brave world!"
+    assert sorted(a.heads()) == sorted(b.heads())
+    before = a.read()
+    a.merge(b"\x01\x02\x03")
+    assert a.read() == before
+
+
+def test_two_documents_from_one_save_sync_to_one_value():
+    a = parse("😀 one two")
+    b = Document.from_bytes(a.save())
     a.apply({"steps": [{"splice": {"at": 2, "delete": "", "insert": "X"}}]}, actor="ann")
-    b.apply({"steps": [{"splice": {"at": 9, "delete": "", "insert": " three"}}]}, actor="bo")
+    b.apply({"steps": [{"splice": {"at": 9, "delete": "", "insert": " three"}}]}, actor="b0")
 
-    receipts = sync(a, b)
+    states = (SyncState(), SyncState())
+    assert sync(a, b, states) > 0
     assert a.read() == b.read()
     assert a.read()["text"] == "😀 Xone two three"
-    splices = [s["splice"]["at"] for r in receipts["b"] for s in r["applied"]["steps"]]
-    assert splices == [2]
-    again = sync(a, b)
-    assert [s for r in again["a"] + again["b"] for s in r["applied"]["steps"]] == []
-
-
-def test_a_receipt_names_an_anchor_a_merge_took_out():
-    a = parse("Hello brave new world")
-    a.apply({"steps": [{"anchor": {"id": "c-1", "start": 6, "end": 15}}]})
-    b = parse("else")
-    b.load(a.save())
-    a.apply({"steps": [{"splice": {"at": 6, "delete": "brave ", "insert": ""}}]}, actor="ann")
-    b.apply({"steps": [{"splice": {"at": 11, "delete": " new", "insert": ""}}]}, actor="bo")
-
-    receipts = sync(a, b)
-    assert a.read()["text"] == "Hello  world"
-    assert b.read() == a.read()
-    for side in receipts.values():
-        dropped = [d for r in side for d in r["dropped_anchors"]]
-        assert [(d["id"], d["path"]) for d in dropped] == [("c-1", "main.body")]
-
-    a.replace(import_markdown("a note")["content"], field="note", actor="ann")
-    sync(a, b, field="note")
-    assert b.read(field="note") == a.read(field="note")
-    assert isinstance(Document.sync_state(), SyncState)
-
-
-def test_bytes_or_a_message_from_another_values_live_document_are_refused():
-    two = Document.parse(
-        "~~~\n$quill: q\n~~~\n\n~~~card-yaml\n$kind: note\n$id: aaa\n~~~\n\nHello\n\n"
-        "~~~card-yaml\n$kind: note\n$id: bbb\n~~~\n\nHello\n"
-    )
-    with raises_edit_code("edit::bad_live_bytes") as err:
-        two.load(two.save(card="aaa"), card="bbb")
-    assert err.value.diagnostics[0].args["reason"] == "address"
-
-    peer = Document.parse(two.to_markdown())
-    to_peer, to_two = Document.sync_state(), Document.sync_state()
-    peer.receive_sync_message(to_two, two.generate_sync_message(to_peer, card="bbb"), card="aaa")
-    reply = peer.generate_sync_message(to_two, card="aaa")
-    with raises_edit_code("edit::bad_live_bytes") as err:
-        two.receive_sync_message(to_peer, reply, card="bbb")
-    assert err.value.diagnostics[0].args["reason"] == "address"
+    assert sync(a, b, states) == 0
+    with raises_edit_code("edit::bad_live_bytes"):
+        a.receive_sync_message(Document.sync_state(), b"\x01\x02\x03")
 
 
 def test_a_sync_state_survives_encode_and_decode():
-    a, b = parse("Hello world"), parse("Hello world")
+    a = parse("Hello world")
+    b = Document.from_bytes(a.save())
     states = (SyncState(), SyncState())
     sync(a, b, states=states)
     a.apply({"steps": [{"splice": {"at": 5, "delete": "", "insert": " brave"}}]}, actor="ann")
 
     decoded = tuple(SyncState.decode(s.encode()) for s in states)
-    receipts = sync(a, b, states=decoded)
-    assert b.read() == a.read()
+    sync(a, b, states=decoded)
     assert b.read()["text"] == "Hello brave world"
-    assert len([s for r in receipts["b"] for s in r["applied"]["steps"]]) == 1
     with raises_edit_code("edit::bad_live_bytes") as err:
         SyncState.decode(b"\x01\x02\x03")
     assert err.value.diagnostics[0].args["reason"] == "decode"
-
-
-def test_every_live_verb_names_a_card_by_id():
-    doc = Document.parse("~~~\n$quill: q\n~~~\n\n~~~card-yaml\n$kind: note\n$id: aaa\n~~~\n\nHello\n")
-    data = doc.save(card="aaa")
-    for call in (
-        lambda: doc.save(card=0),
-        lambda: doc.generate_sync_message(SyncState(), card=0),
-        lambda: doc.load(data, card=0),
-        lambda: doc.receive_sync_message(SyncState(), b"", card=0),
-    ):
-        with pytest.raises(ValueError, match="id"):
-            call()

@@ -33,7 +33,7 @@ pub enum BoundParseError {
     #[error(transparent)]
     Mismatch(#[from] RenderError),
     /// A guarded revise's [`Base`](crate::document::Base) refused the write
-    /// (`edit::stale_base` / `edit::rebase_conflict`).
+    /// (`edit::stale_base`).
     #[error(transparent)]
     Base(#[from] crate::document::BaseError),
 }
@@ -120,6 +120,7 @@ impl QuillConfig {
             };
             conform_card(schema, card, &DocPath::card(Some(&kind), index), &mut diags);
         }
+        doc.settle();
         Ok(diags)
     }
 }

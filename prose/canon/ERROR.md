@@ -98,32 +98,21 @@ peer of the render-path namespaces. Identity is the code, never message text:
 routing coercion-vs-undeclared is `edit::field_coercion_failed` vs.
 `edit::unknown_field`, read off `diagnostics[0].code`.
 
-A revise guarded by what its writer read (a `Base`) refuses under two more:
-`edit::stale_base` when the value no longer hashes to the writer's
-`baseHash` and no write the document took left that hash (a whole document
-always, since it keeps no history; a body or field merges while its live
-document noted the base, which none has for a base read before the document
-was loaded from storage), and `edit::rebase_conflict` when the writer's edit of
-its base and the change made since conflict ([CONTENT.md](CONTENT.md) §
-"Live state and merge"). A whole
-document under `baseStored` refuses only where no merge can stand (a side
-reordered the cards, or both changed a card's `$quill`, `$seed` or `$ext`
-apart); a place both changed is not an error but an entry in the receipt's
-`conflicts`, its value now kept. Both refusals carry
-`current`, the hash of the value now: a writer reads the value again, checks
-that read against `current`, and writes from it. Retrying the same markdown
-under `current` lands the revert the base refused. A refusal on a field
-anchors at the field. The whole-document revise raises them through
-`BoundParseError::Base`, as it raises a parse failure, before any mutation.
+A revise guarded by what its writer read (a `Base`) refuses under one more:
+`edit::stale_base` when the value no longer hashes to the writer's base and
+the document's history does not reach it (every base read before the
+document was loaded from its stored row, which holds no history), carrying
+`current`, the hash of the value now: a writer reads the value again and
+writes from it. A base the history reaches merges, as Automerge merges, and
+refuses nothing ([CONTENT.md](CONTENT.md) § "Live state and merge"). A
+refusal on a field anchors at the field. The whole-document revise raises it
+through `BoundParseError::Base`, as it raises a parse failure, before any
+mutation.
 
-The content writes (`apply`, `revise`, `replace`) take a
-`base` hash. A base the value has moved on from merges the write with the
-change since, and a write that sets what the change since set refuses under
-`edit::rebase_conflict`, carrying `current`, the `step` of the writer's change
-that conflicts, and the `reason` (`changed`, `missing`, `deleted`). A base no write the
-document took left refuses under `edit::stale_base`, carrying `current`.
-Bytes or a sync message a value's live document refuses are
-`edit::bad_live_bytes`, carrying the `reason` (`decode`, `address`, `shape`, `content`). A change that does not apply to the value, or would leave it
+The content writes (`apply`, `revise`, `replace`) take a `base` hash, which
+merges or stales as above. Bytes or a sync message the document cannot take
+are `edit::bad_live_bytes`, carrying the `reason` (`decode`, `shape`,
+`schema`). A change that does not apply to the value, or would leave it
 invalid, is `edit::content_apply`, and writes nothing; its `reason` names the refusal (`stale`, `unknown_block`, `unknown_container`, `container_kind`, `container_in_use`, `unknown_anchor`, `anchor_held`, `unknown_island`, `unknown_slot`, `bad_step`, `invalid`), with the `step` it refuses at for `stale` and `bad_step` ([CONTENT.md](CONTENT.md)); the whole-document revise reports it as a warning at the value it leaves as stored.
 Four bounds refuse under codes of their own, each carrying the `max` it
 passed ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content
@@ -602,7 +591,6 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::too_many_anchors` | `count`, `max` | structured |
 | `edit::invalid_payload` | — | fallback |
 | `edit::stale_base` | `current` | structured |
-| `edit::rebase_conflict` | `current`, `step`?, `reason`? | structured |
 | `edit::drops_ext_island` | `island`, `type` | structured |
 | `edit::invalid_actor` | `actor` | structured |
 | `edit::bad_live_bytes` | `reason` | structured |

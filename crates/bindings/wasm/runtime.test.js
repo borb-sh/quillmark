@@ -28,6 +28,7 @@ import {
   caughtFrom,
   TEST_PLATE,
   TEST_MARKDOWN,
+  storedByPlace,
 } from './test-helpers.js'
 
 // The consumer contract, exercised as a consumer writes it: the gate is the only
@@ -204,33 +205,20 @@ card_kinds:
     const doc = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nAlpha.\n\nBeta.\n\nGamma.')
     const ed = buildQuill().writer(doc)
     const read = doc.toMarkdown(undefined, { annotated: true }).markdown
-    const stored = doc.toStored()
+    const stored = doc.save()
     const base = doc.read({})
     ed.revise({}, 'Alpha, edited.\n\nBeta.\n\nGamma.')
-    const long = 'Alpha one two three.\n\nBeta four five six.'
-    ed.revise({}, long)
-    const longHash = doc.hashAt({})
-    ed.revise({}, 'Alpha one two three, edited.\n\nBeta four five six.')
-    expect(ed.revise({}, 'Alpha one two three.\n\nBeta four five six, mine.', { baseHash: longHash }).rebased).toBe(true)
-    expect(doc.toMarkdown({})).toBe('Alpha one two three, edited.\n\nBeta four five six, mine.')
-    ed.revise({}, 'Alpha, edited.\n\nBeta.\n\nGamma.')
+    const editedHash = doc.hashAt({})
+    ed.revise({}, 'Alpha, edited.\n\nBeta, two.\n\nGamma.')
+    expect(ed.revise({}, 'Alpha, edited, again.\n\nBeta.\n\nGamma.', { baseHash: editedHash }).rebased).toBe(true)
+    expect(doc.toMarkdown({})).toBe('Alpha, edited, again.\n\nBeta, two.\n\nGamma.')
     expect(() => ed.revise({}, 'Other.', { baseHash: 'never-read' })).toThrow(
       expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base', args: { current: doc.hashAt({}) } })] }),
     )
     ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { baseStored: stored })
-    expect(doc.toMarkdown({})).toBe('Alpha, edited.\n\nBeta.\n\nGamma, rewritten.')
-    expect(ed.reviseDocument(read.replace('Alpha.', 'Alpha, mine.'), { baseStored: stored }).conflicts).toEqual([
-      {
-        path: 'main.body',
-        base: 'Alpha.\n\nBeta.\n\nGamma.',
-        current: 'Alpha, edited.\n\nBeta.\n\nGamma, rewritten.',
-        proposed: 'Alpha, mine.\n\nBeta.\n\nGamma.',
-      },
-    ])
-    expect(ed.revise({}, 'Alpha.\n\nBeta, mine.\n\nGamma.', { baseContent: base }).rebased).toBe(true)
-    expect(doc.toMarkdown({})).toBe('Alpha, edited.\n\nBeta, mine.\n\nGamma, rewritten.')
-    expect(ed.revise({}, 'Alph!\n\nBeta.\n\nGamma.', { baseContent: base }).rebased).toBe(true)
-    expect(doc.toMarkdown({})).toBe('Alph!, edited\n\nBeta, mine.\n\nGamma, rewritten.')
+    expect(doc.toMarkdown({})).toBe('Alpha, edited, again.\n\nBeta, two.\n\nGamma, rewritten.')
+    expect(ed.revise({}, 'Alpha.\n\nBeta.\n\nGamma.\n\nDelta.', { baseContent: base }).rebased).toBe(true)
+    expect(doc.toMarkdown({})).toBe('Alpha, edited, again.\n\nBeta, two.\n\nGamma, rewritten.\n\nDelta.')
     expect(() => ed.reviseDocument(read, { baseHash: 'x', baseStored: stored })).toThrow(/not both/)
     expect(() => ed.revise({}, 'x', { baseHash: undefined })).toThrow(/baseHash must be given a value/)
   })
@@ -291,7 +279,7 @@ card_kinds:
     const receipt = ed.reviseDocument(
       '~~~card-yaml\n$quill: editor_test\nsubject: Q3 **results**\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nprose: fresh\n~~~\n\n~~~card-yaml\n$kind: note\nprose: kept\n~~~\n',
     )
-    expect(Object.keys(receipt).sort()).toEqual(['conflicts', 'droppedAnchors', 'from', 'warnings'])
+    expect(Object.keys(receipt).sort()).toEqual(['droppedAnchors', 'from', 'warnings'])
     expect(receipt.from).toEqual([null, 0])
     expect(receipt.droppedAnchors).toEqual([])
     expect(receipt.warnings).toEqual([])
@@ -525,12 +513,13 @@ card_kinds:
     expect(bound.warnings).toEqual([])
 
     // conform is the same walk on a document that arrived any other way, and it
-    // converges to identical bytes. A second pass is a no-op.
+    // converges to what the bound door reads, place by place. A second pass is
+    // a no-op.
     const transported = Document.parse(md)
     expect(quill.conform(transported)).toEqual([])
     expect(transported.equals(bound)).toBe(true)
     expect(quill.conform(transported)).toEqual([])
-    expect(transported.toStored()).toBe(bound.toStored())
+    expect(storedByPlace(transported.toStored())).toBe(storedByPlace(bound.toStored()))
   })
 
   it('nothing conforms under the wrong quill', () => {

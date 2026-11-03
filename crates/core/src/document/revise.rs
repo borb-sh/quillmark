@@ -14,7 +14,6 @@ use super::edit::EditError;
 use super::emit::{canonical_content, emit_payload_fields};
 use quillmark_content::anchors::anchor_contexts;
 use quillmark_content::model::Content as ContentModel;
-use super::merge::MergeConflict;
 use super::{Card, Document, Parsed, Revising, dropped_constructs};
 use crate::error::{Diagnostic, ParseError, Severity};
 use crate::path::DocPath;
@@ -41,10 +40,6 @@ pub struct DocumentRevised {
     /// entry names was removed. Only cards of one `$kind` pair, and a card
     /// revising a stored one holds its `$id`.
     pub from: Vec<Option<usize>>,
-    /// Under a [`DocumentBase::Stored`](super::DocumentBase::Stored), each place the writer's
-    /// change and the change since its read both changed, which the write
-    /// leaves as it stands now. Empty for any other write.
-    pub conflicts: Vec<MergeConflict>,
 }
 
 impl Document {
@@ -184,11 +179,11 @@ impl Document {
 
         self.main = main;
         self.cards = revised_cards;
+        self.settle();
         DocumentRevised {
             dropped_anchors,
             warnings,
             from: pairs.into_iter().map(|pair| pair.map(|(i, _)| i)).collect(),
-            conflicts: Vec::new(),
         }
     }
 }

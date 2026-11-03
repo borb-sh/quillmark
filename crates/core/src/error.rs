@@ -819,18 +819,12 @@ mod args_canon {
                 current: "h".into(),
                 field: None,
             }),
-            EditError::Base(crate::document::BaseError::Conflict {
-                current: "h".into(),
-                field: None,
-                step: Some(1),
-                reason: Some("deleted"),
-            }),
             EditError::DropsExtIsland {
                 island: "isl-x".into(),
                 kind: "x-chart".into(),
             },
             EditError::InvalidActor("a:b".into()),
-            EditError::bad_live_bytes(quillmark_automerge::LoadError::Shape),
+            EditError::bad_live_bytes(quillmark_automerge::model::LoadError::Shape),
         ] {
             add(e.code(), e.args());
         }

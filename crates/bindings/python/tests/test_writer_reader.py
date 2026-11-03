@@ -142,8 +142,8 @@ def test_writer_revise_document():
     receipt = w.revise_document(
         "~~~\n$quill: sample_form@0.1.0\nbio: make it <kbd>**bold**</kbd>\n~~~\n\nBody.\n"
     )
-    assert sorted(receipt) == ["conflicts", "dropped_anchors", "from", "warnings"]
-    assert (receipt["dropped_anchors"], receipt["from"], receipt["conflicts"]) == ([], [], [])
+    assert sorted(receipt) == ["dropped_anchors", "from", "warnings"]
+    assert (receipt["dropped_anchors"], receipt["from"]) == ([], [])
     (dropped,) = receipt["warnings"]
     assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
     assert quill.reader(doc).get("bio") == "make it **bold**"
@@ -157,11 +157,11 @@ def test_writer_revise_document():
 def test_a_base_merges_a_stale_revise_and_a_read():
     """base_hash or base_content merges a write with a value changed since
     the read, and a base_hash refuses one it cannot reach, naming the hash
-    now; base_stored merges a whole document."""
+    now; base_stored merges a whole document as Automerge merges."""
     quill = richtext_quill()
     doc = quill.parse("~~~\n$quill: sample_form@0.1.0\n~~~\n\nAlpha.\n\nBeta.\n")
     w = quill.writer(doc)
-    read, stored, hash = doc.to_markdown(), doc.to_stored(), w.hash()
+    read, stored, hash = doc.to_markdown(), doc.save(), w.hash()
     base = doc.read()
     body_hash = w.hash_at()
     assert body_hash == doc.hash_at()
@@ -182,16 +182,8 @@ def test_a_base_merges_a_stale_revise_and_a_read():
         w.revise_document(read, base_hash=hash)
     w.revise_document(read.replace("Beta.", "Beta, rewritten."), base_stored=stored)
     assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, rewritten.\n")
-    receipt = w.revise_document(read.replace("Alpha.", "Alpha, mine."), base_stored=stored)
-    assert receipt["conflicts"] == [
-        {
-            "path": "main.body",
-            "base": "Alpha.\n\nBeta.",
-            "current": "Alpha, edited.\n\nBeta, rewritten.",
-            "proposed": "Alpha, mine.\n\nBeta.",
-        }
-    ]
-    assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, rewritten.\n")
+    w.revise_document(read.replace("Beta.", "Beta, mine."), base_stored=stored)
+    assert doc.to_markdown().endswith(("Beta, rewritten, mine.\n", "Beta, mine, rewritten.\n"))
     with pytest.raises(ValueError):
         w.revise("x", base_hash=hash, base_content=base)
     with pytest.raises(ValueError):

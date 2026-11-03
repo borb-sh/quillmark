@@ -197,19 +197,19 @@ class Document:
         base: str | None = None,
         actor: str | None = None,
     ) -> Receipt: ...
-    def save(self, field: str | None = None, card: str | None = None) -> bytes: ...
-    def load(self, data: bytes, field: str | None = None, card: str | None = None) -> Receipt: ...
+    def save(self) -> bytes: ...
+    @staticmethod
+    def from_bytes(data: bytes) -> Document: ...
+    def heads(self) -> list[str]: ...
+    def save_since(self, heads: list[str]) -> bytes: ...
+    def merge(self, data: bytes) -> None: ...
     @staticmethod
     def sync_state() -> SyncState: ...
-    def generate_sync_message(
-        self, state: SyncState, field: str | None = None, card: str | None = None
-    ) -> bytes | None: ...
-    def receive_sync_message(
-        self, state: SyncState, message: bytes, field: str | None = None, card: str | None = None
-    ) -> Receipt: ...
+    def generate_sync_message(self, state: SyncState) -> bytes | None: ...
+    def receive_sync_message(self, state: SyncState, message: bytes) -> None: ...
 
-# What one peer of the sync protocol is known to hold. One serves one value
-# and one peer; `encode` keeps it across a restart.
+# What one peer of the sync protocol is known to hold. One serves one peer;
+# `encode` keeps it across a restart.
 @final
 class SyncState:
     def __init__(self) -> None: ...
@@ -307,12 +307,6 @@ class Reattached(TypedDict):
     reattached: list[AnchorContext]
     orphaned: list[AnchorContext]
 
-class MergeConflict(TypedDict):
-    path: str
-    base: Any
-    current: Any
-    proposed: Any
-
 class CardAdded(TypedDict):
     id: str
     warnings: list[Diagnostic]
@@ -323,7 +317,6 @@ DocumentRevised = TypedDict(
         "dropped_anchors": list[AnchorContext],
         "warnings": list[Diagnostic],
         "from": list[int | None],
-        "conflicts": list[MergeConflict],
     },
 )
 
@@ -390,7 +383,7 @@ class Writer:
         markdown: str,
         *,
         base_hash: str | None = None,
-        base_stored: str | None = None,
+        base_stored: bytes | str | None = None,
     ) -> DocumentRevised: ...
     def add_card(
         self,

@@ -653,6 +653,8 @@ fn with_anchors_of(
 }
 
 pub(crate) mod align;
+pub(crate) mod held;
+mod live;
 pub mod anchors;
 pub mod assemble;
 pub mod base;
@@ -661,7 +663,6 @@ mod dto;
 pub mod edit;
 pub mod emit;
 pub mod fences;
-pub mod merge;
 pub mod meta;
 pub mod payload;
 pub(crate) mod prescan;
@@ -677,7 +678,6 @@ pub use dto::{
 };
 pub use edit::{CardMut, EditError, Unchecked};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
-pub use merge::MergeConflict;
 pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
 pub use payload::{MetaKey, Payload, PayloadItem};
 /// Returned by [`Document::reattach`], so nameable from here.
@@ -689,11 +689,13 @@ pub use quillmark_content::markdown::ImportError;
 /// Taken by [`dropped_construct`], so nameable from here.
 pub use quillmark_content::markdown::{DroppedConstruct, ImportWarning};
 pub use revise::DocumentRevised;
-/// Taken and answered by [`Card::generate_sync_message`] and
-/// [`Card::receive_sync_message`], so nameable from here.
+/// Answered by [`Document::heads`] and taken by [`Document::save_since`], so nameable from here.
+pub use quillmark_automerge::automerge::ChangeHash;
+/// Taken and answered by [`Document::generate_sync_message`] and
+/// [`Document::receive_sync_message`], so nameable from here.
 pub use quillmark_automerge::automerge::sync::{Message as SyncMessage, State as SyncState};
 /// Carried by [`EditError::bad_live_bytes`], so nameable from here.
-pub use quillmark_automerge::LoadError;
+pub use quillmark_automerge::model::LoadError;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};
@@ -740,15 +742,13 @@ pub(crate) struct Revising {
 /// A single card-yaml block (root or composable). `body` is the [`Content`]
 /// of the prose after the closing fence: the empty content when none follows.
 /// Markdown is a projection: [`Card::body_markdown`] re-emits it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Card {
     payload: Payload,
     body: Content,
     /// `body` lowered to the line form the codecs and renderers read, made
     /// when first read.
     lines: Lowered,
-    live: write::Values,
-    hashes: Hashes,
 }
 
 /// A body's line form, lowered when first read: a write that no renderer
@@ -766,38 +766,6 @@ impl PartialEq for Lowered {
 impl std::fmt::Debug for Lowered {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Lowered")
-    }
-}
-
-/// The hash a write left on the body and on each richtext field it wrote,
-/// so the next write reads it rather than hashing the value again. A body
-/// set forgets the body's, and any payload write every field's. Derived from
-/// the values, so it takes no part in equality.
-#[derive(Clone, Default)]
-pub(crate) struct Hashes {
-    body: Option<String>,
-    fields: std::collections::HashMap<String, String>,
-}
-
-impl Hashes {
-    pub(crate) fn body(&self) -> Option<&str> {
-        self.body.as_deref()
-    }
-
-    pub(crate) fn field(&self, name: &str) -> Option<&str> {
-        self.fields.get(name).map(String::as_str)
-    }
-}
-
-impl PartialEq for Hashes {
-    fn eq(&self, _: &Self) -> bool {
-        true
-    }
-}
-
-impl std::fmt::Debug for Hashes {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Hashes")
     }
 }
 
@@ -819,11 +787,34 @@ impl IntoBody for Content {
     }
 }
 
+/// Two cards are equal where their payloads and bodies are, each content
+/// value up to the ids its document gave its parts.
+impl PartialEq for Card {
+    fn eq(&self, other: &Self) -> bool {
+        self.body.by_place() == other.body.by_place() && payload_by_place(&self.payload) == payload_by_place(&other.payload)
+    }
+}
+
+fn payload_by_place(p: &Payload) -> Payload {
+    let items = p
+        .items()
+        .iter()
+        .map(|item| match item {
+            PayloadItem::Field { key, value } if held::is_content(value.as_json()) => {
+                let c = Content::from_value(value.as_json()).expect("a content field reads").by_place();
+                PayloadItem::Field { key: key.clone(), value: crate::value::QuillValue::from_json(c.to_value()) }
+            }
+            other => other.clone(),
+        })
+        .collect();
+    Payload::from_items_with_nested(items, p.nested_comments().to_vec())
+}
+
 impl Card {
     /// Create a `Card` from its parts without validation.
     pub(crate) fn from_parts(payload: Payload, body: impl IntoBody) -> Self {
         let body = body.into_body();
-        Self { payload, body, lines: Lowered::default(), live: write::Values::default(), hashes: Hashes::default() }
+        Self { payload, body, lines: Lowered::default() }
     }
 
     pub fn quill(&self) -> Option<&QuillReference> {
@@ -855,7 +846,6 @@ impl Card {
     }
 
     pub(crate) fn payload_mut(&mut self) -> &mut Payload {
-        self.hashes.fields.clear();
         &mut self.payload
     }
 
@@ -880,18 +870,7 @@ impl Card {
 
     pub(crate) fn set_body(&mut self, body: Content) {
         self.lines = Lowered::default();
-        self.hashes.body = None;
         self.body = body;
-    }
-
-    /// Note the hash a write left at `field`, `None` the body.
-    pub(crate) fn remember_hash(&mut self, field: Option<&str>, hash: String) {
-        match field {
-            None => self.hashes.body = Some(hash),
-            Some(name) => {
-                self.hashes.fields.insert(name.to_string(), hash);
-            }
-        }
     }
 
     /// Read a content-valued user field back through `codec`: the field-level
@@ -1002,9 +981,229 @@ pub struct Document {
     main: Card,
     cards: Vec<Card>,
     mints: card_id::ActorMints,
+    live: Bound,
+}
+
+pub(crate) fn remember(history: &mut Vec<Vec<quillmark_automerge::automerge::ChangeHash>>, heads: Vec<quillmark_automerge::automerge::ChangeHash>) {
+    if history.last() != Some(&heads) {
+        history.push(heads);
+    }
+    if history.len() > HISTORY {
+        history.remove(0);
+    }
+}
+
+/// The [`Live`] a document is held in, once it is: no part of what the
+/// document equals.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Bound(Option<Live>);
+
+impl PartialEq for Bound {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+/// The Automerge document a [`Document`] is held in, and the cards as it was
+/// last written into it. The cards are its view: a write lands in it first,
+/// or reaches it at the next [`Document::flush`].
+#[derive(Clone)]
+pub(crate) struct Live {
+    doc: quillmark_automerge::model::Doc,
+    synced: (Card, Vec<Card>),
+    /// The heads each value's hash was first read at, by the value's address.
+    seen: std::collections::HashMap<(String, String), Vec<quillmark_automerge::automerge::ChangeHash>>,
+    /// The heads before each of the latest writes, newest last: where a hash
+    /// no write noted is looked for.
+    history: Vec<Vec<quillmark_automerge::automerge::ChangeHash>>,
+    /// The latest value noted: its address, the heads it was read at and its
+    /// hash.
+    last: Option<(String, Vec<quillmark_automerge::automerge::ChangeHash>, String)>,
+}
+
+/// How many of the latest writes' heads a base hash is looked for at.
+const HISTORY: usize = 1024;
+
+impl PartialEq for Live {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl std::fmt::Debug for Live {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Live")
+    }
 }
 
 impl Document {
+    /// A document holding `main` and `cards`, held in an Automerge
+    /// document from its first write, save or [`bind`](Self::bind) on.
+    pub(crate) fn assembled(main: Card, cards: Vec<Card>, mints: card_id::ActorMints) -> Self {
+        Self { main, cards, mints, live: Bound(None) }
+    }
+
+    /// The document `doc` holds, its cards read from it.
+    pub(crate) fn read_from(doc: quillmark_automerge::model::Doc, mints: card_id::ActorMints) -> Result<Self, String> {
+        let (main, cards) = held::read(&doc)?;
+        let synced = (main.clone(), cards.clone());
+        Ok(Self { main, cards, mints, live: Bound(Some(Live { doc, synced, seen: Default::default(), history: Vec::new(), last: None })) })
+    }
+
+    /// Holds the document in an Automerge document where it is not yet,
+    /// each part then read back carrying the id that document gives it. A
+    /// card holding no id yet stays out of it until a flush after its id is
+    /// settled.
+    pub(crate) fn bind(&mut self) {
+        if self.live.0.is_some() {
+            return;
+        }
+        let doc = held::build(&self.main, &self.cards);
+        let (main, cards) = held::read(&doc).expect("built cards read back");
+        let synced = (main.clone(), cards.clone());
+        self.live = Bound(Some(Live { doc, synced, seen: Default::default(), history: Vec::new(), last: None }));
+        if cards.len() == self.cards.len() {
+            self.main = main;
+            self.cards = cards;
+        } else {
+            self.main = main;
+        }
+    }
+
+    fn held(&mut self) -> &mut Live {
+        self.bind();
+        self.live.0.as_mut().expect("bound")
+    }
+
+    /// Writes what the cards changed since they were last written into the
+    /// Automerge document, and reads them back from it.
+    pub(crate) fn flush(&mut self) {
+        self.bind();
+        let live = self.live.0.as_mut().expect("bound");
+        if live.synced.0 == self.main && live.synced.1 == self.cards {
+            return;
+        }
+        let Live { doc, synced, history, .. } = live;
+        remember(history, doc.heads());
+        held::flush(doc, (&synced.0, &synced.1), (&self.main, &self.cards));
+        let (main, cards) = held::read(doc).expect("flushed cards read back");
+        *synced = (main.clone(), cards.clone());
+        self.main = main;
+        self.cards = cards;
+    }
+
+    /// The Automerge document, with every change to the cards written in.
+    pub(crate) fn live(&mut self) -> &mut quillmark_automerge::model::Doc {
+        self.flush();
+        &mut self.held().doc
+    }
+
+    pub(crate) fn history(&mut self) -> &mut Vec<Vec<quillmark_automerge::automerge::ChangeHash>> {
+        &mut self.held().history
+    }
+
+    pub(crate) fn seen(&mut self) -> &mut std::collections::HashMap<(String, String), Vec<quillmark_automerge::automerge::ChangeHash>> {
+        &mut self.held().seen
+    }
+
+    /// Reads the cards again from the Automerge document, after a change
+    /// that landed in it.
+    pub(crate) fn reread(&mut self) {
+        let live = self.held();
+        let (main, cards) = held::read(&live.doc).expect("a held document reads as cards");
+        live.synced = (main.clone(), cards.clone());
+        self.main = main;
+        self.cards = cards;
+    }
+
+    /// This document with each id its Automerge document gave a content part
+    /// spelled as that part's place, so documents of other histories that
+    /// read alike compare and spell alike.
+    #[cfg(test)]
+    pub(crate) fn by_place(&self) -> Document {
+        let card = |c: &Card| Card::from_parts(payload_by_place(&c.payload), c.body.by_place());
+        Document::assembled(card(&self.main), self.cards.iter().map(card).collect(), self.mints.clone())
+    }
+
+    /// The heads of the Automerge document this one is held in, where it is
+    /// held in one and its cards read as that document does.
+    pub(crate) fn held_heads(&self) -> Option<Vec<quillmark_automerge::automerge::ChangeHash>> {
+        let mut live = self.live.0.clone()?;
+        (live.synced.0 == self.main && live.synced.1 == self.cards).then(|| live.doc.heads())
+    }
+
+    /// Writes what the cards changed into the Automerge document, where the
+    /// document is held in one.
+    pub(crate) fn settle(&mut self) {
+        if self.live.0.is_some() {
+            self.flush();
+        }
+    }
+
+    /// Whether this document's history holds `heads`.
+    pub(crate) fn holds(&mut self, heads: &[quillmark_automerge::automerge::ChangeHash]) -> bool {
+        self.live().holds(heads)
+    }
+
+    /// Lands the cards of `wanted`, made from this document as it was at
+    /// `heads`, as one change at those heads: concurrent with every change
+    /// since, and merged with them.
+    pub(crate) fn land_at(&mut self, heads: &[quillmark_automerge::automerge::ChangeHash], wanted: &Document) {
+        self.flush();
+        self.held().doc.isolated(heads, |d| {
+            let (main, cards) = held::read(d).expect("a held document reads as cards");
+            held::flush(d, (&main, &cards), (&wanted.main, &wanted.cards));
+        });
+        self.reread();
+    }
+
+    /// The document's bytes: what a host stores and [`from_bytes`] loads.
+    ///
+    /// [`from_bytes`]: Document::from_bytes
+    pub fn to_bytes(&mut self) -> Vec<u8> {
+        self.live().save()
+    }
+
+    /// The document `bytes` hold: a [`to_bytes`](Document::to_bytes) or a
+    /// merge of several. Bytes that do not decode, or hold no Quillmark
+    /// document of a schema this build reads, are refused.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, LoadError> {
+        let doc = quillmark_automerge::model::Doc::load(bytes)?;
+        Self::read_from(doc, Default::default()).map_err(|_| LoadError::Shape)
+    }
+
+    /// The document's revision: its Automerge heads.
+    pub fn heads(&mut self) -> Vec<quillmark_automerge::automerge::ChangeHash> {
+        self.live().heads()
+    }
+
+    /// The changes since `heads`, as bytes [`merge`](Document::merge) takes.
+    pub fn save_since(&mut self, heads: &[quillmark_automerge::automerge::ChangeHash]) -> Vec<u8> {
+        self.live().save_since(heads)
+    }
+
+    /// The next message of the sync protocol with the peer `state` tracks,
+    /// `None` where the peer has everything.
+    pub fn generate_sync_message(&mut self, state: &mut SyncState) -> Option<SyncMessage> {
+        self.live().generate_sync_message(state)
+    }
+
+    /// Takes a peer's sync message and reads the cards again; one that
+    /// leaves the document outside its schema is refused and undone.
+    pub fn receive_sync_message(&mut self, state: &mut SyncState, message: SyncMessage) -> Result<(), quillmark_automerge::model::LoadError> {
+        self.live().receive_sync_message(state, message)?;
+        self.reread();
+        Ok(())
+    }
+
+    /// Takes the changes `bytes` hold, another peer's save or
+    /// [`save_since`](Document::save_since), and reads the cards again.
+    pub fn merge(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
+        self.live().merge(bytes)?;
+        self.reread();
+        Ok(())
+    }
+
     /// Create a blank document: a main card carrying only `$quill`, an empty
     /// body, and no composable cards. The programmatic blank canvas: every
     /// schema field is absent and resolves at render time (`default`, else
@@ -1016,11 +1215,9 @@ impl Document {
         // Parsed main cards always carry `$kind: main` (the parser normalizes
         // it in); match that shape so a blank document round-trips equal.
         payload.set_kind("main");
-        Self {
-            main: Card::from_parts(payload, Lines::empty()),
-            cards: Vec::new(),
-            mints: Default::default(),
-        }
+        let mut doc = Self::assembled(Card::from_parts(payload, Lines::empty()), Vec::new(), Default::default());
+        doc.bind();
+        doc
     }
 
     /// Create a `Document` from a pre-built main card and composable cards.
@@ -1049,7 +1246,7 @@ impl Document {
             "composable cards must not carry `$seed`"
         );
         card_id::settle(&mut cards, &std::collections::HashSet::new());
-        Self { main, cards, mints: Default::default() }
+        Self::assembled(main, cards, Default::default())
     }
 
     /// Read a stored row ([`StoredDocument`] JSON) into a [`Parsed`]: the
@@ -1071,6 +1268,7 @@ impl Document {
         let mut parsed = Self::parse_unsettled(markdown)?;
         let reserved = std::collections::HashSet::new();
         card_id::settle_reporting(&mut parsed.document.cards, &reserved, &mut parsed.warnings);
+        parsed.document.flush();
         Ok(parsed)
     }
 
@@ -1101,7 +1299,7 @@ impl Document {
     }
 
     pub fn main_mut(&mut self) -> CardMut<'_> {
-        CardMut::new(&mut self.main)
+        CardMut::new(self, None)
     }
 
     /// The root block's `$quill` reference, which parse validates present.

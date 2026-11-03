@@ -657,7 +657,7 @@ This body and the metadata above are an indorsement card.
         let mut line = Line::new(LineKind::Para);
         line.containers =
             vec![Container::Quote { instance: 0 }; quillmark_content::MAX_NESTING_DEPTH + 1];
-        doc.main_mut()
+        doc.main_card_mut()
             .overwrite_body(Content::new("x".to_string(), vec![line]));
         let err = serde_json::to_string(&doc).expect_err("write refuses what load would reject");
         assert!(err.to_string().contains("nests 13 deep"), "{err}");

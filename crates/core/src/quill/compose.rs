@@ -78,7 +78,7 @@ impl QuillConfig {
                     today,
                 )),
             ),
-            normalized.main().body_lines().clone(),
+            normalized.main().body().clone(),
         );
         // A card's `$body` is defined for the plate iff its kind resolves to a
         // body-enabled schema. Captured here, where the schema is already in
@@ -100,7 +100,7 @@ impl QuillConfig {
                     // No ladder, as `resolved::card_states` leaves it.
                     None => card.payload().to_index_map(),
                 };
-                Card::from_parts(rebuild_payload_with_meta(card, fields), card.body_lines().clone())
+                Card::from_parts(rebuild_payload_with_meta(card, fields), card.body().clone())
             })
             .collect();
 
@@ -143,13 +143,13 @@ impl QuillConfig {
                 .map_err(coercion_error)?;
             coerced_cards.push(Card::from_parts(
                 rebuild_payload_with_meta(card, coerced_fields),
-                card.body_lines().clone(),
+                card.body().clone(),
             ));
         }
 
         let coerced_main = Card::from_parts(
             rebuild_payload_with_meta(doc.main(), coerced_payload),
-            doc.main().body_lines().clone(),
+            doc.main().body().clone(),
         );
         let coerced_doc = Document::from_main_and_cards(coerced_main, coerced_cards);
 
