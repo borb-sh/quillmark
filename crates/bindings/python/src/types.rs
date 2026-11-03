@@ -945,7 +945,7 @@ impl PyDocument {
     /// `{actor}:{prefix}{n}`. `base` is the hash the writer read
     /// (`hash_at`); pass it. One the value has
     /// moved on from merges the change with the change since, raising
-    /// `edit::rebase_conflict` where they set one record and
+    /// `edit::rebase_conflict` where they conflict (CONTENT.md § "Live state and merge") and
     /// `edit::stale_base` where no write this document took left the hash. A refused change raises `edit::content_apply` and writes
     /// nothing.
     #[pyo3(signature = (change, field=None, card=None, base=None, actor=None))]
@@ -1440,7 +1440,7 @@ impl PyWriter {
     /// `base_hash` or `base_content` names what the writer read: its hash
     /// (`hash_at`), or the value itself as canonical Content-JSON (`read`). A
     /// value that has moved on merges the write with the change since,
-    /// raising `edit::rebase_conflict` where the two set one record; a
+    /// raising `edit::rebase_conflict` where the two conflict (CONTENT.md § "Live state and merge"); a
     /// `base_hash` raises `edit::stale_base` where no write this document took
     /// left it, as for any base read before it was loaded from storage, and a
     /// `base_content` holds however long ago it was read. Either refusal's

@@ -58,6 +58,9 @@ the line form the renderers and markdown codecs read: the markdown⇄content
 import/export codecs with a table's HTML spelling, the `qm-*` carrier grammar,
 and the comment-anchor contexts and exact re-attachment
 ([COMMENTS.md](COMMENTS.md)); `migrate` moves values between the two.
+The markdown revise that keeps what its read does not spell is
+`quillmark_automerge::revise`, one crate up, since it merges; `diff::revise_keeping`
+answers its parts, so content holds no Automerge.
 The workspace's only markdown parser (`pulldown-cmark`) lives here, in
 `quillmark-content::lines::import`, run once at ingest. **Invariant:** the Markdown
 parser appears exactly once in the workspace; no render path parses markdown:

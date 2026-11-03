@@ -753,7 +753,7 @@ export declare class DocumentWriter {
 	 * `opts` names what the writer read: its `baseHash` (from {@link hashAt})
 	 * or its `baseContent` (the `Content` `doc.read` returned). A value that has
 	 * moved on merges the write with the change since and sets `rebased`,
-	 * throwing `edit::rebase_conflict` where the two set one record; a
+	 * throwing `edit::rebase_conflict` where the two conflict (CONTENT.md § "Live state and merge"); a
 	 * `baseHash` throws `edit::stale_base` where no write this document took
 	 * left it.
 	 */
