@@ -106,11 +106,11 @@ fn a_base_merges_with_a_write_of_many_steps() {
     assert_eq!(doc.main().body().text, format!("{}Revenue\ngrew 12%.\nShip v2", "x".repeat(8196)));
 }
 
-/// A base the value has moved on from rebases the write over what changed
-/// since, and the receipt says so; the log it rebases from is no part of the
-/// document's value.
+/// A base the value has moved on from merges the write with what changed
+/// since, and the receipt says so; the history it merges from is no part of
+/// the document's value.
 #[test]
-fn a_stale_base_rebases_over_what_changed_since() {
+fn a_stale_base_merges_with_what_changed_since() {
     let mut doc = parse(SOURCE);
     let base = doc.main().hash_of(Target::Body).unwrap();
     doc.main_mut().apply(Target::Body, &split_at(12, "b9"), None).unwrap();
@@ -121,7 +121,7 @@ fn a_stale_base_rebases_over_what_changed_since() {
     assert!(receipt.rebased);
     assert_eq!(doc.main().body().text, "Revenue\ngrew\n12%.\nShip v2");
     let stored = serde_json::to_value(&doc).unwrap();
-    assert_eq!(doc, serde_json::from_value(stored).unwrap(), "the log is no part of the value");
+    assert_eq!(doc, serde_json::from_value(stored).unwrap(), "the history is no part of the value");
 }
 
 /// A writer that read, thought, and placed a comment lands it on the text it
@@ -857,12 +857,12 @@ fn every_hash_a_write_left_stays_a_base() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nx\n");
     let typed = Change::new(vec![Step::Splice(Splice::new(0, "", "a"))]);
     let mut bases = vec![doc.main().hash_of(Target::Body).unwrap()];
-    for _ in 0..1024 {
+    for _ in 0..crate::document::HISTORY {
         bases.push(doc.main_mut().apply(Target::Body, &typed, None).unwrap().hash);
     }
     let at_end = Change::new(vec![Step::Splice(Splice::new(1, "", "!"))]);
     assert!(doc.main_mut().apply(Target::Body, &at_end, Some(bases[0].as_str())).unwrap().rebased);
-    assert_eq!(doc.main().body().text, format!("{}x!", "a".repeat(1024)));
+    assert_eq!(doc.main().body().text, format!("{}x!", "a".repeat(crate::document::HISTORY)));
 }
 
 /// A stale revise over text typed elsewhere since lands beside it.

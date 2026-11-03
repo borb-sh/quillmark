@@ -1022,7 +1022,7 @@ pub(crate) struct Live {
 }
 
 /// How many of the latest writes' heads a base hash is looked for at.
-const HISTORY: usize = 1024;
+pub(crate) const HISTORY: usize = 1024;
 
 impl PartialEq for Live {
     fn eq(&self, _: &Self) -> bool {
