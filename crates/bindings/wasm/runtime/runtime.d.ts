@@ -10,12 +10,13 @@
 
 // The instance types, so an annotation (`let q: Quill`) needs no await. Their
 // values are `CoreSurface`'s.
-export type { Quill, Document } from '../core/wasm.js';
+export type { Quill, Document, SyncState } from '../core/wasm.js';
 
 import type {
 	InitInput,
 	Quill as CoreQuill,
 	Document as CoreDocument,
+	SyncState as CoreSyncState,
 	importMarkdown,
 	exportMarkdown,
 	normalize,
@@ -42,6 +43,7 @@ import type {
 export interface CoreSurface {
 	Quill: typeof CoreQuill;
 	Document: typeof CoreDocument;
+	SyncState: typeof CoreSyncState;
 	importMarkdown: typeof importMarkdown;
 	exportMarkdown: typeof exportMarkdown;
 	normalize: typeof normalize;

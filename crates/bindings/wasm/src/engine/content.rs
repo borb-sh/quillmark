@@ -394,11 +394,11 @@ impl WriteOpts {
     }
 }
 
-fn target(addr: &Addr) -> Target<'_> {
+pub(super) fn target(addr: &Addr) -> Target<'_> {
     Target::from(addr.field.as_deref())
 }
 
-fn card_base(doc: &quillmark_core::document::Document, addr: &Addr) -> DocPath {
+pub(super) fn card_base(doc: &quillmark_core::document::Document, addr: &Addr) -> DocPath {
     match addr.card {
         None => DocPath::main(),
         Some(index) => DocPath::card(doc.cards().get(index).and_then(|c| c.kind()), index),
@@ -412,7 +412,7 @@ fn card_of<'a>(doc: &'a quillmark_core::document::Document, addr: &Addr) -> Resu
     }
 }
 
-fn card_mut_of<'a>(doc: &'a mut quillmark_core::document::Document, addr: &Addr) -> Result<CardMut<'a>, JsValue> {
+pub(super) fn card_mut_of<'a>(doc: &'a mut quillmark_core::document::Document, addr: &Addr) -> Result<CardMut<'a>, JsValue> {
     let len = doc.cards().len();
     match addr.card {
         None => Ok(doc.main_mut()),
@@ -420,7 +420,7 @@ fn card_mut_of<'a>(doc: &'a mut quillmark_core::document::Document, addr: &Addr)
     }
 }
 
-fn value_path(base: &DocPath, addr: &Addr) -> DocPath {
+pub(super) fn value_path(base: &DocPath, addr: &Addr) -> DocPath {
     match &addr.field {
         None => base.body(),
         Some(field) => base.field(field),

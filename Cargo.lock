@@ -2646,6 +2646,7 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "quillmark",
+ "quillmark-automerge",
  "quillmark-content",
  "quillmark-core",
  "serde",

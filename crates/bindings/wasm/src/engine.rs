@@ -14,6 +14,9 @@ use tsify::Ts;
 use wasm_bindgen::prelude::*;
 
 mod content;
+mod live;
+
+pub use live::SyncState;
 
 #[wasm_bindgen(typescript_custom_section)]
 const METADATA_TS: &'static str = r#"

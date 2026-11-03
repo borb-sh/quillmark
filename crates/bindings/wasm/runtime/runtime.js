@@ -13,7 +13,7 @@
 // patched onto the prototype below, and `instanceof` reads them directly. The
 // default import is the core build's generated instantiation entry; `init` is
 // the only thing that calls it.
-import initCore, { Quill, Document } from '../core/wasm.js';
+import initCore, { Quill, Document, SyncState } from '../core/wasm.js';
 // The wasm byte source, resolved per environment by package.json's `imports`
 // map: a pass-through in a browser (the glue fetches and streams the URL
 // itself), a `node:fs` read under Node, whose `fetch` rejects `file:` URLs.
@@ -46,6 +46,7 @@ import { parseDocPath, formatDocPath, formatDiagnostic } from '../core/wasm.js';
 const CORE_SURFACE = Object.freeze({
 	Quill,
 	Document,
+	SyncState,
 	importMarkdown,
 	exportMarkdown,
 	normalize,
