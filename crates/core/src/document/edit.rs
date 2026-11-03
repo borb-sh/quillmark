@@ -374,7 +374,7 @@ impl EditError {
                 "field" => field,
                 "target" => target,
             },
-            EditError::Change(_) => diag_args! {},
+            EditError::Change(e) => apply_args(e),
             EditError::InputTooLarge { size, max } => diag_args! { "size" => size, "max" => max },
             EditError::TooManySteps { count, max }
             | EditError::TooManyMarks { count, max }
@@ -1624,6 +1624,29 @@ impl Card {
                 .map_err(EditError::InvalidPayload)
         })
     }
+}
+
+fn apply_args(e: &quillmark_content::change::ApplyError) -> BTreeMap<String, serde_json::Value> {
+    use quillmark_content::change::ApplyError as A;
+    let reason = match e {
+        A::Stale { .. } => "stale",
+        A::UnknownBlock { .. } => "unknown_block",
+        A::UnknownContainer { .. } => "unknown_container",
+        A::ContainerKind { .. } => "container_kind",
+        A::ContainerInUse { .. } => "container_in_use",
+        A::UnknownAnchor { .. } => "unknown_anchor",
+        A::AnchorHeld { .. } => "anchor_held",
+        A::UnknownIsland { .. } => "unknown_island",
+        A::UnknownSlot { .. } => "unknown_slot",
+        A::BadStep { .. } => "bad_step",
+        A::Invalid(_) => "invalid",
+        _ => return diag_args! {},
+    };
+    let mut args = diag_args! { "reason" => reason };
+    if let A::Stale { step } | A::BadStep { step, .. } = e {
+        args.insert("step".into(), (*step).into());
+    }
+    args
 }
 
 #[cfg(test)]

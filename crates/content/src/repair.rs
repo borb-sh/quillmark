@@ -3,8 +3,7 @@
 //! such state valid by fixed rules: it is total, the same raw value always
 //! repairs to the same content, and every id it mints is derived from the ids
 //! involved, so peers holding one merged state read one value. A rule that
-//! [inserts](Repair::inserts) is written back by a server where one exists,
-//! and by no one otherwise.
+//! [inserts](Repair::inserts) is written back by no peer.
 
 use crate::change::{Change, IslandStep, Removed as Gone, Splice, Step};
 use crate::ids::{MAX_ID_LEN, is_id};
@@ -134,9 +133,8 @@ impl Repair {
     /// Whether writing this repair back inserts text or a slot. Two peers
     /// writing one back at once each insert their own: text lands twice and
     /// stays valid, and a slot minted twice keeps one peer's under its id. So
-    /// only a server writes back a report holding one, and with none no peer
-    /// does; any peer may
-    /// write back a report whose repairs only delete or set.
+    /// no peer writes back a report holding one; any peer may write back a
+    /// report whose repairs only delete or set.
     pub fn inserts(&self) -> bool {
         match self {
             Repair::SplitBlock { .. } | Repair::EmptyCell { .. } => true,

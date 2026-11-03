@@ -98,11 +98,11 @@ pub const NONCANONICAL_READ: &str = "content::noncanonical_read";
 
 /// The warning a stored read owes a content value it rewrote to its canonical
 /// form: the value loads canonical, and storing the document again writes
-/// those bytes. This release reads such a value; a later one refuses it.
+/// those bytes.
 pub fn noncanonical_read() -> Diagnostic {
     Diagnostic::new(Severity::Warning, "a stored content value is not in canonical form, and reads as it".to_string())
         .with_code(NONCANONICAL_READ.to_string())
-        .with_hint("store the document again to write its canonical form; a later release refuses the value as stored".to_string())
+        .with_hint("store the document again to write its canonical form".to_string())
 }
 
 /// The diagnostic code a markdown export's loss rides.

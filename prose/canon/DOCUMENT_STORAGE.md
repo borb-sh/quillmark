@@ -636,11 +636,22 @@ accumulate. The cost is one frozen type tree per schema version plus one
 migration function per version bump.
 
 A legacy variant may be **retired**, its DTO tree, migration and tests
-deleted, once a count of stored rows shows none remains in that shape; a
-release version is not that evidence, since one tag's rows span every release
-between its bump and the next. A row that later surfaces in a retired shape
-fails as an unknown version. Every tag from `0.81.0` through `0.116.0` is
-retired.
+deleted, only in a major release: Quillmark cannot count its hosts' rows, and
+one tag's rows span every release between its bump and the next. A row that
+later surfaces in a retired shape fails as an unknown version. Every tag from
+`0.81.0` through `0.116.0` is retired.
+
+**What a row holds stays readable.** Within a major release:
+
+- The lenient stored read (`Content::from_value_lenient`) stays: a value a
+  write would refuse as non-canonical reads as its canonical form, warning
+  `content::noncanonical_read`, however long ago it was stored.
+- The bounds a value is held to (`MAX_TABLE_CELLS`, `MAX_NESTING_DEPTH`,
+  `MAX_JSON_DEPTH`, `max_marks`, `MAX_ANCHORS`, `MAX_CARD_COUNT`) only
+  loosen, since a lowered bound makes a stored row unreadable.
+- A hash, `Document::hash`, a body's or a field's, holds within one storage
+  tag. `Document::hash` digests the tag, so a storage bump moves it for an
+  equal document; a host keeping such hashes across one reads them again.
 
 ## Gotchas
 
