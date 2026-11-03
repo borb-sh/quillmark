@@ -421,7 +421,7 @@ fn test_commit_field_richtext_content_object_reads_back() {
         .into_content();
     content.marks.push(Mark::new(0, 10, MarkKind::Underline));
     let content = content.into_lines();
-    let json = quillmark_content::lines::serial::to_canonical_value(&content);
+    let json = quillmark_content::migrate::from_lines(&content).to_value();
 
     let mut card = Card::new("note").unwrap();
     commit_richtext(&mut card, "intro", &json, false).unwrap();
@@ -898,8 +898,8 @@ fn test_wire_refuses_payload_level_violations() {
 fn storage_dto_refuses_what_the_parser_refuses() {
     let load = |items: serde_json::Value| {
         serde_json::from_value::<crate::document::Document>(serde_json::json!({
-            "schema": "quillmark/document@0.129.0",
-            "main": {"payload": {"items": items}, "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}},
+            "schema": "quillmark/document@0.135.0",
+            "main": {"payload": {"items": items}, "body": {"blocks": [{"id": "b0", "kind": "para"}], "text": ""}},
             "cards": []
         }))
     };

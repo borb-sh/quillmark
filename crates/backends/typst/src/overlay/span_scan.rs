@@ -1084,7 +1084,7 @@ main:
             .expect("import")
             .content;
         let data =
-            serde_json::json!({ "intro": quillmark_content::lines::serial::to_canonical_value(&rt) });
+            serde_json::json!({ "intro": quillmark_content::migrate::from_lines(&rt).to_value() });
         let mut world = QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
         let windows = world.inject_helper_package(&data, &meta).expect("inject");
         let (doc, _) = compile_document(&world).expect("compile");
@@ -1155,7 +1155,7 @@ main:
             );
             let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
             let data =
-                serde_json::json!({ "prose": quillmark_content::lines::serial::to_canonical_value(&rt) });
+                serde_json::json!({ "prose": quillmark_content::migrate::from_lines(&rt).to_value() });
             let mut world =
                 QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
             let windows = world.inject_helper_package(&data, &meta).expect("inject");
@@ -1239,7 +1239,7 @@ main:
             .expect("import")
             .content;
         let data =
-            serde_json::json!({ "prose": quillmark_content::lines::serial::to_canonical_value(&rt) });
+            serde_json::json!({ "prose": quillmark_content::migrate::from_lines(&rt).to_value() });
         let mut world = QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
         let windows = world.inject_helper_package(&data, &meta).expect("inject");
         let (doc, _) = compile_document(&world).expect("compile");
@@ -1367,7 +1367,7 @@ main:
             .expect("import")
             .content;
         serde_json::json!({
-            "prose": quillmark_content::lines::serial::to_canonical_value(&rt),
+            "prose": quillmark_content::migrate::from_lines(&rt).to_value(),
             "classification": "UNCLASSIFIED",
         })
     }

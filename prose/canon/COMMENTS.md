@@ -44,9 +44,8 @@ The read is pure and cheap enough to run before every markdown write.
 4. A point (an empty quote) counts at each position where the prefix and the suffix both agree.
 5. Where the caller passes the write's change for the path, its receipt's `applied`, a match must overlap text that change's top-level splices inserted, the discipline `revise` keeps, and only the value's own text counts, since those splices span it alone. Without one, the context rule alone decides.
 6. Exactly one counting place over the prose and every cell: attach there. None or several: orphan. No nearest match, no partial quote, no edit distance.
-7. A selector that spells a hard break as `\n` and a cell's block break as two, where it counts nowhere as spelled, runs the rule once more over each surface spelled that way.
-8. An id already live anywhere in the document, a cell's anchor included, is not re-added. It is answered as reattached with the selector the first value holding it reads.
-9. Each id is answered once: of selectors sharing an id, the first is answered and the rest are left out of the receipt.
+7. An id already live anywhere in the document, a cell's anchor included, is not re-added. It is answered as reattached with the selector the first value holding it reads.
+8. Each id is answered once: of selectors sharing an id, the first is answered and the rest are left out of the receipt.
 
 A range lands exactly over the quote's characters. A point lands at the one position where the prefix meets the suffix, as an empty range.
 A write that inserts text at a point leaves the point before it: a point binds to the text on its left, as a caret does.

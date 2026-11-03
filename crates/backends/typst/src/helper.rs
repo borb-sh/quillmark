@@ -802,7 +802,7 @@ mod tests {
         let rt = quillmark_content::lines::import::from_markdown(markdown)
             .expect("import")
             .content;
-        quillmark_content::lines::serial::to_canonical_value(&rt)
+        quillmark_content::migrate::from_lines(&rt).to_value()
     }
 
     fn richtext_field() -> serde_json::Value {
@@ -874,7 +874,7 @@ mod tests {
             .expect("import")
             .content;
         let data =
-            serde_json::json!({ "intro": quillmark_content::lines::serial::to_canonical_value(&rt) });
+            serde_json::json!({ "intro": quillmark_content::migrate::from_lines(&rt).to_value() });
         let (lib, windows) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
 
         assert_eq!(windows.len(), 1);

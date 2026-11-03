@@ -71,14 +71,13 @@ pub struct CardWire {
     /// User fields and comments, in source order.
     #[serde(default, alias = "payload_items")]
     pub payload_items: Vec<PayloadItemWire>,
-    /// The card body as canonical Content-JSON: the source-of-truth content
-    /// model (a content object, `{text, lines, marks, islands}`). The empty content
-    /// when absent. A markdown string is also accepted on input (imported), so an
-    /// LLM/markdown writer can hand a string here.
+    /// The card body as its canonical content value
+    /// ([`Content::to_value`](quillmark_content::model::Content::to_value)). The
+    /// empty content when absent. A markdown string is also accepted on input
+    /// (imported), so an LLM/markdown writer can hand a string here.
     ///
-    /// The canonical form (`serial::to_canonical_value`), a zero
-    /// `Container::instance` omitted. `payload_items` carries the stored bytes
-    /// verbatim, which is its contract and why the binding types it `unknown`.
+    /// `payload_items` carries the stored bytes verbatim, which is its contract
+    /// and why the binding types it `unknown`.
     ///
     /// No `body_markdown` projection rides this wire: delimiter safety makes
     /// `to_markdown` re-parse every rendered line, so the `exportMarkdown(body)`
@@ -268,7 +267,7 @@ mod tests {
             .into_content();
         content.marks.push(Mark::new(0, 10, MarkKind::Underline));
         let content = content.into_lines();
-        let json = quillmark_content::lines::serial::to_canonical_value(&content);
+        let json = quillmark_content::migrate::from_lines(&content).to_value();
         let schema = crate::quill::FieldSchema::new(
             "intro".to_string(),
             crate::quill::FieldType::RichText { multiline: true },
@@ -461,27 +460,5 @@ mod tests {
         })
         .expect("construction does not police the kind grammar");
         assert_eq!(card.kind(), Some("BadKind"));
-    }
-
-    /// The card wire is not an authored-lane door. Every `Card` a read hands
-    /// back is a valid `CardInput`, so `body` takes the legacy payload spelling
-    /// `overwrite` refuses, and decodes it as storage does.
-    #[test]
-    fn card_wire_body_decodes_storage_lane() {
-        let legacy = json!({
-            "islands": [],
-            "lines": [{"containers": [], "kind": "heading", "level": 2}],
-            "marks": [],
-            "text": "hi",
-        });
-        assert!(quillmark_content::lines::serial::from_authored_value(&legacy).is_err());
-
-        let card = Card::try_from(CardWire::new(String::new(), legacy.clone()))
-            .expect("the card wire decodes storage-lane");
-        let storage = quillmark_content::migrate::lines_from_value(&legacy).unwrap();
-        assert_eq!(
-            quillmark_content::lines::serial::to_canonical_value(card.body_lines()),
-            quillmark_content::lines::serial::to_canonical_value(&storage)
-        );
     }
 }

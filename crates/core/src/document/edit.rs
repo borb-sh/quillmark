@@ -1409,7 +1409,8 @@ impl Card {
     /// write is [`replace`](Self::replace).
     #[cfg(test)]
     pub(crate) fn overwrite_body(&mut self, content: impl Into<Lines>) {
-        self.set_body_lines(content.into());
+        let body = quillmark_content::diff::lift(self.body(), &content.into());
+        self.set_body(body);
     }
 
     /// Overwrite a content field's value with a line-form value: the

@@ -1710,7 +1710,7 @@ fn text_coercion_imports_verbatim_and_refuses_marks() {
     assert_eq!(
         coerce(
             FIELD,
-            quillmark_content::lines::serial::to_canonical_value(&marked)
+            quillmark_content::migrate::from_lines(&marked).to_value()
         ),
         Err(("f".to_string(), "text".to_string()))
     );

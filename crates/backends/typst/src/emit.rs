@@ -833,7 +833,7 @@ impl<'a> Emit<'a> {
             IslandType::Image | IslandType::Ext(_) => String::new(),
             IslandType::Table => table_markup(&isl.props),
             IslandType::Footnote => {
-                let (text, marks) = quillmark_content::lines::serial::parse_cell(&isl.props);
+                let (text, marks) = quillmark_content::lines::cells::parse_cell(&isl.props);
                 format!("#footnote[{}]", cell_markup(&text, &marks, false))
             }
             IslandType::Math => crate::tex::equation(
@@ -1312,7 +1312,7 @@ fn table_markup(props: &serde_json::Value) -> String {
     let grid = quillmark_content::lines::island::table_rows(props);
 
     let cell = |v: &Value, (colspan, rowspan): (usize, usize)| {
-        let (text, marks) = quillmark_content::lines::serial::parse_cell(v);
+        let (text, marks) = quillmark_content::lines::cells::parse_cell(v);
         let body = cell_markup(&text, &marks, true);
         let (align, valign) = quillmark_content::lines::island::cell_alignment(v);
         let valign = valign.map(|v| if v == "middle" { "horizon" } else { v });

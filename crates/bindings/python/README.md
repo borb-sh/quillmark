@@ -116,7 +116,7 @@ field's `Content` as a dict whichever write stored it.
 v = quill.reader(doc)
 v.get("bio")                              # richtext → markdown str; scalar → as stored; absent or present-null → None
                                           # undeclared name raises UnknownField; undecodable content raises FieldDecode
-v.get_content("bio")                      # the `Content` dict {text, lines, marks, islands}; absent → None
+v.get_content("bio")                      # the `Content` dict {text, blocks, marks, islands, …}; absent → None
                                           # a type that is not a content leaf raises FieldNotContent
 v.get("author", card=0)                   # a card field, interpreted by its $kind schema
 doc.to_markdown_at(card=0)                # a card body's markdown, quill-free

@@ -37,7 +37,7 @@ Five verbs make a value or a document valid, each for its own caller:
 | `validate` | a `Content` | to ask whether a value holds to § Validity; every write does it too |
 | `repair` | a merged state | to read a collab state two peers merged (§ "Merge repair") |
 | `conform` | a `Document` and its quill | to land a document from the transport input path in its stored form |
-| `migrate` | a stored row or a v1 value | never: a read of an earlier storage version runs it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Legacy schemas") |
+| `migrate` | a value or the line form | never: a markdown import lifts through it and the renderers lower through it (§ "The line form") |
 
 ## The value
 
@@ -328,7 +328,7 @@ Repair is how a merged state reads: it is total and deterministic, so peers hold
 | A table cell naming no slot of its own | A concurrent row insert and column insert | The cell gets an empty slot, its id the row and column ids joined |
 | A table cell or a footnote's note of several paragraphs | A merge that splits a block inside a cell or a note | Each `\n` in the slot becomes `U+2028` and the slot keeps its first record |
 
-The raw value is shaped as `Content` with two additions only repair reads. Its `islands` may be an object keyed by island id, with `slot_ids` naming the island each `U+FFFC` holds in text order, `null` where it holds none; an `islands` array pairs with the island characters in order. And an anchor placed as a range holds `range: true`, since a range collapsed to zero width cannot otherwise be told from a point. A v1 value, `lines[]` with no `blocks`, is read as `migrate::from_lines` lifts it.
+The raw value is shaped as `Content` with two additions only repair reads. Its `islands` may be an object keyed by island id, with `slot_ids` naming the island each `U+FFFC` holds in text order, `null` where it holds none; an `islands` array pairs with the island characters in order. And an anchor placed as a range holds `range: true`, since a range collapsed to zero width cannot otherwise be told from a point.
 
 Beyond the table, repair is total over any value shaped as content: it keeps marks and anchors within their bounds (§ Validity), removes forbidden characters, mints a missing block record and drops an extra one, re-mints a bad or duplicate id, drops a slot under a bad key, mends a table grid a concurrent row and column edit broke, clips marks and anchors to the text, and turns a rule holding text or a code block holding an island into a paragraph. A fresh id is the ids involved joined by `-`, with a numeric suffix where that id is taken, so two peers writing back one repair write the same bytes.
 
@@ -343,15 +343,15 @@ Markdown is a projection of a value, not its storage, so `from_markdown(to_markd
 - **What markdown cannot spell.** An empty paragraph; a hard break beside a block break or at a slot's edge (`Loss::SlotBreaks`); an `x-` block, which reads back as a paragraph, and an `x-` mark, which drops (`Loss::ExtBlock`, `Loss::ExtMark`); a covered cell's alignment; a table or cell key Quillmark does not name; a table that shares its block's line, which the export breaks onto a line of its own. The annotated read spells an island that would lose a key as its token.
 - **Spelling.** The export canonicalizes mark nesting, escaping, trailing whitespace and a table's pipe or HTML form, so the markdown a writer sent does not come back byte for byte.
 
-`to_markdown_checked` names each loss of the third kind for one value. What a revise's read loses, the revise keeps by rebasing over it (§ "Writing a value"); a cold import keeps none of it.
+`to_markdown_checked` names each loss of the third kind for one value. What a revise's read loses, the revise keeps by merging with it (§ "Writing a value"); a cold import keeps none of it.
 
 ## The line form
 
-The renderers and the markdown codecs read the line form under the `lines` module, one line per block with marks and islands inline; core's revise, merge and align reach it too. It is internal to the workspace: hidden from the documented surface, and no public API takes or answers it. `migrate::to_lines` lowers a value to it and `migrate::from_lines` lifts a v1 value, minting ids deterministically; a markdown import runs through the line form and lifts ([CONVERT.md](CONVERT.md)). A card lowers its body when the line form is first read, not on each write, so a write no renderer reads pays nothing for it.
+The renderers and the markdown codecs read the line form under the `lines` module, one line per block with marks and islands inline; core's revise, merge and align reach it too. It is internal to the workspace: hidden from the documented surface, and no public API takes or answers it. `migrate::to_lines` lowers a value to it and `migrate::from_lines` lifts it, minting ids deterministically; a markdown import runs through the line form and lifts ([CONVERT.md](CONVERT.md)). A card lowers its body when the line form is first read, not on each write, so a write no renderer reads pays nothing for it.
 
 The line form is a faithful view of a value but for what `to_markdown_checked` names as its loss, which a law holds over generated values (`tests/change_laws.rs`), and the anchor contexts and receipts read the stored text, not the line form.
 
-| v1 | The model |
+| The line form | The model |
 |---|---|
 | `lines[]` with a container path | `blocks[]` with a path of container ids; the records become `containers[]` |
 | `continues: true` lines | One block, its lines joined by hard breaks |

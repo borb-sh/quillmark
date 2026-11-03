@@ -657,7 +657,7 @@ pub mod anchors;
 pub mod assemble;
 pub mod base;
 pub mod card_id;
-pub mod dto;
+mod dto;
 pub mod edit;
 pub mod emit;
 pub mod fences;
@@ -673,8 +673,7 @@ pub(crate) mod yaml_hints;
 pub use anchors::AnchorSelector;
 pub use base::{Base, BaseError, DocumentBase, HASH_TAG, content_hash, value_hash};
 pub use dto::{
-    STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, STORAGE_V0_135_0, StorageError,
-    StoredDocument, peek_storage_version,
+    STORAGE_V0_134_0, STORAGE_V0_135_0, StorageError, StoredDocument, peek_storage_version,
 };
 pub use edit::{CardMut, EditError, Unchecked};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
@@ -888,13 +887,6 @@ impl Card {
                 self.hashes.fields.insert(name.to_string(), hash);
             }
         }
-    }
-
-    /// Writes a line-form body over the stored one, keeping the ids of what it
-    /// kept.
-    pub(crate) fn set_body_lines(&mut self, lines: Lines) {
-        let body = quillmark_content::diff::lift(&self.body, &lines);
-        self.set_body(body);
     }
 
     /// Read a content-valued user field back through `codec`: the field-level

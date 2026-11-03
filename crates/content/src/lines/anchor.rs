@@ -338,9 +338,9 @@ impl Lines {
             for (island, isl) in content.islands.iter_mut().enumerate() {
                 for (cell, value) in isl.island_type.cell_values_mut(&mut isl.props).into_iter().enumerate() {
                     if let Some(added) = cells.remove(&(island, cell)) {
-                        let (_, mut held) = crate::lines::serial::parse_cell(value);
+                        let (_, mut held) = crate::lines::cells::parse_cell(value);
                         held.extend(added);
-                        crate::lines::serial::set_cell_marks(value, &held);
+                        crate::lines::cells::set_cell_marks(value, &held);
                     }
                 }
             }

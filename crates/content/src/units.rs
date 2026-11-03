@@ -227,10 +227,9 @@ fn content(u: impl Units, dir: Dir, c: &mut Content) -> Option<()> {
 const SPLIT: &str = "an offset falls inside a character or past its text";
 
 impl Content {
-    /// [`from_value`](Self::from_value) with offsets in `u`. A v1 value
-    /// counts scalar values, as v1 did.
+    /// [`from_value`](Self::from_value) with offsets in `u`.
     pub fn from_value_in(v: &Value, u: impl Units) -> Result<Content, ParseError> {
-        if crate::model::json_too_deep(v) || crate::wire::is_v1(v) {
+        if crate::model::json_too_deep(v) {
             return Content::from_value(v);
         }
         let mut v = v.clone();
@@ -242,7 +241,7 @@ impl Content {
 
     /// [`from_value_lenient`](Self::from_value_lenient) with offsets in `u`.
     pub fn from_value_lenient_in(v: &Value, u: impl Units) -> Result<crate::wire::Lenient, ParseError> {
-        if crate::model::json_too_deep(v) || crate::wire::is_v1(v) {
+        if crate::model::json_too_deep(v) {
             return Content::from_value_lenient(v);
         }
         let mut v = v.clone();
@@ -262,9 +261,9 @@ impl Content {
 
 impl crate::repair::Raw {
     /// [`from_value`](Self::from_value) with offsets in `u`, converted as
-    /// [`raw_to_scalars`] does. A v1 value counts scalar values, as v1 did.
+    /// [`raw_to_scalars`] does.
     pub fn from_value_in(v: &Value, u: impl Units) -> Result<crate::repair::Raw, ParseError> {
-        if crate::model::json_too_deep(v) || crate::wire::is_v1(v) {
+        if crate::model::json_too_deep(v) {
             return crate::repair::Raw::from_value(v);
         }
         let mut v = v.clone();

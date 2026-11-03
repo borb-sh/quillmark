@@ -231,24 +231,24 @@ mod tests {
         let rt = quillmark_content::lines::import::from_markdown("A **bold** claim.\n\nSecond line.")
             .unwrap()
             .content;
-        let content = quillmark_content::lines::serial::to_canonical_value(&rt);
+        let content = quillmark_content::migrate::from_lines(&rt).to_value();
         assert_eq!(
             coerce_text(&content).as_deref(),
             Some("A bold claim.\nSecond line.")
         );
-        let blank = quillmark_content::lines::serial::to_canonical_value(
+        let blank = quillmark_content::migrate::from_lines(
             &quillmark_content::lines::model::Lines::empty(),
-        );
+        ).to_value();
         assert_eq!(coerce_text(&blank), None);
         assert_eq!(coerce_text(&json!({ "x": 1 })), None);
     }
 
     fn el(md: &str) -> Value {
-        quillmark_content::lines::serial::to_canonical_value(
+        quillmark_content::migrate::from_lines(
             &quillmark_content::lines::import::from_markdown(md)
                 .unwrap()
                 .content,
-        )
+        ).to_value()
     }
 
     #[test]
@@ -381,11 +381,11 @@ mod tests {
 
     #[test]
     fn a_value_carrying_a_newline_reaches_the_stamp_multiline() {
-        let two_paragraphs = quillmark_content::lines::serial::to_canonical_value(
+        let two_paragraphs = quillmark_content::migrate::from_lines(
             &quillmark_content::lines::import::from_markdown("One.\n\nTwo.")
                 .unwrap()
                 .content,
-        );
+        ).to_value();
         let data = json!({
             "bio": two_paragraphs,
             "address": "1 Main St\nSpringfield",

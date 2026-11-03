@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use crate::lines::anchor::{ANCHOR_CONTEXT_SCALARS, locate_in};
 pub use crate::lines::anchor::{AnchorContext, Reattached};
-use crate::model::{Anchor, Content, HARD_BREAK, ISLAND_SLOT, Scalar};
+use crate::model::{Anchor, Content, ISLAND_SLOT, Scalar};
 
 /// A text surface of a value: its prose, or one slot of one of its islands.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,33 +60,9 @@ fn context_of(text: &[char], a: &Anchor) -> AnchorContext {
     }
 }
 
-/// A surface's text as the line form spelled it, with each of its positions
-/// mapped to the stored one: a hard break as `\n`, and in a slot a block
-/// break as two.
-fn line_spelling(text: &str, slot: bool) -> (Vec<char>, Vec<Scalar>) {
-    let mut chars = Vec::with_capacity(text.len());
-    let mut at = Vec::with_capacity(text.len() + 1);
-    for (i, ch) in text.chars().enumerate() {
-        at.push(i);
-        match ch {
-            HARD_BREAK => chars.push('\n'),
-            '\n' if slot => {
-                chars.push('\n');
-                at.push(i);
-                chars.push('\n');
-            }
-            ch => chars.push(ch),
-        }
-    }
-    at.push(text.chars().count());
-    (chars, at)
-}
-
 /// The one surface and range `ctx` names in `c`, under
 /// [`locate_site`](crate::lines::anchor::locate_site)'s rule over the stored
-/// spelling, or, where that names none, over the line form's spelling of
-/// each surface, which the selectors stored before 0.135 use. With
-/// `inserted` given, the prose alone counts.
+/// spelling. With `inserted` given, the prose alone counts.
 pub fn locate_site(c: &Content, ctx: &AnchorContext, inserted: Option<&[(Scalar, Scalar)]>) -> Option<(Surface, Scalar, Scalar)> {
     let surfaces: Vec<(Surface, &str)> = match inserted {
         Some(_) => vec![(Surface::Prose, c.text.as_str())],
@@ -98,22 +74,12 @@ pub fn locate_site(c: &Content, ctx: &AnchorContext, inserted: Option<&[(Scalar,
             }))
             .collect(),
     };
-    let one = |mut hits: Box<dyn Iterator<Item = (Surface, Scalar, Scalar)> + '_>| {
-        let hit = hits.next();
-        hit.filter(|_| hits.next().is_none())
-    };
-    let mut stored = surfaces.iter().filter_map(|(surface, text)| {
+    let mut hits = surfaces.iter().filter_map(|(surface, text)| {
         let chars: Vec<char> = text.chars().collect();
         locate_in(&chars, ctx, inserted).map(|(s, e)| (surface.clone(), s, e))
     });
-    match stored.next() {
-        Some(hit) => return stored.next().is_none().then_some(hit),
-        None => {}
-    }
-    one(Box::new(surfaces.iter().filter_map(|(surface, text)| {
-        let (chars, at) = line_spelling(text, *surface != Surface::Prose);
-        locate_in(&chars, ctx, inserted).map(|(s, e)| (surface.clone(), at[s], at[e]))
-    })))
+    let hit = hits.next();
+    hit.filter(|_| hits.next().is_none())
 }
 
 impl Content {
@@ -194,23 +160,18 @@ mod tests {
         assert_eq!(ctxs[2].quote, "a\u{2028}\nb");
     }
 
-    /// A selector spelled either way re-attaches: as stored, or as the line
-    /// form spelled it, a hard break as `\n` and a slot's block break as two.
+    /// A selector spelled as stored reattaches, in the prose and in a slot.
     #[test]
-    fn a_selector_in_either_spelling_reattaches() {
-        let stored = value(json!({
+    fn a_selector_in_the_stored_spelling_reattaches() {
+        let mut c = value(json!({
             "text": "one\u{2028}two\nthree \u{FFFC}", "blocks": [{"id": "b0", "kind": "para"}, {"id": "b1", "kind": "para"}],
             "islands": [{"id": "f0", "type": "x-box", "props": {}, "slots": {"note": {
                 "text": "ab\u{2028}\ncd", "blocks": [{"id": "b0", "kind": "para"}, {"id": "b1", "kind": "para"}]}}}],
         }));
-        for (quote, note) in [("one\u{2028}two", "ab\u{2028}\ncd"), ("one\ntwo", "ab\n\n\ncd")] {
-            let mut c = stored.clone();
-            let ctxs = [AnchorContext::new("a", quote, "", "\nthree"), AnchorContext::new("n", note, "", "")];
-            let out = c.reattach(&ctxs, None, &HashSet::new());
-            assert_eq!(out.orphaned, [], "{quote:?}");
-            assert_eq!(c.anchors, [Anchor::new("a", 0, 7)], "{quote:?}");
-            assert_eq!(c.islands[0].slots["note"].anchors, [Anchor::new("n", 0, 6)], "{note:?}");
-            assert_eq!(out.reattached[1].quote, "ab\u{2028}\ncd");
-        }
+        let ctxs = [AnchorContext::new("a", "one\u{2028}two", "", "\nthree"), AnchorContext::new("n", "ab\u{2028}\ncd", "", "")];
+        let out = c.reattach(&ctxs, None, &HashSet::new());
+        assert_eq!(out.orphaned, []);
+        assert_eq!(c.anchors, [Anchor::new("a", 0, 7)]);
+        assert_eq!(c.islands[0].slots["note"].anchors, [Anchor::new("n", 0, 6)]);
     }
 }

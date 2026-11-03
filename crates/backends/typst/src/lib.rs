@@ -822,7 +822,7 @@ mod tests {
         let rt = quillmark_content::lines::import::from_markdown(markdown)
             .expect("import")
             .content;
-        quillmark_content::lines::serial::to_canonical_value(&rt)
+        quillmark_content::migrate::from_lines(&rt).to_value()
     }
 
     /// The two quills differ only by an extra unused schema field, which
@@ -916,7 +916,7 @@ mod tests {
         };
         let counts = |rt: &quillmark_content::lines::model::Lines| {
             let json =
-                serde_json::json!({ "prose": quillmark_content::lines::serial::to_canonical_value(rt) });
+                serde_json::json!({ "prose": quillmark_content::migrate::from_lines(rt).to_value() });
             let q = quill();
             let plate_content = read_plate(&q).expect("plate");
             let transform_schema =
