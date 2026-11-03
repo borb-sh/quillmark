@@ -219,8 +219,8 @@ export interface DroppedAnchor extends AnchorContext {
  *  `actor` names the writer, one per live session: each id the write mints
  *  is `{actor}:{prefix}{n}`, so two clients writing from one value never mint
  *  one id. Without one a write mints `{prefix}{n}`, as an import does. An
- *  actor is 1 to 64 characters holding no whitespace, control or `:`, not
- *  opening with `?`; another throws `edit::invalid_actor`. */
+ *  actor is 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, as a
+ *  card placement's is; another throws `edit::invalid_actor`. */
 export interface WriteOptions {
     base?: string;
     actor?: string;
@@ -239,7 +239,7 @@ export interface TextRange {
     to: number;
 }
 
-/** What `locate` answers: the block holding an offset, its index among the
+/** What `blockAt` answers: the block holding an offset, its index among the
  *  value's blocks, and its container path, outermost first. */
 export interface Located {
     id: string;
@@ -751,8 +751,8 @@ impl Document {
     /// `id`, its `index` among the value's blocks and its container `path`;
     /// at a block's end, that block. Throws `edit::content_apply` where `at`
     /// is past the text or inside a surrogate pair, and as `read`.
-    #[wasm_bindgen(js_name = locate, unchecked_return_type = "Located")]
-    pub fn locate(
+    #[wasm_bindgen(js_name = blockAt, unchecked_return_type = "Located")]
+    pub fn block_at(
         &self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         at: u32,
@@ -762,9 +762,9 @@ impl Document {
         let to_js = |e: EditError| edit_error_to_js(&e, &card_base(&self.inner, &addr));
         let content = card.read(target(&addr)).map_err(to_js)?;
         let at = offset_in(&content, at)?;
-        let located = card.locate(target(&addr), at).map_err(to_js)?;
+        let located = card.block_at(target(&addr), at).map_err(to_js)?;
         let out = serde_json::json!({ "id": located.id, "index": located.index, "path": located.path });
-        serialize_or_throw(&out, "locate")
+        serialize_or_throw(&out, "blockAt")
     }
 }
 

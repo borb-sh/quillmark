@@ -1175,7 +1175,7 @@ fn a_placed_card_mints_under_its_writers_actor() {
     let mut doc = make_doc();
     assert_eq!(
         doc.unchecked().insert_card(None, Card::new("note").unwrap(), Some("a:b")),
-        Err(EditError::InvalidCardActor("a:b".into()))
+        Err(EditError::InvalidActor("a:b".into()))
     );
     let mut spelled = Card::new("note").unwrap();
     spelled.payload_mut().set_id("kept");

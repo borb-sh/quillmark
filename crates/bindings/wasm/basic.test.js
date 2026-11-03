@@ -839,7 +839,7 @@ describe('Document apply: the write primitive', () => {
     c = doc.read({})
     expect(c.text).toBe('one\ntwo')
     expect(c.blocks[0].path).toHaveLength(2)
-    expect(doc.locate({}, 5)).toEqual({ id: c.blocks[1].id, index: 1, path: c.blocks[1].path })
+    expect(doc.blockAt({}, 5)).toEqual({ id: c.blocks[1].id, index: 1, path: c.blocks[1].path })
 
     doc.replace({}, importMarkdown('**bold** x').content)
     expect(inheritedMarks(doc.read({}), 4)).toEqual([{ type: 'strong' }])
@@ -1098,7 +1098,10 @@ describe('Document editor surface: storeField / removeField / replace / revise (
 
     expect(Document.parse(read.markdown).equals(Document.parse(doc.toMarkdown()))).toBe(true)
     const body = doc.read({})
-    expect(exportMarkdown(body, { annotated: true })).toBe(doc.toMarkdown({}, { annotated: true }).markdown)
+    expect(exportMarkdown(body, { annotated: true })).toEqual({
+      markdown: doc.toMarkdown({}, { annotated: true }).markdown,
+      anchors: [{ id: 'b', line: 'Main body.' }],
+    })
     expect(exportMarkdown(body)).toBe('Main **body**.')
   })
 

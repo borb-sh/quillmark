@@ -662,7 +662,7 @@ fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
     let ids: Vec<&str> = body.blocks.iter().map(|b| b.id.as_str()).collect();
     assert_eq!(ids, ["b0", "b1", "b2", "bo:b0"]);
     assert_eq!(body.blocks[2].path, ["bo:l0", "bo:i0"]);
-    let located = doc.main().locate(Target::Body, 7).unwrap();
+    let located = doc.main().block_at(Target::Body, 7).unwrap();
     assert_eq!((located.id.as_str(), located.index, located.path.as_slice()), ("b1", 1, &["ann:q0".to_string()][..]));
 
     let insert = Change::new(vec![

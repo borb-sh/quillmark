@@ -2,7 +2,6 @@
 //! spell.
 
 use quillmark_content::lines::delta::rebase_marks;
-use quillmark_content::lines::model::Lines;
 use quillmark_content::change::ApplyError;
 use quillmark_content::model::Content;
 use serde_json::Value as JsonValue;
@@ -10,8 +9,11 @@ use std::collections::{HashMap, HashSet};
 
 use super::align::{Pairing, Slot, align};
 use super::card_id::{is_card_id, reminted_warning, settle_reporting};
-use super::edit::{EditError, dropped_anchors};
-use super::emit::{DocumentAnchor, canonical_content, emit_payload_fields};
+use super::anchors::AnchorSelector;
+use super::edit::EditError;
+use super::emit::{canonical_content, emit_payload_fields};
+use quillmark_content::anchors::anchor_contexts;
+use quillmark_content::model::Content as ContentModel;
 use super::merge::MergeConflict;
 use super::{Card, Document, Parsed, Revising, dropped_constructs};
 use crate::error::{Diagnostic, ParseError, Severity};
@@ -25,8 +27,9 @@ use crate::value::QuillValue;
 pub struct DocumentRevised {
     /// Every anchor a stored card's body or content value holds that the card
     /// the revise aligned it to no longer holds at the same address, and every
-    /// anchor of a card the revise removed, each with the line it stood on.
-    pub dropped_anchors: Vec<DocumentAnchor>,
+    /// anchor of a card the revise removed, each as the selector
+    /// [`Document::reattach`] takes, read off the stored value.
+    pub dropped_anchors: Vec<AnchorSelector>,
     /// The parse warnings, then one `parse::dropped_construct` per construct
     /// dropped from a field revising a stored content value, each at its
     /// address in the revised document, and an `edit::content_apply` warning
@@ -449,7 +452,7 @@ fn drop_report(
     revised: Option<&Card>,
     at: &DocPath,
     moves: &Moves,
-    out: &mut Vec<DocumentAnchor>,
+    out: &mut Vec<AnchorSelector>,
 ) {
     for (name, value) in stored.payload().iter() {
         let revised = revised
@@ -457,7 +460,7 @@ fn drop_report(
             .map(QuillValue::as_json);
         drop_value(value.as_json(), revised, &at.field(name), moves, out);
     }
-    drop_content(stored.body_lines(), revised.map(Card::body_lines), &at.body(), out);
+    drop_content(stored.body(), revised.map(Card::body), &at.body(), out);
 }
 
 /// [`drop_report`] over a field's value: each content object in `stored`, at
@@ -470,16 +473,16 @@ fn drop_value(
     revised: Option<&JsonValue>,
     at: &DocPath,
     moves: &Moves,
-    out: &mut Vec<DocumentAnchor>,
+    out: &mut Vec<AnchorSelector>,
 ) {
     let content_of = |value: &JsonValue| {
         value
             .is_object()
-            .then(|| quillmark_content::migrate::lines_from_value(value).ok())
+            .then(|| ContentModel::from_value_lenient(value).ok().map(|read| read.content))
             .flatten()
     };
     if let Some(content) = content_of(stored) {
-        if !content.anchor_sites().is_empty() {
+        if !anchor_contexts(&content).is_empty() {
             let revised = revised.and_then(content_of);
             drop_content(&content, revised.as_ref(), at, out);
         }
@@ -510,17 +513,16 @@ fn drop_value(
 }
 
 fn drop_content(
-    stored: &Lines,
-    revised: Option<&Lines>,
+    stored: &ContentModel,
+    revised: Option<&ContentModel>,
     at: &DocPath,
-    out: &mut Vec<DocumentAnchor>,
+    out: &mut Vec<AnchorSelector>,
 ) {
-    let removed = Lines::empty();
-    let dropped = dropped_anchors(stored, revised.unwrap_or(&removed));
-    out.extend(dropped.into_iter().map(|a| DocumentAnchor {
-        id: a.id,
-        path: at.clone(),
-        card_id: None,
-        line: a.line,
-    }));
+    let held: HashSet<String> = revised.map_or_else(HashSet::new, |r| anchor_contexts(r).into_iter().map(|c| c.id).collect());
+    out.extend(
+        anchor_contexts(stored)
+            .into_iter()
+            .filter(|ctx| !held.contains(&ctx.id))
+            .map(|ctx| AnchorSelector::new(ctx.id, at.clone(), ctx.quote, ctx.prefix, ctx.suffix)),
+    );
 }

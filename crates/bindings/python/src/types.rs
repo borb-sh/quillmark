@@ -531,14 +531,23 @@ impl PyDocument {
     /// The one markdown export of the document. Cold, round-trip safe but for
     /// content: a body or content field holds what its markdown spells, so its
     /// anchors drop and its island ids re-mint; `to_stored` keeps both.
-    /// `annotated` spells each anchor and each island markdown cannot hold,
-    /// which `revise` and `writer.revise_document` read back.
+    /// With `annotated`, a dict: `markdown` spelling each anchor and each
+    /// island markdown cannot hold, which `revise` and
+    /// `writer.revise_document` read back, and `anchors`, every anchor of
+    /// every body and content field as `{id, path, card_id, line}`, a cell's
+    /// or a note's listed unspelled.
     #[pyo3(signature = (*, annotated=false))]
-    fn to_markdown(&self, annotated: bool) -> String {
-        match annotated {
-            true => self.inner.to_markdown_annotated().markdown,
-            false => self.inner.to_markdown(),
+    fn to_markdown<'py>(&self, py: Python<'py>, annotated: bool) -> PyResult<Bound<'py, PyAny>> {
+        if !annotated {
+            return Ok(self.inner.to_markdown().into_pyobject(py)?.into_any());
         }
+        let read = self.inner.to_markdown_annotated();
+        let anchors: Vec<_> = read
+            .anchors
+            .into_iter()
+            .map(|a| serde_json::json!({ "id": a.id, "path": a.path.to_string(), "card_id": a.card_id, "line": a.line }))
+            .collect();
+        json_to_py(py, &serde_json::json!({ "markdown": read.markdown, "anchors": anchors }))
     }
 
     /// The hash of the document's stored form, the quill-free twin of
@@ -923,19 +932,22 @@ impl PyDocument {
 
     /// `to_markdown` of the value at `field` (`None` the body) on `card`
     /// (`None` the main card) alone, a `codec: "plain"` field its literal
-    /// text: with `annotated`, what `revise` there reads back. Raises as
-    /// `read`.
+    /// text: with `annotated`, a dict of the `markdown` `revise` there reads
+    /// back and its `anchors`, each `{id, line}`. Raises as `read`.
     #[pyo3(signature = (field=None, card=None, *, annotated=false))]
-    fn to_markdown_at(&self, field: Option<&str>, card: Option<CardSel>, annotated: bool) -> PyResult<String> {
+    fn to_markdown_at<'py>(
+        &self,
+        py: Python<'py>,
+        field: Option<&str>,
+        card: Option<CardSel>,
+        annotated: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
         let target = Target::resolve(&self.inner, card)?;
         let content = self
             .card_at(target.index)
             .read(quillmark_core::document::Target::from(field))
             .map_err(|e| convert_edit_error(e, &target.base))?;
-        Ok(match annotated {
-            true => quillmark_content::markdown::to_text_annotated(&content).markdown,
-            false => quillmark_content::markdown::to_text(&content),
-        })
+        crate::content::exported(py, &content, annotated)
     }
 
     /// **Apply** `change` to the value at `field` on `card`, all its steps or
@@ -1450,7 +1462,7 @@ impl PyWriter {
     /// on the main card, on a card that aligned by id or text, and on one that aligned
     /// by position only when the `$kind` sequence is unchanged. Returns the
     /// receipt as a dict: `dropped_anchors`, each anchor the write dropped as
-    /// `{id, path, card_id, line}` at its address in the stored document; `warnings`,
+    /// the selector `reattach` takes, read off the stored document; `warnings`,
     /// `Diagnostic` objects, the `conform::*` ones last; and
     /// `from`, for each composable card of the revised document the index of
     /// the stored card it revises, or `None` for an inserted card. Clears the
@@ -1483,18 +1495,7 @@ impl PyWriter {
         }
         .map_err(|e| raise_summarized(e.to_diagnostics()))?;
         doc.parse_warnings.clear();
-        let dropped: Vec<_> = revised
-            .dropped_anchors
-            .into_iter()
-            .map(|a| {
-                serde_json::json!({
-                    "id": a.id,
-                    "path": a.path.to_string(),
-                    "card_id": a.card_id,
-                    "line": a.line,
-                })
-            })
-            .collect();
+        let dropped: Vec<_> = revised.dropped_anchors.into_iter().map(selector_json).collect();
         let receipt = PyDict::new(py);
         receipt.set_item(
             "dropped_anchors",

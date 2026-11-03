@@ -511,8 +511,8 @@ is written, and never rewritten while its card lives.**
   card holds (`card_id::Mint`). A parse, a load and a seed mint the token
   alone, positionally, so equal markdown parses to equal ids. A placement
   under a writer's actor (`Unchecked::insert_card`, the writer's `add_card`)
-  mints `{actor}-{token}`: an actor is 1 to 57 of `[A-Za-z0-9_-]` opening with
-  a letter or digit, so the id is a card id, no actor's id is a positional one
+  mints `{actor}-{token}`: an actor ([CONTENT.md](CONTENT.md) § Ids) is short
+  enough that the id is a card id, no actor's id is a positional one
   and two actors never mint one id. A live client places each card it inserts
   under its actor and carries the `$id` the placement answers to its peers, so
   two replicas never mint two ids for one card. The mint is a function of the

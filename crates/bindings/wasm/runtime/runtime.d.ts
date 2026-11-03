@@ -156,6 +156,7 @@ export type {
 	CardAdded,
 	MergeConflict,
 	AnnotatedMarkdown,
+	AnnotatedExport,
 	DocumentAnchor,
 	AnchorContext,
 	Reattached,

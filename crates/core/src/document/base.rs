@@ -2,8 +2,9 @@
 //!
 //! A revise diffs its markdown against the value stored now, so an edit made
 //! between a writer's read and its write reads as text the writer deleted. A
-//! [`Base`] names the read: [`Base::Hash`] refuses the write when the value has
-//! changed since, and [`Base::Read`] merges the writer's edit onto the change.
+//! [`Base`] names the read: [`Base::Hash`] rebases the write over the change
+//! since, as a content write does, and [`Base::Read`] merges the writer's edit
+//! onto the change by line.
 
 use std::collections::BTreeMap;
 
@@ -18,7 +19,7 @@ use sha2::{Digest, Sha256};
 use super::edit::{EditError, is_valid_field_name};
 use super::merge::{MergeConflict, merge_documents};
 use super::revise::align_cards;
-use super::{Card, Codec, Document, Parsed, Receipt, Revising};
+use super::{Card, Codec, Document, Parsed, Receipt, Revising, Target};
 use crate::error::{Diagnostic, diag_args};
 use crate::path::{DocPath, DocSeg};
 use crate::quill::{BoundParseError, FieldSchema, FieldType, QuillConfig};
@@ -29,8 +30,11 @@ pub enum Base<'a> {
     /// The hash of the value the writer read: [`Card::body_hash`],
     /// [`Card::field_hash`], [`Document::hash`] or [`content_hash`] on the
     /// content write, and the typed writer's `hash` / `field_hash` on the
-    /// typed writer. The write is refused with [`BaseError::Stale`] when the value
-    /// now hashes otherwise.
+    /// typed writer. A value that now hashes otherwise rebases the write over
+    /// the change since, as [`Card::revise`] under the same base does: refused
+    /// with [`BaseError::Conflict`] where the two touch, and with
+    /// [`BaseError::Stale`] where the card's change log no longer reaches the
+    /// base. A whole-document revise has no log, and refuses a stale hash.
     Hash(&'a str),
     /// The markdown the writer read, annotated or not (a `text` field's literal
     /// text). When the value has changed since, the writer's edit of this
@@ -193,9 +197,17 @@ pub fn content_hash(content: &Content) -> String {
 /// What a guarded write lands: the writer's own markdown, or the merge with
 /// the import warnings of the writer's markdown, which the merge no longer
 /// spells.
-enum Write {
+enum Write<'a> {
     Own,
     Merged(String, Vec<ImportWarning>),
+    Rebase(&'a str),
+}
+
+/// What a literal-codec revise under a [`Base`] writes.
+enum TextWrite<'a> {
+    Own(String),
+    Merged(String),
+    Rebase(&'a str, String),
 }
 
 fn check(current: String, read: &str) -> Result<(), BaseError> {
@@ -216,18 +228,14 @@ fn check(current: String, read: &str) -> Result<(), BaseError> {
 /// stored value, annotated or not, matches it: a read equal to the stored value's plain or
 /// annotated markdown writes the writer's own, though its markup lost an
 /// island its spelling cannot match.
-fn richtext_write(
+fn richtext_write<'a>(
     stored: &Lines,
     current: impl FnOnce() -> String,
-    base: Base<'_>,
+    base: Base<'a>,
     body: &str,
-) -> Result<Write, EditError> {
+) -> Result<Write<'a>, EditError> {
     let read = match base {
-        Base::Hash(read) => {
-            return check(current(), read)
-                .map(|()| Write::Own)
-                .map_err(EditError::Base);
-        }
+        Base::Hash(read) => return Ok(if current() == read { Write::Own } else { Write::Rebase(read) }),
         Base::Read(read) => read,
     };
     if read == to_markdown(stored) || read == to_markdown_annotated(stored).markdown {
@@ -378,6 +386,7 @@ impl Card {
         match richtext_write(self.body_lines(), || content_hash(self.body()), base, &body)? {
             Write::Own => self.revise_body(body),
             Write::Merged(md, warnings) => Ok(self.revise_body(md)?.merged(Some(warnings))),
+            Write::Rebase(read) => self.revise_counted_from(Target::Body, &body, Some(read)),
         }
     }
 
@@ -391,9 +400,13 @@ impl Card {
     ) -> Result<Receipt, EditError> {
         let body = body.into();
         if self.stored_codec(name) == Codec::Text {
-            let (body, merged) = self.text_body_against(name, base, body, || self.field_hash(name))?;
-            let receipt = self.revise_field(name, body)?;
-            return Ok(if merged { receipt.merged(None) } else { receipt });
+            return match self.text_body_against(name, base, body, || self.field_hash(name))? {
+                TextWrite::Own(body) => self.revise_field(name, body),
+                TextWrite::Merged(body) => Ok(self.revise_field(name, body)?.merged(None)),
+                TextWrite::Rebase(read, body) => {
+                    self.revise_counted_from(Target::Field(name), &body, Some(read)).map_err(|e| at_field(e, name))
+                }
+            };
         }
         let stored = self.richtext_base(name)?;
         let held = self.richtext_value(name)?;
@@ -402,6 +415,9 @@ impl Card {
         match write {
             Write::Own => self.revise_field(name, body),
             Write::Merged(md, warnings) => Ok(self.revise_field(name, md)?.merged(Some(warnings))),
+            Write::Rebase(read) => {
+                self.revise_counted_from(Target::Field(name), &body, Some(read)).map_err(|e| at_field(e, name))
+            }
         }
     }
 
@@ -434,35 +450,52 @@ impl Card {
                 Write::Merged(md, warnings) => Ok(self
                     .revise_field_checked(name, md, schema)?
                     .merged(Some(warnings))),
+                Write::Rebase(read) => self.rebase_checked(name, &body, read, schema),
             };
         }
-        let (body, merged) = self.text_body_against(name, base, body, || self.field_hash_checked(name, schema))?;
-        let receipt = self.revise_field_checked(name, body, schema)?;
-        Ok(if merged { receipt.merged(None) } else { receipt })
+        match self.text_body_against(name, base, body, || self.field_hash_checked(name, schema))? {
+            TextWrite::Own(body) => self.revise_field_checked(name, body, schema),
+            TextWrite::Merged(body) => Ok(self.revise_field_checked(name, body, schema)?.merged(None)),
+            TextWrite::Rebase(read, body) => {
+                let text = super::edit::committed_text(name, body, schema)?;
+                self.rebase_checked(name, &text, read, schema)
+            }
+        }
     }
 
-    /// The text a literal-codec revise under `base` writes: `body` when `base`
-    /// is current, the line merge of `body` over the text now when `base` is a
-    /// read it has moved on from, refused when the hash `current` answers is
-    /// not `base`'s or the merge conflicts; and whether it merged.
-    fn text_body_against(
+    /// A typed field revise of `body` under a hash `read` the field has moved
+    /// on from: the content revise rebased over the change since, held to the
+    /// field's schema, or nothing written.
+    fn rebase_checked(&mut self, name: &str, body: &str, read: &str, schema: &FieldSchema) -> Result<Receipt, EditError> {
+        let mut card = self.clone();
+        let receipt = card.revise_counted_from(Target::Field(name), body, Some(read)).map_err(|e| at_field(e, name))?;
+        if let Some(value) = card.payload().get(name) {
+            super::edit::resolve_field_write(name, value, schema, &DocPath::new())?;
+        }
+        *self = card;
+        Ok(receipt)
+    }
+
+    /// The text a literal-codec revise under `base` writes: `body` as it
+    /// stands when `base` is current, the line merge of `body` over the text
+    /// now when `base` is a read it has moved on from, `body` to rebase when
+    /// `base` is a hash it has moved on from, refused when the merge
+    /// conflicts.
+    fn text_body_against<'a>(
         &self,
         name: &str,
-        base: Base<'_>,
+        base: Base<'a>,
         body: String,
         current: impl Fn() -> Result<String, EditError>,
-    ) -> Result<(String, bool), EditError> {
+    ) -> Result<TextWrite<'a>, EditError> {
         match base {
-            Base::Hash(read) => {
-                check(current()?, read).map_err(|e| EditError::Base(e.at_field(name)))?;
-                Ok((body, false))
-            }
+            Base::Hash(read) => Ok(if current()? == read { TextWrite::Own(body) } else { TextWrite::Rebase(read, body) }),
             Base::Read(read) => {
                 let now = self.text_now(name)?.unwrap_or_default();
                 if read == now {
-                    return Ok((body, false));
+                    return Ok(TextWrite::Own(body));
                 }
-                merge_lines(read, &now, &body).map(|merged| (merged, true)).ok_or_else(|| {
+                merge_lines(read, &now, &body).map(TextWrite::Merged).ok_or_else(|| {
                     match current() {
                         Ok(current) => EditError::Base(BaseError::Conflict {
                             current,

@@ -151,3 +151,76 @@ pub fn repair<'py>(py: Python<'py>, raw: &Bound<'_, PyAny>) -> PyResult<Bound<'p
     out.set_item("change", json_to_py(py, &change.to_value())?)?;
     Ok(out)
 }
+
+/// A value's export as a binding answers it: the string cold, and with
+/// `annotated` a dict of the annotated `markdown` and its `anchors`, each
+/// `{id, line}`.
+pub(crate) fn exported<'py>(py: Python<'py>, content: &Content, annotated: bool) -> PyResult<Bound<'py, PyAny>> {
+    if !annotated {
+        return Ok(quillmark_content::markdown::to_text(content).into_pyobject(py)?.into_any());
+    }
+    let read = quillmark_content::markdown::to_text_annotated(content);
+    let anchors: Vec<_> = read.anchors.into_iter().map(|a| serde_json::json!({ "id": a.id, "line": a.line })).collect();
+    json_to_py(py, &serde_json::json!({ "markdown": read.markdown, "anchors": anchors }))
+}
+
+/// Import markdown: the canonical `content` and a `parse::dropped_construct`
+/// warning per construct the import dropped, `{"content", "warnings"}`.
+/// `replace(import_markdown(md)["content"], ...)` is the cold write; prefer
+/// `revise`. Raises `QuillmarkError` on an over-nested input or one past
+/// 10 MiB.
+#[pyfunction]
+pub fn import_markdown<'py>(py: Python<'py>, markdown: &str) -> PyResult<Bound<'py, PyDict>> {
+    let imported = quillmark_content::markdown::from_markdown(markdown)
+        .map_err(|e| convert_edit_error(EditError::import(e), &DocPath::new()))?;
+    let out = PyDict::new(py);
+    out.set_item("content", content_to_py(py, &imported.content)?)?;
+    out.set_item(
+        "warnings",
+        py_diagnostics(quillmark_core::document::dropped_constructs(imported.warnings, None)),
+    )?;
+    Ok(out)
+}
+
+/// The one content export: `content`'s markdown, a `codec: "plain"` value's
+/// literal text. With `annotated`, a dict of the `markdown` spelling each
+/// anchor and each island markdown cannot hold, which a revise reads back,
+/// and every anchor as `{id, line}`. Raises where `content` is not canonical.
+#[pyfunction]
+#[pyo3(signature = (content, *, annotated=false))]
+pub fn export_markdown<'py>(py: Python<'py>, content: &Bound<'_, PyAny>, annotated: bool) -> PyResult<Bound<'py, PyAny>> {
+    exported(py, &content_from_py(content, "export_markdown")?, annotated)
+}
+
+/// The canonical form of `content`, read without a document: the one
+/// spelling `replace` and every other content input takes. Raises
+/// `ValueError` where `content` is not a valid value once normalized.
+#[pyfunction]
+pub fn normalize<'py>(py: Python<'py>, content: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+    let json = py_to_json(content)?;
+    if !json.is_object() {
+        return Err(PyValueError::new_err("normalize: expected a Content dict"));
+    }
+    check_content_value(&json).map_err(|e| convert_edit_error(e, &DocPath::new()))?;
+    let read = Content::from_value_lenient(&json).map_err(|e| match &e {
+        ParseError::Invalid(inv) if EditError::bound(inv).is_some() => {
+            convert_edit_error(EditError::bound(inv).expect("a bound"), &DocPath::new())
+        }
+        _ => PyValueError::new_err(format!("normalize: not a Content: {e}")),
+    })?;
+    content_to_py(py, &read.content)
+}
+
+/// Whether `content` holds to the one-line constraint: one paragraph, in no
+/// container, with no islands.
+#[pyfunction]
+pub fn is_inline(content: &Bound<'_, PyAny>) -> PyResult<bool> {
+    Ok(content_from_py(content, "is_inline")?.is_inline())
+}
+
+/// Whether `content` holds to the `text` constraint: no marks, no islands,
+/// every block a paragraph in no container.
+#[pyfunction]
+pub fn is_plain(content: &Bound<'_, PyAny>) -> PyResult<bool> {
+    Ok(content_from_py(content, "is_plain")?.is_plain())
+}

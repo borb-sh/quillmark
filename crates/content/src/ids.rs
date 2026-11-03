@@ -40,18 +40,22 @@ pub fn is_placeholder(id: &str) -> bool {
     id.strip_prefix(PLACEHOLDER).is_some_and(is_id)
 }
 
-/// The longest actor, in scalar values.
-pub const MAX_ACTOR_LEN: usize = 64;
+/// The longest actor: a card id under it, `{actor}-` and a six-letter token,
+/// fits a card id's 64.
+pub const MAX_ACTOR_LEN: usize = 57;
 
 /// The separator between an actor and an id minted under it. No positional
 /// id holds it, and a repair's or a diff's derived id holds it only where it
 /// derives from an actor's.
 pub const ACTOR_SEP: char = ':';
 
-/// Whether `actor` may scope a write's mints: an [id](is_id) of at most
-/// [`MAX_ACTOR_LEN`] scalar values holding no [`ACTOR_SEP`].
+/// Whether `actor` may scope a write's mints, a content id's or a card
+/// id's: 1 to [`MAX_ACTOR_LEN`] ASCII letters, digits, `_` and `-`, opening
+/// with a letter or digit.
 pub fn is_actor(actor: &str) -> bool {
-    is_id(actor) && !actor.contains(ACTOR_SEP) && actor.chars().count() <= MAX_ACTOR_LEN
+    actor.len() <= MAX_ACTOR_LEN
+        && actor.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && actor.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// The prefix `prefix` mints under for `actor`, `prefix` itself for none.

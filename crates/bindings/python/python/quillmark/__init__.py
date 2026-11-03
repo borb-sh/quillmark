@@ -15,7 +15,12 @@ from ._quillmark import (
     Unchecked,
     Writer,
     diff,
+    export_markdown,
+    import_markdown,
     invert,
+    is_inline,
+    is_plain,
+    normalize,
     repair,
 )
 
@@ -34,7 +39,12 @@ __all__ = [
     "Unchecked",
     "Writer",
     "diff",
+    "export_markdown",
+    "import_markdown",
     "invert",
+    "is_inline",
+    "is_plain",
+    "normalize",
     "repair",
 ]
 

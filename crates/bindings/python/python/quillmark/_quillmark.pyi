@@ -11,7 +11,7 @@ both are `Any`-shaped: their schemas are the quill's, not Python's.
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
-from typing import Any, Literal, TypedDict, final
+from typing import Any, Literal, TypedDict, final, overload
 
 __all__ = [
     "Artifact",
@@ -121,7 +121,10 @@ class Document:
     def markdown_rules() -> str: ...
     @staticmethod
     def quill_ref_hint() -> str: ...
-    def to_markdown(self, *, annotated: bool = False) -> str: ...
+    @overload
+    def to_markdown(self, *, annotated: Literal[False] = False) -> str: ...
+    @overload
+    def to_markdown(self, *, annotated: Literal[True]) -> AnnotatedMarkdown: ...
     def to_stored(self) -> str: ...
     def hash(self) -> str: ...
     def hash_at(self, field: str | None = None, card: int | str | None = None) -> str: ...
@@ -163,9 +166,14 @@ class Document:
         changes: dict[str, Change] | None = None,
     ) -> Reattached: ...
     def read(self, field: str | None = None, card: int | str | None = None) -> Content: ...
+    @overload
     def to_markdown_at(
-        self, field: str | None = None, card: int | str | None = None, *, annotated: bool = False
+        self, field: str | None = None, card: int | str | None = None, *, annotated: Literal[False] = False
     ) -> str: ...
+    @overload
+    def to_markdown_at(
+        self, field: str | None = None, card: int | str | None = None, *, annotated: Literal[True]
+    ) -> AnnotatedExport: ...
     def apply(
         self,
         change: Change,
@@ -231,6 +239,37 @@ class Receipt(TypedDict):
 def invert(change: Change, before: Content) -> Change: ...
 def diff(before: Content, after: Content) -> Change: ...
 
+class Imported(TypedDict):
+    content: Content
+    warnings: list[Diagnostic]
+
+class AnchorLine(TypedDict):
+    id: str
+    # The text of the line the anchor's start sits on, island slots removed,
+    # or of the cell or note holding it.
+    line: str
+
+class AnnotatedExport(TypedDict):
+    markdown: str
+    anchors: list[AnchorLine]
+
+class DocumentAnchorLine(AnchorLine):
+    path: str
+    card_id: str | None
+
+class AnnotatedMarkdown(TypedDict):
+    markdown: str
+    anchors: list[DocumentAnchorLine]
+
+def import_markdown(markdown: str) -> Imported: ...
+@overload
+def export_markdown(content: Content, *, annotated: Literal[False] = False) -> str: ...
+@overload
+def export_markdown(content: Content, *, annotated: Literal[True]) -> AnnotatedExport: ...
+def normalize(content: Content) -> Content: ...
+def is_inline(content: Content) -> bool: ...
+def is_plain(content: Content) -> bool: ...
+
 class Repaired(TypedDict):
     content: Content
     repairs: list[dict[str, Any]]
@@ -251,12 +290,6 @@ class Reattached(TypedDict):
     reattached: list[AnchorContext]
     orphaned: list[AnchorContext]
 
-class DocumentDroppedAnchor(TypedDict):
-    id: str
-    path: str
-    card_id: str | None
-    line: str
-
 class MergeConflict(TypedDict):
     path: str
     base: Any
@@ -270,7 +303,7 @@ class CardAdded(TypedDict):
 DocumentRevised = TypedDict(
     "DocumentRevised",
     {
-        "dropped_anchors": list[DocumentDroppedAnchor],
+        "dropped_anchors": list[AnchorContext],
         "warnings": list[Diagnostic],
         "from": list[int | None],
         "conflicts": list[MergeConflict],
