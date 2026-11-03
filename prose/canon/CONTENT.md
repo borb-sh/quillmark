@@ -239,7 +239,9 @@ Nothing else conflicts. A step aimed at a record a change since deleted lands on
 
 The receipt's `applied` is the change from the value before the write to the merge, `rebased` is true, and `droppedAnchors` names every anchor the value held before the write and the merge holds nowhere, one whose text a concurrent edit deleted entirely included, except one the write's own `anchor` step removed; a revise or replace names every one.
 
-`Card::save` answers a value's live document as Automerge bytes, and `Card::load` replaces it with the document the bytes hold and stores what that document reads as, keeping the history the bytes hold for a sync to read but noting no heads before the load, so a base read before it is stale. `Card::generate_sync_message` and `Card::receive_sync_message` run Automerge's sync protocol with a peer, a received message storing what the document then reads as. A load or a received message answers the receipt of a write from the value before, and bytes or a message the document refuses are `edit::automerge`. The bindings do not expose them.
+`Card::save` answers a value's live document as Automerge bytes, and `Card::load` replaces it with the document the bytes hold and stores what that document reads as, keeping the history the bytes hold for a sync to read but noting no heads before the load, so a base read before it is stale. `Card::generate_sync_message` and `Card::receive_sync_message` run Automerge's sync protocol with a peer, a received message storing what the document then reads as. A load or a received message answers the receipt of a write from the value before, and bytes or a message the document refuses are `edit::automerge`.
+
+Peers syncing one value each write under their own actor: two writing under one actor, or under none, mint one sequence number twice, which the peer receiving the second refuses as `edit::automerge`. Both bindings expose the four on `Document` ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive").
 
 ## The laws
 

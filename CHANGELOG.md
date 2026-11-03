@@ -24,6 +24,19 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
 - feat(core): **`Card::save`, `load`, `generate_sync_message` and
   `receive_sync_message`** reach a value's live document, and
   `edit::automerge` names bytes or a message it refuses.
+- feat(wasm): **a value's live document crosses the boundary.**
+  `doc.save(addr)` answers its Automerge bytes as a `Uint8Array`,
+  `doc.load(addr, bytes)` replaces it, and two peers sync it through
+  `Document.syncState()`, an opaque `SyncState`, with
+  `doc.generateSyncMessage(addr, state)` and
+  `doc.receiveSyncMessage(addr, state, message)`. A load and a received
+  message answer a `Receipt`, offsets in UTF-16, naming the anchors the
+  merge dropped or moved. The core surface `init` resolves to holds
+  `SyncState`.
+- feat(python): **the same live document in snake case**: `doc.save`,
+  `doc.load(data)`, `Document.sync_state()`, `doc.generate_sync_message`
+  and `doc.receive_sync_message`, `bytes` in and out, receipts in code
+  points.
 
 ## v0.134.1 - 2026-11-02
 
