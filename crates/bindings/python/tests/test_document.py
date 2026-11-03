@@ -53,7 +53,7 @@ def test_blank_document_constructor():
     doc = Document("taro@0.1.0")
     assert doc.quill_ref == "taro@0.1.0"
     assert doc.card_count == 0
-    assert doc.body["text"] == ""
+    assert doc.read()["text"] == ""
     assert field_keys(doc.main) == []
 
     with pytest.raises(ValueError):
@@ -311,11 +311,11 @@ def test_to_markdown_general_round_trip():
     # Mutate: typed field + typed body + a quill-free card.
     quill.writer(doc).set("title", "New Title")
     doc.unchecked.insert_card(make_card("note", {"author": "Alice"}, "Hello"))
-    quill.writer(doc).revise_body("Updated body")
+    quill.writer(doc).revise("Updated body")
 
     doc2 = Document.parse(doc.to_markdown())
     assert field(doc2.main, "title") == "New Title"
-    assert doc2.body["text"].rstrip("\n") == "Updated body"
+    assert doc2.read()["text"].rstrip("\n") == "Updated body"
     assert len(doc2.cards) == 1
     assert doc2.cards[0]["kind"] == "note"
     assert field(doc2.cards[0], "author") == "Alice"

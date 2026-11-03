@@ -631,7 +631,7 @@ fn a_remembered_hash_is_the_values_own() {
         assert_eq!(receipt.hash, content_hash(&doc.main().read(target).unwrap()));
     }
     doc.unchecked().store_field(None, "notes", crate::value::QuillValue::from_json(serde_json::json!("plain"))).unwrap();
-    doc.main_mut().revise_body("Fresh body.").unwrap();
+    doc.main_mut().revise(crate::document::Target::Body, "Fresh body.", None).unwrap();
     for target in [Target::Body, notes] {
         assert_eq!(doc.main().hash_of(target).unwrap(), content_hash(&doc.main().read(target).unwrap()));
     }

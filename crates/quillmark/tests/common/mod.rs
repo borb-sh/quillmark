@@ -27,7 +27,7 @@ pub fn seeded_memo() -> (&'static Engine, &'static Quill, Document) {
     let mut doc = MEMO.seed_document();
     let _ = doc
         .main_mut()
-        .revise_body("The first paragraph.\n\n- A nested bullet.")
+        .revise(quillmark::Target::Body, "The first paragraph.\n\n- A nested bullet.", None)
         .expect("a paragraph and a bullet import");
     (&ENGINE, &MEMO, doc)
 }

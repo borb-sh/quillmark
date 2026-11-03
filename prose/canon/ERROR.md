@@ -245,7 +245,7 @@ families:
   at the placed card's body, on `CardAdded.warnings` beside the card's `id`,
   WASM `importMarkdown` and `rebase` beside the content with no `path`.
   Python's `add_card` returns them under its dict's `warnings`, beside `id`,
-  and its `revise_body` / `revise_field` / `revise_document` under the dict receipt's
+  and its `revise` / `revise_document` under the dict receipt's
   `warnings`, as `Diagnostic` objects. A typed `set` / `set_all` returns
   a `richtext` string's drops at the string's path (WASM `set` / `setAll`,
   Python `set` / `set_all`), and `add_card` its fields' ahead of its body's. A

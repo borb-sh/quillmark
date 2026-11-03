@@ -931,39 +931,6 @@ impl<'a> CardMut<'a> {
         self.0.overwrite_field(name, content)
     }
 
-    /// [`Card::revise_body`].
-    pub fn revise_body(&mut self, body: impl Into<String>) -> Result<super::Receipt, EditError> {
-        self.0.revise_body(body)
-    }
-
-    /// [`Card::revise_field`].
-    pub fn revise_field(
-        &mut self,
-        name: &str,
-        body: impl Into<String>,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.revise_field(name, body)
-    }
-
-    /// [`Card::revise_body_against`].
-    pub fn revise_body_against(
-        &mut self,
-        base: Base<'_>,
-        body: impl Into<String>,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.revise_body_against(base, body)
-    }
-
-    /// [`Card::revise_field_against`].
-    pub fn revise_field_against(
-        &mut self,
-        name: &str,
-        base: Base<'_>,
-        body: impl Into<String>,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.revise_field_against(name, base, body)
-    }
-
     #[doc(hidden)]
     pub fn commit_field(
         &mut self,
@@ -1430,7 +1397,8 @@ impl Card {
     /// `name` on a full card is [`EditError::InvalidPayload`].
     #[cfg(test)]
     fn store_field_content(&mut self, name: &str, content: &Lines) -> Result<(), EditError> {
-        if self.stored_codec(name) == Codec::Text && !content.is_plain() {
+        let stored = self.payload.get(name).map(QuillValue::as_json).filter(|v| v.is_object());
+        if stored.map_or(Codec::Richtext, Codec::of_object) == Codec::Text && !content.is_plain() {
             return Err(field_decode(
                 name,
                 &[],
@@ -1502,7 +1470,7 @@ impl Card {
     /// [`Target::Body`](super::Target::Body), its receipt's `applied` counted
     /// in scalars on the body it read, which
     /// [`Receipt::in_units`](super::Receipt::in_units) converts.
-    pub fn revise_body(&mut self, body: impl Into<String>) -> Result<super::Receipt, EditError> {
+    pub(crate) fn revise_body(&mut self, body: impl Into<String>) -> Result<super::Receipt, EditError> {
         self.revise_counted(super::Target::Body, &body.into())
     }
 
@@ -1527,36 +1495,6 @@ impl Card {
         }
     }
 
-    /// [`revise`](Self::revise) of the field `name` with no base, as
-    /// [`revise_body`](Self::revise_body) is of the body. Schema-blind: the
-    /// field reads as [`read`](Self::read) reads it, so a field stored under
-    /// `codec: "plain"` takes `body` as its literal text and any other as
-    /// markdown, and a `text` field still resting as its authored string reads
-    /// as markdown here, which eats its escapes; the typed
-    /// [`TypedWriter::revise_field`](crate::writer::TypedWriter::revise_field)
-    /// reads the codec from the schema.
-    ///
-    /// Returns [`EditError::InvalidFieldName`] for a malformed name,
-    /// [`EditError::FieldDecode`] when the field is present but is not a
-    /// content, [`EditError::Import`] on an over-nested markdown input,
-    /// [`EditError::Base`] with `edit::rebase_conflict` where `body` rewrites
-    /// what the field's annotated read does not spell, and
-    /// [`EditError::InvalidPayload`] when an absent `name` would take the card
-    /// past the §8 field count.
-    pub fn revise_field(
-        &mut self,
-        name: &str,
-        body: impl Into<String>,
-    ) -> Result<super::Receipt, EditError> {
-        self.revise_counted(super::Target::Field(name), &body.into())
-    }
-
-    /// The codec the stored field names: `text` for a content object spelling
-    /// `codec: "plain"`, `richtext` for any other value or none.
-    pub(crate) fn stored_codec(&self, name: &str) -> Codec {
-        Codec::of_stored(self.payload.get(name).map(QuillValue::as_json))
-    }
-
     /// The revise of `before`, the value at `target`, by `markdown`, as
     /// [`revise`](Self::revise) builds it, landed nowhere.
     fn revision(
@@ -1577,7 +1515,7 @@ impl Card {
     }
 
     /// Revise a content field from authored text **with schema enforcement**:
-    /// [`revise_field`](Self::revise_field)'s revise, the field read under the
+    /// [`revise`](Self::revise) of the field, read under the
     /// codec `schema` declares, then the conform
     /// [`commit_field`](Self::commit_field) runs. Returns the
     /// [`Receipt`](super::Receipt), and leaves the field unchanged on any error. A
@@ -1585,7 +1523,7 @@ impl Card {
     ///
     /// **Hidden** on the same terms as [`commit_field`](Self::commit_field): its
     /// door is
-    /// [`TypedWriter::revise_field`](crate::writer::TypedWriter::revise_field).
+    /// [`TypedWriter::revise`](crate::writer::TypedWriter::revise).
     #[doc(hidden)]
     pub fn revise_field_checked(
         &mut self,

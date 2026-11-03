@@ -281,8 +281,8 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 
 **There is one revise**, at every address:
 
-- `Card::revise` builds it, and `Card::revise_body` and `revise_field` are it with no base.
-- The typed writer's field revise (`TypedWriter::revise_field`, WASM `writer.reviseField`) is it with the field read under its schema's codec, then conformed.
+- `Card::revise` builds it, at the body or a field.
+- The typed writer's revise (`TypedWriter::revise`, WASM `writer.revise`) is it, a field read under its schema's codec and then conformed.
 - `Document::revise` runs it on each body and content field of each card it aligns; where a value's markdown rewrites what its read does not spell, it falls back to the cold diff for that value, dropping what its markdown cannot spell, rather than refusing the document. A value whose markdown imports to one that does not validate keeps its stored value, with an `edit::content_apply` warning at its address.
 - A typed revise under a markdown base (`Base::Read`) first merges the writer's markdown with what changed since by line ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive"), then revises with the merge.
 

@@ -572,12 +572,8 @@ impl PyDocument {
                 .card(i)
                 .ok_or_else(|| index_error(i, self.inner.cards().len()))?,
         };
-        match field {
-            None => Ok(card.body_hash()),
-            Some(field) => card
-                .field_hash(field)
-                .map_err(|e| convert_edit_error(e, &target.base)),
-        }
+        card.hash_of(quillmark_core::document::Target::from(field))
+            .map_err(|e| convert_edit_error(e, &target.base))
     }
 
     /// Serialize to a versioned storage DTO string. Byte-deterministic per schema version.
@@ -633,15 +629,6 @@ impl PyDocument {
     #[getter]
     fn warnings(&self) -> Vec<PyDiagnostic> {
         py_diagnostics(self.parse_warnings.clone())
-    }
-
-    /// The main card's body as canonical Content-JSON (`{text, lines, marks,
-    /// islands}`). For the markdown projection use
-    /// `doc.to_markdown_at()`.
-    #[getter]
-    fn body<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let wire = quillmark_core::document::CardWire::from(self.inner.main());
-        json_to_py(py, &wire.body)
     }
 
     /// Main (entry) card as a dict with `kind`, `quill`, `payload_items`,
@@ -1273,8 +1260,7 @@ impl PyWriter {
     }
 
     /// The hash of the body (`field=None`) or of `field` through its schema on
-    /// `card` (`None` for the main card): the `base_hash` `revise_body` /
-    /// `revise_field` check. A `richtext` or `text` field hashes its content
+    /// `card` (`None` for the main card): the `base_hash` `revise` checks. A `richtext` or `text` field hashes its content
     /// however it is stored, any other type its stored value, an absent field as
     /// `None`. Raises `edit::unknown_field` for an
     /// undeclared name.
@@ -1288,23 +1274,13 @@ impl PyWriter {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
-        let Some(field) = field else {
-            return Ok(match target.index {
-                None => doc.inner.main().body_hash(),
-                Some(i) => doc
-                    .inner
-                    .card(i)
-                    .ok_or_else(|| index_error(i, doc.inner.cards().len()))?
-                    .body_hash(),
-            });
-        };
         let mut writer = quill.inner.writer(&mut doc.inner);
         match target.index {
-            None => writer.field_hash(field),
+            None => writer.hash_of(field),
             Some(i) => writer
                 .card(i)
                 .map_err(|e| convert_edit_error(e, &target.base))?
-                .field_hash(field),
+                .hash_of(field),
         }
         .map_err(|e| convert_edit_error(e, &target.base))
     }
@@ -1365,69 +1341,35 @@ impl PyWriter {
         .map_err(|errs| convert_edit_errors(errs, &target.base))
     }
 
-    /// Revise a body from markdown; anchors rebase. Returns the receipt a
-    /// content write answers, as `Document.revise` does: `applied`, the change
-    /// from the body before; `hash`; `dropped_anchors` and `moved_anchors`;
-    /// `warnings`, the import's `parse::dropped_construct` as `Diagnostic`
-    /// objects anchored at the body; and `rebased`, set where a
+    /// Revise the body (`field=None`) or the content field `field` on `card`
+    /// (`None` for the main card) from authored text; anchors rebase. A field
+    /// is typed as well: the codec comes from its declared type (`richtext`
+    /// diffs markdown, `text` the literal text, the body being `richtext`),
+    /// the diffed result is schema-conformed, so a one-paragraph `richtext`
+    /// field rejects a multi-block result with `edit::field_not_single_line`,
+    /// and an undeclared name raises `edit::unknown_field`.
+    ///
+    /// Returns the receipt a content write answers, as `Document.revise` does:
+    /// `applied`, the change from the value before (a `text` field's is one
+    /// splice over its literal text); `hash`; `dropped_anchors` and
+    /// `moved_anchors`; `warnings`, the import's `parse::dropped_construct` as
+    /// `Diagnostic` objects anchored at the value; and `rebased`, set where a
     /// `base_markdown` merged.
     ///
     /// `base_hash` or `base_markdown` names what the writer read: a
-    /// `base_hash` (`hash_at`) the body no longer hashes to rebases the write
+    /// `base_hash` (`hash_at`) the value no longer hashes to rebases the write
     /// over the change since, raising `edit::rebase_conflict` where the two
     /// touch and `edit::stale_base` where the log no longer reaches the base,
-    /// and a `base_markdown` the body has moved on from
-    /// merges the writer's edit onto the change by line, raising
-    /// `edit::rebase_conflict` where both changed one. Either refusal's
-    /// `args["current"]` is the hash now.
-    #[pyo3(signature = (markdown, card=None, *, base_hash=None, base_markdown=None))]
-    fn revise_body<'py>(
+    /// and a `base_markdown` the value has moved on from merges the writer's
+    /// edit onto the change by line, raising `edit::rebase_conflict` where both
+    /// changed one; a `text` field's `base_markdown` is its literal text.
+    /// Either refusal's `args["current"]` is the hash now.
+    #[pyo3(signature = (text, field=None, card=None, *, base_hash=None, base_markdown=None))]
+    fn revise<'py>(
         &self,
         py: Python<'py>,
-        markdown: &str,
-        card: Option<CardSel>,
-        base_hash: Option<&str>,
-        base_markdown: Option<&str>,
-    ) -> PyResult<Bound<'py, PyDict>> {
-        let read = read_base(base_hash, base_markdown)?;
-        let quill = self.quill.borrow(py);
-        let mut doc = self.doc.borrow_mut(py);
-        let target = Self::target(&doc, card)?;
-        let card_id = Self::card_id(&doc, target.index);
-        let mut writer = quill.inner.writer(&mut doc.inner);
-        match (target.index, read) {
-            (None, None) => writer.revise_body(markdown),
-            (None, Some(read)) => writer.revise_body_against(read, markdown),
-            (Some(i), read) => {
-                let mut card = writer
-                    .card(i)
-                    .map_err(|e| convert_edit_error(e, &target.base))?;
-                match read {
-                    None => card.revise_body(markdown),
-                    Some(read) => card.revise_body_against(read, markdown),
-                }
-            }
-        }
-        .map_err(|e| convert_edit_error(e, &target.base))
-        .and_then(|receipt| crate::content::receipt_to_py(py, receipt, &target.base.body(), card_id))
-    }
-
-    /// Revise the content field `name` from authored text: typed *and*
-    /// anchor-preserving, where `set` cold-imports. The codec comes from the
-    /// declared type: `richtext` diffs markdown, `text` the literal text.
-    /// Surviving anchors rebase, then the diffed result is schema-conformed, so a
-    /// one-paragraph `richtext` field rejects a multi-block result with
-    /// `edit::field_not_single_line`. Raises `edit::unknown_field` for an undeclared
-    /// name. Returns the receipt as `revise_body` does, its warnings anchored
-    /// at the field; a `text` field's `applied` is one splice over its literal
-    /// text. `base_hash` / `base_markdown` guard the write as on
-    /// `revise_body`; a `text` field's `base_markdown` is its literal text.
-    #[pyo3(signature = (name, text, card=None, *, base_hash=None, base_markdown=None))]
-    fn revise_field<'py>(
-        &self,
-        py: Python<'py>,
-        name: &str,
         text: &str,
+        field: Option<&str>,
         card: Option<CardSel>,
         base_hash: Option<&str>,
         base_markdown: Option<&str>,
@@ -1438,27 +1380,27 @@ impl PyWriter {
         let target = Self::target(&doc, card)?;
         let card_id = Self::card_id(&doc, target.index);
         let mut writer = quill.inner.writer(&mut doc.inner);
-        match (target.index, read) {
-            (None, None) => writer.revise_field(name, text),
-            (None, Some(read)) => writer.revise_field_against(name, read, text),
-            (Some(i), read) => {
-                let mut card = writer
-                    .card(i)
-                    .map_err(|e| convert_edit_error(e, &target.base))?;
-                match read {
-                    None => card.revise_field(name, text),
-                    Some(read) => card.revise_field_against(name, read, text),
-                }
-            }
+        match target.index {
+            None => writer.revise(field, text, read),
+            Some(i) => writer
+                .card(i)
+                .map_err(|e| convert_edit_error(e, &target.base))?
+                .revise(field, text, read),
         }
         .map_err(|e| convert_edit_error(e, &target.base))
-        .and_then(|receipt| crate::content::receipt_to_py(py, receipt, &target.base.field(name), card_id))
+        .and_then(|receipt| {
+            let at = match field {
+                None => target.base.body(),
+                Some(name) => target.base.field(name),
+            };
+            crate::content::receipt_to_py(py, receipt, &at, card_id)
+        })
     }
 
     /// Replace the bound document with `markdown`, then conform it: a
     /// composable card spelling a stored card's `$id` revises it, the rest
     /// align to the stored ones by `$kind` and text, and each aligned
-    /// body and richtext field revises as `revise_body` / `revise_field` do.
+    /// body and richtext field revises as `revise` does.
     /// Everything else lands as written; an omitted `$ext` keeps the stored one
     /// on the main card, on a card that aligned by id or text, and on one that aligned
     /// by position only when the `$kind` sequence is unchanged. Returns the
@@ -1608,15 +1550,16 @@ impl PyReader {
         self.doc.clone_ref(py)
     }
 
-    /// Read a field, interpreted by its declared type: a richtext field to its
-    /// markdown projection, every other type its canonical value, or `None` when
-    /// the field is absent. Raises `edit::unknown_field` for an undeclared name
-    /// and `edit::field_decode` for a richtext value that does not decode.
-    #[pyo3(signature = (name, card=None))]
+    /// Read the body (`field=None`) or a field, interpreted by its declared
+    /// type: a richtext field to its markdown projection, every other type its
+    /// canonical value, or `None` when the field is absent. The body reads its
+    /// markdown. Raises `edit::unknown_field` for an undeclared name and
+    /// `edit::field_decode` for a richtext value that does not decode.
+    #[pyo3(signature = (field=None, card=None))]
     fn get<'py>(
         &self,
         py: Python<'py>,
-        name: &str,
+        field: Option<&str>,
         card: Option<CardSel>,
     ) -> PyResult<Option<Bound<'py, PyAny>>> {
         let quill = self.quill.borrow(py);
@@ -1624,17 +1567,17 @@ impl PyReader {
         let target = Self::target(&doc, card)?;
         let reader = quill.inner.reader(&doc.inner);
         let read = match target.index {
-            None => reader.get(name),
+            None => reader.get(field),
             Some(i) => reader
                 .card(i)
                 .map_err(|e| convert_edit_error(e, &target.base))?
-                .get(name),
+                .get(field),
         }
         .map_err(|e| convert_edit_error(e, &target.base))?;
         read_value_to_py(py, read)
     }
 
-    /// Read a content field as canonical Content-JSON (`{text, lines, marks,
+    /// Read the body (`field=None`) or a content field as canonical Content-JSON (`{text, lines, marks,
     /// islands}`): the `Content` twin of `get`, which projects. Decodes through
     /// the codec the declared type names, so a field the writer committed and one
     /// a markdown parse left as an authored string read back the same.
@@ -1643,11 +1586,11 @@ impl PyReader {
     /// undeclared name, `edit::field_not_content` for a declared type that is not
     /// a content leaf, and `edit::field_decode` for a value that decodes under
     /// neither encoding.
-    #[pyo3(signature = (name, card=None))]
+    #[pyo3(signature = (field=None, card=None))]
     fn get_content<'py>(
         &self,
         py: Python<'py>,
-        name: &str,
+        field: Option<&str>,
         card: Option<CardSel>,
     ) -> PyResult<Option<Bound<'py, PyAny>>> {
         let quill = self.quill.borrow(py);
@@ -1655,11 +1598,11 @@ impl PyReader {
         let target = Self::target(&doc, card)?;
         let reader = quill.inner.reader(&doc.inner);
         let read = match target.index {
-            None => reader.get_content(name),
+            None => reader.get_content(field),
             Some(i) => reader
                 .card(i)
                 .map_err(|e| convert_edit_error(e, &target.base))?
-                .get_content(name),
+                .get_content(field),
         }
         .map_err(|e| convert_edit_error(e, &target.base))?;
         content_to_py(py, read)

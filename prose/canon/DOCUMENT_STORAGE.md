@@ -485,7 +485,7 @@ read-only in markdown.**
 - **Not in plain markdown.** A cold export and import loses every anchor
   ([CONTENT.md](CONTENT.md) § "What markdown keeps").
 
-The annotated read (`Card::body_annotated` and `field_annotated`, WASM
+The annotated read (`Card::annotated`, WASM
 `doc.toMarkdown(addr, { annotated: true })`, Python
 `doc.to_markdown_at(field, annotated=True)`) spells each prose anchor as
 `<qm-anchor ref="ID"></qm-anchor>` at its start, and each island whose markup

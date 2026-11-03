@@ -404,7 +404,7 @@ Body.
 
     let applied = quill
         .writer(&mut doc)
-        .revise_field("note", &text)
+        .revise(crate::document::Target::from("note"), &text, None)
         .expect("revise")
         .applied;
     assert!(applied.steps.is_empty(), "a no-change revise changes nothing: {applied:?}");
@@ -412,7 +412,7 @@ Body.
 
     let _ = quill
         .writer(&mut doc)
-        .revise_field("note", r"a \*b\* line, revised")
+        .revise(crate::document::Target::from("note"), r"a \*b\* line, revised", None)
         .expect("revise");
     assert_eq!(
         crate::quill::text_of(doc.main().payload().get("note").unwrap().as_json()),

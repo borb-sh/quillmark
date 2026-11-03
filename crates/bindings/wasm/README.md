@@ -270,8 +270,8 @@ writes go through the schema-bound writer while the quill-free opaque store sits
 on `Document` itself (**store** = verbatim, **set** = typed):
 
 - **`quill.writer(doc)`: the typed input path whenever a quill is in hand.** Bind the
-  schema once and issue bare `set` / `setAll` / `reviseBody` / `reviseField` /
-  `addCard` / `card(i)`. Each resolves the field's schema `type`, coerces the
+  schema once and issue bare `set` / `setAll` / `revise` / `addCard` /
+  `card(i)`. Each resolves the field's schema `type`, coerces the
   value to its canonical form (`"3"` → `3`, a markdown string → a richtext
   content), and **fails now** on a mismatch instead of at render. A name the schema
   does not declare throws `UnknownField` rather than falling to the opaque store:
@@ -279,8 +279,8 @@ on `Document` itself (**store** = verbatim, **set** = typed):
   (`setAll`) is all-or-nothing: an undeclared name aborts the whole write and its
   per-field diagnostics name every offending field, so a whole-form submit
   surfaces every typo the opaque store would silently absorb. (The raw wasm
-  class carries the `_commitField` / `_commitFields` / `_addCard` / `_revise` /
-  `_reviseField` ABI the writer delegates to, hidden from the `.d.ts`.)
+  class carries the `_commitField` / `_commitFields` / `_addCard` / `_revise`
+  ABI the writer delegates to, hidden from the `.d.ts`.)
 
 - **`doc.unchecked`: the deliberate quill-free primitive.** `doc.unchecked.storeField(addr, value)`
   checks the field name and depth, stores each content value in its canonical form (an
@@ -306,9 +306,9 @@ the per-call `_commit*` ABI):
 const ed = quill.writer(doc);                       // Rust `quill.writer(doc)` twin; new DocumentWriter(quill, doc) also works
 ed.set("subject", "Q3 results");                    // strict-committed to the schema type
 ed.setAll({ qty: "3", subject: "Q3" });             // all-or-nothing batch
-ed.reviseField("subject", "Q3 **results**");        // typed AND anchor-preserving; returns { delta, warnings }
+ed.revise("subject", "Q3 **results**");             // typed AND anchor-preserving; returns the Receipt
 ed.set("titel", "x");                               // throws UnknownField: a typo, not a fallback
-ed.card(2).reviseBody("**note**");                  // a composable card's body; its fields take set / setAll
+ed.card(2).revise({}, "**note**");                  // a composable card's body: no field is the body
 ```
 
 `DocumentWriter` / `CardWriter` are pure JS holding references to your existing

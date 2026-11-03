@@ -66,7 +66,7 @@ scalars via `Into<QuillValue>`); no surface asks the caller to serialize
 YAML or Markdown.
 
 A program holding a whole form folds it over the verbs above: `set_all` for a
-card's fields, `add_card` per composable card, `revise_body` for a body. Each
+card's fields, `add_card` per composable card, `revise` for a body. Each
 is the typed writer, refusing an undeclared name and reporting every refused
 field at once ([SCHEMAS.md](SCHEMAS.md) § "The values form").
 
@@ -129,9 +129,9 @@ uses to hold not-yet-conforming input, and the way to store a value opaquely on
 purpose. Reach for `unchecked` for those; reach for the writer by
 default. `Quill::writer(&mut doc)` is the documented entry in every
 surface: `quill.writer(doc)` in WASM and Python alike (the schema-bound
-`DocumentWriter` / `Writer` with `set` / `set_all` / `revise_body` / `revise_field` /
+`DocumentWriter` / `Writer` with `set` / `set_all` / `revise` /
 `add_card` / `remove_card` / `card(i)`); the quill owns the schema, so it is the factory. The
-`_commitField` / `_commitFields` / `_reviseField` verbs (addressed by `Addr`) are
+`_commitField` / `_commitFields` / `_revise` verbs (addressed by `Addr`) are
 the stable ABI underneath it, and `doc.unchecked.storeField` remains the
 quill-free opaque store. See [BINDINGS.md](BINDINGS.md) for the write surface, the
 `store` / `set` / `apply·revise·replace` vocabulary rule (governing user-field

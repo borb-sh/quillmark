@@ -91,7 +91,7 @@ describe('@quillmark/wasm: surface', () => {
 })
 
 // The typed-writer sugar binds a quill to a document once, so writes are bare
-// `set` / `setAll` / `reviseField` / `card(i).set`: the JS twin of Rust's
+// `set` / `setAll` / `revise` / `card(i).set`: the JS twin of Rust's
 // `quill.writer(doc)`. Each verb forwards to the right address, coerces the
 // value through its declared type, and carries a refused write's diagnostic
 // code and DocPath out to the caller unswallowed.
@@ -151,16 +151,16 @@ card_kinds:
     ])
   })
 
-  it('reviseBody / reviseField write from markdown and return the receipt', () => {
+  it('revise writes the body or a field from authored text and returns the receipt', () => {
     const quill = buildQuill()
     const doc = blankDoc()
     const ed = quill.writer(doc)
-    const receipt = ed.reviseBody('New **body**.')
+    const receipt = ed.revise({}, 'New **body**.')
     expect(Object.keys(receipt).sort()).toEqual(['applied', 'droppedAnchors', 'hash', 'minted', 'movedAnchors', 'rebased', 'warnings'])
     expect(receipt.hash).toBe(doc.hashAt({}))
     expect(receipt.rebased).toBe(false)
     expect(doc.toMarkdown({})).toBe('New **body**.')
-    const { warnings } = ed.reviseField('subject', 'Q3 <kbd>**results**</kbd>')
+    const { warnings } = ed.revise('subject', 'Q3 <kbd>**results**</kbd>')
     expect(warnings.map((w) => [w.code, w.path])).toEqual([
       ['parse::dropped_construct', 'main.subject'],
     ])
@@ -170,32 +170,32 @@ card_kinds:
   it('a writer revise answers its change in UTF-16, which maps a position and feeds reattach', () => {
     const doc = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\n😀 alpha gamma')
     const ed = buildQuill().writer(doc)
-    const { applied } = ed.reviseBody('😀 alpha beta gamma')
+    const { applied } = ed.revise({}, '😀 alpha beta gamma')
     expect(mapPos(applied, 9, 'after').pos).toBe(14)
     expect(mapPos(applied, 3, 'after').pos).toBe(3)
 
-    ed.reviseField('memo', 'a 😀 \\*b\\*')
-    const memo = ed.reviseField('memo', 'a 😀 \\*b\\* c')
+    ed.revise('memo', 'a 😀 \\*b\\*')
+    const memo = ed.revise('memo', 'a 😀 \\*b\\* c')
     expect(memo.applied.steps).toEqual([{ splice: { at: 10, delete: '', insert: ' c', removed: {} } }])
-    expect(ed.reviseField('memo', 'a 😀 \\*b\\* c').applied.steps).toEqual([])
+    expect(ed.revise('memo', 'a 😀 \\*b\\* c').applied.steps).toEqual([])
 
     doc.apply({}, { steps: [{ anchor: { id: 'g', start: 14, end: 19 } }] })
     const [selector] = doc.anchorContexts()
-    expect(ed.reviseBody('😀 alpha beta').droppedAnchors.map((a) => a.id)).toEqual(['g'])
-    const back = ed.reviseBody('😀 alpha beta gamma')
+    expect(ed.revise({}, '😀 alpha beta').droppedAnchors.map((a) => a.id)).toEqual(['g'])
+    const back = ed.revise({}, '😀 alpha beta gamma')
     expect(doc.reattach([selector], { 'main.body': back.applied }).reattached.map((a) => a.id)).toEqual(['g'])
   })
 
-  it('reviseBody / reviseField name the anchors they drop', () => {
+  it('revise names the anchors it drops', () => {
     const doc = Document.parse(
       '~~~card-yaml\n$quill: editor_test\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
     )
     const ed = buildQuill().writer(doc)
-    ed.card(0).reviseField('prose', 'Keep this.\n\nFlag this line.')
+    ed.card(0).revise('prose', 'Keep this.\n\nFlag this line.')
     doc.apply({}, { steps: [{ anchor: { id: 'b', start: 0, end: 4 } }] })
     doc.apply({ card: doc.cards[0].id, field: 'prose' }, { steps: [{ anchor: { id: 'p', start: 11, end: 15 } }] })
-    expect(ed.reviseBody('Other.').droppedAnchors).toEqual([expect.objectContaining({ id: 'b', path: 'main.body', quote: 'Body' })])
-    expect(ed.card(0).reviseField('prose', 'Keep this.').droppedAnchors).toEqual([
+    expect(ed.revise({}, 'Other.').droppedAnchors).toEqual([expect.objectContaining({ id: 'b', path: 'main.body', quote: 'Body' })])
+    expect(ed.card(0).revise('prose', 'Keep this.').droppedAnchors).toEqual([
       expect.objectContaining({ id: 'p', path: 'cards.note[0].prose', cardId: doc.cards[0].id, quote: 'Flag' }),
     ])
   })
@@ -204,15 +204,15 @@ card_kinds:
     const doc = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nAlpha.\n\nBeta.\n\nGamma.')
     const ed = buildQuill().writer(doc)
     const read = doc.toMarkdown(undefined, { annotated: true }).markdown
-    ed.reviseBody('Alpha, edited.\n\nBeta.\n\nGamma.')
+    ed.revise({}, 'Alpha, edited.\n\nBeta.\n\nGamma.')
     const long = 'Alpha one two three.\n\nBeta four five six.'
-    ed.reviseBody(long)
+    ed.revise({}, long)
     const longHash = doc.hashAt({})
-    ed.reviseBody('Alpha one two three, edited.\n\nBeta four five six.')
-    expect(ed.reviseBody('Alpha one two three.\n\nBeta four five six, mine.', { baseHash: longHash }).rebased).toBe(true)
+    ed.revise({}, 'Alpha one two three, edited.\n\nBeta four five six.')
+    expect(ed.revise({}, 'Alpha one two three.\n\nBeta four five six, mine.', { baseHash: longHash }).rebased).toBe(true)
     expect(doc.toMarkdown({})).toBe('Alpha one two three, edited.\n\nBeta four five six, mine.')
-    ed.reviseBody('Alpha, edited.\n\nBeta.\n\nGamma.')
-    expect(() => ed.reviseBody('Other.', { baseHash: 'never-read' })).toThrow(
+    ed.revise({}, 'Alpha, edited.\n\nBeta.\n\nGamma.')
+    expect(() => ed.revise({}, 'Other.', { baseHash: 'never-read' })).toThrow(
       expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base', args: { current: doc.hashAt({}) } })] }),
     )
     ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { baseMarkdown: read })
@@ -226,10 +226,10 @@ card_kinds:
       },
     ])
     expectEditCode(
-      () => ed.reviseBody('Alpha, mine.\n\nBeta.\n\nGamma.', { baseMarkdown: 'Alpha.\n\nBeta.\n\nGamma.' }),
+      () => ed.revise({}, 'Alpha, mine.\n\nBeta.\n\nGamma.', { baseMarkdown: 'Alpha.\n\nBeta.\n\nGamma.' }),
       'edit::rebase_conflict',
     )
-    expect(() => ed.reviseBody('x', { baseHash: undefined })).toThrow(/baseHash must be a string/)
+    expect(() => ed.revise({}, 'x', { baseHash: undefined })).toThrow(/baseHash must be a string/)
   })
 
   it('writer.hashAt reads a field through its schema, so a string at rest and its conformed content agree', () => {
@@ -239,10 +239,10 @@ card_kinds:
     expect(hash).toBe(doc.hashAt('subject'))
     expect(ed.hashAt({})).toBe(doc.hashAt({}))
     const whole = ed.hash()
-    ed.reviseBody('Other body.')
+    ed.revise({}, 'Other body.')
     expect(ed.hashAt('subject')).toBe(hash)
     expect(ed.hash()).not.toBe(whole)
-    ed.reviseField('subject', 'Hello _world_, hi', { baseHash: hash })
+    ed.revise('subject', 'Hello _world_, hi', { baseHash: hash })
     expectEditCode(() => ed.hashAt('nope'), 'edit::unknown_field')
   })
 
@@ -264,19 +264,18 @@ card_kinds:
     expect(exportMarkdown(doc.cards[0].body)).toBe('x y')
   })
 
-  it('card(i).set / reviseBody / reviseField address the composable card', () => {
+  it('card(i).set / revise address the composable card', () => {
     const doc = Document.parse(
       '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
     )
     const ed = buildQuill().writer(doc)
     ed.card(0).set('prose', 'Card **body**.')
     expect(exportMarkdown(fieldOf(doc.cards[0], 'prose'))).toBe('Card **body**.')
-    expect(ed.card(0).reviseBody('Card <span>body</span> md.').warnings[0].path).toBe(
+    expect(ed.card(0).revise({}, 'Card <span>body</span> md.').warnings[0].path).toBe(
       'cards.note[0].body'
     )
     expect(exportMarkdown(doc.cards[0].body)).toBe('Card body md.')
-    // card(i).reviseField is the typed, anchor-preserving field write.
-    const { applied } = ed.card(0).reviseField('prose', 'Revised **field**.')
+    const { applied } = ed.card(0).revise('prose', 'Revised **field**.')
     expect(exportMarkdown(fieldOf(doc.cards[0], 'prose'))).toBe('Revised **field**.')
     expect(Array.isArray(applied.steps)).toBe(true)
   })
@@ -483,14 +482,14 @@ card_kinds:
   it('the annotated toMarkdown reads one address', () => {
     const quill = buildQuill()
     const doc = seededDoc(quill)
-    quill.writer(doc).reviseBody('# Plan\n\nMain **body**.')
+    quill.writer(doc).revise({}, '# Plan\n\nMain **body**.')
     doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 10, end: 14 } }] })
 
     const read = doc.toMarkdown({}, { annotated: true })
     expect(read.markdown).toBe('# Plan\n\nMain <qm-anchor ref="c1"></qm-anchor>**body**.')
     expect(read.anchors).toEqual([{ id: 'c1', path: 'main.body', line: 'Main body.' }])
     expect(doc.toMarkdown('subject', { annotated: true })).toEqual({ markdown: 'Q3 **results**', anchors: [] })
-    const receipt = quill.writer(doc).reviseBody(read.markdown.replace('Main', 'The main'), { baseMarkdown: read.markdown })
+    const receipt = quill.writer(doc).revise({}, read.markdown.replace('Main', 'The main'), { baseMarkdown: read.markdown })
     expect(receipt.droppedAnchors).toEqual([])
     expect(doc.anchorContext('c1')).toMatchObject({ quote: 'body' })
   })

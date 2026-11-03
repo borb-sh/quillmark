@@ -301,7 +301,7 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
     use quillmark_content::lines::model::{Mark, MarkKind};
 
     let mut card = Card::new("note").unwrap();
-    let revised = card.revise_field("intro", "hello target world").unwrap();
+    let revised = card.revise(crate::document::Target::from("intro"), "hello target world", None).unwrap();
     assert!(!revised.applied.steps.is_empty());
 
     let mut base = card
@@ -315,7 +315,7 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
     let base = base.into_lines();
     card.overwrite_field("intro", base).unwrap();
     let _ = card
-        .revise_field("intro", "why keep the target here")
+        .revise(crate::document::Target::from("intro"), "why keep the target here", None)
         .unwrap();
     let read = card
         .field_content("intro", Codec::Richtext)
@@ -333,7 +333,7 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
     )
     .unwrap();
     assert_eq!(
-        card.revise_field("count", "x").unwrap_err().code(),
+        card.revise(crate::document::Target::from("count"), "x", None).unwrap_err().code(),
         "edit::field_decode"
     );
 }
@@ -622,8 +622,8 @@ fn test_revise_body_returns_its_change_and_updates_body() {
     use quillmark_content::model::Pos;
 
     let mut card = Card::new("note").unwrap();
-    let _ = card.revise_body("hello world").unwrap();
-    let applied = card.revise_body("hello brave world").unwrap().applied;
+    let _ = card.revise(crate::document::Target::Body, "hello world", None).unwrap();
+    let applied = card.revise(crate::document::Target::Body, "hello brave world", None).unwrap().applied;
     assert_eq!(card.body_lines().text, "hello brave world");
     let mapping = Mapping::from_change(&applied).unwrap();
     assert_eq!(mapping.map(&Pos::at(6), Assoc::Before).pos, Pos::at(6));
@@ -976,7 +976,7 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
 
     let mut refused = Vec::new();
     refused.push(doc.unchecked().store_field(None, "late", qv("v")).unwrap_err());
-    refused.push(doc.main_mut().revise_field("late", "text").unwrap_err());
+    refused.push(doc.main_mut().revise(crate::document::Target::from("late"), "text", None).unwrap_err());
     refused.push(
         doc.main_mut()
             .overwrite_field("late", Lines::empty())
@@ -1074,8 +1074,8 @@ fn no_verb_on_a_placed_card_moves_it_between_roles() {
         ("overwrite_field", |c| {
             ignore(c.overwrite_field("f", Lines::empty()))
         }),
-        ("revise_body", |c| ignore(c.revise_body("body"))),
-        ("revise_field", |c| ignore(c.revise_field("f", "text"))),
+        ("revise_body", |c| ignore(c.revise(crate::document::Target::Body, "body", None))),
+        ("revise_field", |c| ignore(c.revise(crate::document::Target::from("f"), "text", None))),
         ("commit_field", |c| {
             ignore(c.commit_field("f", qv("v"), &richtext()))
         }),

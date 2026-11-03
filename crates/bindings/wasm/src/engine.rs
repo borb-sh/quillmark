@@ -320,10 +320,10 @@ export interface Delta {
 
 /**
  * What a revise's writer read, the optional last argument of the writer's
- * `reviseBody` / `reviseField` / `reviseDocument`.
+ * `revise` / `reviseDocument`.
  * Name one or neither; a key present with no string throws. `baseHash` is the
  * hash the writer read, paired with the write path it writes on: `writer.hashAt` /
- * `writer.hash`. On `reviseBody` and `reviseField` a write onto a value that
+ * `writer.hash`. On `revise` a write onto a value that
  * hashes otherwise rebases over the change since, throwing
  * `edit::rebase_conflict` where the two touch and `edit::stale_base` where
  * the log no longer reaches the base; on `reviseDocument` it throws
@@ -1266,28 +1266,18 @@ impl Document {
         let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let base = self.addr_base(&addr);
         let reader = quill.inner.reader(&self.inner);
-        match &addr.field {
-            None => Ok(JsValue::from_str(&match addr.card {
-                None => reader.body_markdown(),
-                Some(index) => reader
-                    .card(index)
-                    .map_err(|e| edit_error_to_js(&e, &base))?
-                    .body_markdown(),
-            })),
-            Some(field) => {
-                let read = match addr.card {
-                    None => reader.get(field),
-                    Some(index) => reader
-                        .card(index)
-                        .map_err(|e| edit_error_to_js(&e, &base))?
-                        .get(field),
-                }
-                .map_err(|e| edit_error_to_js(&e, &base))?;
-                match read {
-                    None => Ok(JsValue::UNDEFINED),
-                    Some(v) => serialize_or_throw(v.as_json(), "reader.get"),
-                }
-            }
+        let target = quillmark_core::document::Target::from(addr.field.as_deref());
+        let read = match addr.card {
+            None => reader.get(target),
+            Some(index) => reader
+                .card(index)
+                .map_err(|e| edit_error_to_js(&e, &base))?
+                .get(target),
+        }
+        .map_err(|e| edit_error_to_js(&e, &base))?;
+        match read {
+            None => Ok(JsValue::UNDEFINED),
+            Some(v) => serialize_or_throw(v.as_json(), "reader.get"),
         }
     }
 
@@ -1486,7 +1476,7 @@ impl Document {
     /// card: 2, field: "qty" }` targets a composable card. Each content value
     /// in `value`, at any depth, decodes as a body write's does and stores in
     /// its canonical form, throwing `edit::field_decode` where one does not. A
-    /// body address throws: write a body with `writer.reviseBody` / `replace`.
+    /// body address throws: write a body with `writer.revise` / `replace`.
     /// Throws on an out-of-range card or a malformed name.
     #[wasm_bindgen(js_name = _uncheckedStoreField, skip_typescript)]
     pub fn store_field(
@@ -1593,40 +1583,49 @@ impl Document {
     }
 
 
-    /// The ABI under `writer.reviseBody`: **revise** the richtext value at
-    /// `addr` from a markdown string. Imports the markdown, diffs it against the current
-    /// value, rebases surviving identity anchors, and returns the `Receipt` a
-    /// content write answers: `applied`, the change from the value before,
-    /// which `mapPos` maps a position through, and a `parse::dropped_construct`
-    /// warning per construct the import dropped, its `path` the address
-    /// written. An absent `addr.field` targets the body, an absent `addr.card`
-    /// the main card; an absent field cold-imports from empty.
+    /// The ABI under `writer.revise`: **revise** the body or content field at
+    /// `addr` from authored text, typed *and* anchor-preserving. The codec is
+    /// the declared type's, the body's being `richtext`: `richtext` imports the
+    /// markdown, `text` takes the literal text and drops nothing. The text is
+    /// diffed against the current value, surviving anchors rebase, and a field's
+    /// result is schema-conformed, so a one-paragraph `richtext` field rejects a
+    /// multi-block result with `edit::field_not_single_line`. Returns the
+    /// `Receipt` a content write answers: `applied`, the change from the value
+    /// before, which `mapPos` maps a position through (a `text` field's is one
+    /// splice over its literal text), and a `parse::dropped_construct` warning
+    /// per construct the import dropped, its `path` the address written. An
+    /// absent `addr.field` targets the body, an absent `addr.card` the main
+    /// card.
     ///
     /// `opts` names what the writer read (`BaseOptions`): a stale `baseHash`
-    /// throws `edit::stale_base`, and a `baseMarkdown` the value has moved on
-    /// from merges, throwing `edit::rebase_conflict` where both changed a line.
+    /// rebases over the change since, and a `baseMarkdown` the value has moved
+    /// on from merges, throwing `edit::rebase_conflict` where both changed a
+    /// line; a `text` field's `baseMarkdown` is its literal text.
     ///
-    /// Throws on an out-of-range card, a malformed field name, a present
-    /// non-content field value, or an over-nested markdown input.
+    /// An undeclared name throws `edit::unknown_field`; an out-of-range card,
+    /// a malformed field name, or an over-nested markdown input throws.
     #[wasm_bindgen(js_name = _revise, skip_typescript, unchecked_return_type = "Receipt")]
     pub fn revise(
         &mut self,
+        quill: &Quill,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-        markdown: &str,
+        text: &str,
         #[wasm_bindgen(unchecked_optional_param_type = "BaseOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
         let read = ReadBase::from_js(opts, "revise")?;
         let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let base = self.addr_base(&addr);
-        let mut card = self.addr_card_mut(&addr)?;
-        let receipt = match (&addr.field, read.as_base()) {
-            (None, None) => card.revise_body(markdown),
-            (None, Some(read)) => card.revise_body_against(read, markdown),
-            (Some(field), None) => card.revise_field(field, markdown),
-            (Some(field), Some(read)) => card.revise_field_against(field, read, markdown),
+        let card_id = self.addr_card_ref(&addr)?.id().map(str::to_string);
+        let target = quillmark_core::document::Target::from(addr.field.as_deref());
+        let mut writer = quill.inner.writer(&mut self.inner);
+        let receipt = match addr.card {
+            None => writer.revise(target, text, read.as_base()),
+            Some(index) => writer
+                .card(index)
+                .map_err(|e| edit_error_to_js(&e, &base))?
+                .revise(target, text, read.as_base()),
         }
         .map_err(|e| edit_error_to_js(&e, &base))?;
-        let card_id = card.id().map(str::to_string);
         let path = match &addr.field {
             None => base.body(),
             Some(field) => base.field(field),
@@ -1671,9 +1670,8 @@ impl Document {
 
     /// The ABI under `writer.hashAt`: the body's hash, or a field's through its
     /// schema (a `richtext` or `text` field its content however it is stored, any
-    /// other type its stored value), the `baseHash` the
-    /// writer's `reviseBody` / `reviseField` check. An undeclared name throws
-    /// `edit::unknown_field`, an out-of-range card throws.
+    /// other type its stored value), the `baseHash` `writer.revise` checks. An
+    /// undeclared name throws `edit::unknown_field`, an out-of-range card throws.
     #[wasm_bindgen(js_name = _hashAt, skip_typescript)]
     pub fn hash_at_abi(
         &mut self,
@@ -1682,64 +1680,17 @@ impl Document {
     ) -> Result<String, JsValue> {
         let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let base = self.addr_base(&addr);
-        let Some(field) = addr.field.clone() else {
-            return Ok(self.addr_card_ref(&addr)?.body_hash());
-        };
+        let target = quillmark_core::document::Target::from(addr.field.as_deref());
         let mut writer = quill.inner.writer(&mut self.inner);
         match addr.card {
-            None => writer.field_hash(&field),
+            None => writer.hash_of(target),
             Some(index) => writer
                 .card(index)
                 .map_err(|e| edit_error_to_js(&e, &base))?
-                .field_hash(&field),
+                .hash_of(target),
         }
         .map_err(|e| edit_error_to_js(&e, &base))
     }
-
-    /// Revise the content field at `addr` from authored text, typed *and*
-    /// anchor-preserving: the ABI under `writer.reviseField`. Surviving anchors
-    /// rebase as in [`revise`](Self::revise), then the diffed result is
-    /// schema-conformed, so a one-paragraph `richtext` field rejects a multi-block
-    /// result with `edit::field_not_single_line`. Returns the `Receipt`, its
-    /// warnings anchored at the field; a `text` field's `applied` is one
-    /// splice over its literal text. The codec is the declared type's:
-    /// `richtext` diffs markdown, `text` literal text, which drops nothing.
-    ///
-    /// `addr` must name a field; a body address throws, since a body carries no
-    /// field schema (use [`revise`](Self::revise)). An undeclared name throws
-    /// `edit::unknown_field`, an out-of-range card throws.
-    #[wasm_bindgen(js_name = _reviseField, skip_typescript, unchecked_return_type = "Receipt")]
-    pub fn revise_field_abi(
-        &mut self,
-        quill: &Quill,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-        text: &str,
-        opts: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        let read = ReadBase::from_js(opts, "reviseField")?;
-        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
-        let field = addr.require_field("reviseField")?.to_string();
-        let base = self.addr_base(&addr);
-        let card_id = self.addr_card_ref(&addr)?.id().map(str::to_string);
-        let mut writer = quill.inner.writer(&mut self.inner);
-        let receipt = match (addr.card, read.as_base()) {
-            (None, None) => writer.revise_field(&field, text),
-            (None, Some(read)) => writer.revise_field_against(&field, read, text),
-            (Some(index), read) => {
-                let mut card = writer
-                    .card(index)
-                    .map_err(|e| edit_error_to_js(&e, &base))?;
-                match read {
-                    None => card.revise_field(&field, text),
-                    Some(read) => card.revise_field_against(&field, read, text),
-                }
-            }
-        }
-        .map_err(|e| edit_error_to_js(&e, &base))?;
-        let receipt = content::receipt_js(receipt.in_units(quillmark_content::units::Utf16), &base.field(&field), card_id);
-        serialize_or_throw(&receipt, "reviseField")
-    }
-
 
     /// Typed field write at `addr`, resolving the field's schema `type` from
     /// `quill`: the stable ABI under the runtime `writer.set`. One verb for every
@@ -2054,7 +2005,7 @@ impl Addr {
         self.field.as_deref().ok_or_else(|| {
             WasmError::from(format!(
                 "{ctx}: a body address (no `field`) is not a field write, \
-                 write the body with replace / writer.reviseBody"
+                 write the body with replace / writer.revise"
             ))
             .to_js_value()
         })
