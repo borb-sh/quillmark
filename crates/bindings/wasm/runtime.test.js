@@ -157,8 +157,9 @@ card_kinds:
     const doc = blankDoc()
     const ed = quill.writer(doc)
     const receipt = ed.revise({}, 'New **body**.')
-    expect(Object.keys(receipt).sort()).toEqual(['applied', 'droppedAnchors', 'hash', 'minted', 'movedAnchors', 'rebased', 'warnings'])
+    expect(Object.keys(receipt).sort()).toEqual(['applied', 'droppedAnchors', 'hash', 'heads', 'minted', 'movedAnchors', 'rebased', 'warnings'])
     expect(receipt.hash).toBe(doc.hashAt({}))
+    expect(receipt.heads).toEqual(doc.heads())
     expect(receipt.rebased).toBe(false)
     expect(doc.toMarkdown({})).toBe('New **body**.')
     const { warnings } = ed.revise('subject', 'Q3 <kbd>**results**</kbd>')
@@ -279,8 +280,9 @@ card_kinds:
     const receipt = ed.reviseDocument(
       '~~~card-yaml\n$quill: editor_test\nsubject: Q3 **results**\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nprose: fresh\n~~~\n\n~~~card-yaml\n$kind: note\nprose: kept\n~~~\n',
     )
-    expect(Object.keys(receipt).sort()).toEqual(['droppedAnchors', 'from', 'warnings'])
+    expect(Object.keys(receipt).sort()).toEqual(['droppedAnchors', 'from', 'heads', 'warnings'])
     expect(receipt.from).toEqual([null, 0])
+    expect(receipt.heads).toEqual(doc.heads())
     expect(receipt.droppedAnchors).toEqual([])
     expect(receipt.warnings).toEqual([])
     expect(doc.warnings).toEqual([])

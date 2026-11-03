@@ -23,7 +23,7 @@ use quillmark_content::units::{self, Units};
 
 use super::base::{Base, BaseError, content_hash};
 use super::edit::EditError;
-use super::Card;
+use super::{Card, Heads};
 use crate::value::QuillValue;
 
 /// Where an offset sits: the block holding it, by id and index, and that
@@ -128,6 +128,9 @@ pub struct Receipt {
     pub applied: Change,
     /// The value's new hash, the next write's base.
     pub hash: String,
+    /// The document's heads after the write, empty for a card no document
+    /// holds.
+    pub heads: Heads,
     /// Each anchor the value held and holds nowhere now, as it read before,
     /// with the slot that held it: every one a revise or replace lost, and
     /// for an apply every one but those its `anchor` steps removed.
@@ -163,8 +166,14 @@ impl Receipt {
         self
     }
 
+    /// The receipt of a write that left the document at `heads`.
+    pub(crate) fn at(mut self, heads: Heads) -> Receipt {
+        self.heads = heads;
+        self
+    }
+
     pub(crate) fn landed(applied: Change, hash: String, dropped_anchors: Vec<Dropped>, moved_anchors: Vec<Moved>, warnings: Vec<ImportWarning>, rebased: bool, minted: BTreeMap<String, String>) -> Receipt {
-        Receipt { applied, hash, dropped_anchors, moved_anchors, warnings, rebased, minted, counted: Counted::Host }
+        Receipt { applied, hash, heads: Heads::default(), dropped_anchors, moved_anchors, warnings, rebased, minted, counted: Counted::Host }
     }
 
     /// The receipt with `applied` counted in `u`. A writer's revise answers
@@ -356,7 +365,7 @@ impl Card {
             None => applied.applied.clone(),
         };
         let hash = self.store(target, &now, applied.content)?;
-        Ok(Receipt { applied: shown, hash, dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, rebased: false, minted, counted: Counted::Host })
+        Ok(Receipt { applied: shown, hash, heads: Heads::default(), dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, rebased: false, minted, counted: Counted::Host })
     }
 
     /// [`revise`](Self::revise) with no base, its receipt counted in scalars
@@ -384,6 +393,7 @@ impl Card {
         Ok(Receipt {
             applied: applied.applied,
             hash: content_hash(&after),
+            heads: Heads::default(),
             dropped_anchors,
             moved_anchors: applied.moved,
             warnings,

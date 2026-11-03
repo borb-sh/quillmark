@@ -241,6 +241,9 @@ class ReceiptDroppedAnchor(AnchorContext, total=False):
 class Receipt(TypedDict):
     applied: Change
     hash: str
+    # The document's heads after the write, empty for a card no document
+    # holds.
+    heads: list[str]
     dropped_anchors: list[ReceiptDroppedAnchor]
     moved_anchors: list[MovedAnchor]
     warnings: list[Diagnostic]
@@ -315,6 +318,7 @@ DocumentRevised = TypedDict(
         "dropped_anchors": list[AnchorContext],
         "warnings": list[Diagnostic],
         "from": list[int | None],
+        "heads": list[str],
     },
 )
 

@@ -104,9 +104,10 @@ def test_writer_revise_field():
     doc = Document("sample_form@0.1.0")
     w = quill.writer(doc)
     receipt = w.revise("make it **bold**", "bio")
-    assert sorted(receipt) == ["applied", "dropped_anchors", "hash", "minted", "moved_anchors", "rebased", "warnings"]
+    assert sorted(receipt) == ["applied", "dropped_anchors", "hash", "heads", "minted", "moved_anchors", "rebased", "warnings"]
     assert receipt["applied"]["steps"][0]["splice"]["insert"] == "make it bold"
     assert receipt["hash"] == w.hash_at("bio")
+    assert receipt["heads"] == doc.heads()
     assert (receipt["dropped_anchors"], receipt["moved_anchors"], receipt["warnings"], receipt["rebased"]) == ([], [], [], False)
     assert quill.reader(doc).get("bio") == "make it **bold**"
     (dropped,) = w.revise("make it <kbd>**bold**</kbd>", "bio")["warnings"]
@@ -142,8 +143,9 @@ def test_writer_revise_document():
     receipt = w.revise_document(
         "~~~\n$quill: sample_form@0.1.0\nbio: make it <kbd>**bold**</kbd>\n~~~\n\nBody.\n"
     )
-    assert sorted(receipt) == ["dropped_anchors", "from", "warnings"]
+    assert sorted(receipt) == ["dropped_anchors", "from", "heads", "warnings"]
     assert (receipt["dropped_anchors"], receipt["from"]) == ([], [])
+    assert receipt["heads"] == doc.heads()
     (dropped,) = receipt["warnings"]
     assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
     assert quill.reader(doc).get("bio") == "make it **bold**"

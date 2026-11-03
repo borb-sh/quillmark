@@ -948,7 +948,8 @@ impl<'a> CardMut<'a> {
 
     #[doc(hidden)]
     pub fn revise_field_checked(&mut self, name: &str, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
-        self.card().revise_field_checked(name, body, schema)
+        let receipt = self.card().revise_field_checked(name, body, schema)?;
+        Ok(receipt.at(self.doc.heads()))
     }
 
     #[doc(hidden)]

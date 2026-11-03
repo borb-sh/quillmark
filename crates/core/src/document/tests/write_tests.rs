@@ -690,6 +690,22 @@ fn a_document_saves_loads_and_syncs() {
     assert!(Document::load(b"not a document").is_err());
 }
 
+/// A write's receipt and a revise's carry the heads the document is left
+/// at; a card no document holds has none.
+#[test]
+fn a_receipt_carries_the_heads_its_write_left() {
+    let mut doc = parse(SOURCE);
+    let receipt = doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(0, "", "x"))]), None).unwrap();
+    assert!(!receipt.heads.hashes().is_empty());
+    assert_eq!(receipt.heads, doc.heads());
+    let revised = doc.revise("~~~\n$quill: q\n~~~\n\nRevenue fell.\n").unwrap();
+    assert_ne!(revised.heads, receipt.heads);
+    assert_eq!(revised.heads, doc.heads());
+
+    let mut card = Card::from_parts(crate::document::Payload::new(), quillmark_content::model::Content::empty());
+    assert!(card.revise(Target::Body, "Free.", None).unwrap().heads.hashes().is_empty());
+}
+
 /// A stored document reads from its saved bytes, history and all, or from
 /// its row; bytes that start as Automerge's and do not load refuse as bytes,
 /// anything else as a row.

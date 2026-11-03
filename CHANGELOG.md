@@ -45,6 +45,10 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   `Document.load`, `doc.heads()`, `doc.save_since`, `doc.merge`,
   `doc.generate_sync_message(state)` and `doc.receive_sync_message(state,
   message)`; `revise_document`'s `base_stored` takes `bytes`.
+- feat: **a receipt carries the heads its write left.** `Receipt` and
+  `DocumentRevised` gain `heads`, the document's heads after the write, as
+  `heads()` answers them; a card no document holds answers none. WASM and
+  Python carry them as hex strings.
 - feat(bindings)!: **the writer's `revise` names its card by `$id`.** WASM
   `writer.revise({ card })` and Python `writer.revise(card=)` take a
   composable card's `$id` and throw on an index, as `apply`, `revise` and

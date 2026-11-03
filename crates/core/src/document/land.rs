@@ -20,7 +20,7 @@ use quillmark_content::units::{self, Units};
 use super::base::{Base, BaseError, content_hash};
 use super::edit::EditError;
 use super::write::{Edit, Receipt, Target, WriteOptions, address, check_change, keeps_ext_islands};
-use super::{Card, Document};
+use super::{Card, Document, Heads};
 use crate::value::QuillValue;
 
 fn step_error(e: StepError) -> EditError {
@@ -298,6 +298,7 @@ impl Document {
             doc.set_actor(actor);
         }
         let lowered = lowered.map_err(step_error)?;
+        let landed = Heads::from(doc.heads());
         let merged = heads.is_some();
         let named: BTreeMap<String, String> = mine.minted.iter().filter_map(|(placeholder, id)| Some((id.clone(), lowered.minted.get(placeholder)?.clone()))).collect();
         let after = match merged || diffed || holds_points(&read) || holds_points(&mine.content) {
@@ -334,6 +335,6 @@ impl Document {
             true => BTreeMap::new(),
             false => lowered.minted,
         };
-        Ok(Receipt::landed(applied, hash, dropped_anchors, moved_anchors, warnings, merged, minted))
+        Ok(Receipt::landed(applied, hash, dropped_anchors, moved_anchors, warnings, merged, minted).at(landed))
     }
 }

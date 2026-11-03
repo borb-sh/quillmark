@@ -186,6 +186,7 @@ impl<'a> TypedWriter<'a> {
             }
         }
         revised.warnings.extend(self.config.conform(self.doc).expect("the landed document carries the checked `$quill`"));
+        revised.heads = self.doc.heads();
         Ok(revised)
     }
 
@@ -217,6 +218,7 @@ impl<'a> TypedWriter<'a> {
                 .conform(self.doc)
                 .expect("the revised document carries the `$quill` checked above"),
         );
+        revised.heads = self.doc.heads();
         Ok(revised)
     }
 

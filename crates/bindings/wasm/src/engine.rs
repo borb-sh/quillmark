@@ -360,12 +360,13 @@ export interface DocumentBaseOptions {
  * content, reports no drop. `from` names, for each composable card of the
  * revised document, the index of the stored card it revises, or `null` for an
  * inserted card; a stored card no entry names was removed, and only cards of
- * one `$kind` pair.
+ * one `$kind` pair. `heads` is the document's heads after the revise.
  */
 export interface DocumentRevised {
     droppedAnchors: AnchorContext[];
     warnings: Diagnostic[];
     from: (number | null)[];
+    heads: string[];
 }
 
 /** What `toMarkdown` and `exportMarkdown` read: `annotated` spells each
@@ -2223,6 +2224,7 @@ struct DocumentRevisedJs {
     dropped_anchors: Vec<AnchorContextJs>,
     warnings: Vec<Diagnostic>,
     from: Vec<Option<usize>>,
+    heads: Vec<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -2261,6 +2263,7 @@ impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
                 .collect(),
             warnings: diags(revised.warnings),
             from: revised.from,
+            heads: revised.heads.encode(),
         }
     }
 }

@@ -930,6 +930,7 @@ impl PyDocument {
     /// **Apply** `change` to the value at `field` on `card`, all its steps or
     /// none, and return the receipt: `applied` (the change in its normalized
     /// form, which `invert` undoes), `hash` (the next write's `base`),
+    /// `heads` (the document's heads after the write),
     /// `dropped_anchors`, `moved_anchors`, `warnings`, `rebased` and
     /// `minted`, each placeholder id the change gave a record mapped to the id
     /// the write minted. `actor` is the Automerge actor the write writes
@@ -1407,7 +1408,8 @@ impl PyWriter {
     ///
     /// Returns the receipt a content write answers, as `Document.revise` does:
     /// `applied`, the change from the value before (a `text` field's is one
-    /// splice over its literal text); `hash`; `dropped_anchors` and
+    /// splice over its literal text); `hash`; `heads`, the document's heads
+    /// after the write; `dropped_anchors` and
     /// `moved_anchors`; `warnings`, the import's `parse::dropped_construct` as
     /// `Diagnostic` objects anchored at the value; and `rebased`, set where the
     /// write merged with a change since its base.
@@ -1526,6 +1528,7 @@ impl PyWriter {
         )?;
         receipt.set_item("warnings", py_diagnostics(revised.warnings))?;
         receipt.set_item("from", revised.from)?;
+        receipt.set_item("heads", revised.heads.encode())?;
         Ok(receipt)
     }
 
