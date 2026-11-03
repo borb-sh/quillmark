@@ -157,7 +157,7 @@ fn an_id_live_anywhere_is_answered_and_not_written() {
         crate::document::import_body("Lead line.\n\n| a | b |\n|---|---|\n| 1 | 2 |").unwrap();
     let mut table = table.into_content();
     table.islands[0].props["rows"][0][0]["marks"] =
-        json!([{ "start": 0, "end": 1, "type": "anchor", "id": "cell1" }]);
+        json!([{ "start": 0, "end": 1, "type": "anchor", "attrs": { "id": "cell1" } }]);
     doc.main_mut()
         .overwrite_field("grid", Lines::from(table))
         .unwrap();

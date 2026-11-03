@@ -341,12 +341,6 @@ fn emit_block(out: &mut String, card: &Card, at: &DocPath, anchors: Option<&Anch
     out.push_str("~~~\n");
 }
 
-/// Walk the unified item list and emit each entry. An `inline: true` comment
-/// immediately following a non-comment item is consumed as that item's trailer.
-pub(super) fn emit_payload_items(out: &mut String, payload: &Payload) {
-    emit_items(out, payload, None);
-}
-
 /// The payload's fields alone, without its comments or `$` keys.
 pub(super) fn emit_payload_fields(out: &mut String, payload: &Payload) {
     for (key, value) in payload.iter() {
@@ -358,8 +352,10 @@ pub(super) fn emit_payload_fields(out: &mut String, payload: &Payload) {
     }
 }
 
-/// [`emit_payload_items`], each content field annotated with its anchors
-/// collected under the card at `annotate`'s path.
+/// Walk the unified item list and emit each entry, each content field
+/// annotated with its anchors collected under the card at `annotate`'s path.
+/// An `inline: true` comment immediately following a non-comment item is
+/// consumed as that item's trailer.
 fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &Anchors)>) {
     let items = payload.items();
     let comments = Comments::by_owner(payload.nested_comments());
@@ -416,13 +412,12 @@ fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &
 /// value: a top-level field, an object property, an array element.
 ///
 /// Projecting keeps card-yaml markdown-clean rather than carrying a nested
-/// `{text, lines, marks, islands}` tree. It is lossy: island ids and
+/// content-model tree. It is lossy: island ids and
 /// content-only marks do not survive, and the storage DTO is the lossless
 /// carrier.
 ///
-/// The guard requires the object, its retired spellings respelled
-/// ([`respell_retired`](quillmark_content::lines::serial::respell_retired)), to
-/// serialize back to a **byte-identical** canonical content, so a user object
+/// The guard requires the object to serialize back to a **byte-identical**
+/// canonical content, so a user object
 /// that merely resembles one stays structural. The comparison is on the
 /// serialized *strings*: under `serde_json/preserve_order`, `Value`'s
 /// `PartialEq` is order-independent, so a `Value` guard would also project a
@@ -435,14 +430,6 @@ pub(super) fn project_content_field(value: &JsonValue) -> Option<String> {
 pub(super) fn canonical_content(value: &JsonValue) -> Option<Lines> {
     if !value.is_object() {
         return None;
-    }
-    if quillmark_content::wire::is_v1(value) {
-        let rt = quillmark_content::lines::serial::from_canonical_value(value).ok()?;
-        let as_written =
-            serde_json::to_string(&quillmark_content::lines::serial::respell_retired(value)).ok()?;
-        let canonical =
-            serde_json::to_string(&quillmark_content::lines::serial::to_canonical_value(&rt)).ok()?;
-        return (as_written == canonical).then_some(rt);
     }
     let content = quillmark_content::model::Content::from_value(value).ok()?;
     let as_written = serde_json::to_string(value).ok()?;
@@ -1098,7 +1085,7 @@ mod tests {
             ],
         );
         let mut out = String::new();
-        emit_payload_items(&mut out, &payload);
+        emit_items(&mut out, &payload, None);
         assert_eq!(
             out,
             "list:\n  # second at 0\n  - a # trailer\n  - b\n  # past the end\n  # at the end\n"

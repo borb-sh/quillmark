@@ -702,7 +702,7 @@ fn carry_cell_anchors(base: &[Island], new: &mut Content, carried: &[Option<usiz
         }
         let cells = island.island_type.cell_values_mut(&mut island.props);
         for (cell, (text, marks)) in cells.into_iter().zip(stored) {
-            let (now, mut now_marks) = crate::lines::serial::parse_cell(cell);
+            let (now, mut now_marks) = crate::lines::cells::parse_cell(cell);
             if now != text {
                 continue;
             }
@@ -714,7 +714,7 @@ fn carry_cell_anchors(base: &[Island], new: &mut Content, carried: &[Option<usiz
                 continue;
             }
             now_marks.extend(fresh);
-            crate::lines::serial::set_cell_marks(cell, &now_marks);
+            crate::lines::cells::set_cell_marks(cell, &now_marks);
         }
     }
 }

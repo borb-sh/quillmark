@@ -6,7 +6,6 @@ use quillmark_content::{
     MAX_NESTING_DEPTH,
     lines::export::to_markdown,
     lines::import::{ImportError, from_markdown},
-    lines::serial::to_canonical_value,
 };
 use quillmark_core::{backend::Backend, types::RenderOptions};
 use quillmark_typst::TypstBackend;
@@ -77,7 +76,7 @@ fn marked_content_nested_to_the_bound_renders_and_round_trips() {
                     "{exported:?} re-imports"
                 );
             }
-            let data = serde_json::json!({ "$body": to_canonical_value(&content) });
+            let data = serde_json::json!({ "$body": quillmark_content::migrate::from_lines(&content).to_value() });
             let session = TypstBackend::default()
                 .open(&quill, &data, common::test_date())
                 .unwrap_or_else(|e| panic!("{markdown:?} opens: {e}"));

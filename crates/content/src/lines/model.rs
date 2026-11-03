@@ -99,9 +99,7 @@ impl Line {
 /// lines with equal `kind`+`containers` are two blocks of that role (e.g. two
 /// paragraphs), never one.
 ///
-/// **Closed**, on the same terms as [`MarkKind`]: a `kind` outside this set is
-/// [`ParseError::UnknownName`](crate::lines::serial::ParseError::UnknownName) at every
-/// decoder, so adding a role is a storage-version event.
+/// **Closed**, as [`MarkKind`] is.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LineKind {
     Para,
@@ -176,8 +174,7 @@ pub(crate) fn is_empty_bag(v: &JsonValue) -> bool {
 
 /// A container a line nests inside. The ancestor path is a `Vec<Container>`.
 ///
-/// **Closed**, on [`LineKind`]'s terms: a `container` outside this set is
-/// [`ParseError::UnknownName`](crate::lines::serial::ParseError::UnknownName).
+/// **Closed**, as [`LineKind`] is.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Container {
     /// A list item. `ordered` distinguishes `1.` from `-`; `start` is the list's
@@ -370,8 +367,7 @@ impl Mark {
     }
 }
 
-/// The mark set, **closed**: a `type` outside it is
-/// [`ParseError::UnknownName`](crate::lines::serial::ParseError::UnknownName). Two
+/// The mark set, **closed**: a cell mark of another `type` reads as no mark. Two
 /// algebra classes: formatting is a property of a range (two coincident are
 /// redundant); identity is a handle (two over the same range are two things).
 #[derive(Debug, Clone, PartialEq)]
@@ -599,7 +595,7 @@ pub(crate) fn check_json_depth(v: &JsonValue, what: &'static str) -> Result<(), 
 
 /// A `table` island's props against [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS).
 pub(crate) fn check_table_cells(props: &JsonValue) -> Result<(), Invariant> {
-    let cells = crate::lines::serial::table_slots(props);
+    let cells = crate::lines::cells::table_slots(props);
     if cells > crate::MAX_TABLE_CELLS {
         return Err(Invariant::TableTooLarge { cells, max: crate::MAX_TABLE_CELLS });
     }
@@ -670,8 +666,7 @@ pub enum Invariant {
     MarkOutOfRange { start: Scalar, end: Scalar, len: Scalar },
     /// A heading level outside 1..=6. No rewrite is principled: level 0 exports
     /// as bare text and level 7 as literal hashes, and a clamp guesses the
-    /// other way. Both wires refuse it ahead of the model
-    /// ([`ParseError::Shape`](crate::lines::serial::ParseError::Shape)), so only a Rust
+    /// other way. The content model's decoder refuses it, so only a Rust
     /// caller spelling the level reaches this.
     BadHeadingLevel(u8),
     /// Two islands share an `id`. Uniqueness is the id invariant `validate`
@@ -785,7 +780,7 @@ impl Content {
     /// Constructing neither normalizes nor checks: the canonical form is the
     /// caller's until [`into_lines`](Self::into_lines) runs, and
     /// [`validate`](Self::validate) reports what that cannot repair. The codecs
-    /// ([`crate::lines::import`], [`Content::from_canonical_json`]) do both.
+    /// ([`crate::lines::import`], [`crate::migrate::to_lines`]) do both.
     pub fn new(text: String, lines: Vec<Line>) -> Self {
         Content {
             text,
@@ -1835,7 +1830,7 @@ mod tests {
             {"start": 2, "end": 4, "type": "strong"}
         ]));
         b.normalize();
-        let canon = |rt: &Content| rt.clone().into_lines().to_canonical_json();
+        let canon = |rt: &Content| crate::migrate::from_lines(&rt.clone().into_lines()).to_json();
         assert_eq!(canon(&a), canon(&b));
         let once = canon(&a);
         a.normalize();
@@ -1855,10 +1850,6 @@ mod tests {
         rt.normalize();
         assert_eq!(rt.islands[0].props["header"][0]["x_host"], 2);
         assert!(rt.islands[0].props["rows"][0][1].get("x_host").is_none());
-        assert!(rt
-            .into_lines()
-            .to_canonical_json()
-            .contains(r#""x_host":2"#));
     }
 
     #[test]
@@ -1935,7 +1926,7 @@ mod tests {
         assert_eq!(props["header"][1]["text"], serde_json::json!(""));
         assert_eq!(props["rows"][1][0]["text"], serde_json::json!("d e"));
 
-        let canon = |rt: &Content| rt.clone().into_lines().to_canonical_json();
+        let canon = |rt: &Content| crate::migrate::from_lines(&rt.clone().into_lines()).to_json();
         let once = canon(&rt);
         rt.normalize();
         assert_eq!(canon(&rt), once);

@@ -869,9 +869,7 @@ fn emit_math(isl: &Island, out: &mut String) {
 /// Whether an equation's `tex`, as it rests, reads back as itself between its
 /// delimiters: `$tex$`, or `$$tex$$` where `display`, parsed alone. An empty
 /// inline `tex`, an unescaped `$` and braces that do not balance are what it
-/// refuses. The authored lanes refuse the rest
-/// ([`crate::lines::serial::from_authored_value`],
-/// [`crate::lines::serial::island_from_authored_value`]).
+/// refuses. A markdown import writes such an equation as other markup.
 pub(crate) fn tex_is_writable(tex: &str, display: bool) -> bool {
     let delim = if display { "$$" } else { "$" };
     let md = format!("{delim}{tex}{delim}");
@@ -979,11 +977,8 @@ fn emit_url(url: &str, out: &mut String) {
 }
 
 /// Whether a link or image `url` survives [`to_markdown`] unchanged. CommonMark
-/// admits no line ending in a destination, bare or angle-wrapped, so an authored
-/// lane that stores a url refuses one
-/// ([`crate::lines::serial::reject_unwritable_link_url`],
-/// [`crate::lines::serial::island_from_authored_value`]) and [`emit_url`]
-/// percent-encodes the one a storage-lane or hand-built content still holds.
+/// admits no line ending in a destination, bare or angle-wrapped, so
+/// [`emit_url`] percent-encodes one that holds a line ending.
 pub(crate) fn url_is_writable(url: &str) -> bool {
     !url.contains(['\n', '\r'])
 }
@@ -1607,15 +1602,15 @@ fn render_marked_core(
             Frag::Cell => {
                 let rt = crate::lines::import::from_markdown(&format!("| h |\n| --- |\n| ,{md}, |")).ok()?.content;
                 let cell = rt.islands.first()?.props.get("rows")?.get(0)?.get(0)?;
-                crate::lines::serial::parse_cell(cell)
+                crate::lines::cells::parse_cell(cell)
             }
             Frag::HtmlCell => {
                 let rt = crate::lines::import::from_markdown(&format!("<table><tr><td>,{md},</td></tr></table>")).ok()?.content;
-                crate::lines::serial::parse_cell(rt.islands.first()?.props.get("header")?.get(0)?)
+                crate::lines::cells::parse_cell(rt.islands.first()?.props.get("header")?.get(0)?)
             }
             Frag::Note => {
                 let rt = crate::lines::import::from_markdown(&format!("a[^1]\n\n[^1]: ,{md},")).ok()?.content;
-                crate::lines::serial::parse_cell(&rt.islands.first()?.props)
+                crate::lines::cells::parse_cell(&rt.islands.first()?.props)
             }
             Frag::Prose => {
                 let rt = crate::lines::import::from_markdown(&format!(",{md},{probe_tail}")).ok()?.content.into_content();
@@ -1838,7 +1833,7 @@ fn clip_asterisk_overlap(fmt: &mut [(usize, usize, &MarkKind)]) {
 /// re-import through `pulldown`'s pipe splitting. A cell is flat inline: no
 /// islands, no leading-block escape.
 fn render_cell_md(v: &serde_json::Value, frag: Frag) -> String {
-    let (text, marks) = crate::lines::serial::parse_cell(v);
+    let (text, marks) = crate::lines::cells::parse_cell(v);
     let chars: Vec<char> = text.chars().collect();
     let (code_ranges, fmt, links) = bucket_marks(&marks, 0, chars.len(), true);
     let esc = Esc { frag, dollar: escapes_dollar(text.matches('$').count(), 0) };
@@ -1848,7 +1843,7 @@ fn render_cell_md(v: &serde_json::Value, frag: Frag) -> String {
 /// A footnote's note as the text of its definition: a cell's sweep on one
 /// source line, opening a block as a paragraph line does.
 fn render_note_md(v: &serde_json::Value) -> String {
-    let (text, marks) = crate::lines::serial::parse_cell(v);
+    let (text, marks) = crate::lines::cells::parse_cell(v);
     let chars: Vec<char> = text.chars().collect();
     let (code_ranges, fmt, links) = bucket_marks(&marks, 0, chars.len(), true);
     let esc = Esc { frag: Frag::Note, dollar: escapes_dollar(text.matches('$').count(), 0) };
@@ -2100,7 +2095,7 @@ mod tests {
         .with_islands(vec![note("\n# x\ny\n", "isl-0"), note("1. z", "isl-1"), note("", "isl-2")])
         .into_lines();
         rt.validate().expect("validates");
-        assert_eq!(crate::lines::serial::parse_cell(&rt.islands[0].props).0, "# x\ny");
+        assert_eq!(crate::lines::cells::parse_cell(&rt.islands[0].props).0, "# x\ny");
         let md = to_markdown(&rt);
         assert_eq!(
             md,
@@ -2633,17 +2628,20 @@ mod tests {
     /// island gone, taking the table out of the document.
     #[test]
     fn a_mark_reaching_over_a_block_islands_slot_does_not_wrap_its_markup() {
-        let rt = crate::lines::serial::from_canonical_value(&serde_json::json!({
-            "text": format!("a\n{ISLAND_SLOT}\nbc"),
-            "lines": [{"kind": "para", "containers": []}, {"kind": "para", "containers": []}, {"kind": "para", "containers": []}],
-            "marks": [{"start": 0, "end": 6, "type": "link", "attrs": {"url": "u"}}],
-            "islands": [{"id": "isl-t", "type": "table", "props": {
+        let table = Island {
+            id: "isl-t".into(),
+            island_type: IslandType::Table,
+            props: serde_json::json!({
                 "aligns": ["none"],
                 "header": [{"marks": [], "text": "h"}],
                 "rows": [[{"marks": [], "text": "c"}]],
-            }}],
-        }))
-        .expect("the slot is alone on its line");
+            }),
+        };
+        let rt = Content::new(format!("a\n{ISLAND_SLOT}\nbc"), vec![Line::new(LineKind::Para); 3])
+            .with_marks(vec![Mark::new(0, 6, MarkKind::Link { url: "u".into() })])
+            .with_islands(vec![table])
+            .into_lines();
+        assert_eq!(rt.validate(), Ok(()), "the slot is alone on its line");
         assert_eq!(rt.text, format!("a\n{ISLAND_SLOT}\nbc"));
         assert_eq!(
             rt.marks,
@@ -2764,7 +2762,7 @@ mod tests {
         );
         let back = from_markdown(&md).unwrap();
         assert!(back.warnings.is_empty(), "{:?}", back.warnings);
-        let (text_back, marks_back) = crate::lines::serial::parse_cell(&back.content.islands[0].props["header"][0]);
+        let (text_back, marks_back) = crate::lines::cells::parse_cell(&back.content.islands[0].props["header"][0]);
         assert_eq!(text_back, text);
         assert!(marks_back.contains(&Mark::new(2, 4, MarkKind::Code)), "{marks_back:?}");
         assert_eq!(to_markdown(&back.content), md);
@@ -3480,11 +3478,9 @@ mod tests {
     fn ordered_list_marker_saturates_on_overflow() {
         // `validate` does not ceiling `start`/`ordinal`, so a corrupt content can
         // carry `start == u64::MAX`.
-        let json = format!(
-            r#"{{"text":"x","lines":[{{"kind":"para","containers":[{{"container":"list_item","ordered":true,"start":{},"ordinal":5}}]}}],"marks":[],"islands":[]}}"#,
-            u64::MAX
-        );
-        let rt = Content::from_canonical_json(&json).unwrap();
+        let mut line = Line::new(LineKind::Para);
+        line.containers.push(Container::ListItem { ordered: true, start: u64::MAX, ordinal: 5, checked: None, instance: 0 });
+        let rt = Content::new("x".into(), vec![line]).into_lines();
         let md = to_markdown(&rt);
         assert!(
             md.contains(&format!("{}. ", u64::MAX)),

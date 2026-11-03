@@ -1,12 +1,10 @@
 //! The canonical JSON form: every object's keys in ascending order, a key
 //! absent where its value is empty, so equal content serializes to equal
-//! bytes. A value spelling `lines` is a v1 value: it decodes as the line form
-//! and migrates.
+//! bytes.
 
 use crate::ids::{is_ext_name, is_id};
 use crate::lines::island::IslandType;
 use crate::lines::model::{is_font_family_name, sort_keys_owned};
-use crate::lines::serial as v1;
 use crate::model::{
     Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, Invariant, Island, Mark, MarkKind, Pos,
 };
@@ -24,8 +22,6 @@ pub enum ParseError {
     /// define.
     UnknownKey { at: &'static str, key: String },
     Invalid(Invariant),
-    /// A v1 value that did not decode.
-    Legacy(v1::ParseError),
 }
 
 impl std::fmt::Display for ParseError {
@@ -36,7 +32,6 @@ impl std::fmt::Display for ParseError {
             ParseError::UnknownName { axis, name } => write!(f, "content vocabulary: unknown {axis} {name:?}"),
             ParseError::UnknownKey { at, key } => write!(f, "content json shape: {at} holds no key {key:?}"),
             ParseError::Invalid(inv) => write!(f, "content invariant: {inv}"),
-            ParseError::Legacy(e) => write!(f, "{e}"),
         }
     }
 }
@@ -51,11 +46,6 @@ impl From<Invariant> for ParseError {
 
 pub(crate) fn shape(s: impl Into<String>) -> ParseError {
     ParseError::Shape(s.into())
-}
-
-/// Whether `v` is spelled in the v1 line form.
-pub fn is_v1(v: &Value) -> bool {
-    v.get("lines").is_some() && v.get("blocks").is_none()
 }
 
 impl Content {
@@ -77,18 +67,12 @@ impl Content {
 
     /// Decode and validate, refusing a value [`normalize`](Self::normalize)
     /// would rewrite ([`Content::check_canonical`]): the one spelling a write
-    /// takes. The bounds ([`Content::check_bounds`]) are checked first. A v1
-    /// value migrates.
+    /// takes. The bounds ([`Content::check_bounds`]) are checked first.
     pub fn from_value(v: &Value) -> Result<Content, ParseError> {
-        let c = match decoded(v)? {
-            Decoded::Migrated(c) => c,
-            Decoded::Read(c, keys) => {
-                keys?;
-                c.validate()?;
-                c.check_canonical()?;
-                c
-            }
-        };
+        let (c, keys) = decoded(v)?;
+        keys?;
+        c.validate()?;
+        c.check_canonical()?;
         Ok(c)
     }
 
@@ -98,17 +82,13 @@ impl Content {
     /// bounds are checked first, as [`from_value`](Self::from_value) checks
     /// them.
     pub fn from_value_lenient(v: &Value) -> Result<Lenient, ParseError> {
-        match decoded(v)? {
-            Decoded::Migrated(content) => Ok(Lenient { content, rewritten: false }),
-            Decoded::Read(read, keys) => {
-                let mut content = read.clone();
-                let joined = !content.join_cells().is_empty();
-                content.normalize();
-                content.validate()?;
-                let rewritten = joined || keys.is_err() || content != read;
-                Ok(Lenient { content, rewritten })
-            }
-        }
+        let (read, keys) = decoded(v)?;
+        let mut content = read.clone();
+        let joined = !content.join_cells().is_empty();
+        content.normalize();
+        content.validate()?;
+        let rewritten = joined || keys.is_err() || content != read;
+        Ok(Lenient { content, rewritten })
     }
 
     pub fn from_json(s: &str) -> Result<Content, ParseError> {
@@ -127,30 +107,15 @@ pub struct Lenient {
     pub rewritten: bool,
 }
 
-enum Decoded {
-    /// A v1 value, migrated: the canonical form, ids minted.
-    Migrated(Content),
-    /// A value as spelled, within its bounds, and whether it holds only the
-    /// keys its shape defines.
-    Read(Content, Result<(), ParseError>),
-}
-
-/// `v` decoded within the JSON depth and its bounds, a v1 value migrated.
-fn decoded(v: &Value) -> Result<Decoded, ParseError> {
+/// `v` decoded as spelled within the JSON depth and its bounds, and whether it
+/// holds only the keys its shape defines.
+fn decoded(v: &Value) -> Result<(Content, Result<(), ParseError>), ParseError> {
     if crate::model::json_too_deep(v) {
         return Err(ParseError::Invalid(Invariant::JsonTooDeep { what: "content", max: crate::MAX_JSON_DEPTH }));
     }
-    if is_v1(v) {
-        let lines = v1::from_canonical_value(v).map_err(ParseError::Legacy)?;
-        let mut c = crate::migrate::from_lines(&lines);
-        c.check_bounds()?;
-        c.normalize();
-        c.validate()?;
-        return Ok(Decoded::Migrated(c));
-    }
     let c = decode(v)?;
     c.check_bounds()?;
-    Ok(Decoded::Read(c, check_keys(v)))
+    Ok((c, check_keys(v)))
 }
 
 /// The canonical form serialized as it is read: every object's keys in
@@ -926,25 +891,10 @@ mod tests {
     }
 
     #[test]
-    fn a_v1_value_migrates() {
-        let v1 = json!({
-            "text": "one\ntwo\nthree",
-            "lines": [
-                {"kind": "para", "containers": [{"container": "list_item", "attrs": {"ordered": true, "start": 3, "ordinal": 0}}]},
-                {"kind": "para", "continues": true, "containers": [{"container": "list_item", "attrs": {"ordered": true, "start": 3, "ordinal": 0}}]},
-                {"kind": "para", "containers": [{"container": "list_item", "attrs": {"ordered": true, "start": 3, "ordinal": 1}}]}
-            ],
-            "marks": [{"start": 0, "end": 3, "type": "anchor", "attrs": {"id": "c1"}}],
-            "islands": []
-        });
-        let c = Content::from_value(&v1).unwrap();
-        assert_eq!(c.text, "one\u{2028}two\nthree");
-        assert_eq!(c.blocks.len(), 2);
-        assert_eq!(c.blocks[0].path[0], c.blocks[1].path[0]);
-        assert_ne!(c.blocks[0].path[1], c.blocks[1].path[1]);
-        assert_eq!(c.anchors, [Anchor::new("c1", 0, 3)]);
-        assert!(c.marks.is_empty());
-        assert_eq!(Content::from_value(&v1).unwrap().to_json(), c.to_json());
+    fn a_line_form_value_is_refused() {
+        let lines = json!({"text": "one", "lines": [{"kind": "para", "containers": []}], "marks": [], "islands": []});
+        assert!(Content::from_value(&lines).is_err());
+        assert!(Content::from_value_lenient(&lines).is_err());
     }
 
     #[test]

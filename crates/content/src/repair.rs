@@ -17,7 +17,7 @@ use crate::model::{
 use crate::table::{Row, Table};
 use crate::units::Units;
 use crate::wire::{
-    ParseError, anchor_from_value, array, block_from_value, codec_from_value, container_from_value, is_v1,
+    ParseError, anchor_from_value, array, block_from_value, codec_from_value, container_from_value,
     mark_from_value, shape, str_key,
 };
 use serde_json::{Map, Value, json};
@@ -206,9 +206,6 @@ impl Raw {
                 what: "content",
                 max: crate::MAX_JSON_DEPTH,
             }));
-        }
-        if is_v1(v) {
-            return Ok(Raw::from(&Content::from_value(v)?));
         }
         decode(v)
     }

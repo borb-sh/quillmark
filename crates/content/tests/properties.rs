@@ -477,29 +477,14 @@ proptest! {
         prop_assert_eq!(&rt, &rt2, "alt/url specials not a fixed point.\n  md: {:?}", md);
     }
 
-    /// Property 2a: the *byte* fixed point and the *value* fixed point. Bytes
-    /// can hold while a value that encodes to some other value's bytes loses
-    /// the second.
-    #[test]
-    fn canonical_json_fixed_point(md in document()) {
-        let rt = from_markdown(&md).unwrap().content;
-        let json = rt.to_canonical_json();
-        let back = Content::from_canonical_json(&json).unwrap();
-        prop_assert_eq!(back.to_canonical_json(), json);
-        prop_assert_eq!(back, rt);
-    }
-
-    /// Property 2b: canonical bytes are insensitive to mark *discovery* order.
+    /// Property 2: the mint is insensitive to mark *discovery* order.
     /// Islands are ordered by slot position, so only mark order is free.
     #[test]
-    fn canonical_json_order_insensitive(md in document()) {
+    fn the_mint_is_order_insensitive(md in document()) {
         let rt = from_markdown(&md).unwrap().content;
         let mut shuffled = rt.clone().into_content();
         shuffled.marks.reverse();
-        prop_assert_eq!(
-            rt.to_canonical_json(),
-            shuffled.into_lines().to_canonical_json()
-        );
+        prop_assert_eq!(rt, shuffled.into_lines());
     }
 
     /// Property 3: an anchor over surviving text is carried forward.
@@ -746,7 +731,7 @@ proptest! {
             .map(|&(a, b, k)| {
                 let (s, e) = (a % (n + 1), b % (n + 1));
                 let kind = if k == OV_KINDS { MarkKind::Code } else { ov_kind(k) };
-                quillmark_content::lines::serial::mark_to_value(&Mark::new(s.min(e), s.max(e), kind))
+                quillmark_content::lines::cells::mark_to_value(&Mark::new(s.min(e), s.max(e), kind))
             })
             .collect();
         let rt = table_content(
@@ -773,7 +758,7 @@ proptest! {
         // an edge off a break. A code span is left out: one across a break
         // re-imports as two spans, and its clip can land a wrap's edge on a
         // space the trim exposes.
-        let (stored, kept) = quillmark_content::lines::serial::parse_cell(&rt.islands[0].props["rows"][0][0]);
+        let (stored, kept) = quillmark_content::lines::cells::parse_cell(&rt.islands[0].props["rows"][0][0]);
         let cs: Vec<char> = stored.chars().collect();
         if !kept.iter().any(|m| m.kind == MarkKind::Code) {
             let commas: String = cs.iter().map(|&c| if c == '\n' { ',' } else { c }).collect();
@@ -796,7 +781,7 @@ proptest! {
                     if delimited(&m.kind) {
                         trim(&|c: char| c.is_whitespace());
                     }
-                    (m.start < m.end).then(|| quillmark_content::lines::serial::mark_to_value(&m))
+                    (m.start < m.end).then(|| quillmark_content::lines::cells::mark_to_value(&m))
                 })
                 .collect();
             let twin = table_content(
@@ -807,7 +792,7 @@ proptest! {
             .into_lines();
             let twin2 = from_markdown(&to_markdown(&twin)).unwrap().content;
             let marks_of = |rt: &Lines| {
-                let mut marks = quillmark_content::lines::serial::parse_cell(&rt.islands[0].props["rows"][0][0]).1;
+                let mut marks = quillmark_content::lines::cells::parse_cell(&rt.islands[0].props["rows"][0][0]).1;
                 // Off the twin's `,` where the cell holds a `\n`, as a stored edge is.
                 for m in &mut marks {
                     while m.start < m.end && cs[m.start] == '\n' {
@@ -869,28 +854,6 @@ fn decode_json() -> impl Strategy<Value = Value> {
                 .prop_map(|m| Value::Object(m.into_iter().collect())),
         ]
     })
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(400))]
-
-    /// The `install` lane.
-    #[test]
-    fn canonical_decode_never_panics(v in decode_json()) {
-        let _ = quillmark_content::lines::serial::from_canonical_value(&v);
-    }
-
-    /// A line's containers inside an envelope that decodes up to them.
-    #[test]
-    fn container_decode_never_panics(containers in prop::collection::vec(decode_json(), 0..4)) {
-        let content = serde_json::json!({
-            "text": "a",
-            "lines": [{"kind": "para", "containers": containers}],
-            "marks": [],
-            "islands": [],
-        });
-        let _ = quillmark_content::lines::serial::from_canonical_value(&content);
-    }
 }
 
 /// A grid as a table's props spell it, either axis possibly empty, a row's
@@ -1013,13 +976,6 @@ mod model {
             let back = V2::from_json(&json).unwrap();
             prop_assert_eq!(back.to_json(), json);
             prop_assert_eq!(back, v2);
-        }
-
-        #[test]
-        fn a_v1_value_decodes_as_its_migration(md in document()) {
-            let rt = from_markdown(&md).unwrap().content;
-            let v1 = rt.to_canonical_json();
-            prop_assert_eq!(V2::from_json(&v1).unwrap(), from_lines(&rt));
         }
 
         #[test]

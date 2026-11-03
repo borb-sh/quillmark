@@ -4,9 +4,7 @@
 use crate::lines::model::Mark;
 use serde_json::Value;
 
-/// The island types. Closed but for [`Ext`](Self::Ext): a wire `type` outside
-/// this set and not a reserved `x-` name is
-/// [`ParseError::UnknownName`](crate::lines::serial::ParseError::UnknownName).
+/// The island types. Closed but for [`Ext`](Self::Ext), a reserved `x-` name.
 ///
 /// Every emitter dispatches over the whole set: an island type wired into some
 /// and not others projects the island away silently.
@@ -239,9 +237,9 @@ impl IslandType {
     /// model.
     pub fn cell_marks(&self, props: &Value) -> Vec<(String, Vec<Mark>)> {
         match self {
-            Self::Table => crate::lines::serial::table_cells(props),
-            Self::Footnote => vec![crate::lines::serial::parse_cell(props)],
-            Self::Ext(_) => ext_cells(props).map(crate::lines::serial::parse_cell).collect(),
+            Self::Table => crate::lines::cells::table_cells(props),
+            Self::Footnote => vec![crate::lines::cells::parse_cell(props)],
+            Self::Ext(_) => ext_cells(props).map(crate::lines::cells::parse_cell).collect(),
             Self::Image | Self::Math => Vec::new(),
         }
     }
@@ -250,7 +248,7 @@ impl IslandType {
     /// mutable.
     pub(crate) fn cell_values_mut<'a>(&self, props: &'a mut Value) -> Vec<&'a mut Value> {
         match self {
-            Self::Table => crate::lines::serial::table_cell_values_mut(props),
+            Self::Table => crate::lines::cells::table_cell_values_mut(props),
             Self::Footnote => vec![props],
             Self::Ext(_) => match props.get_mut("slots") {
                 Some(Value::Object(cells)) => cells.values_mut().collect(),
@@ -260,26 +258,13 @@ impl IslandType {
         }
     }
 
-    /// Refuse a cell mark whose `type` is outside the mark vocabulary. The
-    /// decoder's arm of [`cell_marks`](Self::cell_marks): those read leniently,
-    /// so this is the one place the row can be refused rather than silently
-    /// re-encoded without the mark.
-    pub fn reject_unknown_cell_mark(&self, props: &Value) -> Result<(), crate::lines::serial::ParseError> {
-        match self {
-            Self::Table => crate::lines::serial::reject_unknown_cell_mark_name(crate::lines::serial::table_cell_values(props)),
-            Self::Footnote => crate::lines::serial::reject_unknown_cell_mark_name([props]),
-            Self::Ext(_) => crate::lines::serial::reject_unknown_cell_mark_name(ext_cells(props)),
-            Self::Image | Self::Math => Ok(()),
-        }
-    }
-
     /// Repair this type's props to canonical shape in place; a no-op for a type
     /// with no shape invariants.
     pub fn normalize_props(&self, props: &mut Value) {
         match self {
-            Self::Table => crate::lines::serial::normalize_table_props(props),
-            Self::Footnote => crate::lines::serial::normalize_note_props(props),
-            Self::Math => crate::lines::serial::normalize_math_props(props),
+            Self::Table => crate::lines::cells::normalize_table_props(props),
+            Self::Footnote => crate::lines::cells::normalize_note_props(props),
+            Self::Math => crate::lines::cells::normalize_math_props(props),
             Self::Image | Self::Ext(_) => {}
         }
     }

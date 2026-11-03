@@ -72,7 +72,7 @@ pub fn content(markdown: &str) -> serde_json::Value {
     let rt = quillmark_content::lines::import::from_markdown(markdown)
         .expect("import")
         .content;
-    quillmark_content::lines::serial::to_canonical_value(&rt)
+    quillmark_content::migrate::from_lines(&rt).to_value()
 }
 
 /// The render date the tests open sessions with.

@@ -371,9 +371,9 @@ fn the_plate_shape_for_text_is_unchanged() {
     };
 
     let from_string = plate_note(json!("a *literal* line"));
-    let from_object = plate_note(json!(quillmark_content::lines::serial::to_canonical_value(
+    let from_object = plate_note(json!(quillmark_content::migrate::from_lines(
         &quillmark_content::lines::import::from_plaintext("a *literal* line")
-    )));
+    ).to_value()));
     assert!(from_string.is_object(), "plate keeps the content object");
     assert_eq!(from_string, from_object, "both commit inputs, one plate");
     assert_eq!(from_string["text"], json!("a *literal* line"));
@@ -422,21 +422,21 @@ Body.
 }
 
 #[test]
-fn a_0_124_0_row_migrates_then_converges() {
+fn a_0_134_0_row_converges() {
     let quill = quill();
     let body = |md: &str| {
-        quillmark_content::lines::serial::to_canonical_value(&crate::document::import_body(md).unwrap())
+        quillmark_content::migrate::from_lines(&crate::document::import_body(md).unwrap()).to_value()
     };
     let legacy = json!({
-        "schema": "quillmark/document@0.124.0",
+        "schema": "quillmark/document@0.134.0",
         "main": {
             "payload": { "items": [
                 { "type": "quill", "value": "conform_test@1.0.0" },
                 { "type": "kind", "value": "main" },
                 { "type": "field", "key": "subject", "value": "Q3 **results**" },
                 { "type": "field", "key": "note", "value":
-                    quillmark_content::lines::serial::to_canonical_value(
-                        &quillmark_content::lines::import::from_plaintext("a *literal* line")) },
+                    quillmark_content::migrate::from_lines(
+                        &quillmark_content::lines::import::from_plaintext("a *literal* line")).to_value() },
                 { "type": "field", "key": "qty", "value": 3 },
             ]},
             "body": body("Main **body**.")
@@ -452,9 +452,9 @@ fn a_0_124_0_row_migrates_then_converges() {
     .to_string();
 
     let mut doc = Document::try_from(
-        serde_json::from_str::<StoredDocument>(&legacy).expect("a 0.124.0 blob still loads"),
+        serde_json::from_str::<StoredDocument>(&legacy).expect("a 0.134.0 blob loads"),
     )
-    .expect("and migrates forward");
+    .expect("and reads forward");
     assert_eq!(doc.main().body_markdown(), "Main **body**.");
     assert!(
         doc.main()

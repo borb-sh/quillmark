@@ -188,7 +188,7 @@ fn imported_text(rt: &Lines) -> String {
             });
         for cell in cells {
             all.push('\n');
-            all.push_str(&crate::lines::serial::parse_cell(&cell).0);
+            all.push_str(&crate::lines::cells::parse_cell(&cell).0);
         }
     }
     all

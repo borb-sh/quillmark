@@ -253,7 +253,7 @@ pub(crate) fn to_line_props(island: &Island) -> Value {
                     None => Map::new(),
                 };
                 let (text, marks) = slot_to_cell(&content);
-                cell.insert("marks".into(), marks.iter().map(crate::lines::serial::mark_to_value).collect());
+                cell.insert("marks".into(), marks.iter().map(crate::lines::cells::mark_to_value).collect());
                 cell.insert("text".into(), Value::String(text));
                 Value::Object(cell)
             };
@@ -287,7 +287,7 @@ pub(crate) fn to_line_props(island: &Island) -> Value {
             let mut out = island.props.as_object().cloned().unwrap_or_default();
             let note = island.slots.get(NOTE_SLOT).cloned().unwrap_or_default();
             let (text, marks) = slot_to_cell(&note);
-            out.insert("marks".into(), marks.iter().map(crate::lines::serial::mark_to_value).collect());
+            out.insert("marks".into(), marks.iter().map(crate::lines::cells::mark_to_value).collect());
             out.insert("text".into(), Value::String(text));
             Value::Object(out)
         }
@@ -297,7 +297,7 @@ pub(crate) fn to_line_props(island: &Island) -> Value {
                 .iter()
                 .map(|(id, slot)| {
                     let (text, marks) = slot_to_cell(slot);
-                    let marks = marks.iter().map(crate::lines::serial::mark_to_value).collect();
+                    let marks = marks.iter().map(crate::lines::cells::mark_to_value).collect();
                     (id.clone(), Value::Object(Map::from_iter([("marks".into(), marks), ("text".into(), Value::String(text))])))
                 })
                 .collect();
@@ -326,7 +326,7 @@ pub(crate) fn from_line_props(
                 let mut cells = Vec::new();
                 for c in 0..cols {
                     let slot = minter.mint(prefix::SLOT);
-                    let (text, marks) = r.get(c).map(crate::lines::serial::parse_cell).unwrap_or_default();
+                    let (text, marks) = r.get(c).map(crate::lines::cells::parse_cell).unwrap_or_default();
                     slots.insert(slot.clone(), cell_to_slot(&text, &marks, false));
                     cells.push(slot);
                 }
@@ -352,7 +352,7 @@ pub(crate) fn from_line_props(
             (out, slots)
         }
         IslandType::Footnote => {
-            let (text, marks) = crate::lines::serial::parse_cell(props);
+            let (text, marks) = crate::lines::cells::parse_cell(props);
             let mut out = props.as_object().cloned().unwrap_or_default();
             out.remove("text");
             out.remove("marks");
@@ -365,7 +365,7 @@ pub(crate) fn from_line_props(
                 Some(Value::Object(cells)) => cells
                     .iter()
                     .map(|(id, cell)| {
-                        let (text, marks) = crate::lines::serial::parse_cell(cell);
+                        let (text, marks) = crate::lines::cells::parse_cell(cell);
                         (id.clone(), cell_to_slot(&text, &marks, true))
                     })
                     .collect(),

@@ -224,7 +224,7 @@ fn an_indented_text_field_survives_emit_and_reparse() {
     let content = quillmark_content::lines::import::from_plaintext(text);
     let md = doc_with(&[(
         "sample",
-        quillmark_content::lines::serial::to_canonical_value(&content),
+        quillmark_content::migrate::from_lines(&content).to_value(),
     )])
     .to_markdown();
     let back = Document::parse(&md).expect("re-parses").document;
@@ -244,49 +244,17 @@ fn an_indented_text_field_survives_emit_and_reparse() {
     );
 }
 
-/// The projection guard is byte identity against the canonical form, so a
-/// content object spelling a zero `instance` stays structural: it decodes to the
-/// same value and re-encodes to different bytes.
-#[test]
-fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
-    let content = quillmark_content::lines::import::from_markdown("> quoted")
-        .unwrap()
-        .content;
-    let canonical = quillmark_content::lines::serial::to_canonical_value(&content);
-    let mut spelled = canonical.clone();
-    spelled["lines"][0]["containers"][0]["instance"] = serde_json::json!(0);
-
-    let md = doc_with(&[("stored", canonical), ("spelled", spelled)]).to_markdown();
-    assert!(md.contains(r#"stored: "> quoted""#), "got:\n{md}");
-    let back = Document::parse(&md).expect("re-parses").document;
-    assert_eq!(
-        back.main().payload().get("stored").unwrap().as_str(),
-        Some("> quoted")
-    );
-
-    let spelled = back
-        .main()
-        .payload()
-        .get("spelled")
-        .expect("field survives");
-    assert_eq!(
-        spelled.as_json()["lines"][0]["containers"][0]["instance"],
-        serde_json::json!(0),
-        "got:\n{md}"
-    );
-}
-
 /// A nested content cell emits its projected scalar. `$ext` is no field value:
 /// nothing converts a projection there back, so its content stays structural.
 #[test]
 fn a_nested_content_cell_projects_and_ext_content_does_not() {
     use crate::value::QuillValue;
 
-    let content = quillmark_content::lines::serial::to_canonical_value(
+    let content = quillmark_content::migrate::from_lines(
         &quillmark_content::lines::import::from_markdown("and **this**")
             .unwrap()
             .content,
-    );
+    ).to_value();
     let meta = QuillValue::from_json(serde_json::json!({ "blurb": content.clone() }));
 
     let mut doc = Document::new("q@1.0.0".parse().expect("reference"));

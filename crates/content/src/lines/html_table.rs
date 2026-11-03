@@ -704,7 +704,7 @@ pub(crate) fn writes_html(props: &Value) -> bool {
     layout.head != 1
         || layout.widths.is_some()
         || layout.align.is_some()
-        || crate::lines::serial::table_cell_values(props).any(|cell| cell_alignment(cell) != (None, None))
+        || crate::lines::cells::table_cell_values(props).any(|cell| cell_alignment(cell) != (None, None))
         || table_spans(props).iter().flatten().flatten().any(|span| *span != (1, 1))
 }
 

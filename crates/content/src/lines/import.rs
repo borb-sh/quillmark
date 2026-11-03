@@ -693,7 +693,7 @@ struct ListInfo {
 #[derive(Default)]
 struct TableAcc {
     aligns: Vec<&'static str>,
-    /// Cells as canonical `{text, marks}` JSON (via `serial::cell_to_value`), so
+    /// Cells as canonical `{text, marks}` JSON (via `cells::cell_to_value`), so
     /// nothing downstream re-parses markdown to render a formatted cell.
     header: Vec<serde_json::Value>,
     rows: Vec<Vec<serde_json::Value>>,
@@ -1342,7 +1342,7 @@ impl Builder {
                 if let Some(mut cell) = acc.cell.take() {
                     cell.close_marks();
                     cell.drop_open(&mut self.dropped);
-                    acc.cur_row.push(crate::lines::serial::cell_to_value(&cell.text, &cell.marks));
+                    acc.cur_row.push(crate::lines::cells::cell_to_value(&cell.text, &cell.marks));
                 }
             }
             _ => {
@@ -1399,7 +1399,7 @@ impl Builder {
             let mut cells = Vec::with_capacity(row.len());
             for slot in row {
                 cells.push(match slot {
-                    Slot::Empty => crate::lines::serial::cell_to_value("", &[]),
+                    Slot::Empty => crate::lines::cells::cell_to_value("", &[]),
                     Slot::Cell(cell) => self.html_cell(cell)?,
                 });
             }
@@ -1424,7 +1424,7 @@ impl Builder {
         let mut inline = self.table.as_mut().and_then(|acc| acc.cell.take()).unwrap_or_default();
         inline.close_marks();
         inline.drop_open(&mut self.dropped);
-        let mut value = crate::lines::serial::cell_to_value(&inline.text, &inline.marks);
+        let mut value = crate::lines::cells::cell_to_value(&inline.text, &inline.marks);
         if let Some(o) = value.as_object_mut() {
             o.extend(cell.keys);
         }
@@ -1569,7 +1569,7 @@ impl Builder {
         if self.notes.contains_key(&key) {
             return self.dropped.add(DroppedConstruct::Footnote, note.at);
         }
-        let props = crate::lines::serial::cell_to_value(&note.inline.text, &note.inline.marks);
+        let props = crate::lines::cells::cell_to_value(&note.inline.text, &note.inline.marks);
         let chars = note.inline.text.chars().count();
         self.notes.insert(key, Note { props, chars, at: note.at, used: false, dropped: note.dropped });
     }
@@ -1598,7 +1598,7 @@ impl Builder {
             return note.dropped.add(DroppedConstruct::Math, at);
         }
         let cell = self.table.as_mut().and_then(|acc| acc.cell.as_mut());
-        if self.image_depth > 0 || cell.is_some() || !crate::lines::export::tex_is_writable(&crate::lines::serial::settle_tex(tex), display) {
+        if self.image_depth > 0 || cell.is_some() || !crate::lines::export::tex_is_writable(&crate::lines::cells::settle_tex(tex), display) {
             match cell {
                 Some(cell) => cell.push_text(source),
                 None if self.image_depth > 0 => self.image_alt.extend(admitted(source)),
@@ -2412,7 +2412,7 @@ pub(crate) mod tests {
         assert_eq!(dropped(&imported), [("u", MAX_NESTING_DEPTH)]);
 
         let imported = imp_fixed("| <u>a **b</u> c** | <u>d |\n|---|---|\n| x | y |");
-        let cells = crate::lines::serial::table_cells(&imported.content.islands[0].props);
+        let cells = crate::lines::cells::table_cells(&imported.content.islands[0].props);
         assert_eq!(
             cells[0].1,
             [Mark::new(0, 3, MarkKind::Underline), Mark::new(2, 5, MarkKind::Strong)]
@@ -2477,9 +2477,9 @@ pub(crate) mod tests {
         }
 
         let imported = imp_fixed("| <qm-span family=\"A\">a **b</qm-span> c** |\n|---|\n\na[^1]\n\n[^1]: <qm-span family=\"B\">n</qm-span>");
-        let cells = crate::lines::serial::table_cells(&imported.content.islands[0].props);
+        let cells = crate::lines::cells::table_cells(&imported.content.islands[0].props);
         assert_eq!(cells[0].1, [Mark::new(0, 3, family("A")), Mark::new(2, 5, MarkKind::Strong)]);
-        let (_, note) = crate::lines::serial::parse_cell(&imported.content.islands[1].props);
+        let (_, note) = crate::lines::cells::parse_cell(&imported.content.islands[1].props);
         assert_eq!(note, [Mark::new(0, 1, family("B"))]);
     }
 
@@ -2680,7 +2680,7 @@ pub(crate) mod tests {
     #[test]
     fn underline_from_u_tag_in_table_cell() {
         let rt = imp("| h |\n|---|\n| <u>a</u> **b** |");
-        let cells = crate::lines::serial::table_cells(&rt.islands[0].props);
+        let cells = crate::lines::cells::table_cells(&rt.islands[0].props);
         let (text, marks) = cells.iter().find(|(t, _)| t == "a b").expect("cell");
         assert_eq!(text, "a b");
         let kinds: Vec<&MarkKind> = marks.iter().map(|m| &m.kind).collect();
@@ -2692,7 +2692,7 @@ pub(crate) mod tests {
         let md = "![a](x)\n\n| h |\n|---|\n| c |";
         let a = imp(md);
         let b = imp(md);
-        assert_eq!(a.to_canonical_json(), b.to_canonical_json());
+        assert_eq!(a, b);
         let ids: Vec<&str> = a.islands.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, ["isl-0", "isl-1"]);
     }
@@ -2760,7 +2760,7 @@ pub(crate) mod tests {
             .iter()
             .map(|isl| {
                 assert_eq!(isl.island_type, IslandType::Footnote);
-                crate::lines::serial::parse_cell(&isl.props)
+                crate::lines::cells::parse_cell(&isl.props)
             })
             .collect();
         let first = ("first\nsecond\npara\nitem".to_string(), vec![]);
@@ -2923,10 +2923,7 @@ pub(crate) mod tests {
             }],
             islands: vec![],
         };
-        assert_eq!(
-            imported.to_canonical_json(),
-            editor.into_lines().to_canonical_json()
-        );
+        assert_eq!(imported, editor.into_lines());
     }
 
     #[test]
@@ -3083,7 +3080,7 @@ pub(crate) mod tests {
                 row.as_array()
                     .unwrap()
                     .iter()
-                    .map(|cell| crate::lines::serial::parse_cell(cell).0)
+                    .map(|cell| crate::lines::cells::parse_cell(cell).0)
                     .collect()
             })
             .collect()
@@ -3432,7 +3429,7 @@ pub(crate) mod tests {
     #[test]
     fn a_stray_backtick_in_a_cell_is_its_text() {
         let texts = |imported: &Imported| -> Vec<String> {
-            crate::lines::serial::table_cells(&imported.content.islands[0].props).into_iter().map(|(text, _)| text).collect()
+            crate::lines::cells::table_cells(&imported.content.islands[0].props).into_iter().map(|(text, _)| text).collect()
         };
         let imported = imp_fixed("<table><tr><td>`a</td><td>b`</td><td>c</td></tr></table>");
         assert_eq!(texts(&imported), ["`a", "b`", "c"]);
@@ -3441,7 +3438,7 @@ pub(crate) mod tests {
         assert!(imported.content.marks.iter().any(|m| m.kind == MarkKind::Code));
         assert!(imported.warnings.is_empty());
         let imported = imp_fixed("<table><tr><td>`a <!-- <td> --> b`</td></tr></table>");
-        let cells: Vec<(String, Vec<Mark>)> = crate::lines::serial::table_cells(&imported.content.islands[0].props);
+        let cells: Vec<(String, Vec<Mark>)> = crate::lines::cells::table_cells(&imported.content.islands[0].props);
         assert_eq!(cells[0], ("a <!-- <td> --> b".into(), vec![Mark::new(0, 7, MarkKind::Code), Mark::new(11, 17, MarkKind::Code)]));
     }
 
@@ -3479,7 +3476,7 @@ pub(crate) mod tests {
                   <td>a<br><u>b</u> &amp; &#32;</td><td>$x$ y[^1]</td></tr></table>\n\n[^1]: n";
         let imported = imp_fixed(md);
         let props = &imported.content.islands[0].props;
-        let cells: Vec<(String, Vec<Mark>)> = crate::lines::serial::table_cells(props);
+        let cells: Vec<(String, Vec<Mark>)> = crate::lines::cells::table_cells(props);
         assert_eq!(cells[0], ("Total and more".into(), vec![Mark::new(0, 5, MarkKind::Strong), Mark::new(10, 14, MarkKind::Emph)]));
         assert_eq!(
             cells[1],
@@ -3495,7 +3492,7 @@ pub(crate) mod tests {
     #[test]
     fn an_html_table_in_a_note_is_its_text() {
         let imported = imp_fixed("a[^1]\n\n[^1]: <table><tr><td>x</td><td>**y**</td></tr><tr><td>z</td><td>w</td></tr></table>");
-        let note = crate::lines::serial::parse_cell(&imported.content.islands[0].props);
+        let note = crate::lines::cells::parse_cell(&imported.content.islands[0].props);
         assert_eq!(note, ("x y\nz w".into(), vec![Mark::new(2, 3, MarkKind::Strong)]));
         assert_eq!(dropped(&imported), [("footnote[table]", 1)]);
     }
@@ -3727,7 +3724,7 @@ pub(crate) mod tests {
         }
 
         let imported = imp_fixed("| <qm-hl>x</qm-hl> y |\n|---|");
-        let (text, marks) = crate::lines::serial::parse_cell(&imported.content.islands[0].props["header"][0]);
+        let (text, marks) = crate::lines::cells::parse_cell(&imported.content.islands[0].props["header"][0]);
         assert_eq!(text, "x y");
         assert!(marks.is_empty());
         assert_eq!(dropped(&imported), [("qm-hl", 1)]);

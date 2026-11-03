@@ -475,7 +475,7 @@ fn a_stored_or_wired_comment_reads_without_the_whitespace_ending_it() {
     use crate::document::{Card, CardWire, PayloadItemWire};
 
     let mut doc: Document = serde_json::from_value(serde_json::json!({
-        "schema": "quillmark/document@0.129.0",
+        "schema": "quillmark/document@0.135.0",
         "main": {
             "payload": {
                 "items": [
@@ -489,7 +489,7 @@ fn a_stored_or_wired_comment_reads_without_the_whitespace_ending_it() {
                     {"container_path": [{"Key": "a"}], "position": 1, "text": "end\u{3000}", "inline": false},
                 ],
             },
-            "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""},
+            "body": {"blocks": [{"id": "b0", "kind": "para"}], "text": ""},
         },
         "cards": [],
     }))
