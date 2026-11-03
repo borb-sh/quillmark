@@ -179,6 +179,7 @@ impl Document {
 
         self.main = main;
         self.cards = revised_cards;
+        self.touch();
         self.settle();
         DocumentRevised {
             dropped_anchors,

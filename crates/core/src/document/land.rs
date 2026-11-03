@@ -107,6 +107,7 @@ impl Document {
     }
 
     pub(crate) fn card_at_mut(&mut self, at: Option<usize>) -> &mut Card {
+        self.touch();
         match at {
             None => &mut self.main,
             Some(i) => &mut self.cards[i],
@@ -121,9 +122,8 @@ impl Document {
         let mut content = None;
         if let Target::Field(name) = target {
             let read = content.insert(self.card_at(at).read(target)?).to_value();
-            let card = self.card_at_mut(at);
-            if card.payload().get(name).is_none() {
-                card.payload_mut().insert(name.to_string(), QuillValue::from_json(read)).map_err(EditError::InvalidPayload)?;
+            if self.card_at(at).payload().get(name).is_none() {
+                self.card_at_mut(at).payload_mut().insert(name.to_string(), QuillValue::from_json(read)).map_err(EditError::InvalidPayload)?;
                 put = true;
             }
         }
@@ -203,11 +203,9 @@ impl Document {
     /// reading the cards again.
     fn set_read(&mut self, at: Option<usize>, target: Target<'_>, after: &Content) {
         let Target::Body = target else { return self.reread() };
-        self.card_at_mut(at).set_body(after.clone());
-        let synced = &mut self.held().synced;
         match at {
-            None => synced.0.set_body(after.clone()),
-            Some(i) => synced.1[i].set_body(after.clone()),
+            None => self.main.set_body(after.clone()),
+            Some(i) => self.cards[i].set_body(after.clone()),
         }
         #[cfg(debug_assertions)]
         {

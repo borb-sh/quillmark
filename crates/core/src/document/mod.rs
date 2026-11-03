@@ -1004,13 +1004,13 @@ impl PartialEq for Bound {
     }
 }
 
-/// The Automerge document a [`Document`] is held in, and the cards as it was
-/// last written into it. The cards are its view: a write lands in it first,
-/// or reaches it at the next [`Document::flush`].
+/// The Automerge document a [`Document`] is held in. The cards are its view:
+/// a write lands in it first, or reaches it at the next [`Document::flush`].
 #[derive(Clone)]
 pub(crate) struct Held {
     doc: quillmark_automerge::model::Doc,
-    synced: (Card, Vec<Card>),
+    /// The cards were written to since they last read as the document.
+    dirty: bool,
     /// The heads each value's hash was first read at, by the value's address.
     seen: std::collections::HashMap<(String, String), Vec<quillmark_automerge::automerge::ChangeHash>>,
     /// The heads before each of the latest writes, newest last: where a hash
@@ -1023,6 +1023,12 @@ pub(crate) struct Held {
 
 /// How many of the latest writes' heads a base hash is looked for at.
 pub(crate) const HISTORY: usize = 1024;
+
+impl Held {
+    fn new(doc: quillmark_automerge::model::Doc, dirty: bool) -> Held {
+        Held { doc, dirty, seen: Default::default(), history: Vec::new(), last: None }
+    }
+}
 
 impl PartialEq for Held {
     fn eq(&self, _: &Self) -> bool {
@@ -1046,8 +1052,7 @@ impl Document {
     /// The document `doc` holds, its cards read from it.
     pub(crate) fn read_from(doc: quillmark_automerge::model::Doc, mints: card_id::ActorMints) -> Result<Self, String> {
         let (main, cards) = held::read(&doc)?;
-        let synced = (main.clone(), cards.clone());
-        Ok(Self { main, cards, mints, held: Bound(Some(Held { doc, synced, seen: Default::default(), history: Vec::new(), last: None })) })
+        Ok(Self { main, cards, mints, held: Bound(Some(Held::new(doc, false))) })
     }
 
     /// Holds the document in an Automerge document where it is not yet,
@@ -1060,13 +1065,19 @@ impl Document {
         }
         let doc = held::build(&self.main, &self.cards);
         let (main, cards) = held::read(&doc).expect("built cards read back");
-        let synced = (main.clone(), cards.clone());
-        self.held = Bound(Some(Held { doc, synced, seen: Default::default(), history: Vec::new(), last: None }));
-        if cards.len() == self.cards.len() {
-            self.main = main;
+        let unplaced = cards.len() != self.cards.len();
+        self.held = Bound(Some(Held::new(doc, unplaced)));
+        self.main = main;
+        if !unplaced {
             self.cards = cards;
-        } else {
-            self.main = main;
+        }
+    }
+
+    /// Marks the cards written to, so the next [`flush`](Self::flush)
+    /// writes them into the Automerge document.
+    pub(crate) fn touch(&mut self) {
+        if let Some(held) = self.held.0.as_mut() {
+            held.dirty = true;
         }
     }
 
@@ -1075,21 +1086,19 @@ impl Document {
         self.held.0.as_mut().expect("bound")
     }
 
-    /// Writes what the cards changed since they were last written into the
-    /// Automerge document, and reads them back from it.
+    /// Writes what the cards changed since they last read as the Automerge
+    /// document into it, and reads them back from it.
     pub(crate) fn flush(&mut self) {
         self.bind();
-        let live = self.held.0.as_mut().expect("bound");
-        if live.synced.0 == self.main && live.synced.1 == self.cards {
+        let held = self.held.0.as_mut().expect("bound");
+        if !held.dirty {
             return;
         }
-        let Held { doc, synced, history, .. } = live;
+        let Held { doc, history, .. } = held;
         remember(history, doc.heads());
-        held::flush(doc, (&synced.0, &synced.1), (&self.main, &self.cards));
-        let (main, cards) = held::read(doc).expect("flushed cards read back");
-        *synced = (main.clone(), cards.clone());
-        self.main = main;
-        self.cards = cards;
+        let was = held::read(doc).expect("a held document reads as cards");
+        held::flush(doc, (&was.0, &was.1), (&self.main, &self.cards));
+        self.reread();
     }
 
     /// The Automerge document, with every change to the cards written in.
@@ -1109,9 +1118,9 @@ impl Document {
     /// Reads the cards again from the Automerge document, after a change
     /// that landed in it.
     pub(crate) fn reread(&mut self) {
-        let live = self.held();
-        let (main, cards) = held::read(&live.doc).expect("a held document reads as cards");
-        live.synced = (main.clone(), cards.clone());
+        let held = self.held();
+        let (main, cards) = held::read(&held.doc).expect("a held document reads as cards");
+        held.dirty = false;
         self.main = main;
         self.cards = cards;
     }
@@ -1127,9 +1136,9 @@ impl Document {
 
     /// The heads of the Automerge document this one is held in, where it is
     /// held in one and its cards read as that document does.
-    pub(crate) fn held_heads(&self) -> Option<Vec<quillmark_automerge::automerge::ChangeHash>> {
-        let mut live = self.held.0.clone()?;
-        (live.synced.0 == self.main && live.synced.1 == self.cards).then(|| live.doc.heads())
+    pub(crate) fn held_heads(&mut self) -> Option<Vec<quillmark_automerge::automerge::ChangeHash>> {
+        let held = self.held.0.as_mut().filter(|h| !h.dirty)?;
+        Some(held.doc.heads())
     }
 
     /// Writes what the cards changed into the Automerge document, where the
@@ -1331,10 +1340,12 @@ impl Document {
     }
 
     pub(crate) fn main_card_mut(&mut self) -> &mut Card {
+        self.touch();
         &mut self.main
     }
 
     pub(crate) fn cards_vec_mut(&mut self) -> &mut Vec<Card> {
+        self.touch();
         &mut self.cards
     }
 
