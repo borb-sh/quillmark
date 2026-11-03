@@ -9,7 +9,8 @@ use pyo3::types::PyDict;
 use quillmark_content::change::{self, Change};
 use quillmark_content::model::Content;
 use quillmark_content::wire::ParseError;
-use quillmark_core::document::{Document, Edit, EditError, Receipt, Target, WriteOptions, check_change, check_content_value};
+use quillmark_automerge::automerge::sync;
+use quillmark_core::document::{CardMut, Document, Edit, EditError, Receipt, Target, WriteOptions, check_change, check_content_value};
 use quillmark_core::path::DocPath;
 
 use crate::errors::convert_edit_error;
@@ -55,18 +56,48 @@ pub(crate) fn write<'py>(
     edit: Edit<'_>,
     opts: WriteOptions<'_>,
 ) -> PyResult<Bound<'py, PyDict>> {
+    taking(py, doc, card, base_path, field, |card, target| card.write(target, edit, opts))
+}
+
+/// Run `take` on the value at `field` on `card` (`None` the main card) of
+/// `doc`, its receipt as it crosses.
+pub(crate) fn taking<'py>(
+    py: Python<'py>,
+    doc: &mut Document,
+    card: Option<usize>,
+    base_path: &DocPath,
+    field: Option<&str>,
+    take: impl FnOnce(&mut CardMut<'_>, Target<'_>) -> Result<Receipt, EditError>,
+) -> PyResult<Bound<'py, PyDict>> {
     let path = match field {
         None => base_path.body(),
         Some(f) => base_path.field(f),
     };
-    let mut card = match card {
-        None => doc.main_mut(),
-        Some(i) => doc.card_mut(i).expect("the card index is resolved"),
-    };
-    let to_py = |e: EditError| convert_edit_error(e, base_path);
-    let receipt: Receipt = card.write(Target::from(field), edit, opts).map_err(to_py)?;
+    let mut card = card_mut(doc, card);
+    let receipt = take(&mut card, Target::from(field)).map_err(|e| convert_edit_error(e, base_path))?;
     let card_id = card.id().map(str::to_string);
     receipt_to_py(py, receipt, &path, card_id)
+}
+
+/// The card `card` names (`None` the main card), its index resolved.
+pub(crate) fn card_mut(doc: &mut Document, card: Option<usize>) -> CardMut<'_> {
+    match card {
+        None => doc.main_mut(),
+        Some(i) => doc.card_mut(i).expect("the card index is resolved"),
+    }
+}
+
+/// What one peer of the Automerge sync protocol is known to hold, for one
+/// value: `Document.sync_state()` makes it, and `generate_sync_message` and
+/// `receive_sync_message` read and advance it. Opaque, and in memory only.
+#[pyclass(name = "SyncState")]
+pub struct PySyncState {
+    pub(crate) inner: sync::State,
+}
+
+/// The `edit::automerge` refusal of a sync message that does not decode.
+pub(crate) fn sync_message(bytes: &[u8]) -> Result<sync::Message, EditError> {
+    sync::Message::decode(bytes).map_err(|e| EditError::Automerge(e.to_string()))
 }
 
 /// `receipt` as it crosses, its dropped anchors' selectors at `path` on the

@@ -1004,6 +1004,79 @@ impl PyDocument {
         let edit = quillmark_core::document::Edit::Replace(content);
         crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base: base.map(quillmark_core::document::Base::Hash), actor })
     }
+
+    /// The live Automerge document of the value at `field` on `card`, as its
+    /// bytes: made from the value where no write has made it yet. Raises as
+    /// `read`.
+    #[pyo3(signature = (field=None, card=None))]
+    fn save<'py>(&mut self, py: Python<'py>, field: Option<&str>, card: Option<CardSel>) -> PyResult<Bound<'py, PyBytes>> {
+        let target = Target::resolve(&self.inner, card)?;
+        let bytes = crate::content::card_mut(&mut self.inner, target.index)
+            .save(quillmark_core::document::Target::from(field))
+            .map_err(|e| convert_edit_error(e, &target.base))?;
+        Ok(PyBytes::new(py, &bytes))
+    }
+
+    /// Replace the live document of the value at `field` on `card` with the
+    /// one `data` holds (`save`'s), store what it reads as, and return the
+    /// receipt of a write from the value before. The document keeps the
+    /// history `data` holds but notes no hash before the load, so a base read
+    /// before it raises `edit::stale_base`. Bytes that hold no value raise
+    /// `edit::automerge`; `card` is a card's id, as a content write's is.
+    #[pyo3(signature = (data, field=None, card=None))]
+    fn load<'py>(&mut self, py: Python<'py>, data: &[u8], field: Option<&str>, card: Option<CardSel>) -> PyResult<Bound<'py, PyDict>> {
+        require_card_id(&card, "load")?;
+        let target = Target::resolve(&self.inner, card)?;
+        crate::content::taking(py, &mut self.inner, target.index, &target.base, field, |card, t| card.load(t, data))
+    }
+
+    /// A fresh `SyncState`: a peer of whom nothing is known yet. One serves
+    /// one value and one peer.
+    #[staticmethod]
+    fn sync_state() -> crate::content::PySyncState {
+        crate::content::PySyncState { inner: Default::default() }
+    }
+
+    /// The next Automerge sync message from the live document of the value
+    /// at `field` on `card` to the peer `state` tracks, `None` where the peer
+    /// holds everything. Raises as `read`.
+    #[pyo3(signature = (state, field=None, card=None))]
+    fn generate_sync_message<'py>(
+        &mut self,
+        py: Python<'py>,
+        state: &mut crate::content::PySyncState,
+        field: Option<&str>,
+        card: Option<CardSel>,
+    ) -> PyResult<Option<Bound<'py, PyBytes>>> {
+        let target = Target::resolve(&self.inner, card)?;
+        let message = crate::content::card_mut(&mut self.inner, target.index)
+            .generate_sync_message(quillmark_core::document::Target::from(field), &mut state.inner)
+            .map_err(|e| convert_edit_error(e, &target.base))?;
+        Ok(message.map(|m| PyBytes::new(py, &m.encode())))
+    }
+
+    /// Take an Automerge sync message from the peer `state` tracks into the
+    /// live document of the value at `field` on `card`, store what it then
+    /// reads as, and return the receipt of a write from the value before:
+    /// its `dropped_anchors` each anchor the merge left nowhere, its
+    /// `moved_anchors` each one it moved. A message the document refuses
+    /// raises `edit::automerge`; `card` is a card's id, as a content write's
+    /// is.
+    #[pyo3(signature = (state, message, field=None, card=None))]
+    fn receive_sync_message<'py>(
+        &mut self,
+        py: Python<'py>,
+        state: &mut crate::content::PySyncState,
+        message: &[u8],
+        field: Option<&str>,
+        card: Option<CardSel>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        require_card_id(&card, "receive_sync_message")?;
+        let target = Target::resolve(&self.inner, card)?;
+        crate::content::taking(py, &mut self.inner, target.index, &target.base, field, |card, t| {
+            card.receive_sync_message(t, &mut state.inner, crate::content::sync_message(message)?)
+        })
+    }
 }
 
 impl PyDocument {

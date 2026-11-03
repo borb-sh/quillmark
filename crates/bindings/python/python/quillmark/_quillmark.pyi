@@ -25,6 +25,7 @@ __all__ = [
     "Reader",
     "RenderResult",
     "Severity",
+    "SyncState",
     "Writer",
     "diff",
     "invert",
@@ -196,6 +197,19 @@ class Document:
         base: str | None = None,
         actor: str | None = None,
     ) -> Receipt: ...
+    def save(self, field: str | None = None, card: int | str | None = None) -> bytes: ...
+    def load(self, data: bytes, field: str | None = None, card: str | None = None) -> Receipt: ...
+    @staticmethod
+    def sync_state() -> SyncState: ...
+    def generate_sync_message(
+        self, state: SyncState, field: str | None = None, card: int | str | None = None
+    ) -> bytes | None: ...
+    def receive_sync_message(
+        self, state: SyncState, message: bytes, field: str | None = None, card: str | None = None
+    ) -> Receipt: ...
+
+@final
+class SyncState: ...
 
 # A content value: `text` (a `\n` opens a block, U+2028 is a hard break, U+FFFC
 # an island's character), `blocks`, and the optional `containers`, `marks`,
