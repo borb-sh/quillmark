@@ -10,8 +10,7 @@ one Automerge document. A document persists as that Automerge document's
 its receipt, and sync is Automerge's own (§ "The Automerge layout"). The
 **versioned JSON envelope**, `StoredDocument`, whose wire format is frozen per
 schema version, is the history-free interchange and the migration form: a
-`0.134.0` row is JSON, and reads into a new document. The JSON form is the
-migration reader and the render handoff, not a row to keep.
+`0.134.0` row is JSON, and reads into a new document.
 
 ## When to use it
 
@@ -121,9 +120,8 @@ schema-aware write, or any other JSON, is Automerge maps, lists and scalars,
 merged as data, a map's key order held in its `\u{1f}order` list, since an
 Automerge map holds none. `Document::from_bytes` refuses bytes whose
 root holds no document in this shape, or names a schema this build does not
-read (`edit::bad_live_bytes`). The `schema` tag names the model version, the
-JSON envelope's tag the same: which carrier a row is, bytes or JSON, its
-leading bytes tell.
+read (`edit::bad_live_bytes`). The root's `schema` tag names the layout
+version of the live document.
 
 Concurrent changes merge as Automerge merges them: a field, a card or a record
 two writers set reads as the later in Automerge's order, text both edited

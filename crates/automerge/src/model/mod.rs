@@ -27,9 +27,8 @@ use quillmark_content::model::Content;
 use quillmark_content::repair::{Raw, Repair, repair};
 use serde_json::Value;
 
-/// The schema a document's bytes hold under `schema`: the model version,
-/// the JSON envelope's tag for the same model. Which carrier a row is, bytes
-/// or JSON, its leading bytes tell.
+/// The schema a document's bytes hold under `schema`: the layout version of
+/// the live document.
 pub const SCHEMA: &str = "quillmark/document@0.135.0";
 
 pub const QUILL: &str = "quill";
