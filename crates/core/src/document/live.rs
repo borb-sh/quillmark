@@ -46,52 +46,40 @@ fn obj(doc: &am::Doc, parent: &ObjId, key: &str) -> Option<ObjId> {
     }
 }
 
+/// `v` with each string `minted` renames renamed, the values under a key
+/// `keep` names kept as they are.
+fn renamed_json(v: &serde_json::Value, minted: &BTreeMap<String, String>, keep: &[&str]) -> serde_json::Value {
+    use serde_json::Value;
+    match v {
+        Value::String(s) => Value::String(minted.get(s).cloned().unwrap_or_else(|| s.clone())),
+        Value::Array(a) => Value::Array(a.iter().map(|x| renamed_json(x, minted, keep)).collect()),
+        Value::Object(o) => Value::Object(
+            o.iter()
+                .map(|(k, x)| match keep.contains(&k.as_str()) {
+                    true => (k.clone(), x.clone()),
+                    false => (k.clone(), renamed_json(x, minted, keep)),
+                })
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 /// `change` with each id `minted` renames renamed.
 fn renamed(change: &Change, minted: &BTreeMap<String, String>) -> Change {
-    fn walk(v: &serde_json::Value, m: &BTreeMap<String, String>) -> serde_json::Value {
-        use serde_json::Value;
-        match v {
-            Value::String(s) => Value::String(m.get(s).cloned().unwrap_or_else(|| s.clone())),
-            Value::Array(a) => Value::Array(a.iter().map(|x| walk(x, m)).collect()),
-            Value::Object(o) => Value::Object(
-                o.iter()
-                    .map(|(k, x)| match matches!(k.as_str(), "text" | "insert" | "delete" | "quote" | "type" | "op" | "kind") {
-                        true => (k.clone(), x.clone()),
-                        false => (k.clone(), walk(x, m)),
-                    })
-                    .collect(),
-            ),
-            other => other.clone(),
-        }
-    }
     if minted.is_empty() {
         return change.clone();
     }
-    Change::from_value(&walk(&change.to_value(), minted)).unwrap_or_else(|_| change.clone())
+    let keep = ["text", "insert", "delete", "quote", "type", "op", "kind"];
+    Change::from_value(&renamed_json(&change.to_value(), minted, &keep)).unwrap_or_else(|_| change.clone())
 }
 
 /// `content` with each id `minted` renames renamed.
 fn renamed_content(content: &Content, minted: &BTreeMap<String, String>) -> Content {
-    fn walk(v: &serde_json::Value, m: &BTreeMap<String, String>) -> serde_json::Value {
-        use serde_json::Value;
-        match v {
-            Value::String(s) => Value::String(m.get(s).cloned().unwrap_or_else(|| s.clone())),
-            Value::Array(a) => Value::Array(a.iter().map(|x| walk(x, m)).collect()),
-            Value::Object(o) => Value::Object(
-                o.iter()
-                    .map(|(k, x)| match matches!(k.as_str(), "text" | "kind" | "type") {
-                        true => (k.clone(), x.clone()),
-                        false => (k.clone(), walk(x, m)),
-                    })
-                    .collect(),
-            ),
-            other => other.clone(),
-        }
-    }
     if minted.is_empty() {
         return content.clone();
     }
-    Content::from_value(&walk(&content.to_value(), minted)).unwrap_or_else(|_| content.clone())
+    Content::from_value(&renamed_json(&content.to_value(), minted, &["text", "kind", "type"])).unwrap_or_else(|_| content.clone())
 }
 
 /// Whether `content` holds a point anchor, which Automerge keeps as a
