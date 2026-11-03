@@ -9,9 +9,8 @@
 //! `$ext`/`$seed` are opaque mappings that carry no field-name invariant, but
 //! do carry the depth bound.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
-use quillmark_content::lines::export::{AnchorRead, anchors_where};
 use quillmark_content::lines::import::ImportError;
 use quillmark_content::lines::model::Lines;
 
@@ -241,15 +240,10 @@ pub enum EditError {
     #[error("the write removes the {kind} island '{island}', which its writer may not have seen; remove it with apply")]
     DropsExtIsland { island: String, kind: String },
 
-    /// A content write's actor is not an
+    /// A write's or a card placement's actor is not an
     /// [actor](quillmark_content::ids::is_actor).
-    #[error("invalid actor '{0}': must be 1 to 64 scalar values holding no whitespace, control or ':', not opening with '?'")]
+    #[error("invalid actor '{0}': must be 1 to 57 of [A-Za-z0-9_-], opening with a letter or digit")]
     InvalidActor(String),
-
-    /// A card placement's actor is not a
-    /// [card actor](super::card_id::is_card_actor).
-    #[error("invalid actor '{0}' for a card id: must be 1 to 57 of [A-Za-z0-9_-], opening with a letter or digit")]
-    InvalidCardActor(String),
 
     /// A revise's [`Base`] refused the write.
     #[error(transparent)]
@@ -321,7 +315,7 @@ impl EditError {
             EditError::TooManyAnchors { .. } => "edit::too_many_anchors",
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
-            EditError::InvalidActor(_) | EditError::InvalidCardActor(_) => "edit::invalid_actor",
+            EditError::InvalidActor(_) => "edit::invalid_actor",
             EditError::Base(e) => e.code(),
         }
     }
@@ -391,7 +385,7 @@ impl EditError {
                 "island" => island,
                 "type" => kind,
             },
-            EditError::InvalidActor(actor) | EditError::InvalidCardActor(actor) => diag_args! { "actor" => actor },
+            EditError::InvalidActor(actor) => diag_args! { "actor" => actor },
             EditError::Base(e) => e.args(),
         }
     }
@@ -775,19 +769,15 @@ pub(crate) fn resolve_field_write(
     Ok((stored, drops))
 }
 
-/// Every anchor of `stored`, in its prose or a cell, whose id `next` holds
-/// nowhere, as [`anchors_where`] reads it off `stored`.
-pub(crate) fn dropped_anchors(stored: &Lines, next: &Lines) -> Vec<AnchorRead> {
-    let sites = stored.anchor_sites();
-    if sites.is_empty() {
-        return Vec::new();
-    }
-    let held: HashSet<String> = next
-        .anchor_sites()
-        .into_iter()
-        .map(|site| site.id)
-        .collect();
-    anchors_where(stored, |id| !held.contains(id))
+/// The literal text a `text` field's strict write commits for `body`: the
+/// codec's boundary cleanup, so what a revise carries anchors onto is what
+/// lands.
+pub(crate) fn committed_text(name: &str, body: String, schema: &FieldSchema) -> Result<String, EditError> {
+    let (committed, _) = resolve_field_write(name, &QuillValue::from(body), schema, &DocPath::new())?;
+    Codec::Text
+        .decode_field(committed.as_json())
+        .map(|c| Codec::Text.project(&c))
+        .map_err(|e| field_decode(name, &[], Codec::Text, e))
 }
 
 /// The mutable handle on a card already placed in a [`Document`]: every
@@ -1047,8 +1037,8 @@ impl Document {
         }
         Self::check_composable_placement(&card)?;
         self.check_card_room()?;
-        if let Some(actor) = actor.filter(|a| !super::card_id::is_card_actor(a)) {
-            return Err(EditError::InvalidCardActor(actor.to_string()));
+        if let Some(actor) = actor.filter(|a| !quillmark_content::ids::is_actor(a)) {
+            return Err(EditError::InvalidActor(actor.to_string()));
         }
         let held: std::collections::HashSet<String> = self
             .cards()
@@ -1194,7 +1184,7 @@ impl Unchecked<'_> {
     /// holds it ([`EditError::DuplicateCardId`]). A card spelling none mints
     /// one: under `actor`, `{actor}-{token}`, so two writers placing cards
     /// from one document never mint one id, and positionally with none. An
-    /// actor that cannot open a card id is [`EditError::InvalidCardActor`].
+    /// actor that cannot open a card id is [`EditError::InvalidActor`].
     pub fn insert_card(&mut self, at: Option<usize>, card: Card, actor: Option<&str>) -> Result<String, EditError> {
         self.0.place_card(at, card, actor)
     }
@@ -1605,18 +1595,7 @@ impl Card {
         check_field_name(name)?;
         let target = super::Target::Field(name);
         if matches!(schema.r#type, FieldType::Text { .. }) {
-            // The strict write runs the literal codec's boundary cleanup, so
-            // the committed text is what the anchors are carried onto.
-            let (committed, _) = resolve_field_write(
-                name,
-                &QuillValue::from(body.into()),
-                schema,
-                &DocPath::new(),
-            )?;
-            let text = Codec::Text
-                .decode_field(committed.as_json())
-                .map(|c| Codec::Text.project(&c))
-                .map_err(|e| field_decode(name, &[], Codec::Text, e))?;
+            let text = committed_text(name, body.into(), schema)?;
             let mut before = match self.payload.get(name) {
                 None => quillmark_content::model::Content::empty(),
                 Some(v) => Codec::Text.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Text, e))?,

@@ -61,26 +61,23 @@ fn current_of(err: EditError) -> (&'static str, String) {
 }
 
 #[test]
-fn a_stale_hash_refuses_the_revise_and_names_the_hash_now() {
+fn a_stale_hash_rebases_the_revise_and_an_unknown_one_names_the_hash_now() {
     let mut card = card_with_body("Alpha one.\n\nBeta two.");
     let read = card.body_hash();
     let _ = card.revise_body("Alpha one, edited.\n\nBeta two.").unwrap();
-    let stored = card.body_lines().clone();
 
-    let err = card
+    let receipt = card
         .revise_body_against(Base::Hash(&read), "Alpha one.\n\nBeta two, rewritten.")
+        .unwrap();
+    assert!(receipt.rebased);
+    assert_eq!(card.body_lines().text, "Alpha one, edited.\nBeta two, rewritten.");
+
+    let stored = card.body_lines().clone();
+    let err = card
+        .revise_body_against(Base::Hash("not-a-read"), "Alpha.")
         .unwrap_err();
     assert_eq!(current_of(err), ("stale", card.body_hash()));
     assert_eq!(card.body_lines(), &stored);
-
-    let fresh = card.body_hash();
-    let _ = card
-        .revise_body_against(
-            Base::Hash(&fresh),
-            "Alpha one, edited.\n\nBeta two, rewritten.",
-        )
-        .unwrap();
-    assert_eq!(card.body_lines().text, "Alpha one, edited.\nBeta two, rewritten.");
 }
 
 #[test]

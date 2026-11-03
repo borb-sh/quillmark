@@ -3,7 +3,7 @@ its producers `revise` and `replace`, the reads, and the pure helpers over
 changes. Offsets count code points."""
 
 import pytest
-from quillmark import Document, diff, invert, repair
+from quillmark import Document, diff, export_markdown, import_markdown, invert, is_inline, is_plain, normalize, repair
 
 from conftest import raises_edit_code
 
@@ -92,7 +92,7 @@ def test_offsets_count_code_points():
 def test_revise_and_replace_name_the_anchors_they_drop():
     doc = Document.parse("~~~card-yaml\n$quill: test_quill\n~~~\n\nThe committee met on Monday to plan.\n")
     doc.apply({"steps": [{"anchor": {"id": "m1", "start": 14, "end": 27}}]})
-    assert doc.to_markdown_at(annotated=True) == 'The committee <qm-anchor ref="m1"></qm-anchor>met on Monday to plan.'
+    assert doc.to_markdown_at(annotated=True)["markdown"] == 'The committee <qm-anchor ref="m1"></qm-anchor>met on Monday to plan.'
     receipt = doc.revise("The board met on Monday to plan.")
     assert receipt["dropped_anchors"] == []
     assert doc.read()["anchors"] == [{"id": "m1", "start": 10, "end": 23}]
@@ -174,3 +174,18 @@ def test_a_receipt_names_each_anchor_a_write_moved_and_what_moved():
         {"id": "p", "before": "", "after": "", "reason": "position"},
         {"id": "r", "before": "world", "after": "world", "reason": "block"},
     ]
+
+
+def test_the_markdown_import_and_export_and_the_predicates_hold_no_document():
+    imported = import_markdown("Hello *world*.\n\n- one")
+    content = imported["content"]
+    assert imported["warnings"] == []
+    assert export_markdown(content) == "Hello *world*.\n\n- one"
+    assert not is_inline(content) and not is_plain(content)
+    assert is_inline(import_markdown("Hello.")["content"])
+    assert normalize(content) == content
+    doc = Document.parse(MD)
+    doc.apply({"steps": [{"anchor": {"id": "a", "start": 0, "end": 5}}]})
+    read = export_markdown(doc.read(), annotated=True)
+    assert read == {"markdown": '<qm-anchor ref="a"></qm-anchor>hello world', "anchors": [{"id": "a", "line": "hello world"}]}
+    assert doc.to_markdown(annotated=True)["anchors"] == [{"id": "a", "path": "main.body", "card_id": None, "line": "hello world"}]

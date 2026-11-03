@@ -341,8 +341,8 @@ export interface BaseOptions {
 
 /**
  * The receipt of `writer.reviseDocument`. `droppedAnchors` names every
- * anchor the write did not keep, at its path and line in the stored document, a
- * table cell's included. `warnings` are the parse's, then each revised
+ * anchor the write did not keep, a table cell's included, as the selector
+ * `reattach` takes, read off the stored document. `warnings` are the parse's, then each revised
  * content field's `parse::dropped_construct`, then the writer's `conform::*`.
  * A field that lands rather than revises, on an inserted card or over no stored
  * content, reports no drop. `from` names, for each composable card of the
@@ -352,7 +352,7 @@ export interface BaseOptions {
  * `baseMarkdown`.
  */
 export interface DocumentRevised {
-    droppedAnchors: DocumentAnchor[];
+    droppedAnchors: AnchorContext[];
     warnings: Diagnostic[];
     from: (number | null)[];
     conflicts: MergeConflict[];
@@ -412,6 +412,16 @@ export interface Document {
 export interface AnnotatedMarkdown {
     markdown: string;
     anchors: DocumentAnchor[];
+}
+
+/**
+ * What `exportMarkdown(content, { annotated: true })` answers: the
+ * annotated markdown, and every anchor of the value with the text of the
+ * `line` its start sits on, island slots removed, or of its cell.
+ */
+export interface AnnotatedExport {
+    markdown: string;
+    anchors: { id: string; line: string }[];
 }
 
 export interface DocumentAnchor {
@@ -2087,20 +2097,27 @@ pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
 }
 
 /// The one content export: `rt`'s markdown, a `codec: "plain"` value's
-/// literal text. Cold, it drops every anchor; `opts.annotated` spells each
-/// anchor and each island markdown cannot hold, which a revise reads back.
+/// literal text. Cold, it answers the string and drops every anchor;
+/// `opts.annotated` answers `{ markdown, anchors }`, the markdown spelling
+/// each anchor and each island markdown cannot hold, which a revise reads
+/// back, and `anchors` listing every anchor, a cell's or a note's unspelled.
 /// Throws if `rt` is not canonical content.
-#[wasm_bindgen(js_name = exportMarkdown)]
+#[wasm_bindgen(js_name = exportMarkdown, unchecked_return_type = "string | AnnotatedExport")]
 pub fn export_markdown(
     #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
     #[wasm_bindgen(unchecked_optional_param_type = "MarkdownOptions")] opts: JsValue,
-) -> Result<String, JsValue> {
+) -> Result<JsValue, JsValue> {
     let annotated = markdown_options(&opts, "exportMarkdown")?;
     let content = content::content_in(rt, "exportMarkdown")?;
-    Ok(match annotated {
-        true => quillmark_content::markdown::to_text_annotated(&content).markdown,
-        false => quillmark_content::markdown::to_text(&content),
-    })
+    if !annotated {
+        return Ok(JsValue::from_str(&quillmark_content::markdown::to_text(&content)));
+    }
+    let read = quillmark_content::markdown::to_text_annotated(&content);
+    let out = serde_json::json!({
+        "markdown": read.markdown,
+        "anchors": read.anchors.into_iter().map(|a| serde_json::json!({ "id": a.id, "line": a.line })).collect::<Vec<_>>(),
+    });
+    serialize_or_throw(&out, "exportMarkdown")
 }
 
 /// `MarkdownOptions.annotated`, false where `opts` is absent.
@@ -2224,7 +2241,7 @@ struct ReattachedJs {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DocumentRevisedJs {
-    dropped_anchors: Vec<DocumentAnchorJs>,
+    dropped_anchors: Vec<AnchorContextJs>,
     warnings: Vec<Diagnostic>,
     from: Vec<Option<usize>>,
     conflicts: Vec<MergeConflictJs>,

@@ -140,9 +140,8 @@ revise or replace whose change removes an `x-` island refuses under
 one, so its writer may not have seen it, and a change through `apply` removes
 one. The line-form revise verbs do not check. A content write whose `actor`
 is not an actor ([CONTENT.md](CONTENT.md) § Ids) refuses under
-`edit::invalid_actor`, carrying `actor`, as does a card placement whose
-`actor` cannot open a card id ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)
-§ "Card-id identity").
+`edit::invalid_actor`, carrying `actor`, as does a card placement under
+one.
 
 Building a card from a `CardWire` (`unchecked.insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:

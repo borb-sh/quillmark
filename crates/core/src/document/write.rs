@@ -69,9 +69,9 @@ pub struct WriteOptions<'a> {
     /// Who writes, scoping each id the write mints: `{actor}:{prefix}{n}`
     /// where it is given, `{prefix}{n}` where not. A live client passes one
     /// unique to its session, so two clients writing from one value never
-    /// mint one id. An actor other than an
-    /// [id](quillmark_content::ids::is_actor) of at most 64 scalar values
-    /// holding no `:` is refused with `edit::invalid_actor`.
+    /// mint one id. One that is not an
+    /// [actor](quillmark_content::ids::is_actor) is refused with
+    /// `edit::invalid_actor`.
     pub actor: Option<&'a str>,
 }
 
@@ -229,7 +229,7 @@ impl Card {
     /// The block holding offset `at` of the value at `target`, its index and
     /// its container path; at a block's end, that block. `Stale` where `at`
     /// is past the text.
-    pub fn locate(&self, target: Target<'_>, at: usize) -> Result<Located, EditError> {
+    pub fn block_at(&self, target: Target<'_>, at: usize) -> Result<Located, EditError> {
         let content = self.read(target)?;
         if at > content.len_scalars() {
             return Err(EditError::change(change::ApplyError::Stale { step: 0 }));
@@ -333,8 +333,14 @@ impl Card {
     /// [`revise`](Self::revise) with no base, its receipt counted in scalars
     /// on the value it read, which [`Receipt::in_units`] converts.
     pub(crate) fn revise_counted(&mut self, target: Target<'_>, markdown: &str) -> Result<Receipt, EditError> {
+        self.revise_counted_from(target, markdown, None)
+    }
+
+    /// [`revise_counted`](Self::revise_counted) under `base`, rebased over
+    /// the change since where the value has moved on.
+    pub(crate) fn revise_counted_from(&mut self, target: Target<'_>, markdown: &str, base: Option<&str>) -> Result<Receipt, EditError> {
         let before = self.read(target)?;
-        let mut receipt = self.write(target, Edit::Revise(markdown), WriteOptions::default())?;
+        let mut receipt = self.write(target, Edit::Revise(markdown), WriteOptions { base, actor: None })?;
         receipt.counted = Counted::Content(Arc::new(before));
         Ok(receipt)
     }

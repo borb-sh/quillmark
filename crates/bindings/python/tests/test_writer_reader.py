@@ -154,9 +154,10 @@ def test_writer_revise_document():
     assert doc.to_markdown() == before
 
 
-def test_a_base_refuses_a_stale_revise_and_merges_a_read():
-    """base_hash refuses a write onto a value changed since the read, naming
-    the hash now; base_markdown lands the writer's edit beside the change."""
+def test_a_base_rebases_a_stale_revise_and_merges_a_read():
+    """base_hash rebases a write onto a value changed since the read, and
+    refuses one it cannot reach, naming the hash now; base_markdown lands the
+    writer's edit beside the change."""
     quill = richtext_quill()
     doc = quill.parse("~~~\n$quill: sample_form@0.1.0\n~~~\n\nAlpha.\n\nBeta.\n")
     w = quill.writer(doc)
@@ -168,8 +169,13 @@ def test_a_base_refuses_a_stale_revise_and_merges_a_read():
     assert merged["rebased"] is True
     assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, mine.\n")
     w.revise_body("Alpha, edited.\n\nBeta.")
+    read_hash = w.hash_at()
+    w.revise_body("Alpha, edited.\n\nBeta, two.")
+    assert w.revise_body("Alpha, again.\n\nBeta.", base_hash=read_hash)["rebased"] is True
+    assert doc.to_markdown().endswith("Alpha, again.\n\nBeta, two.\n")
+    w.revise_body("Alpha, edited.\n\nBeta.")
     with raises_edit_code("edit::stale_base") as exc_info:
-        w.revise_body("Other.", base_hash=body_hash)
+        w.revise_body("Other.", base_hash="never-read")
     assert exc_info.value.diagnostics[0].args == {"current": doc.hash_at()}
     with raises_edit_code("edit::stale_base"):
         w.revise_document(read, base_hash=hash)

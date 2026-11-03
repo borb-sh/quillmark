@@ -200,15 +200,20 @@ card_kinds:
     ])
   })
 
-  it('a stale baseHash refuses a revise, and a baseMarkdown lands beside the change since', () => {
+  it('a stale baseHash rebases a revise, an unknown one refuses, and a baseMarkdown lands beside the change since', () => {
     const doc = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nAlpha.\n\nBeta.\n\nGamma.')
     const ed = buildQuill().writer(doc)
     const read = doc.toMarkdown(undefined, { annotated: true }).markdown
-    const hash = doc.hashAt({})
     ed.reviseBody('Alpha, edited.\n\nBeta.\n\nGamma.')
-    expectEditCode(() => ed.reviseBody('Other.', { baseHash: hash }), 'edit::stale_base')
-    expect(() => ed.reviseBody('Other.', { baseHash: hash })).toThrow(
-      expect.objectContaining({ diagnostics: [expect.objectContaining({ args: { current: doc.hashAt({}) } })] }),
+    const long = 'Alpha one two three.\n\nBeta four five six.'
+    ed.reviseBody(long)
+    const longHash = doc.hashAt({})
+    ed.reviseBody('Alpha one two three, edited.\n\nBeta four five six.')
+    expect(ed.reviseBody('Alpha one two three.\n\nBeta four five six, mine.', { baseHash: longHash }).rebased).toBe(true)
+    expect(doc.toMarkdown({})).toBe('Alpha one two three, edited.\n\nBeta four five six, mine.')
+    ed.reviseBody('Alpha, edited.\n\nBeta.\n\nGamma.')
+    expect(() => ed.reviseBody('Other.', { baseHash: 'never-read' })).toThrow(
+      expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base', args: { current: doc.hashAt({}) } })] }),
     )
     ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { baseMarkdown: read })
     expect(doc.toMarkdown({})).toBe('Alpha, edited.\n\nBeta.\n\nGamma, rewritten.')
@@ -294,7 +299,7 @@ card_kinds:
     expect(quill.reader(doc).get('subject')).toBe('Q3 **results**')
   })
 
-  it('reviseDocument names each anchor it drops at the address the document held it', () => {
+  it('reviseDocument names each anchor it drops as the selector reattach takes', () => {
     const quill = buildQuill()
     const doc = quill.parse(
       '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nFirst note.\n',
@@ -305,7 +310,9 @@ card_kinds:
     const receipt = quill
       .writer(doc)
       .reviseDocument('~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n')
-    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', cardId, id: 'n', line: 'First note.' }])
+    expect(receipt.droppedAnchors).toEqual([
+      { path: 'cards.note[0].body', cardId, id: 'n', quote: 'note', prefix: 'First ', suffix: '.' },
+    ])
     expect(receipt.from).toEqual([])
     expect(receipt.warnings).toEqual([])
     expect(doc.main.body.anchors).toEqual([{ id: 'm', start: 0, end: 4 }])
