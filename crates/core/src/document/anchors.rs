@@ -288,6 +288,7 @@ impl Document {
         path: &DocPath,
         f: impl FnOnce(&mut Content) -> R,
     ) -> Option<R> {
+        self.touch();
         let (card, rest) = match path.segs() {
             [DocSeg::Main, rest @ ..] => (&mut self.main, rest),
             [DocSeg::Card { kind, index }, rest @ ..] => {

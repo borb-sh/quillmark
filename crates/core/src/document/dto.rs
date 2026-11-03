@@ -3,8 +3,9 @@
 //! [`Document`]'s in-memory layout is an internal detail and is deliberately not
 //! serialized directly. Persisting one converts it to a [`StoredDocument`]: a
 //! versioned envelope whose wire format is frozen per schema version. `Document`
-//! serializes through it via `#[serde(into / try_from)]`, so the ordinary serde
-//! entry points produce and consume the versioned form transparently.
+//! serializes to it from its cards and deserializes through `#[serde(try_from)]`,
+//! so the ordinary serde entry points produce and consume the versioned form
+//! transparently.
 //!
 //! The schema versions, the shape each names, and the procedure for adding one:
 //! `prose/canon/DOCUMENT_STORAGE.md`.
@@ -230,6 +231,14 @@ pub enum CommentPathSegmentV0_134_0 {
 impl From<Document> for StoredDocument {
     fn from(doc: Document) -> Self {
         StoredDocument::V0_135_0(DocumentV0_134_0::from(&doc))
+    }
+}
+
+/// A document serializes as the [`StoredDocument`] its cards read as,
+/// leaving the Automerge document it is held in untouched.
+impl Serialize for Document {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        StoredDocument::V0_135_0(DocumentV0_134_0::from(self)).serialize(serializer)
     }
 }
 

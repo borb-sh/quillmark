@@ -1,6 +1,6 @@
 /**
  * The document's Automerge history across the WASM boundary: `save` and
- * `fromBytes`, `heads`, `saveSince` and `merge`, and the sync protocol two
+ * `load`, `heads`, `saveSince` and `merge`, and the sync protocol two
  * documents run through `generateSyncMessage` / `receiveSyncMessage`
  * (prose/canon/DOCUMENT_STORAGE.md).
  */
@@ -36,23 +36,23 @@ function sync(a, b, states = [new SyncState(), new SyncState()]) {
 const splice = (at, insert) => ({ steps: [{ splice: { at, delete: '', insert } }] })
 
 describe('a document as Automerge bytes', () => {
-  it('saves to bytes fromBytes reads back', () => {
+  it('saves to bytes load reads back', () => {
     const doc = parse('Hello world')
     doc.apply({}, splice(5, ' brave'))
     const bytes = doc.save()
     expect(bytes).toBeInstanceOf(Uint8Array)
 
-    const other = Document.fromBytes(bytes)
+    const other = Document.load(bytes)
     expect(other.read({})).toEqual(doc.read({}))
     expect(other.heads()).toEqual(doc.heads())
     expect(other.toMarkdown()).toBe(doc.toMarkdown())
-    const err = expectEditCode(() => Document.fromBytes(new Uint8Array([1, 2, 3])), 'edit::bad_live_bytes')
+    const err = expectEditCode(() => Document.load(new Uint8Array([1, 2, 3])), 'edit::bad_live_bytes')
     expect(err.diagnostics[0].args.reason).toBe('decode')
   })
 
   it('merges the changes since heads into a peer', () => {
     const a = parse('Hello world')
-    const b = Document.fromBytes(a.save())
+    const b = Document.load(a.save())
     const heads = a.heads()
     a.apply({}, splice(5, ' brave'), { actor: 'ann' })
     b.apply({}, splice(11, '!'), { actor: 'b0' })
@@ -68,11 +68,11 @@ describe('a document as Automerge bytes', () => {
 describe('the sync protocol', () => {
   it('brings two documents from one save to one value', () => {
     const a = parse('😀 one two')
-    const b = Document.fromBytes(a.save())
+    const b = Document.load(a.save())
     a.apply({}, splice(3, 'X'), { actor: 'ann' })
     b.apply({}, splice(10, ' three'), { actor: 'b0' })
 
-    const states = [new SyncState(), Document.syncState()]
+    const states = [new SyncState(), new SyncState()]
     expect(sync(a, b, states)).toBeGreaterThan(0)
     expect(a.read({}).text).toBe('😀 Xone two three')
     expect(b.read({})).toEqual(a.read({}))
@@ -82,7 +82,7 @@ describe('the sync protocol', () => {
 
   it('keeps a sync state across encode and decode', () => {
     const a = parse('Hello world')
-    const b = Document.fromBytes(a.save())
+    const b = Document.load(a.save())
     const states = [new SyncState(), new SyncState()]
     sync(a, b, states)
     a.apply({}, splice(5, ' brave'), { actor: 'ann' })

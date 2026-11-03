@@ -989,12 +989,15 @@ fn check_ext(name: &str, attrs: &JsonMap<String, JsonValue>, what: &'static str)
     Ok(())
 }
 
+/// The ranges of one unknown mark, by its sort key.
+type ExtRuns = BTreeMap<(String, String), (MarkKind, Vec<(Scalar, Scalar)>)>;
+
 /// Marks of the types this build does not know, settled as formatting is:
 /// cut at each `\n` and [`HARD_BREAK`], one name and attributes unioned where
 /// they touch, an empty one dropped.
 fn settle_ext(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
     let breaks: Vec<Scalar> = chars.iter().enumerate().filter(|(_, c)| is_break(**c)).map(|(i, _)| i).collect();
-    let mut groups: BTreeMap<(String, String), (MarkKind, Vec<(Scalar, Scalar)>)> = BTreeMap::new();
+    let mut groups: ExtRuns = BTreeMap::new();
     for m in marks {
         let entry = groups.entry(m.kind.sort_key()).or_insert_with(|| (m.kind.clone(), Vec::new()));
         let mut start = m.start;

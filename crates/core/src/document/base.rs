@@ -2,10 +2,10 @@
 //!
 //! A revise diffs its markdown against the value stored now, so an edit made
 //! between a writer's read and its write reads as text the writer deleted. A
-//! [`Base`] names the read, and the write merges with the change since: in
-//! the value's live Automerge document from a [`Base::Hash`], or with the diff from a
-//! [`Base::Content`] to the value now. A whole-document revise names its read
-//! with a [`DocumentBase`].
+//! [`Base`] names the read by its hash or by the value itself, and the write
+//! lands at the heads the document noted that hash at, merged with the change
+//! since (`land.rs`). A whole-document revise names its read with a
+//! [`DocumentBase`].
 
 use std::collections::BTreeMap;
 
@@ -168,7 +168,7 @@ impl Card {
     }
 
     /// The body's annotated read ([`to_markdown_annotated`]): the scoped read
-    /// a body revise reads back    /// takes. Its anchors carry no path; the body is theirs.
+    /// a body revise reads back. Its anchors carry no path; the body is theirs.
     pub(crate) fn body_annotated(&self) -> Annotated {
         quillmark_content::markdown::to_markdown_annotated(self.body())
     }

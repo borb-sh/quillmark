@@ -163,7 +163,8 @@ impl<'a> TypedWriter<'a> {
             }
             DocumentBase::Stored(read) => read,
         };
-        let heads = read.held_heads().filter(|h| self.doc.holds(h));
+        let mut wanted = read.clone();
+        let heads = wanted.held_heads().filter(|h| self.doc.holds(h));
         let Some(heads) = heads else {
             let current = self.hash()?;
             if crate::document::base::conformed(self.config, read)?.hash() == current {
@@ -171,7 +172,6 @@ impl<'a> TypedWriter<'a> {
             }
             return Err(crate::document::BaseError::Stale { current, field: None }.into());
         };
-        let mut wanted = read.clone();
         let mut revised = TypedWriter::new(self.config, &mut wanted).revise_document(markdown)?;
         self.doc.land_at(&heads, &wanted);
         let recard = |path: &str| -> Option<String> {
@@ -186,6 +186,7 @@ impl<'a> TypedWriter<'a> {
             }
         }
         revised.warnings.extend(self.config.conform(self.doc).expect("the landed document carries the checked `$quill`"));
+        revised.heads = self.doc.heads();
         Ok(revised)
     }
 
@@ -217,6 +218,7 @@ impl<'a> TypedWriter<'a> {
                 .conform(self.doc)
                 .expect("the revised document carries the `$quill` checked above"),
         );
+        revised.heads = self.doc.heads();
         Ok(revised)
     }
 

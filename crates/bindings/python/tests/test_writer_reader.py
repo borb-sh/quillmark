@@ -104,9 +104,10 @@ def test_writer_revise_field():
     doc = Document("sample_form@0.1.0")
     w = quill.writer(doc)
     receipt = w.revise("make it **bold**", "bio")
-    assert sorted(receipt) == ["applied", "dropped_anchors", "hash", "minted", "moved_anchors", "rebased", "warnings"]
+    assert sorted(receipt) == ["applied", "dropped_anchors", "hash", "heads", "minted", "moved_anchors", "rebased", "warnings"]
     assert receipt["applied"]["steps"][0]["splice"]["insert"] == "make it bold"
     assert receipt["hash"] == w.hash_at("bio")
+    assert receipt["heads"] == doc.heads()
     assert (receipt["dropped_anchors"], receipt["moved_anchors"], receipt["warnings"], receipt["rebased"]) == ([], [], [], False)
     assert quill.reader(doc).get("bio") == "make it **bold**"
     (dropped,) = w.revise("make it <kbd>**bold**</kbd>", "bio")["warnings"]
@@ -142,8 +143,9 @@ def test_writer_revise_document():
     receipt = w.revise_document(
         "~~~\n$quill: sample_form@0.1.0\nbio: make it <kbd>**bold**</kbd>\n~~~\n\nBody.\n"
     )
-    assert sorted(receipt) == ["dropped_anchors", "from", "warnings"]
+    assert sorted(receipt) == ["dropped_anchors", "from", "heads", "warnings"]
     assert (receipt["dropped_anchors"], receipt["from"]) == ([], [])
+    assert receipt["heads"] == doc.heads()
     (dropped,) = receipt["warnings"]
     assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
     assert quill.reader(doc).get("bio") == "make it **bold**"
@@ -267,13 +269,14 @@ def test_markdown_writes_return_their_drops_at_the_body_written():
     assert drops(w.revise("a <kbd>b</kbd>")["warnings"]) == [
         ("parse::dropped_construct", "main.body", "kbd")
     ]
-    assert drops(w.add_card("quotes", {"author": "A"}, "x <span>y</span>")["warnings"]) == [
+    added = w.add_card("quotes", {"author": "A"}, "x <span>y</span>")
+    assert drops(added["warnings"]) == [
         ("parse::dropped_construct", "cards.quotes[0].body", "span")
     ]
     assert drops(w.add_card("quotes", {"author": "B"}, "<em>z</em>", at=0)["warnings"]) == [
         ("parse::dropped_construct", "cards.quotes[0].body", "em")
     ]
-    assert drops(w.revise("c <kbd>d</kbd>", card=1)["warnings"]) == [
+    assert drops(w.revise("c <kbd>d</kbd>", card=added["id"])["warnings"]) == [
         ("parse::dropped_construct", "cards.quotes[1].body", "kbd")
     ]
     assert doc.to_markdown_at(card=1) == "c d"

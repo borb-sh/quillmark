@@ -483,16 +483,7 @@ impl PyDocument {
     /// or unparseable quill reference.
     #[staticmethod]
     fn from_stored(json: &str) -> PyResult<Self> {
-        let parsed = Document::from_stored(json).map_err(|e| {
-            let msg = format!("invalid storage DTO: {e}");
-            raise_with_diagnostics(
-                vec![quillmark_core::error::Diagnostic::new(
-                    quillmark_core::error::Severity::Error,
-                    msg.clone(),
-                )],
-                msg,
-            )
-        })?;
+        let parsed = Document::from_stored(json).map_err(stored_row_refused)?;
         Ok(PyDocument {
             inner: parsed.document,
             parse_warnings: parsed.warnings,
@@ -939,6 +930,7 @@ impl PyDocument {
     /// **Apply** `change` to the value at `field` on `card`, all its steps or
     /// none, and return the receipt: `applied` (the change in its normalized
     /// form, which `invert` undoes), `hash` (the next write's `base`),
+    /// `heads` (the document's heads after the write),
     /// `dropped_anchors`, `moved_anchors`, `warnings`, `rebased` and
     /// `minted`, each placeholder id the change gave a record mapped to the id
     /// the write minted. `actor` is the Automerge actor the write writes
@@ -1006,28 +998,28 @@ impl PyDocument {
     }
 
     /// The document as Automerge bytes, its whole history: the row a host
-    /// stores, which `from_bytes` reads back.
+    /// stores, which `load` reads back.
     fn save<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &self.inner.to_bytes())
+        PyBytes::new(py, &self.inner.save())
     }
 
     /// The document `data` holds, as `save` gave them or a merge of several.
     /// Bytes that do not decode, or hold no Quillmark document of a schema
     /// this build reads, raise `edit::bad_live_bytes`.
     #[staticmethod]
-    fn from_bytes(data: &[u8]) -> PyResult<Self> {
-        let inner = quillmark_core::document::Document::from_bytes(data).map_err(crate::content::refused)?;
+    fn load(data: &[u8]) -> PyResult<Self> {
+        let inner = quillmark_core::document::Document::load(data).map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))?;
         Ok(PyDocument { inner, parse_warnings: Vec::new() })
     }
 
     /// The document's revision: the hashes of its Automerge heads.
     fn heads(&mut self) -> Vec<String> {
-        self.inner.heads().iter().map(ToString::to_string).collect()
+        self.inner.heads().encode()
     }
 
     /// The changes since `heads`, as bytes `merge` takes.
     fn save_since<'py>(&mut self, py: Python<'py>, heads: Vec<String>) -> PyResult<Bound<'py, PyBytes>> {
-        let heads = crate::content::heads_from(&heads)?;
+        let heads = quillmark_core::document::Heads::decode(&heads).map_err(crate::content::refused)?;
         Ok(PyBytes::new(py, &self.inner.save_since(&heads)))
     }
 
@@ -1036,13 +1028,7 @@ impl PyDocument {
     /// the document outside its schema, raise `edit::bad_live_bytes` and
     /// change nothing.
     fn merge(&mut self, data: &[u8]) -> PyResult<()> {
-        self.inner.merge(data).map_err(crate::content::refused)
-    }
-
-    /// A fresh `SyncState`, as `SyncState()` makes.
-    #[staticmethod]
-    fn sync_state() -> crate::content::PySyncState {
-        crate::content::PySyncState { inner: Default::default() }
+        self.inner.merge(data).map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))
     }
 
     /// The next Automerge sync message to the peer `state` tracks, `None`
@@ -1055,8 +1041,8 @@ impl PyDocument {
     /// that does not decode, or would leave the document outside its schema,
     /// raises `edit::bad_live_bytes` and changes nothing.
     fn receive_sync_message(&mut self, state: &mut crate::content::PySyncState, message: &[u8]) -> PyResult<()> {
-        let message = crate::content::sync_message(message).map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))?;
-        self.inner.receive_sync_message(&mut state.inner, message).map_err(crate::content::refused)
+        let message = quillmark_core::document::SyncMessage::decode(message).map_err(crate::content::refused)?;
+        self.inner.receive_sync_message(&mut state.inner, message).map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))
     }
 }
 
@@ -1120,6 +1106,14 @@ impl PyDocument {
 /// The card root at `index`, kind-qualified from the stored `$kind`.
 fn card_base(doc: &Document, index: usize) -> quillmark_core::path::DocPath {
     quillmark_core::path::DocPath::card(doc.cards().get(index).and_then(|c| c.kind()), index)
+}
+
+fn stored_row_refused(e: serde_json::Error) -> PyErr {
+    let msg = format!("invalid storage DTO: {e}");
+    raise_with_diagnostics(
+        vec![quillmark_core::error::Diagnostic::new(quillmark_core::error::Severity::Error, msg.clone())],
+        msg,
+    )
 }
 
 fn index_error(index: usize, len: usize) -> PyErr {
@@ -1403,8 +1397,9 @@ impl PyWriter {
         .map_err(|errs| convert_edit_errors(errs, &target.base))
     }
 
-    /// Revise the body (`field=None`) or the content field `field` on `card`
-    /// (`None` for the main card) from authored text; anchors ride their text. A field
+    /// Revise the body (`field=None`) or the content field `field` on the
+    /// card whose `$id` is `card` (`None` for the main card; an index raises)
+    /// from authored text; anchors ride their text. A field
     /// is typed as well: the codec comes from its declared type (`richtext`
     /// diffs markdown, `text` the literal text, the body being `richtext`),
     /// the diffed result is schema-conformed, so a one-paragraph `richtext`
@@ -1413,7 +1408,8 @@ impl PyWriter {
     ///
     /// Returns the receipt a content write answers, as `Document.revise` does:
     /// `applied`, the change from the value before (a `text` field's is one
-    /// splice over its literal text); `hash`; `dropped_anchors` and
+    /// splice over its literal text); `hash`; `heads`, the document's heads
+    /// after the write; `dropped_anchors` and
     /// `moved_anchors`; `warnings`, the import's `parse::dropped_construct` as
     /// `Diagnostic` objects anchored at the value; and `rebased`, set where the
     /// write merged with a change since its base.
@@ -1435,6 +1431,7 @@ impl PyWriter {
         base_hash: Option<&str>,
         base_content: Option<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyDict>> {
+        require_card_id(&card, "revise")?;
         let read = ReadBase::from_py(base_hash, base_content.as_ref())?;
         let read = read.as_ref().map(ReadBase::as_base);
         let quill = self.quill.borrow(py);
@@ -1492,10 +1489,21 @@ impl PyWriter {
         use quillmark_core::document::DocumentBase;
         let stored = match (base_hash, base_stored) {
             (Some(_), Some(_)) => return Err(PyValueError::new_err("name base_hash or base_stored, not both")),
-            (_, Some(stored)) => Some(match stored.cast::<PyBytes>() {
-                Ok(bytes) => PyDocument::from_bytes(bytes.as_bytes())?.inner,
-                Err(_) => PyDocument::from_stored(stored.extract()?)?.inner,
-            }),
+            (_, Some(stored)) => {
+                use quillmark_core::document::StoredError;
+                let parsed = match stored.cast::<PyBytes>() {
+                    Ok(bytes) => Document::from_stored_any(bytes.as_bytes()),
+                    Err(_) => Document::from_stored_any(stored.extract::<&str>()?.as_bytes()),
+                };
+                Some(
+                    parsed
+                        .map_err(|e| match e {
+                            StoredError::Bytes(e) => convert_edit_error(e, &quillmark_core::path::DocPath::new()),
+                            StoredError::Row(e) => stored_row_refused(e),
+                        })?
+                        .document,
+                )
+            }
             _ => None,
         };
         let read = match (base_hash, &stored) {
@@ -1520,6 +1528,7 @@ impl PyWriter {
         )?;
         receipt.set_item("warnings", py_diagnostics(revised.warnings))?;
         receipt.set_item("from", revised.from)?;
+        receipt.set_item("heads", revised.heads.encode())?;
         Ok(receipt)
     }
 

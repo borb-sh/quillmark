@@ -376,7 +376,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
         read.marks
             .iter()
             .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1")),
-        "anchor should rebase onto surviving text, unlike the cold commit_field"
+        "anchor should ride its surviving text, unlike the cold commit_field"
     );
 
     let before = card
@@ -631,7 +631,7 @@ fn test_revise_body_returns_its_change_and_updates_body() {
 }
 
 #[test]
-fn test_revise_body_rebases_anchor() {
+fn test_revise_body_anchor_rides_its_text() {
     use quillmark_content::lines::model::{Mark, MarkKind};
 
     let mut base = quillmark_content::lines::import::from_markdown("keep the target word")

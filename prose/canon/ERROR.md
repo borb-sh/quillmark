@@ -112,7 +112,9 @@ mutation.
 The content writes (`apply`, `revise`, `replace`) take a `base` hash, which
 merges or stales as above. Bytes or a sync message the document cannot take
 are `edit::bad_live_bytes`, carrying the `reason` (`decode`, `shape`,
-`schema`). A change that does not apply to the value, or would leave it
+`schema`, and `apply` for a sync message that decodes but does not apply);
+core's `Document::load`, `merge` and `receive_sync_message` answer it as
+the `EditError` the bindings throw. A change that does not apply to the value, or would leave it
 invalid, is `edit::content_apply`, and writes nothing; its `reason` names the refusal (`stale`, `unknown_block`, `unknown_container`, `container_kind`, `container_in_use`, `unknown_anchor`, `anchor_held`, `unknown_island`, `unknown_slot`, `bad_step`, `invalid`), with the `step` it refuses at for `stale` and `bad_step` ([CONTENT.md](CONTENT.md)); the whole-document revise reports it as a warning at the value it leaves as stored.
 Four bounds refuse under codes of their own, each carrying the `max` it
 passed ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content

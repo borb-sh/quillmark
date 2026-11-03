@@ -20,7 +20,9 @@ pub(crate) fn scalar(v: &Value) -> ScalarValue {
     }
 }
 
-pub(crate) fn json_scalar(s: &ScalarValue) -> Value {
+/// An Automerge scalar read back as JSON: a float JSON cannot spell, a
+/// NaN or an infinity, reads as `null`.
+pub fn json_scalar(s: &ScalarValue) -> Value {
     match s {
         ScalarValue::Null => Value::Null,
         ScalarValue::Boolean(b) => Value::Bool(*b),
@@ -65,12 +67,12 @@ fn key_order(doc: &AutoCommit, o: &ObjId) -> Vec<String> {
     let mut out: Vec<String> = Vec::with_capacity(held.len());
     if let Ok(Some((AmValue::Object(ObjType::List), l))) = doc.get(o, ORDER) {
         for (v, _) in doc.values(&l) {
-            if let AmValue::Scalar(s) = v {
-                if let Some(k) = s.as_str() {
-                    if held.iter().any(|h| h == k) && !out.iter().any(|x| x == k) {
-                        out.push(k.to_string());
-                    }
-                }
+            if let AmValue::Scalar(s) = v
+                && let Some(k) = s.as_str()
+                && held.iter().any(|h| h == k)
+                && !out.iter().any(|x| x == k)
+            {
+                out.push(k.to_string());
             }
         }
     }

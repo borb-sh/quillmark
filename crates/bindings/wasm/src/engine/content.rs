@@ -167,7 +167,8 @@ export type Step =
 /**
  * What a write did. `applied` is the change in its normalized form, which
  * `invert(applied, before)` undoes; `hash` is the value's new hash, the next
- * write's `base`. `droppedAnchors` names each anchor the value held and holds
+ * write's `base`; `heads` is the document's heads after the write, empty for
+ * a card no document holds. `droppedAnchors` names each anchor the value held and holds
  * nowhere now, as it read before: every one a `revise` or `replace` lost, and
  * for an `apply` every one but those its `anchor` steps removed.
  * `movedAnchors` names each surviving one the write moved, a point included,
@@ -185,6 +186,7 @@ export type Step =
 export interface Receipt {
     applied: Change;
     hash: string;
+    heads: string[];
     droppedAnchors: DroppedAnchor[];
     movedAnchors: MovedAnchor[];
     warnings: Diagnostic[];
@@ -327,6 +329,7 @@ export interface Repaired {
 pub(super) struct ReceiptJs {
     applied: Value,
     hash: String,
+    heads: Vec<String>,
     dropped_anchors: Vec<DroppedAnchorJs>,
     moved_anchors: Vec<MovedJs>,
     warnings: Vec<Diagnostic>,
@@ -534,6 +537,7 @@ pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath,
     ReceiptJs {
         applied: receipt.applied.to_value(),
         hash: receipt.hash,
+        heads: receipt.heads.encode(),
         dropped_anchors: receipt
             .dropped_anchors
             .into_iter()

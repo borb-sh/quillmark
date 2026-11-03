@@ -94,7 +94,7 @@ fn current_of(err: EditError) -> (&'static str, String) {
 }
 
 #[test]
-fn a_stale_hash_rebases_the_revise_and_an_unknown_one_names_the_hash_now() {
+fn a_stale_hash_merges_the_revise_and_an_unknown_one_names_the_hash_now() {
     let mut card = card_with_body("Alpha one.\n\nBeta two.");
     let read = card.body_hash();
     let _ = card.revise_body("Alpha one, edited.\n\nBeta two.").unwrap();

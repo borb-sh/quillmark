@@ -10,7 +10,7 @@
 
 use quillmark_automerge::automerge::transaction::Transactable;
 use quillmark_automerge::automerge::{ObjId, ObjType, ROOT, ReadDoc, Value as AmValue};
-use quillmark_automerge::model::json::{hydrate, write_json_at};
+use quillmark_automerge::model::json::{hydrate, json_scalar, write_json_at};
 use quillmark_automerge::model::{self as am, Doc};
 use quillmark_content::model::Content;
 use serde_json::{Value, json};
@@ -130,10 +130,10 @@ fn put_field(d: &mut Doc, fields: &ObjId, key: &str, was: Option<&Value>, want: 
             if now == content {
                 return;
             }
-            if let Ok(change) = quillmark_content::diff::diff(&now, &content) {
-                if d.apply(&root, &change, None).is_ok() {
-                    return;
-                }
+            if let Ok(change) = quillmark_content::diff::diff(&now, &content)
+                && d.apply(&root, &change, None).is_ok()
+            {
+                return;
             }
         }
         if d.am().get(fields, key).unwrap().is_some() {
@@ -158,7 +158,7 @@ pub(crate) fn read_card(d: &Doc, c: &ObjId) -> Result<Card, String> {
             Some(root) => Some(d.view(&root).content.to_value()),
             None => match d.am().get(f, key).ok()?? {
                 (AmValue::Object(_), o) => Some(hydrate(d.am(), &o)),
-                (AmValue::Scalar(s), _) => Some(scalar_json(&s)),
+                (AmValue::Scalar(s), _) => Some(json_scalar(&s)),
             },
         }
     };
@@ -186,10 +186,10 @@ pub(crate) fn read_card(d: &Doc, c: &ObjId) -> Result<Card, String> {
     }
     if let Some(f) = fields.as_ref() {
         for key in d.am().keys(f).collect::<Vec<_>>() {
-            if seen.insert(key.clone()) {
-                if let Some(v) = value_of(&key) {
-                    items.push(json!({ "type": "field", "key": key, "value": v }));
-                }
+            if seen.insert(key.clone())
+                && let Some(v) = value_of(&key)
+            {
+                items.push(json!({ "type": "field", "key": key, "value": v }));
             }
         }
     }
@@ -215,19 +215,6 @@ fn item_from(e: Value) -> Option<PayloadItem> {
         "comment" => PayloadItem::Comment { text: text("text")?, inline: e.get("inline").and_then(Value::as_bool).unwrap_or(false) },
         _ => return None,
     })
-}
-
-fn scalar_json(s: &quillmark_automerge::automerge::ScalarValue) -> Value {
-    use quillmark_automerge::automerge::ScalarValue as S;
-    match s {
-        S::Null => Value::Null,
-        S::Boolean(b) => Value::Bool(*b),
-        S::Int(i) => json!(i),
-        S::Uint(u) => json!(u),
-        S::F64(f) => json!(f),
-        S::Str(s) => Value::String(s.to_string()),
-        other => Value::String(other.to_string()),
-    }
 }
 
 /// The main card and the cards in document order the document reads as.

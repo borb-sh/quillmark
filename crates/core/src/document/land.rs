@@ -20,7 +20,7 @@ use quillmark_content::units::{self, Units};
 use super::base::{Base, BaseError, content_hash};
 use super::edit::EditError;
 use super::write::{Edit, Receipt, Target, WriteOptions, address, check_change, keeps_ext_islands};
-use super::{Card, Document};
+use super::{Card, Document, Heads};
 use crate::value::QuillValue;
 
 fn step_error(e: StepError) -> EditError {
@@ -46,52 +46,40 @@ fn obj(doc: &am::Doc, parent: &ObjId, key: &str) -> Option<ObjId> {
     }
 }
 
+/// `v` with each string `minted` renames renamed, the values under a key
+/// `keep` names kept as they are.
+fn renamed_json(v: &serde_json::Value, minted: &BTreeMap<String, String>, keep: &[&str]) -> serde_json::Value {
+    use serde_json::Value;
+    match v {
+        Value::String(s) => Value::String(minted.get(s).cloned().unwrap_or_else(|| s.clone())),
+        Value::Array(a) => Value::Array(a.iter().map(|x| renamed_json(x, minted, keep)).collect()),
+        Value::Object(o) => Value::Object(
+            o.iter()
+                .map(|(k, x)| match keep.contains(&k.as_str()) {
+                    true => (k.clone(), x.clone()),
+                    false => (k.clone(), renamed_json(x, minted, keep)),
+                })
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 /// `change` with each id `minted` renames renamed.
 fn renamed(change: &Change, minted: &BTreeMap<String, String>) -> Change {
-    fn walk(v: &serde_json::Value, m: &BTreeMap<String, String>) -> serde_json::Value {
-        use serde_json::Value;
-        match v {
-            Value::String(s) => Value::String(m.get(s).cloned().unwrap_or_else(|| s.clone())),
-            Value::Array(a) => Value::Array(a.iter().map(|x| walk(x, m)).collect()),
-            Value::Object(o) => Value::Object(
-                o.iter()
-                    .map(|(k, x)| match matches!(k.as_str(), "text" | "insert" | "delete" | "quote" | "type" | "op" | "kind") {
-                        true => (k.clone(), x.clone()),
-                        false => (k.clone(), walk(x, m)),
-                    })
-                    .collect(),
-            ),
-            other => other.clone(),
-        }
-    }
     if minted.is_empty() {
         return change.clone();
     }
-    Change::from_value(&walk(&change.to_value(), minted)).unwrap_or_else(|_| change.clone())
+    let keep = ["text", "insert", "delete", "quote", "type", "op", "kind"];
+    Change::from_value(&renamed_json(&change.to_value(), minted, &keep)).unwrap_or_else(|_| change.clone())
 }
 
 /// `content` with each id `minted` renames renamed.
 fn renamed_content(content: &Content, minted: &BTreeMap<String, String>) -> Content {
-    fn walk(v: &serde_json::Value, m: &BTreeMap<String, String>) -> serde_json::Value {
-        use serde_json::Value;
-        match v {
-            Value::String(s) => Value::String(m.get(s).cloned().unwrap_or_else(|| s.clone())),
-            Value::Array(a) => Value::Array(a.iter().map(|x| walk(x, m)).collect()),
-            Value::Object(o) => Value::Object(
-                o.iter()
-                    .map(|(k, x)| match matches!(k.as_str(), "text" | "kind" | "type") {
-                        true => (k.clone(), x.clone()),
-                        false => (k.clone(), walk(x, m)),
-                    })
-                    .collect(),
-            ),
-            other => other.clone(),
-        }
-    }
     if minted.is_empty() {
         return content.clone();
     }
-    Content::from_value(&walk(&content.to_value(), minted)).unwrap_or_else(|_| content.clone())
+    Content::from_value(&renamed_json(&content.to_value(), minted, &["text", "kind", "type"])).unwrap_or_else(|_| content.clone())
 }
 
 /// Whether `content` holds a point anchor, which Automerge keeps as a
@@ -119,6 +107,7 @@ impl Document {
     }
 
     pub(crate) fn card_at_mut(&mut self, at: Option<usize>) -> &mut Card {
+        self.touch();
         match at {
             None => &mut self.main,
             Some(i) => &mut self.cards[i],
@@ -133,14 +122,13 @@ impl Document {
         let mut content = None;
         if let Target::Field(name) = target {
             let read = content.insert(self.card_at(at).read(target)?).to_value();
-            let card = self.card_at_mut(at);
-            if card.payload().get(name).is_none() {
-                card.payload_mut().insert(name.to_string(), QuillValue::from_json(read)).map_err(EditError::InvalidPayload)?;
+            if self.card_at(at).payload().get(name).is_none() {
+                self.card_at_mut(at).payload_mut().insert(name.to_string(), QuillValue::from_json(read)).map_err(EditError::InvalidPayload)?;
                 put = true;
             }
         }
         let id = self.card_at(at).id().map(str::to_string);
-        let doc = self.live();
+        let doc = self.doc();
         let card = match (at, id) {
             (None, _) => doc.main(),
             (Some(_), Some(id)) => obj(doc, &doc.cards(), &id).expect("a flushed card is held"),
@@ -170,7 +158,7 @@ impl Document {
     /// the heads a write left the hash at otherwise.
     fn heads_for(&mut self, at: Option<usize>, target: Target<'_>, root: &ObjId, base: Option<Base<'_>>) -> Result<Option<Vec<ChangeHash>>, EditError> {
         let Some(base) = base else { return Ok(None) };
-        let now = self.live().view(root).content;
+        let now = self.doc().view(root).content;
         let hash = match base {
             Base::Hash(h) => h.to_string(),
             Base::Content(c) => content_hash(c),
@@ -185,7 +173,7 @@ impl Document {
         }
         let history = self.history().clone();
         for heads in history.iter().rev() {
-            let read = self.live().try_view_at(root, heads);
+            let read = self.doc().try_view_at(root, heads);
             if read.is_some_and(|v| content_hash(&v.content) == key.1) {
                 self.seen().insert(key, heads.clone());
                 return Ok(Some(heads.clone()));
@@ -215,11 +203,9 @@ impl Document {
     /// reading the cards again.
     fn set_read(&mut self, at: Option<usize>, target: Target<'_>, after: &Content) {
         let Target::Body = target else { return self.reread() };
-        self.card_at_mut(at).set_body(after.clone());
-        let synced = &mut self.held().synced;
         match at {
-            None => synced.0.set_body(after.clone()),
-            Some(i) => synced.1[i].set_body(after.clone()),
+            None => self.main.set_body(after.clone()),
+            Some(i) => self.cards[i].set_body(after.clone()),
         }
         #[cfg(debug_assertions)]
         {
@@ -237,7 +223,7 @@ impl Document {
         }
         let (root, _) = self.value_obj(at, target)?;
         let heads = self.heads_for(at, target, &root, base.map(Base::Hash))?;
-        let doc = self.live();
+        let doc = self.doc();
         Ok(match heads {
             Some(h) => doc.view_at(&root, &h).content,
             None => doc.view(&root).content,
@@ -311,7 +297,8 @@ impl Document {
         if opts.actor.is_some() {
             doc.set_actor(actor);
         }
-        let (lowered, _) = lowered.map_err(step_error)?;
+        let lowered = lowered.map_err(step_error)?;
+        let landed = Heads::from(doc.heads());
         let merged = heads.is_some();
         let named: BTreeMap<String, String> = mine.minted.iter().filter_map(|(placeholder, id)| Some((id.clone(), lowered.minted.get(placeholder)?.clone()))).collect();
         let after = match merged || diffed || holds_points(&read) || holds_points(&mine.content) {
@@ -348,6 +335,6 @@ impl Document {
             true => BTreeMap::new(),
             false => lowered.minted,
         };
-        Ok(Receipt::landed(applied, hash, dropped_anchors, moved_anchors, warnings, merged, minted))
+        Ok(Receipt::landed(applied, hash, dropped_anchors, moved_anchors, warnings, merged, minted).at(landed))
     }
 }

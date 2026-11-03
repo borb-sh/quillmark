@@ -1,5 +1,5 @@
 """The document's Automerge history across the Python boundary: `save` and
-`from_bytes`, `heads`, `save_since` and `merge`, and the sync protocol two
+`load`, `heads`, `save_since` and `merge`, and the sync protocol two
 documents run through `generate_sync_message` / `receive_sync_message`.
 Offsets count code points."""
 
@@ -31,25 +31,25 @@ def sync(a, b, states=None):
     raise AssertionError("the sync did not settle")
 
 
-def test_a_document_saves_to_bytes_from_bytes_reads_back():
+def test_a_document_saves_to_bytes_load_reads_back():
     doc = parse("Hello world")
     doc.apply({"steps": [{"splice": {"at": 5, "delete": "", "insert": " brave"}}]})
     data = doc.save()
     assert isinstance(data, bytes)
 
-    other = Document.from_bytes(data)
+    other = Document.load(data)
     assert other.read() == doc.read()
     assert other.heads() == doc.heads()
     assert other.to_markdown() == doc.to_markdown()
 
     with raises_edit_code("edit::bad_live_bytes") as err:
-        Document.from_bytes(b"\x01\x02\x03")
+        Document.load(b"\x01\x02\x03")
     assert err.value.diagnostics[0].args["reason"] == "decode"
 
 
 def test_changes_since_heads_merge_into_a_peer():
     a = parse("Hello world")
-    b = Document.from_bytes(a.save())
+    b = Document.load(a.save())
     heads = a.heads()
     a.apply({"steps": [{"splice": {"at": 5, "delete": "", "insert": " brave"}}]}, actor="ann")
     b.apply({"steps": [{"splice": {"at": 11, "delete": "", "insert": "!"}}]}, actor="b0")
@@ -65,7 +65,7 @@ def test_changes_since_heads_merge_into_a_peer():
 
 def test_two_documents_from_one_save_sync_to_one_value():
     a = parse("😀 one two")
-    b = Document.from_bytes(a.save())
+    b = Document.load(a.save())
     a.apply({"steps": [{"splice": {"at": 2, "delete": "", "insert": "X"}}]}, actor="ann")
     b.apply({"steps": [{"splice": {"at": 9, "delete": "", "insert": " three"}}]}, actor="b0")
 
@@ -75,12 +75,12 @@ def test_two_documents_from_one_save_sync_to_one_value():
     assert a.read()["text"] == "😀 Xone two three"
     assert sync(a, b, states) == 0
     with raises_edit_code("edit::bad_live_bytes"):
-        a.receive_sync_message(Document.sync_state(), b"\x01\x02\x03")
+        a.receive_sync_message(SyncState(), b"\x01\x02\x03")
 
 
 def test_a_sync_state_survives_encode_and_decode():
     a = parse("Hello world")
-    b = Document.from_bytes(a.save())
+    b = Document.load(a.save())
     states = (SyncState(), SyncState())
     sync(a, b, states=states)
     a.apply({"steps": [{"splice": {"at": 5, "delete": "", "insert": " brave"}}]}, actor="ann")

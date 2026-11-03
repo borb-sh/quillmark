@@ -19,26 +19,42 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   since at its start. `edit::rebase_conflict`, `DocumentRevised.conflicts`
   and `MergeConflict` are gone; `edit::stale_base` names a base the
   document's history does not reach, every base read before a load from a
-  stored row among them. A whole-document `DocumentBase::Stored` lands the
+  stored row among them; a base read after the load, before any write,
+  merges. A whole-document `DocumentBase::Stored` lands the
   writer's revise at the heads it was read at.
-- feat(core)!: **bytes are the row.** `Document::to_bytes` and `from_bytes`
+- feat(core)!: **bytes are the row.** `Document::save` and `load`
   save and read the whole document with its history; `heads`, `save_since`
   and `merge` move changes between peers; `generate_sync_message` and
   `receive_sync_message` run Automerge's sync protocol over the whole
-  document. `edit::bad_live_bytes` names bytes or a message that would leave
-  the document outside its schema, its `reason` `decode`, `shape` or
-  `schema`, and changes nothing. The per-value `Card::save`, `load` and sync
-  verbs are gone. `StoredDocument` JSON stays the history-free interchange,
+  document, through `quillmark-automerge`'s `Heads`, `SyncState` and
+  `SyncMessage`, each with `encode` and `decode`, so no `automerge` type
+  crosses core's API. `edit::bad_live_bytes` names bytes or a message that
+  would leave the document outside its schema, its `reason` `decode`,
+  `shape`, `schema`, or `apply` for a sync message that decodes and does not
+  apply, and changes nothing; `load`, `merge` and `receive_sync_message`
+  answer it as an `EditError`. `Document::from_stored_any` reads either
+  carrier, telling Automerge bytes by their leading bytes. The per-value
+  `Card::save`, `load` and sync verbs are gone. `StoredDocument` JSON stays the history-free interchange,
   and a `0.134.0` row reads into a new document.
 - feat(wasm)!: **the document crosses as bytes.** `doc.save()`,
-  `Document.fromBytes(bytes)`, `doc.heads()`, `doc.saveSince(heads)`,
+  `Document.load(bytes)`, `doc.heads()`, `doc.saveSince(heads)`,
   `doc.merge(bytes)`, and `doc.generateSyncMessage(state)` /
   `doc.receiveSyncMessage(state, message)` with the opaque `SyncState`.
-  `reviseDocument`'s `baseStored` takes the `save()` bytes the writer read.
+  `reviseDocument`'s `baseStored` takes the `save()` bytes the writer read,
+  or a row as a string or bytes.
 - feat(python)!: **the same in snake case**: `doc.save()`,
-  `Document.from_bytes`, `doc.heads()`, `doc.save_since`, `doc.merge`,
+  `Document.load`, `doc.heads()`, `doc.save_since`, `doc.merge`,
   `doc.generate_sync_message(state)` and `doc.receive_sync_message(state,
   message)`; `revise_document`'s `base_stored` takes `bytes`.
+- feat: **a receipt carries the heads its write left.** `Receipt` and
+  `DocumentRevised` gain `heads`, the document's heads after the write, as
+  `heads()` answers them; a card no document holds answers none. WASM and
+  Python carry them as hex strings.
+- feat(bindings)!: **the writer's `revise` names its card by `$id`.** WASM
+  `writer.revise({ card })` and Python `writer.revise(card=)` take a
+  composable card's `$id` and throw on an index, as `apply`, `revise` and
+  `replace` do. The WASM card cursor's `revise` revises the card its index
+  names at the call and refuses a base.
 
 ## v0.134.1 - 2026-11-02
 

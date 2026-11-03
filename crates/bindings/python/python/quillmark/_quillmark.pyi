@@ -199,12 +199,10 @@ class Document:
     ) -> Receipt: ...
     def save(self) -> bytes: ...
     @staticmethod
-    def from_bytes(data: bytes) -> Document: ...
+    def load(data: bytes) -> Document: ...
     def heads(self) -> list[str]: ...
     def save_since(self, heads: list[str]) -> bytes: ...
     def merge(self, data: bytes) -> None: ...
-    @staticmethod
-    def sync_state() -> SyncState: ...
     def generate_sync_message(self, state: SyncState) -> bytes | None: ...
     def receive_sync_message(self, state: SyncState, message: bytes) -> None: ...
 
@@ -243,6 +241,9 @@ class ReceiptDroppedAnchor(AnchorContext, total=False):
 class Receipt(TypedDict):
     applied: Change
     hash: str
+    # The document's heads after the write, empty for a card no document
+    # holds.
+    heads: list[str]
     dropped_anchors: list[ReceiptDroppedAnchor]
     moved_anchors: list[MovedAnchor]
     warnings: list[Diagnostic]
@@ -317,6 +318,7 @@ DocumentRevised = TypedDict(
         "dropped_anchors": list[AnchorContext],
         "warnings": list[Diagnostic],
         "from": list[int | None],
+        "heads": list[str],
     },
 )
 
@@ -373,7 +375,7 @@ class Writer:
         self,
         text: str,
         field: str | None = None,
-        card: int | str | None = None,
+        card: str | None = None,
         *,
         base_hash: str | None = None,
         base_content: dict[str, Any] | None = None,

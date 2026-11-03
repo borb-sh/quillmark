@@ -90,6 +90,23 @@ fn a_base_from_before_storage_or_a_refused_change_writes_nothing() {
     assert_eq!(doc.main().body().text, "xxxRevenue grew 12%.\nShip v2");
 }
 
+/// A hash read off a document before any write, a stored row's or a
+/// parse's, is found at the heads the document was built at, so a write
+/// naming it after a peer's change merges with that change.
+#[test]
+fn a_hash_read_before_any_write_merges_with_a_change_since() {
+    let row = serde_json::to_string(&parse(SOURCE)).unwrap();
+    for mut doc in [Document::from_stored(&row).unwrap().document, parse(SOURCE)] {
+        let base = doc.main().hash_of(Target::Body).unwrap();
+        let mut peer = Document::load(&doc.save()).unwrap();
+        type_keys(&mut peer, [(0, 3)]);
+        doc.merge(&peer.save()).unwrap();
+        let receipt = doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(7, "", "!"))]), Some(base.as_str())).unwrap();
+        assert!(receipt.rebased);
+        assert_eq!(doc.main().body().text, "xxxRevenue! grew 12%.\nShip v2");
+    }
+}
+
 /// A base read before a write of more steps than a keystroke's thousands
 /// merges with it.
 #[test]
@@ -106,11 +123,11 @@ fn a_base_merges_with_a_write_of_many_steps() {
     assert_eq!(doc.main().body().text, format!("{}Revenue\ngrew 12%.\nShip v2", "x".repeat(8196)));
 }
 
-/// A base the value has moved on from rebases the write over what changed
-/// since, and the receipt says so; the log it rebases from is no part of the
-/// document's value.
+/// A base the value has moved on from merges the write with what changed
+/// since, and the receipt says so; the history it merges from is no part of
+/// the document's value.
 #[test]
-fn a_stale_base_rebases_over_what_changed_since() {
+fn a_stale_base_merges_with_what_changed_since() {
     let mut doc = parse(SOURCE);
     let base = doc.main().hash_of(Target::Body).unwrap();
     doc.main_mut().apply(Target::Body, &split_at(12, "b9"), None).unwrap();
@@ -121,7 +138,7 @@ fn a_stale_base_rebases_over_what_changed_since() {
     assert!(receipt.rebased);
     assert_eq!(doc.main().body().text, "Revenue\ngrew\n12%.\nShip v2");
     let stored = serde_json::to_value(&doc).unwrap();
-    assert_eq!(doc, serde_json::from_value(stored).unwrap(), "the log is no part of the value");
+    assert_eq!(doc, serde_json::from_value(stored).unwrap(), "the history is no part of the value");
 }
 
 /// A writer that read, thought, and placed a comment lands it on the text it
@@ -600,7 +617,7 @@ fn a_remembered_hash_is_the_values_own() {
 fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
     use crate::document::WriteOptions;
     use quillmark_content::structural::Wrap;
-    let under = |id: &str, actor: &str| id.ends_with(&format!("{}", actor.bytes().map(|b| format!("{b:02x}")).collect::<String>()));
+    let under = |id: &str, actor: &str| id.ends_with(&actor.bytes().map(|b| format!("{b:02x}")).collect::<String>());
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nalpha\n\nbravo\n\ncharlie\n");
     let read = block_ids(doc.main().body());
     let base = doc.main().hash_of(Target::Body).unwrap();
@@ -669,7 +686,7 @@ fn a_document_saves_loads_and_syncs() {
     use crate::document::SyncState;
     let mut doc = parse(SOURCE);
     type_keys(&mut doc, [(0, 2)]);
-    let mut other = Document::from_bytes(&doc.to_bytes()).unwrap();
+    let mut other = Document::load(&doc.save()).unwrap();
     assert_eq!(other.main().body(), doc.main().body());
     assert_eq!(other.heads(), doc.heads());
     let loaded = other.main().hash_of(Target::Body).unwrap();
@@ -687,7 +704,41 @@ fn a_document_saves_loads_and_syncs() {
         }
     }
     assert_eq!(doc.main().body(), other.main().body());
-    assert!(Document::from_bytes(b"not a document").is_err());
+    assert!(Document::load(b"not a document").is_err());
+}
+
+/// A write's receipt and a revise's carry the heads the document is left
+/// at; a card no document holds has none.
+#[test]
+fn a_receipt_carries_the_heads_its_write_left() {
+    let mut doc = parse(SOURCE);
+    let receipt = doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(0, "", "x"))]), None).unwrap();
+    assert!(!receipt.heads.hashes().is_empty());
+    assert_eq!(receipt.heads, doc.heads());
+    let revised = doc.revise("~~~\n$quill: q\n~~~\n\nRevenue fell.\n").unwrap();
+    assert_ne!(revised.heads, receipt.heads);
+    assert_eq!(revised.heads, doc.heads());
+
+    let mut card = Card::from_parts(crate::document::Payload::new(), quillmark_content::model::Content::empty());
+    assert!(card.revise(Target::Body, "Free.", None).unwrap().heads.hashes().is_empty());
+}
+
+/// A stored document reads from its saved bytes, history and all, or from
+/// its row; bytes that start as Automerge's and do not load refuse as bytes,
+/// anything else as a row.
+#[test]
+fn a_stored_document_reads_from_its_bytes_or_its_row() {
+    use crate::document::StoredError;
+    let mut doc = parse(SOURCE);
+    type_keys(&mut doc, [(0, 2)]);
+    let mut saved = Document::from_stored_any(&doc.save()).unwrap().document;
+    assert_eq!(saved.heads(), doc.heads());
+    let row = serde_json::to_string(&doc).unwrap();
+    assert_eq!(Document::from_stored_any(row.as_bytes()).unwrap().document, doc);
+
+    let truncated = &doc.save()[..12];
+    assert!(matches!(Document::from_stored_any(truncated), Err(StoredError::Bytes(EditError::BadLiveBytes { .. }))));
+    assert!(matches!(Document::from_stored_any(b"not a document"), Err(StoredError::Row(_))));
 }
 
 /// Runs the sync protocol between `a` and `b` until neither has a message
@@ -722,7 +773,7 @@ fn peers_writing_with_no_actor_sync_from_one_origin() {
     };
     let mut a = parse(SOURCE);
     typed(&mut a, 0, "A");
-    let mut b = Document::from_bytes(&a.to_bytes()).unwrap();
+    let mut b = Document::load(&a.save()).unwrap();
     typed(&mut a, 0, "1");
     typed(&mut b, 0, "2");
     sync(&mut a, &mut b);
@@ -742,24 +793,24 @@ fn peers_writing_with_no_actor_sync_from_one_origin() {
 /// and the document and the sync state stay as they were.
 #[test]
 fn a_document_refuses_bytes_or_a_message_it_cannot_read() {
-    use crate::document::SyncState;
-    use quillmark_automerge::automerge::sync::SyncDoc;
+    use crate::document::{SyncMessage, SyncState};
+    use quillmark_automerge::automerge::sync::{self, SyncDoc};
     use quillmark_automerge::automerge::transaction::Transactable;
     use quillmark_automerge::automerge::{AutoCommit, ROOT};
-    assert!(Document::from_bytes(b"not a document").is_err());
-    assert!(Document::from_bytes(&AutoCommit::new().save()).is_err());
+    assert!(Document::load(b"not a document").is_err());
+    assert!(Document::load(&AutoCommit::new().save()).is_err());
 
     let mut doc = parse(SOURCE);
     let before = doc.clone();
-    let mut peer = AutoCommit::load(&doc.to_bytes()).unwrap();
+    let mut peer = AutoCommit::load(&doc.save()).unwrap();
     peer.put(&ROOT, "schema", "elsewhere@1").unwrap();
-    let (mut ours, mut theirs) = (SyncState::new(), SyncState::new());
+    let (mut ours, mut theirs) = (SyncState::new(), sync::State::new());
     let refused = (0..8).find_map(|_| {
         if let Some(m) = doc.generate_sync_message(&mut ours) {
-            peer.sync().receive_sync_message(&mut theirs, m).unwrap();
+            peer.sync().receive_sync_message(&mut theirs, sync::Message::decode(&m.encode()).unwrap()).unwrap();
         }
         let m = peer.sync().generate_sync_message(&mut theirs)?;
-        doc.receive_sync_message(&mut ours, m).err()
+        doc.receive_sync_message(&mut ours, SyncMessage::decode(&m.encode()).unwrap()).err()
     });
     refused.expect("the message that brings another schema is refused");
     assert_eq!(doc, before);
@@ -857,12 +908,12 @@ fn every_hash_a_write_left_stays_a_base() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nx\n");
     let typed = Change::new(vec![Step::Splice(Splice::new(0, "", "a"))]);
     let mut bases = vec![doc.main().hash_of(Target::Body).unwrap()];
-    for _ in 0..1024 {
+    for _ in 0..crate::document::HISTORY {
         bases.push(doc.main_mut().apply(Target::Body, &typed, None).unwrap().hash);
     }
     let at_end = Change::new(vec![Step::Splice(Splice::new(1, "", "!"))]);
     assert!(doc.main_mut().apply(Target::Body, &at_end, Some(bases[0].as_str())).unwrap().rebased);
-    assert_eq!(doc.main().body().text, format!("{}x!", "a".repeat(1024)));
+    assert_eq!(doc.main().body().text, format!("{}x!", "a".repeat(crate::document::HISTORY)));
 }
 
 /// A stale revise over text typed elsewhere since lands beside it.

@@ -250,8 +250,9 @@ pub enum EditError {
     /// Bytes or a sync message the document's Automerge document does not
     /// take: `reason` is the refusal's name, `decode` where they do not
     /// decode, `shape` where the document they leave holds no Quillmark
-    /// document in the shape this build writes, and `schema` where it names
-    /// a schema this build does not read.
+    /// document in the shape this build writes, `schema` where it names a
+    /// schema this build does not read, and `apply` where a sync message
+    /// decodes but does not apply.
     #[error("the document refuses the bytes ({reason}): {detail}")]
     BadLiveBytes { reason: &'static str, detail: String },
 
@@ -875,10 +876,6 @@ impl<'a> CardMut<'a> {
         self.doc.read_under(self.at, target, base)
     }
 
-
-
-
-
     /// [`write`](Self::write) of [`Edit::Replace`](super::Edit::Replace).
     pub fn replace<'o>(&mut self, target: super::Target<'_>, content: &quillmark_content::model::Content, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
         self.write(target, super::Edit::Replace(content.clone()), opts)
@@ -951,7 +948,8 @@ impl<'a> CardMut<'a> {
 
     #[doc(hidden)]
     pub fn revise_field_checked(&mut self, name: &str, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
-        self.card().revise_field_checked(name, body, schema)
+        let receipt = self.card().revise_field_checked(name, body, schema)?;
+        Ok(receipt.at(self.doc.heads()))
     }
 
     #[doc(hidden)]
