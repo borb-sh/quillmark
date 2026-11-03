@@ -3,9 +3,9 @@
 //! sides set, or one the other side removed.
 
 use crate::{Held, Read, map};
-use quillmark_content::change::{AnchorStep, ApplyError, Change, ContainerStep, IslandStep, Step, apply, apply_traced};
+use quillmark_content::change::{AnchorStep, ApplyError, Assoc, Change, ContainerStep, IslandStep, Step, apply, apply_traced, map_pos};
 use quillmark_content::diff::{self, Keeping, Revision, ReviseError};
-use quillmark_content::model::{Block, Content};
+use quillmark_content::model::{Block, Content, Pos};
 use std::collections::{HashMap, HashSet};
 
 /// `ours` and `theirs`, both made from `base`, merged: `ours` written on
@@ -13,18 +13,40 @@ use std::collections::{HashMap, HashSet};
 /// `ours` put held to their edges ([`Held::clip`]), and the merged state
 /// read through repair.
 pub fn merge3(base: &Content, ours: &Change, theirs: &Change) -> Result<Read, ApplyError> {
+    merge3_checked(base, ours, theirs).map(|(read, _)| read)
+}
+
+/// [`merge3`], and the first step of `ours` that deleted text whose
+/// formatting `theirs` changed ([`Held::restyled`]).
+pub fn merge3_checked(base: &Content, ours: &Change, theirs: &Change) -> Result<(Read, Option<Conflict>), ApplyError> {
     let (mine, mine_trace) = apply_traced(base, ours)?;
     let (since, since_trace) = apply_traced(base, theirs)?;
     let mut held = Held::new(base, "");
+    let at_base = held.clone();
     let heads = held.heads();
     held.write(&mine_trace, &mine.content);
     let mine_heads = held.heads();
     let mut fork = held.fork_at(&heads, None).expect("a document forks at its own heads");
     fork.write(&since_trace, &since.content);
     let theirs_heads = fork.heads();
+    let restyled = Held::restyled(&at_base, &held, &fork, &mine_trace, &mine.applied);
     held.merge(&mut fork).expect("a fork merges back into its document");
     held.clip(&mine_heads, &theirs_heads, &mine_trace);
-    Ok(held.read())
+    Ok((held.read(), restyled))
+}
+
+/// The first step of `applied`, a change made from a value, that deletes
+/// the character at offset `at` of the text `path` reaches there.
+pub(crate) fn step_deleting(applied: &Change, path: &[(String, String)], at: usize) -> usize {
+    let mut pos = path.iter().rev().fold(Pos::At(at), |inner, (island, slot)| Pos::In { island: island.clone(), slot: slot.clone(), at: Box::new(inner) });
+    for (k, step) in applied.steps.iter().enumerate() {
+        let Ok(r) = map_pos(&Change::new(vec![step.clone()]), &pos, Assoc::After) else { return k };
+        if r.deleted_after || r.deleted {
+            return k;
+        }
+        pos = r.pos;
+    }
+    0
 }
 
 /// [`revise_keeping`] of a write that lands on `before`.

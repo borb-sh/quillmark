@@ -14,7 +14,9 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   still conflicts, `reason` `changed` or `missing`. A stale step on a block
   or island gone since, or on an id a record minted since holds, and one
   placing or moving an anchor removed since refuse as `missing`; one whose
-  anchor lost its text to a change since refuses as `deleted`. An anchor or
+  anchor lost its text to a change since refuses as `deleted`; one deleting
+  text a change since formatted otherwise refuses as `changed` rather than
+  dropping the formatting. An anchor or
   mark either side put keeps its edges over text the other typed there,
   whichever actor sorts first. `edit::stale_base` names a
   hash no write this document took left, every base read before a load from

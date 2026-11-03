@@ -87,9 +87,10 @@ fn time<T>(f: impl Fn() -> T) -> Duration {
 /// for the diff and the UTF-16 round trip, which a pass that walks the whole
 /// text per step overruns. The merge is a change made at the heads of a live
 /// document that has taken another since, lowered on a fork there made from
-/// the document's checkpoint, merged back, held to its edges and read; its
-/// limit is under twice the 1.5 s it takes, since lowering 4000 steps into
-/// Automerge, merging and reading the value back each walk the text.
+/// the document's checkpoint, checked for text it deleted that was formatted
+/// since, merged back, held to its edges and read; its limit is about 1.3
+/// times the 1.9 s it takes, since lowering 4000 steps into Automerge,
+/// merging and reading the value back each walk the text.
 const BUDGET: [(&str, f64); 5] = [("apply", 500.0), ("invert", 1000.0), ("diff", 1500.0), ("merge", 2500.0), ("utf16", 500.0)];
 
 fn measure(n: usize) -> (usize, usize, [f64; 5]) {
@@ -108,8 +109,10 @@ fn measure(n: usize) -> (usize, usize, [f64; 5]) {
         time(|| apply(&d, &diff(&d, &after).unwrap()).unwrap()),
         time(|| {
             let mut live = live.clone();
-            let mut fork = live.fork_at(&heads, None).unwrap();
+            let at_base = live.fork_at(&heads, None).unwrap();
+            let mut fork = at_base.clone();
             fork.write(&ours_trace, &ours.content);
+            assert!(Held::restyled(&at_base, &fork, &live, &ours_trace, &ours.applied).is_none());
             let (at_ours, at_theirs) = (fork.heads(), live.heads());
             live.merge(&mut fork).unwrap();
             live.clip(&at_ours, &at_theirs, &ours_trace);

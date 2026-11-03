@@ -8,12 +8,12 @@
 //! edge of a mark that grew so: an element only one side holds, which that
 //! side does not format so.
 
-use crate::map::reach;
+use crate::map::{AFTER, BEFORE, RANGE, reach};
 use automerge::marks::{ExpandMark, Mark};
 use automerge::transaction::Transactable;
 use automerge::{ActorId, AutoCommit, ChangeHash, ObjId, ReadDoc, ScalarValue, Value};
 use quillmark_content::change::{AnchorStep, MarkStep, Trace};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Each text a trace inserted into or put a mark or an anchor on, by the
 /// islands and slots that reach it from the value's own text.
@@ -143,4 +143,95 @@ fn clip_text(doc: &mut AutoCommit, t: &ObjId, sides: &mut [Side; 2]) -> bool {
         doc.unmark(t, name, *from, *to, ExpandMark::None).unwrap();
     }
     !shed.is_empty()
+}
+
+/// Each text a trace deleted from, by the islands and slots that reach it.
+fn deleting(trace: &[Trace]) -> Vec<Vec<(String, String)>> {
+    let mut out: Vec<Vec<(String, String)>> = Vec::new();
+    let mut path = Vec::new();
+    for step in trace {
+        match step {
+            Trace::Enter { island, slot, .. } => path.push((island.clone(), slot.clone())),
+            Trace::Leave => {
+                path.pop();
+            }
+            Trace::Splice { delete, .. } if *delete > 0 && !out.contains(&path) => out.push(path.clone()),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The formatting marks over each index of `want`, by index: a mark's name
+/// and value, an anchor's marks left out.
+fn formatting(marks: &[Mark], want: &HashSet<usize>) -> HashMap<usize, Vec<(String, ScalarValue)>> {
+    let mut out: HashMap<usize, Vec<(String, ScalarValue)>> = HashMap::new();
+    for m in marks.iter().filter(|m| !m.name().starts_with([RANGE, BEFORE, AFTER])) {
+        for i in (m.start..m.end).filter(|i| want.contains(i)) {
+            out.entry(i).or_default().push((m.name().to_string(), m.value().clone()));
+        }
+    }
+    for v in out.values_mut() {
+        v.sort_by(|a, b| a.0.cmp(&b.0));
+    }
+    out
+}
+
+fn counter(id: &ObjId) -> u64 {
+    match id {
+        ObjId::Id(counter, ..) => *counter,
+        ObjId::Root => 0,
+    }
+}
+
+/// Each element of `was` that `now`, the same text after a write, lacks,
+/// with its index: the write keeps the order of what it kept, and each
+/// element it inserted is an op past every one `was` holds.
+fn removed(was: &[ObjId], now: &[ObjId]) -> Vec<(usize, ObjId)> {
+    let past = was.iter().map(counter).max().unwrap_or(0);
+    let mut kept = now.iter().filter(|id| counter(id) <= past).peekable();
+    was.iter()
+        .enumerate()
+        .filter(|(_, id)| match kept.peek() {
+            Some(k) if k == id => {
+                kept.next();
+                false
+            }
+            _ => true,
+        })
+        .map(|(i, id)| (i, id.clone()))
+        .collect()
+}
+
+/// The first character a write that lowered `trace` on `base` to `mine`
+/// deleted, which `theirs`, a side made from `base` too, holds formatted
+/// otherwise: the path of its text and its offset there in `base`. Each
+/// side is a document and its value's root, read as it stands.
+pub(crate) fn restyled(
+    base: (&AutoCommit, &ObjId),
+    mine: (&AutoCommit, &ObjId),
+    theirs: (&AutoCommit, &ObjId),
+    trace: &[Trace],
+) -> Option<(Vec<(String, String)>, usize)> {
+    let ids = |(doc, t): (&AutoCommit, &ObjId)| -> Vec<ObjId> { doc.values(t).filter(|(v, _)| element(v)).map(|(_, id)| id).collect() };
+    for path in deleting(trace) {
+        let (Some(b), Some(t)) = (reach(base.0, base.1, &path).map(|t| (base.0, t)), reach(theirs.0, theirs.1, &path).map(|t| (theirs.0, t))) else {
+            continue;
+        };
+        let was_ids = ids((b.0, &b.1));
+        let now_ids = reach(mine.0, mine.1, &path).map(|t| ids((mine.0, &t))).unwrap_or_default();
+        let gone = removed(&was_ids, &now_ids);
+        if gone.is_empty() {
+            continue;
+        }
+        let gone_ids: HashSet<&ObjId> = gone.iter().map(|(_, id)| id).collect();
+        let there: HashMap<ObjId, usize> =
+            ids((t.0, &t.1)).into_iter().enumerate().filter(|(_, id)| gone_ids.contains(id)).map(|(j, id)| (id, j)).collect();
+        let was = formatting(&b.0.marks(&b.1).unwrap_or_default(), &gone.iter().map(|g| g.0).collect());
+        let now = formatting(&t.0.marks(&t.1).unwrap_or_default(), &there.values().copied().collect());
+        if let Some((i, _)) = gone.iter().find(|(i, id)| there.get(id).is_some_and(|j| was.get(i) != now.get(j))) {
+            return Some((path, i.saturating_sub(1)));
+        }
+    }
+    None
 }

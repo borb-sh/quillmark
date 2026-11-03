@@ -969,3 +969,34 @@ fn a_base_past_the_noted_hashes_is_stale() {
     let at_end = Change::new(vec![Step::Splice(Splice::new(2, "", "!"))]);
     assert!(doc.main_mut().apply(Target::Body, &at_end, Some(bases[1].as_str())).unwrap().rebased);
 }
+
+/// A stale revise that rewrites a word another writer formatted since
+/// refuses as `changed` rather than dropping the formatting, whichever
+/// writer's actor sorts first; one over text typed elsewhere since lands.
+#[test]
+fn a_stale_revise_does_not_strip_formatting_put_since() {
+    use crate::document::{Base, WriteOptions};
+    use quillmark_content::change::MarkStep;
+    use quillmark_content::model::{Mark, MarkKind};
+    let formats = [MarkKind::Strong, MarkKind::Link { url: "https://x.io".into() }];
+    for (kind, (typist, writer), reworded) in formats
+        .iter()
+        .flat_map(|k| [("a", "z"), ("z", "a")].map(|o| (k, o)))
+        .flat_map(|(k, o)| ["Hello World, again", "Hello wOrld, again"].map(|r| (k.clone(), o, r)))
+    {
+        let mut doc = parse("~~~\n$quill: q\n~~~\n\nHello world, again\n");
+        let base = doc.main().hash_of(Target::Body).unwrap();
+        let mark = Change::new(vec![Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, kind), quote: None })]);
+        doc.main_mut().apply(Target::Body, &mark, WriteOptions { base: None, actor: Some(typist) }).unwrap();
+        let held = doc.clone();
+        let opts = WriteOptions { base: Some(Base::Hash(&base)), actor: Some(writer) };
+        let err = doc.main_mut().revise(Target::Body, reworded, opts).unwrap_err();
+        assert_eq!((err.code(), &err.args()["reason"]), ("edit::rebase_conflict", &serde_json::json!("changed")), "{reworded}");
+        assert_eq!(doc, held);
+    }
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\nHello world, again\n");
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(0, "", "Oh, "))]), None).unwrap();
+    doc.main_mut().revise(Target::Body, "Hello World, again", Some(base.as_str())).unwrap();
+    assert_eq!(doc.main().body().text, "Oh, Hello World, again");
+}

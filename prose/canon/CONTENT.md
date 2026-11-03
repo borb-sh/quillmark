@@ -180,7 +180,9 @@ Text edits go through `diff_range(before, after, from, to)` (`diffRange(before, 
 
 `diff` stays for a writer with no steps (§ "Writing a value").
 
-`apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The growth defaults are for producers, and the read `structural::inherited_marks(content, at)` states them, for a producer that asks: `strong`, `emph`, `underline` and `strike` grow at their end, `code`, `link` and an `x-` mark at neither edge, and `font_family` at both, the family before `at` winning over the one after. A `\n` and a hard break hold no mark, so at a block's or a line's start only a family grows. Anchors never grow: a range keeps its edges, and a point stays left of text typed at it.
+`apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The growth defaults are for producers, and the read `structural::inherited_marks(content, at)` states them, for a producer that asks: `strong`, `emph`, `underline` and `strike` grow at their end, `code`, `link` and an `x-` mark at neither edge, and `font_family` at both, the family before `at` winning over the one after. A `\n` and a hard break hold no mark, so at a block's or a line's start only a family grows.
+
+Anchors never grow: a range keeps its edges, and a point stays left of text typed at it. Across peers the edges hold only on a stale write's merge, which clips them (§ "Live state and merge"); under `receive_sync_message` an anchor's or a mark's edge where a peer typed concurrently lands as the two actors' ids sort, until the receive path clips too.
 
 A collab session merges marks by Yjs's rules, not by these defaults. Where one peer formats a range while another types at its edge, client order decides whether the typed text takes the mark, so a session's merge can differ from the core's Automerge merge of the same two edits.
 
@@ -237,6 +239,8 @@ Before it lowers, a stale write checks what is cheap to check and refuses with `
 - `missing`: a step names a block, container, island or slot the base held and the value now does not, or a splice puts back a block or island gone since; a step names a block or island by an id the record it read no longer holds, a record minted since holding it instead; or an `anchor` step places or moves an anchor the base held and the value now does not, as a stale revise from an annotated read keeps the tag of a comment resolved since.
 - A `nested` step checks its own steps in the slot.
 
+Lowered on its fork, a write whose splice deleted text a change since formatted otherwise, adding or removing a mark on it, refuses as `changed`, as a stale revise rewording a word someone bolded since does, rather than dropping the formatting with the word.
+
 After the merge, a write whose `anchor` step placed or moved an anchor the merge holds nowhere, its text deleted since, refuses as `deleted`, so a placement never lands with its anchor gone.
 
 Nothing else conflicts. A slot a props step drops takes a concurrent edit inside it with it. An anchor both sides moved reads as the merge orders the two. Two inserts at one place land in the order of their writers' Automerge actors.
@@ -252,7 +256,7 @@ A load or a received message refuses with `edit::bad_live_bytes` and a `reason`,
 - `shape`: the document left holds no value in the shape above;
 - `content`: its value does not read as content.
 
-A live document is addressed: its first change carries, as its message, the address of the value, the card's `$id` (none on the main card) and the field (none for the body), as the JSON array `[card, field]`. Peers syncing one value start from one document: one loaded from another's save, or each built from equal values at one address, since a document's first change is written under one actor at time 0 and so is the same bytes in every process.
+A live document is addressed: its first change carries, as its message, the address of the value, the card's `$id` (none on the main card) and the field (none for the body), as the JSON array `[card, field]`. The address names a value within a document, not the document: the main card's body is `[null, null]` in every document, so a host syncing several documents keeps their live documents apart itself. Peers syncing one value start from one document: one loaded from another's save, or each built from equal values at one address, since a document's first change is written under one actor at time 0 and so is the same bytes in every process.
 
 Bytes whose history opens with another address's first change, or none, do not load. A message bringing a first change other than the document's own, the value of another address or one built from another value, is refused as `address`, so a message routed to the wrong value never merges into it. A card that takes another `$id` makes its live documents afresh.
 

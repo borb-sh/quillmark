@@ -409,12 +409,16 @@ impl Card {
         }
         let (content, held) = match since {
             Since::Heads { fork, .. } => {
+                let since_fork: &Held = fork;
                 let live = self.live.at(&address(self.id(), target), target, &read.now, hash);
                 if let Some(c) = quillmark_automerge::reminted(fork, &live.held, &mine.applied) {
                     return Err(refuse(c));
                 }
                 let mut fork = fork.as_ref().clone();
                 fork.write(&trace, &mine.content);
+                if let Some(c) = Held::restyled(since_fork, &fork, &live.held, &trace, &mine.applied) {
+                    return Err(refuse(c));
+                }
                 let (ours, theirs) = (fork.heads(), live.held.heads());
                 let mut next = live.held.clone();
                 next.merge(&mut fork).expect("a fork merges back into the document it forked from");
@@ -429,7 +433,11 @@ impl Card {
             }
             Since::Content { base } => {
                 let theirs = diff::diff(base, &read.now).map_err(|e| EditError::change(e.into()))?;
-                (quillmark_automerge::merge3(base, change, &theirs).map_err(EditError::change)?.content, None)
+                let (merged, restyled) = quillmark_automerge::merge3_checked(base, change, &theirs).map_err(EditError::change)?;
+                if let Some(c) = restyled {
+                    return Err(refuse(c));
+                }
+                (merged.content, None)
             }
         };
         if let Some(c) = quillmark_automerge::deleted(&mine.applied, &mine.content, &content) {

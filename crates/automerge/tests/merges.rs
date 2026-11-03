@@ -3,7 +3,7 @@
 //! other typed there whichever actor sorts first, and a step by id conflicts
 //! only where the other side set or removed what it names.
 
-use quillmark_automerge::{Held, Reason, conflict, deleted, merge3};
+use quillmark_automerge::{Held, Reason, conflict, deleted, merge3, merge3_checked};
 use quillmark_content::change::{AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step, apply, apply_traced};
 use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::{Anchor, BlockKind, Container, ContainerKind, Content, ISLAND_SLOT, Mark, MarkKind};
@@ -211,4 +211,16 @@ fn text_typed_at_the_edge_of_a_mark_put_since_takes_no_part_in_it() {
     assert_eq!(done.text, "Hello XXworldYY");
     assert_eq!(done.anchor("c-1"), Some(&Anchor::new("c-1", 8, 13)));
     assert_eq!(done.marks, [Mark::new(8, 13, MarkKind::Emph)]);
+}
+
+#[test]
+fn a_change_deleting_text_formatted_since_is_named_and_one_elsewhere_is_not() {
+    let d = from_markdown("Hello world, again").unwrap().content;
+    let link = Change::new(vec![Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Link { url: "https://x.io".into() }), quote: None })]);
+    let mine = quillmark_automerge::revise(&d, "Hello World, again").unwrap().change;
+    let (_, refused) = merge3_checked(&d, &mine, &link).unwrap();
+    assert_eq!(refused.map(|c| c.reason), Some(Reason::Changed));
+    let typed = Change::new(vec![Step::Splice(Splice::new(0, "", "Oh, "))]);
+    let (done, refused) = merge3_checked(&d, &mine, &typed).unwrap();
+    assert_eq!((done.content.text.as_str(), refused), ("Oh, Hello World, again", None));
 }
