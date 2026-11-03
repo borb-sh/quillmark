@@ -813,9 +813,12 @@ pub(crate) struct Values {
 }
 
 /// The address of the value at `target` on the card `card` names, `None`
-/// for the main card: the message of its live document's first change.
+/// for the main card: the message of its live document's first change,
+/// spelled as the path with the card's `$id` in place of its index,
+/// `main.body`, `main.summary`, `cards[n1].body`, `cards[n1].summary`.
 pub(crate) fn address(card: Option<&str>, target: Target<'_>) -> String {
-    serde_json::json!([card, target.field()]).to_string()
+    let card = card.map_or_else(|| "main".to_string(), |id| format!("cards[{id}]"));
+    format!("{card}.{}", target.field().unwrap_or("body"))
 }
 
 /// One value's live document, the address it was made at, the hash of the
