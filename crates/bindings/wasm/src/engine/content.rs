@@ -366,11 +366,6 @@ impl WriteOpts {
             return Ok(out);
         }
         let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
-        if js_sys::Reflect::has(opts, &"baseMarkdown".into()).unwrap_or(false) {
-            return Err(invalid(
-                "a write takes the hash it read as `base`; a markdown base has no change to merge against".into(),
-            ));
-        }
         let keys: Vec<&str> = ["base", "baseHash", "actor"].into_iter().chain(extra.iter().copied()).collect();
         reject_unknown_keys(opts, &keys, "options", |k| {
             format!("{verb}: options have unknown key `{k}`; a write takes {}", keys.iter().filter(|k| **k != "baseHash").map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "))
@@ -394,7 +389,7 @@ impl WriteOpts {
     }
 
     fn as_ref(&self) -> WriteOptions<'_> {
-        WriteOptions { base: self.base.as_deref(), actor: self.actor.as_deref() }
+        WriteOptions { base: self.base.as_deref().map(quillmark_core::document::Base::Hash), actor: self.actor.as_deref() }
     }
 }
 

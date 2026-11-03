@@ -733,7 +733,7 @@ describe('Document apply: the write primitive', () => {
     expect(receipt.applied.steps).toHaveLength(1)
     expect(doc.apply({}, { steps: [] }, { base }).rebased).toBe(true)
     expectEditCode(() => doc.apply({}, { steps: [] }, { base: 'never-read' }), 'edit::stale_base')
-    expect(() => doc.apply({}, { steps: [] }, { baseMarkdown: 'Body.' })).toThrow(/base/)
+    expect(() => doc.apply({}, { steps: [] }, { baseMarkdown: 'Body.' })).toThrow(/unknown key `baseMarkdown`/)
 
     doc.apply({}, invert(receipt.applied, before), { base: receipt.hash })
     expect(doc.read({})).toEqual(before)

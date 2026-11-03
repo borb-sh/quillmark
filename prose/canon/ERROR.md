@@ -102,9 +102,9 @@ A revise guarded by what its writer read (a `Base`) refuses under two more:
 `edit::stale_base` when the value no longer hashes to the writer's
 `baseHash` and the card's change log no longer reaches it (a whole document
 always, since it keeps no log; a body or field rebases while the log reaches
-the base), and `edit::rebase_conflict` when the writer's edit of its
-`baseMarkdown` and the change made since touch the same lines. A whole
-document under `baseMarkdown` refuses only where no merge can stand (a side
+the base), and `edit::rebase_conflict` when the writer's edit of its base and the
+change made since touch the same text or record. A whole
+document under `baseStored` refuses only where no merge can stand (a side
 reordered the cards, or both changed a card's `$quill`, `$seed` or `$ext`
 apart); a place both changed is not an error but an entry in the receipt's
 `conflicts`, its value now kept. Both refusals carry

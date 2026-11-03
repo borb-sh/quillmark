@@ -1,11 +1,11 @@
-//! The three-way merge under a whole-document write's [`Base::Read`]: the
+//! The three-way merge under a whole-document write's [`DocumentBase::Stored`]: the
 //! writer's change and the change made since its read, merged by structure.
 //!
 //! An object merges by key, an array by item aligned as a revise aligns them,
 //! a string by line, and a leaf both sides changed keeps its value now and is
 //! reported as a [`MergeConflict`].
 //!
-//! [`Base::Read`]: super::Base::Read
+//! [`DocumentBase::Stored`]: super::DocumentBase::Stored
 
 use std::cell::{Cell, RefCell};
 

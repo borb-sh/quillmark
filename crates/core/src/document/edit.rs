@@ -12,6 +12,7 @@
 use std::collections::BTreeMap;
 
 use quillmark_content::lines::import::ImportError;
+#[cfg(test)]
 use quillmark_content::lines::model::Lines;
 
 use crate::document::base::{Base, BaseError};
@@ -1481,17 +1482,6 @@ impl Card {
         match self.payload.get(name) {
             None => Ok(quillmark_content::model::Content::empty()),
             Some(v) => Codec::Richtext.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Richtext, e)),
-        }
-    }
-
-    /// The field's current content as a line-form diff base: an absent field
-    /// is empty.
-    pub(crate) fn richtext_base(&self, name: &str) -> Result<Lines, EditError> {
-        check_field_name(name)?;
-        match self.field_content(name, Codec::Richtext) {
-            Some(Ok(rt)) => Ok(rt),
-            Some(Err(e)) => Err(field_decode(name, &[], Codec::Richtext, e)),
-            None => Ok(Lines::empty()),
         }
     }
 

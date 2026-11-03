@@ -8,6 +8,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 #[cfg(feature = "render")]
 use quillmark_content::units::Utf16;
+use quillmark_core::Content;
 #[cfg(feature = "render")]
 use tsify::Ts;
 use wasm_bindgen::prelude::*;
@@ -319,27 +320,32 @@ export interface Delta {
 }
 
 /**
- * What a revise's writer read, the optional last argument of the writer's
- * `revise` / `reviseDocument`.
- * Name one or neither; a key present with no string throws. `baseHash` is the
- * hash the writer read, paired with the write path it writes on: `writer.hashAt` /
- * `writer.hash`. On `revise` a write onto a value that
- * hashes otherwise rebases over the change since, throwing
- * `edit::rebase_conflict` where the two touch and `edit::stale_base` where
- * the log no longer reaches the base; on `reviseDocument` it throws
- * `edit::stale_base`. `baseMarkdown` is the markdown the writer read, annotated
- * or not (a `text` field's literal text): when the value has changed since,
- * the writer's edit and the change since merge by line, so both land, and
- * runs of lines both changed throw `edit::rebase_conflict`. A
- * `reviseDocument` instead merges card by card and field by field, keeps each
- * place both changed as it stands now and names it in the receipt's
- * `conflicts`, and throws `edit::rebase_conflict` only where no merge can
- * stand. Each refusal's `args.current` is the hash now, and leaves the value
- * unchanged.
+ * What a `revise`'s writer read, its optional last argument. Name one or
+ * neither; a key present with no value throws. `baseHash` is the hash the
+ * writer read (`writer.hashAt`); `baseContent` is the value itself, the
+ * `Content` `reader.getContent` returned. On a value that has moved on, the write rebases over the change
+ * since and throws `edit::rebase_conflict` where the two touch. A `baseHash`
+ * throws `edit::stale_base` where the log no longer reaches it; a
+ * `baseContent` holds however long ago it was read. Each refusal's
+ * `args.current` is the hash now, and leaves the value unchanged.
  */
 export interface BaseOptions {
     baseHash?: string;
-    baseMarkdown?: string;
+    baseContent?: Content;
+}
+
+/**
+ * What a `reviseDocument`'s writer read, its optional last argument. Name one
+ * or neither. A stale `baseHash` (`writer.hash`) throws `edit::stale_base`.
+ * `baseStored` is the `toStored()` row the writer read: when the document has
+ * changed since, the writer's change and the change since merge card by card
+ * and field by field, each place both changed keeps its value now and is named
+ * in the receipt's `conflicts`, and the write throws `edit::rebase_conflict`
+ * only where no merge can stand.
+ */
+export interface DocumentBaseOptions {
+    baseHash?: string;
+    baseStored?: string;
 }
 
 /**
@@ -352,7 +358,7 @@ export interface BaseOptions {
  * revised document, the index of the stored card it revises, or `null` for an
  * inserted card; a stored card no entry names was removed, and only cards of
  * one `$kind` pair. `conflicts` is empty unless the write carries a
- * `baseMarkdown`.
+ * `baseStored`.
  */
 export interface DocumentRevised {
     droppedAnchors: AnchorContext[];
@@ -362,7 +368,7 @@ export interface DocumentRevised {
 }
 
 /**
- * A place a `reviseDocument` under `baseMarkdown` found changed both by the
+ * A place a `reviseDocument` under `baseStored` found changed both by the
  * writer and since its read, which the write leaves as it stands now. `path`
  * is where it stands in the written document, or would stand where the write
  * left it out. Each side is the value there, `null` where that side holds
@@ -1597,10 +1603,9 @@ impl Document {
     /// absent `addr.field` targets the body, an absent `addr.card` the main
     /// card.
     ///
-    /// `opts` names what the writer read (`BaseOptions`): a stale `baseHash`
-    /// rebases over the change since, and a `baseMarkdown` the value has moved
-    /// on from merges, throwing `edit::rebase_conflict` where both changed a
-    /// line; a `text` field's `baseMarkdown` is its literal text.
+    /// `opts` names what the writer read (`BaseOptions`): a value that has
+    /// moved on from its `baseHash` or `baseContent` rebases the write over the
+    /// change since, throwing `edit::rebase_conflict` where the two touch.
     ///
     /// An undeclared name throws `edit::unknown_field`; an out-of-range card,
     /// a malformed field name, or an over-nested markdown input throws.
@@ -1612,7 +1617,7 @@ impl Document {
         text: &str,
         #[wasm_bindgen(unchecked_optional_param_type = "BaseOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let read = ReadBase::from_js(opts, "revise")?;
+        let read = ReadBase::from_js(opts, "revise", "baseContent")?;
         let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let base = self.addr_base(&addr);
         let card_id = self.addr_card_ref(&addr)?.id().map(str::to_string);
@@ -1643,11 +1648,11 @@ impl Document {
         &mut self,
         quill: &Quill,
         markdown: &str,
-        opts: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "DocumentBaseOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let read = ReadBase::from_js(opts, "reviseDocument")?;
+        let read = ReadBase::from_js(opts, "reviseDocument", "baseStored")?;
         let mut writer = quill.inner.writer(&mut self.inner);
-        let revised = match read.as_base() {
+        let revised = match read.as_document_base() {
             None => writer.revise_document(markdown),
             Some(read) => writer.revise_document_against(read, markdown),
         }
@@ -2087,50 +2092,78 @@ fn markdown_options(opts: &JsValue, verb: &str) -> Result<bool, JsValue> {
     Ok(opts.annotated.unwrap_or(false))
 }
 
-/// What a revise's writer read, off a `BaseOptions`.
+/// What a revise's writer read, off a `BaseOptions` or a
+/// `DocumentBaseOptions`.
 enum ReadBase {
     None,
     Hash(String),
-    Markdown(String),
+    Content(Content),
+    Stored(Box<quillmark_core::document::Document>),
 }
 
 impl ReadBase {
-    fn from_js(opts: JsValue, verb: &str) -> Result<Self, JsValue> {
-        #[derive(serde::Deserialize)]
-        #[serde(rename_all = "camelCase", deny_unknown_fields)]
-        struct Opts {
-            base_hash: Option<String>,
-            base_markdown: Option<String>,
-        }
+    /// `other` is the key beside `baseHash`: `baseContent` on `revise`,
+    /// `baseStored` on `reviseDocument`.
+    fn from_js(opts: JsValue, verb: &str, other: &str) -> Result<Self, JsValue> {
         if opts.is_undefined() || opts.is_null() {
             return Ok(ReadBase::None);
         }
         let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
-        // A key that is present but holds no string is a caller bug (a lookup
-        // that found nothing, a missing `await`), and `JSON.stringify` would
-        // drop it into an unguarded write.
-        for key in ["baseHash", "baseMarkdown"] {
-            let present = js_sys::Reflect::has(&opts, &key.into()).unwrap_or(false);
-            if present && !js_sys::Reflect::get(&opts, &key.into()).map_or(false, |v| v.is_string())
-            {
-                return Err(invalid(format!("{key} must be a string when given")));
+        if !opts.is_object() {
+            return Err(invalid("options must be an object".into()));
+        }
+        let keys = js_sys::Object::keys(opts.unchecked_ref::<js_sys::Object>());
+        for key in keys.iter() {
+            let key = key.as_string().unwrap_or_default();
+            if key != "baseHash" && key != other {
+                return Err(invalid(format!("unknown option `{key}`; expected baseHash or {other}")));
             }
         }
-        let opts: Opts = serde_json::from_value(js_value_to_json(opts, verb)?)
-            .map_err(|e| invalid(format!("options must be BaseOptions: {e}")))?;
-        match (opts.base_hash, opts.base_markdown) {
+        // A key that is present but holds nothing is a caller bug (a lookup
+        // that found nothing, a missing `await`), and would otherwise fall
+        // through to an unguarded write.
+        let get = |key: &str| -> Result<Option<JsValue>, JsValue> {
+            if !js_sys::Reflect::has(&opts, &key.into()).unwrap_or(false) {
+                return Ok(None);
+            }
+            let v = js_sys::Reflect::get(&opts, &key.into()).unwrap_or(JsValue::UNDEFINED);
+            if v.is_undefined() || v.is_null() {
+                return Err(invalid(format!("{key} must be given a value when present")));
+            }
+            Ok(Some(v))
+        };
+        match (get("baseHash")?, get(other)?) {
             (None, None) => Ok(ReadBase::None),
-            (Some(hash), None) => Ok(ReadBase::Hash(hash)),
-            (None, Some(markdown)) => Ok(ReadBase::Markdown(markdown)),
-            (Some(_), Some(_)) => Err(invalid("name baseHash or baseMarkdown, not both".into())),
+            (Some(_), Some(_)) => Err(invalid(format!("name baseHash or {other}, not both"))),
+            (Some(hash), None) => hash
+                .as_string()
+                .map(ReadBase::Hash)
+                .ok_or_else(|| invalid("baseHash must be a string".into())),
+            (None, Some(v)) if other == "baseStored" => {
+                let json = v.as_string().ok_or_else(|| invalid("baseStored must be a toStored string".into()))?;
+                quillmark_core::document::Document::from_stored(&json)
+                    .map(|parsed| ReadBase::Stored(Box::new(parsed.document)))
+                    .map_err(|e| invalid(format!("baseStored: invalid storage DTO: {e}")))
+            }
+            (None, Some(v)) => content::content_in(v, &format!("{verb}: baseContent")).map(ReadBase::Content),
         }
     }
 
     fn as_base(&self) -> Option<quillmark_core::document::Base<'_>> {
+        use quillmark_core::document::Base;
         match self {
-            ReadBase::None => None,
-            ReadBase::Hash(hash) => Some(quillmark_core::document::Base::Hash(hash)),
-            ReadBase::Markdown(md) => Some(quillmark_core::document::Base::Read(md)),
+            ReadBase::None | ReadBase::Stored(_) => None,
+            ReadBase::Hash(hash) => Some(Base::Hash(hash)),
+            ReadBase::Content(content) => Some(Base::Content(content)),
+        }
+    }
+
+    fn as_document_base(&self) -> Option<quillmark_core::document::DocumentBase<'_>> {
+        use quillmark_core::document::DocumentBase;
+        match self {
+            ReadBase::None | ReadBase::Content(_) => None,
+            ReadBase::Hash(hash) => Some(DocumentBase::Hash(hash)),
+            ReadBase::Stored(doc) => Some(DocumentBase::Stored(doc)),
         }
     }
 }

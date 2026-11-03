@@ -901,7 +901,7 @@ export class DocumentWriter {
 	}
 	/**
 	 * @param {string} markdown
-	 * @param {import('../core/wasm.js').BaseOptions} [opts]
+	 * @param {import('../core/wasm.js').DocumentBaseOptions} [opts]
 	 * @returns {import('../core/wasm.js').DocumentRevised}
 	 */
 	reviseDocument(markdown, opts) {

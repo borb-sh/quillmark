@@ -152,6 +152,7 @@ export type {
 	CardAddr,
 	Delta,
 	BaseOptions,
+	DocumentBaseOptions,
 	DocumentRevised,
 	CardAdded,
 	MergeConflict,
@@ -686,7 +687,7 @@ export interface DocumentUnchecked {
 	insertCard(card: CardInput, at?: number, opts?: PlaceOptions): string;
 }
 
-import type { Addr, BaseOptions, CardAdded, CardInput, Content, DocumentRevised, PathStep, PlaceOptions, Receipt, Resolved } from '../core/wasm.js';
+import type { Addr, BaseOptions, CardAdded, DocumentBaseOptions, CardInput, Content, DocumentRevised, PathStep, PlaceOptions, Receipt, Resolved } from '../core/wasm.js';
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
@@ -747,11 +748,11 @@ export declare class DocumentWriter {
 	 * field's result is schema-conformed (a one-paragraph `richtext` rejects a
 	 * multi-block result), and an undeclared name throws `UnknownField`.
 	 *
-	 * `opts` names what the writer read: a stale `baseHash` (from
-	 * {@link hashAt}) rebases over the change since, throwing
-	 * `edit::rebase_conflict` where the two touch and `edit::stale_base` where
-	 * the log no longer reaches the base, and a `baseMarkdown` merges, a `text`
-	 * field's being its literal text; either sets `rebased`.
+	 * `opts` names what the writer read: its `baseHash` (from {@link hashAt})
+	 * or its `baseContent` (the `Content` `doc.read` returned). A value that has
+	 * moved on rebases the write over the change since and sets `rebased`,
+	 * throwing `edit::rebase_conflict` where the two touch; a `baseHash` throws
+	 * `edit::stale_base` where the log no longer reaches it.
 	 */
 	revise(addr: Addr | string, text: string, opts?: BaseOptions): Receipt;
 	/**
@@ -766,14 +767,13 @@ export declare class DocumentWriter {
 	 * leaving the document unchanged.
 	 *
 	 * `opts` names what the writer read: `baseHash` is {@link hash}, and
-	 * `baseMarkdown` the whole document's markdown (`toMarkdown()`, cold or
-	 * annotated). A stale hash throws before any mutation. A
-	 * markdown base merges the write onto what changed since, card by card and
-	 * field by field: each place both changed keeps its value now and is named
-	 * in the receipt's `conflicts`, and the write throws
+	 * `baseStored` the `doc.toStored()` row it read. A stale hash throws before
+	 * any mutation. A stored base merges the write onto what changed since,
+	 * card by card and field by field: each place both changed keeps its value
+	 * now and is named in the receipt's `conflicts`, and the write throws
 	 * `edit::rebase_conflict` only where no merge can stand.
 	 */
-	reviseDocument(markdown: string, opts?: BaseOptions): DocumentRevised;
+	reviseDocument(markdown: string, opts?: DocumentBaseOptions): DocumentRevised;
 	/**
 	 * Build a composable card of `kind`, typed-commit `fields` onto it, set its
 	 * body from optional markdown, and place it. `at` omitted appends, a number
