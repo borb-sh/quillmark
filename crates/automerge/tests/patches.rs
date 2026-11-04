@@ -7,7 +7,7 @@ mod common;
 
 use common::*;
 use proptest::prelude::*;
-use quillmark_automerge::automerge::{ObjId, ReadDoc};
+use automerge::{ObjId, ReadDoc};
 use quillmark_automerge::content::model::Content;
 use quillmark_automerge::content::units::Utf16;
 use quillmark_automerge::model::{Doc, ids};

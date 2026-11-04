@@ -2,7 +2,6 @@
 //! markdown revise that merges what its read could not spell back in.
 
 use crate::model::{Doc, StepError, View, ids};
-use automerge::ActorId;
 use crate::content::change::{ApplyError, Change, apply};
 use crate::content::diff::{self, Keeping, Revision, ReviseError};
 use crate::content::model::Content;
@@ -10,8 +9,8 @@ use std::collections::HashMap;
 
 /// The actors `merge3` writes under, `ours` after `theirs` where both put
 /// text at one place, so the merge is a function of its inputs.
-const OURS: &[u8] = b"ours";
-const THEIRS: &[u8] = b"theirs";
+const OURS: &str = "ours";
+const THEIRS: &str = "theirs";
 
 /// The key the merged value sits under in the document's main card.
 const VALUE: &str = "value";
@@ -29,11 +28,11 @@ pub fn merge3(base: &Content, ours: &Change, theirs: &Change) -> Result<View, Ap
     doc.commit();
     let held = doc.view(&root).content;
     let before = doc.heads();
-    doc.set_actor(ActorId::from(THEIRS));
+    doc.set_actor(THEIRS);
     doc.apply_from(&root, &ids::renamed(theirs, base, &held), None, Some(&held)).map_err(refused)?;
     let mut back: HashMap<String, String> = ids::places(&doc.view(&root).content, &since);
     let after_theirs = doc.heads();
-    doc.set_actor(ActorId::from(OURS));
+    doc.set_actor(OURS);
     doc.apply_from(&root, &ids::renamed(ours, base, &held), Some(&before), Some(&held)).map_err(refused)?;
     if let Some(at_ours) = doc.heads().into_iter().find(|h| !after_theirs.contains(h)).map(|h| vec![h]) {
         back.extend(ids::places(&doc.view_at(&root, &at_ours).content, &mine));

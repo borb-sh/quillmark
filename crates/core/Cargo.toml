@@ -34,6 +34,7 @@ sha2 = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+automerge = { workspace = true }
 # Cross-checks the hand-rolled fence scanner against a real CommonMark parser.
 # A direct dev-dep so the test can name `pulldown_cmark` (the production Markdown
 # parser lives in the `quillmark-automerge` dependency, not linked directly here).

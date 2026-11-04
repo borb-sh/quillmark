@@ -9,8 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_automerge::automerge::ObjId;
-use quillmark_automerge::model::{StepError, cards};
+use quillmark_automerge::model::{StepError, ValueId, cards};
 use quillmark_automerge::content::change::{self, AnchorStep, ApplyError, Change, Step};
 use quillmark_automerge::content::lines::import::ImportWarning;
 use quillmark_automerge::content::diff;
@@ -87,7 +86,7 @@ impl Document {
     /// The value at `target` of the card at `at`, a field made a text value
     /// where it holds its content as JSON or holds nothing; `true` with it
     /// where the field was absent and is put now.
-    fn value_obj(&mut self, at: Option<usize>, target: Target<'_>) -> Result<(ObjId, bool), EditError> {
+    fn value_obj(&mut self, at: Option<usize>, target: Target<'_>) -> Result<(ValueId, bool), EditError> {
         self.bind();
         let mut put = false;
         let mut content = None;
@@ -176,7 +175,7 @@ impl Document {
         landed
     }
 
-    fn write_on<U: Units>(&mut self, at: Option<usize>, target: Target<'_>, root: &ObjId, edit: Edit<'_>, opts: WriteOptions<'_>, u: Option<U>) -> Result<Receipt, EditError> {
+    fn write_on<U: Units>(&mut self, at: Option<usize>, target: Target<'_>, root: &ValueId, edit: Edit<'_>, opts: WriteOptions<'_>, u: Option<U>) -> Result<Receipt, EditError> {
         let root = root.clone();
         let heads = self.heads_for(target, opts.heads)?;
         let now = self.card_at(at).read(target)?;

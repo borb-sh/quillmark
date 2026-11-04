@@ -21,6 +21,19 @@ mod step;
 pub(crate) mod value;
 
 pub use peer::{Heads, SyncMessage, SyncState};
+
+/// A value's place in the document, which the document's reads and writes
+/// of that value take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValueId(ObjId);
+
+impl std::ops::Deref for ValueId {
+    type Target = ObjId;
+
+    fn deref(&self) -> &ObjId {
+        &self.0
+    }
+}
 pub use step::{Lowered, StepError};
 
 use automerge::sync::SyncDoc;
@@ -223,9 +236,9 @@ impl Doc {
         self.doc.get_heads()
     }
 
-    /// Writes under `actor`, the bytes its hex spells, from now on.
-    pub fn set_actor(&mut self, actor: ActorId) {
-        self.doc.set_actor(actor);
+    /// Writes under `actor`, its bytes the Automerge actor, from now on.
+    pub fn set_actor(&mut self, actor: &str) {
+        self.doc.set_actor(ActorId::from(actor.as_bytes()));
     }
 
     pub fn generate_sync_message(&mut self, state: &mut SyncState) -> Option<SyncMessage> {

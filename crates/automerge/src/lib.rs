@@ -19,5 +19,4 @@ pub mod content;
 mod merge;
 pub mod model;
 
-pub use automerge;
 pub use merge::{merge3, revise, revise_keeping};

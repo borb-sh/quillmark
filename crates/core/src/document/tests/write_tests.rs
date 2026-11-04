@@ -765,9 +765,9 @@ fn peers_writing_with_no_actor_sync_from_one_origin() {
 #[test]
 fn a_document_refuses_bytes_or_a_message_it_cannot_read() {
     use crate::document::{SyncMessage, SyncState};
-    use quillmark_automerge::automerge::sync::{self, SyncDoc};
-    use quillmark_automerge::automerge::transaction::Transactable;
-    use quillmark_automerge::automerge::{AutoCommit, ROOT};
+    use automerge::sync::{self, SyncDoc};
+    use automerge::transaction::Transactable;
+    use automerge::{AutoCommit, ROOT};
     assert!(Document::load(b"not a document").is_err());
     assert!(Document::load(&AutoCommit::new().save()).is_err());
 

@@ -13,7 +13,7 @@ mod common;
 
 use common::*;
 use proptest::prelude::*;
-use quillmark_automerge::automerge::{ActorId, ChangeHash, ObjId};
+use automerge::{ChangeHash, ObjId};
 use quillmark_automerge::model::Doc;
 use quillmark_automerge::content::change::apply;
 use quillmark_automerge::content::model::Content;
@@ -70,7 +70,7 @@ fn session(d: &Content, rounds: &[Round], out: &mut Outcome) {
     base.commit();
     let mut peers: Vec<Doc> = (0..3).map(|_| base.clone()).collect();
     for (p, peer) in peers.iter_mut().enumerate() {
-        peer.set_actor(ActorId::from(format!("peer{p}").as_bytes()));
+        peer.set_actor(&format!("peer{p}"));
     }
     let mut last: Vec<Option<(Vec<ChangeHash>, Content)>> = vec![None, None, None];
     for (n, (p, ops, q, stale)) in rounds.iter().enumerate() {

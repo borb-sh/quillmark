@@ -333,7 +333,11 @@ fn nth_slot(d: &Doc, order: &ObjId, index: usize) -> usize {
 /// at its field `field`, and whether it is put now: a field holding its
 /// content as JSON or holding nothing is put as a text value of `content`,
 /// and committed. None where no card holds that id.
-pub fn value_at(d: &mut Doc, card: Option<&str>, field: Option<&str>, content: impl FnOnce() -> Content) -> Option<(ObjId, bool)> {
+pub fn value_at(d: &mut Doc, card: Option<&str>, field: Option<&str>, content: impl FnOnce() -> Content) -> Option<(super::ValueId, bool)> {
+    value_obj_at(d, card, field, content).map(|(v, put)| (super::ValueId(v), put))
+}
+
+fn value_obj_at(d: &mut Doc, card: Option<&str>, field: Option<&str>, content: impl FnOnce() -> Content) -> Option<(ObjId, bool)> {
     let c = match card {
         None => d.main(),
         Some(id) => value::obj(&d.doc, &d.cards(), id)?,

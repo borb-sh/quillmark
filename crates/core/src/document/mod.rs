@@ -1077,7 +1077,7 @@ impl Document {
     pub(crate) fn read_from(mut doc: quillmark_automerge::model::Doc, mints: card_id::ActorMints) -> Result<Self, String> {
         let (main, cards) = held::read(&doc)?;
         if let Some(actor) = mints.actor() {
-            doc.set_actor(quillmark_automerge::automerge::ActorId::from(actor.as_bytes()));
+            doc.set_actor(actor);
         }
         Ok(Self { main, cards, mints, held: Bound(Some(Held::new(doc))) })
     }
@@ -1100,7 +1100,7 @@ impl Document {
         }
         self.mints.set_actor(actor);
         if let Some(held) = self.held.0.as_mut() {
-            held.doc.set_actor(quillmark_automerge::automerge::ActorId::from(actor.as_bytes()));
+            held.doc.set_actor(actor);
         }
         Ok(())
     }
@@ -1114,7 +1114,7 @@ impl Document {
         debug_assert!(self.cards.iter().all(|c| c.id().is_some()), "a document binds once its card ids are settled");
         let mut doc = held::build(&self.main, &self.cards);
         if let Some(actor) = self.mints.actor() {
-            doc.set_actor(quillmark_automerge::automerge::ActorId::from(actor.as_bytes()));
+            doc.set_actor(actor);
         }
         let (main, cards) = held::read(&doc).expect("built cards read back");
         self.held = Bound(Some(Held::new(doc)));
