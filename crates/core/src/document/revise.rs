@@ -58,7 +58,7 @@ impl Document {
     /// card's body, and each
     /// markdown string in a field where the stored field holds a content
     /// object, at any depth, by key in an object and by index in an array,
-    /// revise as [`Card::revise`] does, so
+    /// revise as [`CardMut::revise`](super::CardMut::revise) does, so
     /// surviving anchors ride their text. A body or value whose revise does not
     /// validate keeps its stored value, with a warning. Everything else
     /// lands as the markdown spells it: scalars, `$quill`, `$seed`, YAML

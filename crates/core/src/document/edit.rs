@@ -237,7 +237,7 @@ pub enum EditError {
     /// A revise or replace whose change removes an `x-` island. Markdown
     /// cannot spell one, and a host's own model may hold none, so the writer
     /// may never have seen it; removing one takes a change of its own through
-    /// [`Card::apply`].
+    /// [`CardMut::apply`].
     #[error("the write removes the {kind} island '{island}', which its writer may not have seen; remove it with apply")]
     DropsExtIsland { island: String, kind: String },
 
@@ -885,32 +885,32 @@ impl<'a> CardMut<'a> {
         self.write(target, super::Edit::Replace(content.clone()), opts)
     }
 
-    /// [`Card::split_block`], landed in the document.
+    /// Splits the block at text offset `at` in two, the new block under `id` or a minted one.
     pub fn split_block<'o>(&mut self, target: super::Target<'_>, at: usize, id: Option<&str>, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
         self.structural(target, quillmark_content::structural::StructuralEdit::SplitBlock { at, id: id.map(str::to_string) }, opts)
     }
 
-    /// [`Card::join_blocks`], landed in the document.
+    /// Joins the block `id` to the block before it.
     pub fn join_blocks<'o>(&mut self, target: super::Target<'_>, id: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
         self.structural(target, quillmark_content::structural::StructuralEdit::JoinBlocks { id: id.to_string() }, opts)
     }
 
-    /// [`Card::delete_range`], landed in the document.
+    /// Deletes the text `start..end`, joining the blocks it spans.
     pub fn delete_range<'o>(&mut self, target: super::Target<'_>, start: usize, end: usize, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
         self.structural(target, quillmark_content::structural::StructuralEdit::DeleteRange { start, end }, opts)
     }
 
-    /// [`Card::indent`], landed in the document.
+    /// Indents the blocks `first..=last` one list level.
     pub fn indent<'o>(&mut self, target: super::Target<'_>, first: &str, last: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
         self.structural(target, quillmark_content::structural::StructuralEdit::Indent { first: first.to_string(), last: last.to_string() }, opts)
     }
 
-    /// [`Card::outdent`], landed in the document.
+    /// Outdents the blocks `first..=last` one list level.
     pub fn outdent<'o>(&mut self, target: super::Target<'_>, first: &str, last: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
         self.structural(target, quillmark_content::structural::StructuralEdit::Outdent { first: first.to_string(), last: last.to_string() }, opts)
     }
 
-    /// [`Card::wrap`], landed in the document.
+    /// Wraps the blocks `first..=last` in a new container `with`.
     pub fn wrap<'o>(&mut self, target: super::Target<'_>, first: &str, last: &str, with: quillmark_content::structural::Wrap, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
         self.structural(target, quillmark_content::structural::StructuralEdit::Wrap { first: first.to_string(), last: last.to_string(), with }, opts)
     }
