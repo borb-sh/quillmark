@@ -188,16 +188,6 @@ impl Card {
         let block = &content.blocks[index];
         Ok(Located { id: block.id.clone(), index, path: block.path.clone() })
     }
-
-    /// The value at `target` as the writer that read at `heads` read it: the
-    /// value now where `heads` is absent, and refused with `edit::stale_base`
-    /// otherwise, since a card outside a document keeps no history.
-    pub fn read_at(&self, target: Target<'_>, heads: Option<&Heads>) -> Result<Content, EditError> {
-        match heads {
-            Some(_) => Err(EditError::StaleHeads { field: target.field().map(str::to_string) }),
-            None => self.read(target),
-        }
-    }
 }
 
 /// Refuses a revise or replace whose result no longer holds an `x-` island

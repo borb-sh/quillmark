@@ -1,15 +1,17 @@
 //! A Quillmark document as one Automerge document.
 //!
-//! The document is the state: its bytes are what a host stores, its heads
-//! are its revision, a write is a transaction and a merge is Automerge's.
+//! The document is the state: its bytes are a live session's form, its
+//! heads are its revision, a write is a transaction and a merge is
+//! Automerge's.
 //! What a document reads as is a view: each text value read through
 //! [`repair`], which nothing writes back.
 //!
-//! The root holds `schema`, `quill`, `main` (a card), `cards` (cards by
-//! `$id`) and `order` (the `$id`s in document order). A card holds `kind`,
-//! `layout` (the payload's items in source order, each field by key and
-//! each comment whole), `fields`, `nestedComments`, `ext`, `seed` and
-//! `body`; a body or content field is a value in the shape `value` states.
+//! The root holds `schema`, `main` (a card), `cards` (cards by `$id`) and
+//! `order` (the `$id`s in document order). A card holds `layout` (the
+//! payload's items in source order, its quill, kind and id among them, each
+//! field by key and each comment whole), `fields`, `nestedComments`, `ext`,
+//! `seed` and `body`; a body or content field is a value in the shape
+//! `value` states.
 
 pub mod cards;
 pub mod ids;
@@ -77,11 +79,9 @@ const ISOLATED_STEPS: usize = 16;
 /// the live document.
 pub const SCHEMA: &str = "quillmark/document@0.135.0";
 
-pub const QUILL: &str = "quill";
 pub const MAIN: &str = "main";
 pub const CARDS: &str = "cards";
 pub const ORDER: &str = "order";
-pub const KIND: &str = "kind";
 pub const FIELDS: &str = "fields";
 pub const LAYOUT: &str = "layout";
 pub const NESTED: &str = "nestedComments";
@@ -273,6 +273,7 @@ impl Doc {
         Ok(())
     }
 
+    #[doc(hidden)]
     pub fn am(&self) -> &AutoCommit {
         &self.doc
     }
@@ -341,12 +342,6 @@ impl Doc {
         out
     }
 
-    /// What the value `root` read as at `heads`, `None` where it held no
-    /// value then.
-    pub fn try_view_at(&mut self, root: &ObjId, heads: &[ChangeHash]) -> Option<View> {
-        self.reading_at(heads, |d| value::text(&d.doc, root).is_some().then(|| d.view(root)))
-    }
-
     /// What the value `root` read as at `heads`.
     pub fn view_at(&mut self, root: &ObjId, heads: &[ChangeHash]) -> View {
         self.reading_at(heads, |d| d.view(root))
@@ -367,7 +362,7 @@ impl Doc {
     }
 
     /// The raw value `root` holds, before repair.
-    pub fn raw(&self, root: &ObjId) -> Value {
+    fn raw(&self, root: &ObjId) -> Value {
         value::read(&self.doc, root)
     }
 
@@ -420,21 +415,13 @@ impl Doc {
         lowered
     }
 
-    /// Automerge's patches taking the document from `before` to now, text
-    /// indexes counted in `u`.
-    pub fn patches(&mut self, before: &[ChangeHash], u: impl crate::content::units::Units) -> Vec<Value> {
-        self.doc.commit();
-        let after = self.doc.get_heads();
-        patch::between(&mut self.doc, before, &after, u)
-    }
-
     /// Starts recording the changes past the document's heads now, so
     /// [`landed`](Self::landed) from them reads no history.
     pub fn track(&mut self) {
         self.doc.update_diff_cursor();
     }
 
-    /// [`patches`](Self::patches) from `before`, and the view of `root`, which
+    /// [`patches_between`](Self::patches_between) `before` and now, and the view of `root`, which
     /// read as `was` at `before`, they leave.
     pub fn landed(&mut self, root: &ObjId, before: &[ChangeHash], was: &Content, u: impl crate::content::units::Units) -> (Vec<Value>, View) {
         self.doc.commit();

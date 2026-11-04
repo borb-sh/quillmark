@@ -7,10 +7,8 @@
 //! card then takes the value the write left, which Automerge's patches since
 //! the write began build from the value before it.
 
-use std::collections::BTreeMap;
-
-use quillmark_automerge::model::{StepError, ValueId, cards};
-use quillmark_automerge::content::change::{self, AnchorStep, ApplyError, Change, Step};
+use quillmark_automerge::model::{ValueId, cards, ids};
+use quillmark_automerge::content::change::{self, AnchorStep, Change, Step};
 use quillmark_automerge::content::lines::import::ImportWarning;
 use quillmark_automerge::content::diff;
 use quillmark_automerge::content::model::Content;
@@ -20,50 +18,6 @@ use super::edit::EditError;
 use super::write::{Edit, Receipt, Target, WriteOptions, check_change, keeps_ext_islands};
 use super::{Card, Document, Heads};
 use crate::value::QuillValue;
-
-fn step_error(e: StepError) -> EditError {
-    EditError::change(match e {
-        StepError::Stale { step, .. } | StepError::Bounds { step, .. } => ApplyError::Stale { step },
-        StepError::Unknown { what: "block", id, .. } => ApplyError::UnknownBlock { id },
-        StepError::Unknown { what: "container", id, .. } => ApplyError::UnknownContainer { id },
-        StepError::Unknown { what: "anchor", id, .. } => ApplyError::UnknownAnchor { id },
-        StepError::Unknown { what: "slot", id, .. } => match id.split_once('/') {
-            Some((island, slot)) => ApplyError::UnknownSlot { island: island.to_string(), slot: slot.to_string() },
-            None => ApplyError::UnknownSlot { island: id, slot: String::new() },
-        },
-        StepError::Unknown { id, .. } => ApplyError::UnknownIsland { id },
-        StepError::AnchorHeld { id, .. } => ApplyError::AnchorHeld { id },
-        StepError::Bad { step, reason } => ApplyError::BadStep { step, reason },
-    })
-}
-
-/// `v` with each string `minted` renames renamed, the values under a key
-/// `keep` names kept as they are.
-fn renamed_json(v: &serde_json::Value, minted: &BTreeMap<String, String>, keep: &[&str]) -> serde_json::Value {
-    use serde_json::Value;
-    match v {
-        Value::String(s) => Value::String(minted.get(s).cloned().unwrap_or_else(|| s.clone())),
-        Value::Array(a) => Value::Array(a.iter().map(|x| renamed_json(x, minted, keep)).collect()),
-        Value::Object(o) => Value::Object(
-            o.iter()
-                .map(|(k, x)| match keep.contains(&k.as_str()) {
-                    true => (k.clone(), x.clone()),
-                    false => (k.clone(), renamed_json(x, minted, keep)),
-                })
-                .collect(),
-        ),
-        other => other.clone(),
-    }
-}
-
-/// `change` with each id `minted` renames renamed.
-fn renamed(change: &Change, minted: &BTreeMap<String, String>) -> Change {
-    if minted.is_empty() {
-        return change.clone();
-    }
-    let keep = ["text", "insert", "delete", "quote", "type", "op", "kind"];
-    Change::from_value(&renamed_json(&change.to_value(), minted, &keep)).unwrap_or_else(|_| change.clone())
-}
 
 fn removed_by(change: &Change, out: &mut Vec<String>) {
     for step in &change.steps {
@@ -105,8 +59,8 @@ impl Document {
             Some(i) => &self.cards[i],
         };
         let doc = self.held.0.as_mut().expect("bound");
-        let (v, written) = cards::value_at(&mut doc.doc, at.and(id.as_deref()), target.field(), || card.read(target))?
-            .expect("a flushed card is held");
+        let (v, written) = cards::value_at(doc, at.and(id.as_deref()), target.field(), || card.read(target))?
+            .expect("a bound card is held");
         if written {
             self.reread_at(at);
         }
@@ -185,19 +139,19 @@ impl Document {
         let root = root.clone();
         let heads = self.heads_for(target, opts.heads)?;
         let now = self.card_at(at).read(target)?;
-        debug_assert_eq!(now, self.held().doc.view(&root).content);
+        debug_assert_eq!(now, self.doc().view(&root).content);
         let read = match (read, &heads) {
             (Some(read), _) => read,
-            (None, Some(h)) => self.held().doc.view_at(&root, h.hashes()).content,
+            (None, Some(h)) => self.doc().view_at(&root, h.hashes()).content,
             (None, None) => now.clone(),
         };
         let (change, warnings, diffed) = match edit {
             Edit::Apply(change) => match edit_units {
                 Some(u) => {
-                    let filled = quillmark_automerge::content::mint::fill(&change, &[&read], None).map_err(EditError::change)?;
+                    let filled = quillmark_automerge::content::mint::fill(&change, &[&read]).map_err(EditError::change)?;
                     let scalars = units::change_to_scalars(&filled.change, &read, u).map_err(EditError::change)?;
                     let back = filled.minted.into_iter().map(|(placeholder, id)| (id, placeholder)).collect();
-                    (renamed(&scalars, &back), Vec::new(), false)
+                    (ids::renamed_by(&scalars, &back), Vec::new(), false)
                 }
                 None => (change, Vec::new(), false),
             },
@@ -222,12 +176,12 @@ impl Document {
                 (change, Vec::new(), true)
             }
         };
-        let doc = &mut self.held().doc;
+        let doc = self.doc();
         if heads.is_none() {
             doc.track();
         }
         let before = Heads::from(doc.heads());
-        let wrote = doc.apply_from(&root, &change, heads.as_ref().map(Heads::hashes), Some(&read)).map_err(step_error)?;
+        let wrote = doc.apply_from(&root, &change, heads.as_ref().map(Heads::hashes), Some(&read)).map_err(|e| EditError::change(e.into()))?;
         let (patches, view) = doc.landed(&root, before.hashes(), &now, units);
         let landed = Heads::from(doc.heads());
         let mut removed = Vec::new();
@@ -259,7 +213,7 @@ impl Document {
                 }
             })
         })?;
-        let doc = &mut self.held().doc;
+        let doc = self.doc();
         let (patches, view) = doc.landed(&root, before.hashes(), &was, units::Scalars);
         let landed = Heads::from(doc.heads());
         let dropped = change::lost_anchors(&was, &view.content, |_| true);

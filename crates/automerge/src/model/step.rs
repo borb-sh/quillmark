@@ -12,7 +12,7 @@ use automerge::marks::Mark as AmMark;
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjId, ObjType, ReadDoc};
 use crate::content::change::{
-    AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step,
+    AnchorStep, ApplyError, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step,
 };
 use crate::content::model::{Block, Content, Island};
 use crate::content::wire;
@@ -36,6 +36,25 @@ pub enum StepError {
     AnchorHeld { step: usize, id: String },
     #[error("step {step}: {reason}")]
     Bad { step: usize, reason: &'static str },
+}
+
+impl From<StepError> for ApplyError {
+    /// A step the document could not lower, as the error `apply` gives for it.
+    fn from(e: StepError) -> ApplyError {
+        match e {
+            StepError::Stale { step, .. } | StepError::Bounds { step, .. } => ApplyError::Stale { step },
+            StepError::Unknown { what: "block", id, .. } => ApplyError::UnknownBlock { id },
+            StepError::Unknown { what: "container", id, .. } => ApplyError::UnknownContainer { id },
+            StepError::Unknown { what: "anchor", id, .. } => ApplyError::UnknownAnchor { id },
+            StepError::Unknown { what: "slot", id, .. } => match id.split_once('/') {
+                Some((island, slot)) => ApplyError::UnknownSlot { island: island.to_string(), slot: slot.to_string() },
+                None => ApplyError::UnknownSlot { island: id, slot: String::new() },
+            },
+            StepError::Unknown { id, .. } => ApplyError::UnknownIsland { id },
+            StepError::AnchorHeld { id, .. } => ApplyError::AnchorHeld { id },
+            StepError::Bad { step, reason } => ApplyError::BadStep { step, reason },
+        }
+    }
 }
 
 /// Checks that `step` places in `view`, the value as the steps before it
@@ -83,10 +102,10 @@ fn check(view: &Content, step: &Step, n: usize) -> Result<(), StepError> {
         Step::Anchor(AnchorStep::Place { anchor: a, quote: Some(q) }) | Step::Anchor(AnchorStep::Move { anchor: a, quote: Some(q) }) => Some((a.start, a.end, q)),
         _ => None,
     };
-    if let Some((start, end, q)) = quoted {
-        if !view.text.chars().skip(start).take(end - start).eq(q.chars()) {
-            return Err(StepError::Stale { step: n, at: start });
-        }
+    if let Some((start, end, q)) = quoted
+        && !view.text.chars().skip(start).take(end - start).eq(q.chars())
+    {
+        return Err(StepError::Stale { step: n, at: start });
     }
     Ok(())
 }

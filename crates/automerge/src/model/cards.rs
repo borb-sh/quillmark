@@ -5,8 +5,9 @@
 //! maps, its `nestedComments` and its `body`. A field holding a content value
 //! holds it as a text value, so it merges as text does; every other value is
 //! plain data, a map key by key and a list by element, and a scalar last
-//! writer wins. [`Card`] is that shape as plain data, the one a host reads
-//! the document into and flushes it back from.
+//! writer wins; a content value nested in such a value is plain data too,
+//! and reads through repair. [`Card`] is that shape as plain data, the one a
+//! host reads its cards from and writes each card edit into.
 
 use automerge::transaction::Transactable;
 use automerge::{ObjId, ObjType, ROOT, ReadDoc, Value as AmValue};
@@ -213,7 +214,7 @@ fn repaired(v: Value) -> Value {
 /// Writes what differs between `was` and `now` into the document, each
 /// card's payload and body and the cards added, removed and moved, and
 /// commits.
-pub fn flush(d: &mut Doc, was: (&Card, &[Card]), now: (&Card, &[Card])) {
+pub fn write_all(d: &mut Doc, was: (&Card, &[Card]), now: (&Card, &[Card])) {
     let m = d.main();
     write_card(d, &m, Some(was.0), now.0);
     let all = d.cards();
@@ -223,10 +224,7 @@ pub fn flush(d: &mut Doc, was: (&Card, &[Card]), now: (&Card, &[Card])) {
         let Some(id) = card.id() else { continue };
         match (held.get(id), value::obj(&d.doc, &all, id)) {
             (Some(w), Some(c)) => write_card(d, &c, Some(w), card),
-            (_, existing) => {
-                if existing.is_some() {
-                    d.doc.delete(&all, id).unwrap();
-                }
+            _ => {
                 let c = d.doc.put_object(&all, id, ObjType::Map).unwrap();
                 d.card_skeleton(&c);
                 write_card(d, &c, None, card);
@@ -291,9 +289,6 @@ pub fn write_one(d: &mut Doc, main: bool, was: &Card, now: &Card) -> Card {
 pub fn insert(d: &mut Doc, index: usize, card: &Card) -> Card {
     let id = card.id().expect("a placed card has an id");
     let all = d.cards();
-    if d.doc.get(&all, id).unwrap().is_some() {
-        d.doc.delete(&all, id).unwrap();
-    }
     let c = d.doc.put_object(&all, id, ObjType::Map).unwrap();
     d.card_skeleton(&c);
     write_card(d, &c, None, card);
@@ -365,9 +360,6 @@ pub fn value_at<E>(d: &mut Doc, card: Option<&str>, field: Option<&str>, content
         return Ok(Some((super::ValueId(v), false)));
     }
     let content = content()?;
-    if d.doc.get(&fields, name).unwrap().is_some() {
-        d.doc.delete(&fields, name).unwrap();
-    }
     let v = d.put_value(&fields, name, &content);
     d.doc.commit();
     Ok(Some((super::ValueId(v), true)))
@@ -386,19 +378,8 @@ fn write_card(d: &mut Doc, c: &ObjId, was: Option<&Card>, now: &Card) {
     if fresh || !was.payload_eq(now) {
         write_payload(d, c, was, now);
     }
-    if fresh {
-        if d.doc.get(c, BODY).unwrap().is_some() {
-            d.doc.delete(c, BODY).unwrap();
-        }
+    if fresh || (was.body != now.body && !d.value(c, BODY).is_some_and(|root| merge_value(d, &root, &now.body))) {
         d.put_value(c, BODY, &now.body);
-    } else if was.body != now.body {
-        let landed = d.value(c, BODY).is_some_and(|root| merge_value(d, &root, &now.body));
-        if !landed {
-            if d.doc.get(c, BODY).unwrap().is_some() {
-                d.doc.delete(c, BODY).unwrap();
-            }
-            d.put_value(c, BODY, &now.body);
-        }
     }
 }
 
@@ -448,9 +429,6 @@ fn put_field(d: &mut Doc, fields: &ObjId, key: &str, was: Option<&Value>, want: 
             && merge_value(d, &root, &content)
         {
             return;
-        }
-        if d.doc.get(fields, key).unwrap().is_some() {
-            d.doc.delete(fields, key).unwrap();
         }
         d.put_value(fields, key, &content);
         return;

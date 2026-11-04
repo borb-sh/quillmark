@@ -230,10 +230,10 @@ fn an_annotated_document_read_with_a_field_anchor_is_a_fresh_read() {
         .field_content("summary", crate::document::Codec::Richtext)
         .unwrap()
         .unwrap();
-    let mut card = doc.card_mut(0).unwrap();
-    card.overwrite_field("summary", anchored(&summary, "Second", "s1"))
+    doc.card_mut(0)
+        .unwrap()
+        .overwrite_field("summary", anchored(&summary, "Second", "s1"))
         .unwrap();
-    drop(card);
     let read = doc.to_markdown_annotated().markdown;
     let at = doc.heads();
     assert!(read.contains("<qm-anchor"), "{read}");

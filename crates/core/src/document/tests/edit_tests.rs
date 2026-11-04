@@ -328,7 +328,6 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
             .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
     );
 
-    drop(card);
     doc.unchecked().store_field(Some(0), "count", crate::value::QuillValue::from_json(serde_json::json!(3))).unwrap();
     assert_eq!(
         doc.card_mut(0).unwrap().revise(crate::document::Target::from("count"), "x", None).unwrap_err().code(),
@@ -799,14 +798,13 @@ fn test_insert_card_refuses_root_only_entries() {
         mutate(&mut wire);
         let card = Card::try_from(wire).expect("the wire stays permissive on placement metadata");
         let mut doc = make_doc();
-        doc.unchecked().insert_card(None, card.clone()).map(|_| doc).map_err(|e| {
+        doc.unchecked().insert_card(None, card.clone()).map(|_| doc).inspect_err(|e| {
             let mut doc = make_doc();
             assert_eq!(
                 doc.unchecked().insert_card(Some(0), card),
                 Err(e.clone()),
                 "push and insert agree"
             );
-            e
         })
     };
 

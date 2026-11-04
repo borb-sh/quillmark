@@ -500,7 +500,7 @@ fn a_revise_with_the_annotated_read_keeps_what_markdown_cannot_spell() {
 /// lands as written, and one that rewrites what the read re-spelled lands
 /// merged with what the read lost.
 #[test]
-fn a_revise_over_what_its_read_could_not_spell_lands_as_written_or_conflicts() {
+fn a_revise_over_what_its_read_could_not_spell_lands_as_written_or_merged() {
     let shape = |name: &str| unspelled().into_iter().find(|(n, _)| *n == name).unwrap().1;
     let mut doc = parse(SOURCE);
     doc.main_mut().replace(Target::Body, &shape("emphasis in link text"), None).unwrap();

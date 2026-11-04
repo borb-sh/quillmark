@@ -1,14 +1,14 @@
-//! The ids a write mints for the records its change puts in the value.
-//! [`fill`] gives each [placeholder](crate::content::ids::is_placeholder) an id;
-//! [`remint`] moves the ids a producer minted under an actor. Both mint past
-//! every id the values they are given and the change hold, so a change filled
-//! against the value it lands on and the value its base names never takes an
-//! id either holds.
+//! The ids a change outside a document mints for the records it puts in the
+//! value: [`fill`] gives each [placeholder](crate::content::ids::is_placeholder)
+//! an id past every id the values it is given and the change hold, so a
+//! change filled against the value it lands on never takes an id it holds.
+//! Inside a document a placeholder fills with the object id of the record it
+//! puts.
 
 use crate::content::change::{ApplyError, Change, ContainerStep, IslandStep, Step};
-use crate::content::ids::{Minter, is_placeholder, prefix, scoped};
+use crate::content::ids::{Minter, is_placeholder, prefix};
 use crate::content::model::Content;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 
 /// A change with its placeholders filled.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -38,11 +38,10 @@ enum Role {
 }
 
 /// `change` with each placeholder replaced by an id minted past the ids of
-/// `held` and of the change itself, under `actor` where one is
-/// given, in the order the change puts them. One placeholder names one
+/// `held` and of the change itself, in the order the change puts them. One placeholder names one
 /// record: putting it twice, or naming one no step puts, is
 /// [`ApplyError::BadStep`].
-pub fn fill(change: &Change, held: &[&Content], actor: Option<&str>) -> Result<Filled, ApplyError> {
+pub fn fill(change: &Change, held: &[&Content]) -> Result<Filled, ApplyError> {
     let mut out = change.clone();
     let mut put: Vec<(usize, String, &'static str)> = Vec::new();
     let mut named: Vec<(usize, String)> = Vec::new();
@@ -60,7 +59,7 @@ pub fn fill(change: &Change, held: &[&Content], actor: Option<&str>) -> Result<F
     let mut ids = minter(&mut out, held);
     let mut minted = BTreeMap::new();
     for (n, id, p) in put {
-        if minted.insert(id, ids.mint(&scoped(actor, p))).is_some() {
+        if minted.insert(id, ids.mint(p)).is_some() {
             return Err(ApplyError::BadStep { step: n, reason: "a placeholder names two records" });
         }
     }
@@ -73,36 +72,6 @@ pub fn fill(change: &Change, held: &[&Content], actor: Option<&str>) -> Result<F
         }
     });
     Ok(Filled { change: out, minted })
-}
-
-/// `change`, made from `before`, with each id it puts that `before` does not
-/// hold at that level and `keep` does not either minted afresh under `actor`,
-/// past the ids of `held` and the change: the ids a producer minted
-/// for a writer, where `keep` holds the ids the writer gave.
-pub fn remint(change: &Change, before: &Content, keep: Option<&Content>, held: &[&Content], actor: &str) -> Change {
-    let mut out = change.clone();
-    let (mut was, mut kept) = (Held::new(before), keep.map(Held::new));
-    let mut fresh: Vec<((Level, Scope, String), &'static str)> = Vec::new();
-    let mut seen = HashSet::new();
-    visit(&mut out.steps, &None, &mut |_, level, scope, role, id| {
-        if let Role::Puts(p) = role {
-            let key = (level.clone(), scope, id.clone());
-            if !was.holds(&key) && !kept.as_mut().is_some_and(|k| k.holds(&key)) && seen.insert(key.clone()) {
-                fresh.push((key, p));
-            }
-        }
-    });
-    if fresh.is_empty() {
-        return out;
-    }
-    let mut ids = minter(&mut out, held);
-    let to: HashMap<(Level, Scope, String), String> = fresh.into_iter().map(|(key, p)| (key, ids.mint(&scoped(Some(actor), p)))).collect();
-    visit(&mut out.steps, &None, &mut |_, level, scope, _, id| {
-        if let Some(fresh) = to.get(&(level.clone(), scope, id.clone())) {
-            *id = fresh.clone();
-        }
-    });
-    out
 }
 
 /// A minter holding every id of `held` at every level and of `change`.
@@ -121,36 +90,6 @@ fn hold_content(ids: &mut Minter, c: &Content) {
     for island in &c.islands {
         ids.hold(&island.id);
         island.slots.values().for_each(|s| hold_content(ids, s));
-    }
-}
-
-/// The ids one value holds, by level, read as asked.
-struct Held<'a> {
-    c: &'a Content,
-    at: HashMap<Level, HashSet<(Scope, String)>>,
-}
-
-impl<'a> Held<'a> {
-    fn new(c: &'a Content) -> Self {
-        Held { c, at: HashMap::new() }
-    }
-
-    fn holds(&mut self, (level, scope, id): &(Level, Scope, String)) -> bool {
-        let c = self.c;
-        let set = self.at.entry(level.clone()).or_insert_with(|| {
-            let at = match level {
-                None => Some(c),
-                Some((island, slot)) => c.slot(island, slot),
-            };
-            let mut set = HashSet::new();
-            if let Some(at) = at {
-                set.extend(at.blocks.iter().map(|b| (Scope::Block, b.id.clone())));
-                set.extend(at.containers.iter().map(|k| (Scope::Container, k.id.clone())));
-                set.extend(at.islands.iter().map(|i| (Scope::Island, i.id.clone())));
-            }
-            set
-        });
-        set.contains(&(*scope, id.clone()))
     }
 }
 

@@ -1,8 +1,8 @@
 //! Structural ids: blocks, containers, islands, slots, rows and columns.
 //! A write mints them deterministically, `{prefix}{n}` past the highest
 //! number a field already holds under that prefix, or the lowest number no
-//! held id takes where the highest is `u64::MAX`; a write under an
-//! [actor](is_actor) mints `{actor}:{prefix}{n}` the same way.
+//! held id takes where the highest is `u64::MAX`. Inside a document a
+//! record's id is its Automerge object id instead.
 
 use std::collections::{HashMap, HashSet};
 
@@ -44,26 +44,13 @@ pub fn is_placeholder(id: &str) -> bool {
 /// fits a card id's 64.
 pub const MAX_ACTOR_LEN: usize = 57;
 
-/// The separator between an actor and an id minted under it. No positional
-/// id holds it, and a repair's or a diff's derived id holds it only where it
-/// derives from an actor's.
-pub const ACTOR_SEP: char = ':';
-
-/// Whether `actor` may scope a write's mints, a content id's or a card
-/// id's: 1 to [`MAX_ACTOR_LEN`] ASCII letters, digits, `_` and `-`, opening
-/// with a letter or digit.
+/// Whether `actor` may be a document handle's actor, its writes' Automerge
+/// actor and the scope of the card ids it mints: 1 to [`MAX_ACTOR_LEN`]
+/// ASCII letters, digits, `_` and `-`, opening with a letter or digit.
 pub fn is_actor(actor: &str) -> bool {
     actor.len() <= MAX_ACTOR_LEN
         && actor.starts_with(|c: char| c.is_ascii_alphanumeric())
         && actor.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-}
-
-/// The prefix `prefix` mints under for `actor`, `prefix` itself for none.
-pub fn scoped(actor: Option<&str>, prefix: &str) -> String {
-    match actor {
-        Some(actor) => format!("{actor}{ACTOR_SEP}{prefix}"),
-        None => prefix.to_string(),
-    }
 }
 
 /// The prefix of the reserved extension names.
