@@ -441,7 +441,8 @@ fn attrs_json(doc: &AutoCommit, m: &ObjId) -> Map<String, Value> {
 /// The value offset the point `id` of `points` reads at.
 pub(crate) fn point_at(doc: &AutoCommit, points: &ObjId, t: &ObjId, id: &str) -> Option<usize> {
     let cursor = Cursor::try_from(get_str(doc, points, id)?.as_str()).ok()?;
-    let at = doc.get_cursor_position(t, &cursor, None).ok()?;
+    // Automerge 0.12 panics, rather than refusing, on a cursor naming an op of another object.
+    let at = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| doc.get_cursor_position(t, &cursor, None))).ok()?.ok()?;
     Some(at.saturating_sub(1).min(doc.length(t).saturating_sub(1)))
 }
 
