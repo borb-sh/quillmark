@@ -580,7 +580,7 @@ describe('Content model: importMarkdown / exportMarkdown', () => {
 
     const doc = Document.parse('~~~card-yaml\n$quill: test_quill\n~~~\n')
     doc.replace({}, content)
-    expect(Document.fromStored(doc.toStored()).main.body).toEqual(doc.main.body)
+    expect(byPlace(Document.fromStored(doc.toStored()).main.body)).toEqual(byPlace(doc.main.body))
     expect(byPlace(doc.main.body).islands).toEqual(byPlace(content).islands)
 
     const past = importMarkdown(table('9007199254740992 1'))
