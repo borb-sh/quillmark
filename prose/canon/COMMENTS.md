@@ -1,6 +1,6 @@
 # Comment Anchors
 
-> **Implementation**: `crates/content/src/` (the `anchors` module), `crates/core/src/document/` (the `anchors` module)
+> **Implementation**: `crates/automerge/src/content/` (the `anchors` module), `crates/core/src/document/` (the `anchors` module)
 > **Related**: [CONTENT.md](CONTENT.md), [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md), [BINDINGS.md](BINDINGS.md)
 
 ## TL;DR
@@ -27,7 +27,7 @@ Core makes the anchor a reliable handle: it reads what each anchor is attached t
 
 - `path` is the `DocPath` of the body or content value holding it.
 - `card_id` is the `$id` of the composable card `path` names, and none on the main card ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#card-id-identity)).
-- `quote` is the anchored text as stored: an inline island is its `U+FFFC` island character, a hard break its `U+2028` and a block break its `\n`, in the prose and in a cell alike. A write's `droppedAnchors` and `movedAnchors` spell it the same way. A point's quote is empty.
+- `quote` is the anchored text as stored: an inline island is its `U+FFFC` island character, a hard break its `U+2028` and a block break its `\n`, in the prose and in a cell alike. A write's `droppedAnchors` spell it the same way. A point's quote is empty.
 - `prefix` and `suffix` are up to 32 Unicode scalar values of stored text on each side, cut at the value's edges, or a cell's edges for an anchor in one.
 
 A quote spanning an inline island (a footnote reference) includes its island character, and is found again only where an island sits.
@@ -41,7 +41,7 @@ The read is pure and cheap enough to run before every markdown write.
 2. Every occurrence of the quote in the stored text, the prose and each cell read as its own text, counts where its context agrees: the text before ends with the last eight scalar values of `prefix`, and the text after starts with the first eight of `suffix`.
 3. A `prefix` or `suffix` shorter than eight was cut at the value's edge, and agrees whole, wherever the edge now sits: a sentence written ahead of an anchor near the value's start leaves it placeable.
 4. A point (an empty quote) counts at each position where the prefix and the suffix both agree.
-5. Where the caller passes the write's change for the path, its receipt's `applied`, a match must overlap text that change's top-level splices inserted, the discipline `revise` keeps, and only the value's own text counts, since those splices span it alone. Without one, the context rule alone decides.
+5. Where the caller passes the write's patches for the path, its receipt's `patches`, a match must overlap text their top-level `insert` patches inserted, the discipline `revise` keeps, and only the value's own text counts. Without one, the context rule alone decides.
 6. Exactly one counting place over the prose and every cell: attach there. None or several: orphan. No nearest match, no partial quote, no edit distance.
 7. An id already live anywhere in the document, a cell's anchor included, is not re-added. It is answered as reattached with the selector the first value holding it reads.
 8. Each id is answered once: of selectors sharing an id, the first is answered and the rest are left out of the receipt.
@@ -56,7 +56,7 @@ A selector naming none is path-strict, as is the rest of every path: a path nami
 ## Drift
 
 Every revise verb is one revise at an address ([CONTENT.md](CONTENT.md) § "Writing a value"), and it can keep an anchor on different words: it relocates a moved quote of four characters or more to the first occurrence overlapping inserted text, and a word-level rewrite can leave both ends of a range over new text. `reattach` never sees those anchors.
-A write's `movedAnchors` reports drift by position, a point included: it names each surviving anchor the write moved, with its quote before and after and the first `reason` that holds, `position`, `block` or `context` ([CONTENT.md](CONTENT.md) § Changes). A writer moving a kept tag reports `position`, a split or a join `block`, and a relocated quote whose text is unchanged still reports `context`, since the eight characters either side are what `reattach` holds a selector's context to.
+A write reports drift as patches: each surviving anchor the write moved, a point included, reaches its receipt as an `anchor` patch placing it where it reads after ([CONTENT.md](CONTENT.md) § "Live state and merge"), and a host re-reads that anchor's selector.
 
 A host re-reads the selector of each anchor named there. Nothing moves an anchor on its own.
 
@@ -96,6 +96,6 @@ A host that stores markdown recovers by running `reattach` over every stored sel
 
 ## Links
 
-- Per-field rule and constants: the `anchors` module of `quillmark-content` (`anchor_contexts`, `locate_site`, `Content::reattach`).
+- Per-field rule and constants: the `content::anchors` module of `quillmark-automerge` (`anchor_contexts`, `locate_site`, `Content::reattach`).
 - Document walk and the path writer: `Document::anchor_contexts`, `anchor_context`, `reattach`.
 - Receipts: `Receipt.dropped_anchors` and `DocumentRevised.dropped_anchors`.

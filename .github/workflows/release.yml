@@ -245,7 +245,7 @@ jobs:
 
       - name: Publish workspace crates
         # --workspace: bare `cargo publish` operates on default-members, which
-        # exclude crates/content, the leaf every published crate depends on.
+        # exclude crates/automerge, the leaf every published crate depends on.
         # publish = false members (fixtures, bindings) are skipped, and cargo
         # orders the rest by dependency.
         #

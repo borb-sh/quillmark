@@ -15,7 +15,7 @@ publish = true
 
 [dependencies]
 quillmark-core = { workspace = true }
-quillmark-content = { workspace = true }
+quillmark-automerge = { workspace = true }
 quillmark-typst = { workspace = true, optional = true }
 quillmark-acroform = { workspace = true, optional = true }
 

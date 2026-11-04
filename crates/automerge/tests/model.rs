@@ -9,14 +9,14 @@ mod common;
 use common::*;
 use proptest::prelude::*;
 use quillmark_automerge::model::{Doc, ids};
-use quillmark_content::change::{Change, apply};
-use quillmark_content::model::Content;
+use quillmark_automerge::content::change::{Change, apply};
+use quillmark_automerge::content::model::Content;
 
 fn held(d: &Content) -> (Doc, automerge::ObjId) {
     let mut doc = Doc::new();
     let main = doc.main();
     let root = doc.put_value(&main, "v", d);
-    doc.am_mut().commit();
+    doc.commit();
     (doc, root)
 }
 
@@ -101,7 +101,7 @@ fn two_documents_built_alike_share_their_origin() {
     assert_eq!(ha, b.heads());
     let main = a.main();
     a.put_value(&main, "v", &Content::empty());
-    a.am_mut().commit();
+    a.commit();
     let bytes = a.save_since(&ha);
     b.merge(&bytes).unwrap();
     assert_eq!(a.heads(), b.heads());
@@ -116,9 +116,9 @@ fn bytes_that_are_not_a_document_refuse() {
 
 #[test]
 fn a_step_naming_an_id_no_object_spells_refuses() {
-    let (mut doc, root) = held(&quillmark_content::markdown::from_markdown("one").unwrap().content);
+    let (mut doc, root) = held(&quillmark_automerge::content::markdown::from_markdown("one").unwrap().content);
     for id in ["b0", "1@zz", "1@abc", "x@ab"] {
-        let step = quillmark_content::change::Step::SetBlock(quillmark_content::change::SetBlock { id: id.into(), kind: Some("para".into()), ..Default::default() });
+        let step = quillmark_automerge::content::change::Step::SetBlock(quillmark_automerge::content::change::SetBlock { id: id.into(), kind: Some("para".into()), ..Default::default() });
         let err = doc.apply(&root, &Change::new(vec![step]), None).unwrap_err();
         assert!(matches!(err, quillmark_automerge::model::StepError::Unknown { .. }), "{id}: {err}");
     }

@@ -130,6 +130,7 @@ import type {
 	Change,
 	Step,
 	Receipt,
+	Patch,
 	WriteOptions,
 	CardInput,
 	PathStep,
@@ -238,10 +239,10 @@ declare const liftMark: ContentMark;
 const liftedMark: Step = { mark: { start: 0, end: 1, add: true, ...markPart(liftMark) } };
 void liftedMark;
 
-// ── A receipt's change is a change ──────────────────────────────────
+// ── A receipt's patches are patches ─────────────────────────────────
 declare const receipt: Receipt;
-const undo: Change = receipt.applied;
-void undo;
+const patches: Patch[] = receipt.patches;
+void patches;
 // The payload rides `attrs` on the step as on the mark; the decoder refuses a
 // named sibling, so the type must too.
 // @ts-expect-error a link's url rides `attrs`

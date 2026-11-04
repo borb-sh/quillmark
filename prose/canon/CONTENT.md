@@ -1,6 +1,6 @@
 # The Content Model
 
-> **Implementation**: `crates/content/`
+> **Implementation**: `crates/automerge/src/content/`
 > **Related**: [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) (how a value is stored), [COMMENTS.md](COMMENTS.md) (what anchors serve), [BINDINGS.md](BINDINGS.md) (the write surface)
 
 ## TL;DR
@@ -123,7 +123,7 @@ Blocks, containers, islands, slots, table rows and table columns have structural
 
 - Import, migration and a write with no actor mint positionally, `{prefix}{n}` past the highest number the values in play hold under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A revise, as an LLM writer makes it, passes no actor.
 - A live client mints through the engine under its actor: a write given `actor` mints `{actor}:{prefix}{n}` the same way. An actor is 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, the one grammar a content write and a card placement both hold it to ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Card-id identity"), one per session, so two clients writing from one value never mint one id and their merge needs no repair. No positional id holds a `:`, and a repair's `a-b` or a diff's `{id}-{n}` holds one only where it derives from an actor's.
-- A record a change puts may carry a placeholder in place of its id: `?` and an id, such as `"?1"`, which other steps of the change may name. No id opens with `?`. The write that lands the change mints an id for each placeholder and names it in the receipt's `minted`, `{"?1": "ann:b4"}`; a placeholder put twice, or named and never put, refuses the change.
+- A record a change puts may carry a placeholder in place of its id: `?` and an id, such as `"?1"`, which other steps of the change may name. No id opens with `?`. The write that lands the change mints an id for each placeholder, which the receipt's patch putting the record carries; a placeholder put twice, or named and never put, refuses the change.
 - A write into a document fills a placeholder with the object id of the record it puts, so no write mints an id twice (§ "Writing a value").
 
 The cost is stated: a document's ids and bytes depend on which actor wrote, so equal content does not mean equal bytes across two documents; two documents compare by what they read; determinism holds for an import and a migration ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Island-id determinism"). Two writers with one actor or none can both introduce an id, and their merge holds it twice, which repair mends (§ "Merge repair"). Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
@@ -205,19 +205,13 @@ An island a change removes and inserts again under its id, a removal paired with
 
 A splice says which islands it deleted only in `removed`. A change mapped holds it on each splice that deletes an island character, as the normalized change does, and one without it is refused. A `Mapping` is a list of step maps with mirror links, each pairing a map with its inverse, so a position one map deleted and its mirror put back maps to where it was. `Mapping::map_point` maps a position as `apply` moves a point anchor, and `project` takes a mapping's maps inside one slot.
 
-Text deleted under a range anchor shrinks it to what survives. An anchor whose text is deleted entirely is removed and named in the receipt's `droppedAnchors`; a surviving anchor the write moved, a point included, is named in `movedAnchors` with its `reason` (below). An island removed by a splice, or a slot a props step no longer names, takes the anchors of its slots with it, and each is named in `droppedAnchors` with the island and slot that held it. Every anchor a change takes out of the value is named there, except one its own `anchor` step removed, which the writer asked for.
-
-A moved anchor's `reason` is the first of these that holds:
-
-- `position`: an `anchor` step put it other than where the write's text edits move it, or in another slot;
-- `block`: its start sits in another block;
-- `context`: its text, or the `CONTEXT` (8) characters either side of it, read otherwise.
+Text deleted under a range anchor shrinks it to what survives. An anchor whose text is deleted entirely is removed and named in the receipt's `droppedAnchors`; a surviving anchor the write moved, a point included, reaches the receipt as an `anchor` patch, where it reads after (§ "Live state and merge"). An island removed by a splice, or a slot a props step no longer names, takes the anchors of its slots with it, and each is named in `droppedAnchors` with the island and slot that held it. Every anchor a change takes out of the value is named there, except one its own `anchor` step removed, which the writer asked for.
 
 ## Live state and merge
 
 A document holds its cards in one Automerge document (`quillmark-automerge`, `model::Doc`), and the cards a reader sees are a view of it. A parse, `Document::new` and `Document::load` hold one; a write to the view, such as a typed writer's `set`, is written into it as a diff before the next content write, save or sync, and read back. How the document lays out cards, fields and values is [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)'s; how a value is held, a change lowered and a write isolated at earlier heads is the `quillmark-automerge` rustdoc's.
 
-A block, container or island id inside a document is the Automerge object id of the record that holds it, `{counter}@{actor}`: the change that puts the record mints it, and it names that record for the document's life. A block or island a write moves is deleted and put again, so it takes a new id. A value outside a document, an import or a `Content` a host builds, keeps the ids § Ids mints, and a write into a document mints its own in their place; `minted` names each placeholder's.
+A block, container or island id inside a document is the Automerge object id of the record that holds it, `{counter}@{actor}`: the change that puts the record mints it, and it names that record for the document's life. A block or island a write moves is deleted and put again, so it takes a new id. A value outside a document, an import or a `Content` a host builds, keeps the ids § Ids mints, and a write into a document mints its own in their place, which the receipt's patches carry.
 
 Formatting and anchors are Automerge marks, so they ride the text's own history and merge as its characters do. A mark carries the expand flags of its growth default (§ Changes); an anchor expands at neither edge.
 
@@ -233,7 +227,15 @@ Heads are the only base. The document holds every heads its history reaches, so 
 - A reload from the stored row (`Document::from_stored`) starts a new session, in which no heads read before the reload resolve.
 - Two processes loading one row build one origin, since a document's first change is written under one actor at time 0, so peers rejoining from the row share it and differ only in the changes since.
 
-The receipt's `applied` is the change from the value before the write to the merge, `heads` the document's heads after it, `droppedAnchors` names every anchor the value held before the write and the merge holds nowhere, besides one the write's own `anchor` step removed, and `movedAnchors` each one the merge moved.
+The receipt's `before` and `heads` are the document's heads either side of the write, and its `patches` are the value's Automerge patches between them, lowered onto the view (`quillmark_automerge::model::patch`): applied in order to the value as it read at `before`, by `apply_patch` or by a host holding that value, they give the value at `heads`, the merge with every change since included. Each patch names the slot it acts in by the island and slot keys down to it, and does one of:
+
+- `insert` text at an offset, with the record of each block and island its line breaks and island characters open, and the formatting it carries; `delete` a run;
+- set a `block`, `island` or `container` record by its id, or remove a container (`containerRemoved`);
+- `mark` a range with one mark, which replaces the mark of its tag there, or `unmark` a tag over a range;
+- place an `anchor` where it reads after, or remove one (`anchorRemoved`);
+- set the whole `value`, where the value after does not validate and reads through repair.
+
+`droppedAnchors` names every anchor the value held before the write and holds nowhere after, besides one the write's own `anchor` step removed. `undo` takes a write back: it diffs the value at `heads` to the value at `before` and lands that at `heads`, so it keeps what others wrote since.
 
 `Document::save` answers the whole document as Automerge bytes, its history included, and `Document::load` reads them back. `heads` answers the document's revision, `save_since(heads)` the changes past it, and `merge(bytes)` takes another peer's changes. `generate_sync_message` and `receive_sync_message` run Automerge's sync protocol with a peer over the whole document. Bytes or a message that leave the document outside its schema refuse with `edit::bad_live_bytes` and a `reason`, and the document and the sync state stay as they were:
 
@@ -257,6 +259,7 @@ Each law is a property test over generated values and generated changes (`tests/
 5. Every `Change` yields a valid value or fails and changes nothing.
 6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported.
 7. Two changes made from one value merge into a valid value, and a change merged with an empty one is itself in text and records either way round. Two changes to text either side of a character neither touches, joining no blocks, merge into text holding each side as its writer left it, the same text in either order. A block kind one side set and the other left alone stays (`crates/automerge/tests/convergence.rs`, beside sessions of three peers writing and merging at random, stale writes included, that reach one value, `crates/automerge/tests/sessions.rs`).
+8. A write's or a merge's patches, applied to the value before, give the value after in text, records, anchors and the formatting of each character (`crates/automerge/tests/patches.rs`).
 
 ## Writing a value
 
@@ -284,7 +287,7 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 
 A binding's write names its card by `$id`, or the main card, never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, nothing tells the write. An id no card holds refuses with `edit::unknown_card_id`.
 
-Each write answers a `Receipt`: `applied`, the change in its normalized form, which `invert(applied, before)` undoes; `heads`, the document's heads after the write and the next write's base, empty for a card no document holds; `droppedAnchors`; `movedAnchors`; a revise's import warnings; and `minted`, each placeholder and the id the write gave it. A write's options are `heads` and `actor` (`WriteOptions`); the actor scopes every id the write mints (§ Ids), and one that is not an actor refuses with `edit::invalid_actor`.
+Each write answers a `Receipt` (§ "Live state and merge"): `before` and `heads`, the document's heads either side of the write, `heads` the next write's base; `patches`, which take the value before to the value after; `droppedAnchors`; the `repairs` reading the value after made; and a revise's import warnings. `CardMut::undo(target, &receipt)` takes the write back. A write's options are `heads` and `actor` (`WriteOptions`); the actor scopes every id the write mints (§ Ids), and one that is not an actor refuses with `edit::invalid_actor`.
 
 **Pass the heads.** `heads` is the document's revision when the writer read (`Document::heads`). Without it, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. A write at heads the document has moved on from merges with what changed since (§ "Live state and merge"):
 
@@ -306,7 +309,7 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 - It refuses an `after` that is not a valid value, and reaches every valid one step-wise.
 - `revise(c, annotated(c))` changes nothing, for every valid `c` the model reaches, markdown-born or not (`tests/change_laws.rs`).
 
-The interactive target is a field of 20000 blocks or 500000 characters: a keystroke's `apply`, lowered into the document at 100000 characters, lands within `BUDGET` (`crates/core/tests/speed.rs`); a one-word revise, a replace of a 20000-item list and a repair of a valid 10000-item list each within its `TARGET` entry (`crates/content/tests/speed.rs`); and import and decode grow linearly.
+The interactive target is a field of 20000 blocks or 500000 characters: a keystroke's `apply`, lowered into the document at 100000 characters, lands within `BUDGET` (`crates/core/tests/speed.rs`); a one-word revise, a replace of a 20000-item list and a repair of a valid 10000-item list each within its `TARGET` entry (`crates/automerge/tests/speed.rs`); and import and decode grow linearly.
 
 ## Merge repair
 

@@ -104,10 +104,10 @@ def test_writer_revise_field():
     doc = Document("sample_form@0.1.0")
     w = quill.writer(doc)
     receipt = w.revise("make it **bold**", "bio")
-    assert sorted(receipt) == ["applied", "dropped_anchors", "heads", "minted", "moved_anchors", "warnings"]
-    assert receipt["applied"]["steps"][0]["splice"]["insert"] == "make it bold"
+    assert sorted(receipt) == ["before", "dropped_anchors", "heads", "patches", "repairs", "warnings"]
+    assert [p["insert"]["text"] for p in receipt["patches"] if "insert" in p] == ["make it bold"]
     assert receipt["heads"] == doc.heads()
-    assert (receipt["dropped_anchors"], receipt["moved_anchors"], receipt["warnings"]) == ([], [], [])
+    assert (receipt["dropped_anchors"], receipt["repairs"], receipt["warnings"]) == ([], [], [])
     assert quill.reader(doc).get("bio") == "make it **bold**"
     (dropped,) = w.revise("make it <kbd>**bold**</kbd>", "bio")["warnings"]
     assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
@@ -242,7 +242,7 @@ def test_a_dropped_anchor_is_named_and_reattached_where_its_text_is_found_once()
     w = quill.writer(doc)
     receipt = w.revise("Nothing like it.\n\nAt all.")
     assert receipt["dropped_anchors"] == [context]
-    assert doc.reattach([context], {"main.body": receipt["applied"]}) == {"reattached": [], "orphaned": [context]}
+    assert doc.reattach([context], {"main.body": receipt["patches"]}) == {"reattached": [], "orphaned": [context]}
 
     receipt = w.revise_document("~~~\n$quill: sample_form@0.1.0\n~~~\n\nMinutes.\n\nThe committee met on Monday to plan.\n")
     assert receipt["dropped_anchors"] == []
@@ -469,12 +469,12 @@ def test_to_markdown_at_reads_the_main_body():
     assert doc.to_markdown_at() == "A **taro** essay."
 
 
-def test_a_text_field_revise_answers_one_splice_over_its_literal_text():
-    """A `text` field's receipt is one splice over the literal text, in code
+def test_a_text_field_revise_answers_one_insert_over_its_literal_text():
+    """A `text` field's receipt is one insert into the literal text, in code
     points."""
     doc = taro_quill().parse(TARO_MARKDOWN)
     w = taro_quill().writer(doc)
     w.revise("a \U0001F600 \\*b\\*", "title")
     receipt = w.revise("a \U0001F600 \\*b\\* c", "title")
-    assert receipt["applied"] == {"steps": [{"splice": {"at": 9, "delete": "", "insert": " c", "removed": {}}}]}
-    assert w.revise("a \U0001F600 \\*b\\* c", "title")["applied"] == {"steps": []}
+    assert receipt["patches"] == [{"insert": {"at": 9, "text": " c", "blocks": [], "islands": [], "marks": []}}]
+    assert w.revise("a \U0001F600 \\*b\\* c", "title")["patches"] == []

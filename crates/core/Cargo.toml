@@ -19,7 +19,6 @@ publish = true
 # type and the markdown-string normalizer; the parser (pulldown) it carries is
 # reachable only through the codecs, so no-feature `pkg/core` ships without it.
 quillmark-automerge = { workspace = true }
-quillmark-content = { workspace = true }
 serde = { workspace = true }
 serde-saphyr = { workspace = true }
 serde_json = { workspace = true }
@@ -37,5 +36,5 @@ sha2 = { workspace = true }
 proptest = { workspace = true }
 # Cross-checks the hand-rolled fence scanner against a real CommonMark parser.
 # A direct dev-dep so the test can name `pulldown_cmark` (the production Markdown
-# parser lives in the `quillmark-content` dependency, not linked directly here).
+# parser lives in the `quillmark-automerge` dependency, not linked directly here).
 pulldown-cmark = { workspace = true }

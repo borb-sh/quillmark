@@ -521,7 +521,7 @@ fn adversarial_codegen_inputs_still_compile() {
     //   - `strong[0,4)` partially overlapping `code[2,6)`, a content an editor
     //     can build but markdown import never produces;
     //   - `i64::MIN` cannot be a Typst int literal (its magnitude overflows).
-    use quillmark_content::lines::model::{Content, Line, LineKind, Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Content, Line, LineKind, Mark, MarkKind};
     // The plate's assert proves the int round-tripped.
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.2.0" as qm
@@ -543,7 +543,7 @@ fn adversarial_codegen_inputs_still_compile() {
             ),
             &serde_json::json!({
                 "prose": content("Please <u>sign here"),
-                "overlap": quillmark_content::migrate::from_lines(&overlap.into_lines()).to_value(),
+                "overlap": quillmark_automerge::content::migrate::from_lines(&overlap.into_lines()).to_value(),
                 "n": i64::MIN,
             }),
             common::test_date(),
@@ -689,7 +689,7 @@ fn position_at_and_locate_round_trip_a_content_offset() {
 
 #[test]
 fn a_host_reads_spans_and_positions_in_its_own_units() {
-    use quillmark_content::units::Utf16;
+    use quillmark_automerge::content::units::Utf16;
     const TEXT: &str = "Alpha 😀😀 beta gamma.";
     let session = body_session(content(TEXT));
     let scalars = session.regions().into_iter().find(|r| r.field == "prose").expect("a region");
@@ -717,7 +717,7 @@ fn locate_past_a_trailing_hard_break_holds_the_preceding_run() {
     // Shift+enter at the end of a paragraph: the segment's last content
     // character is the hard break, which lowers to `#linebreak()` and closes no
     // run, so the caret past it has only a preceding run to hold.
-    use quillmark_content::lines::model::{Content, Line, LineKind};
+    use quillmark_automerge::content::lines::model::{Content, Line, LineKind};
     let rt = Content::new(
         "Alpha beta\n".to_string(),
         vec![
@@ -727,7 +727,7 @@ fn locate_past_a_trailing_hard_break_holds_the_preceding_run() {
     )
     .into_lines();
     assert_eq!(rt.validate(), Ok(()));
-    let session = body_session(quillmark_content::migrate::from_lines(&rt).to_value());
+    let session = body_session(quillmark_automerge::content::migrate::from_lines(&rt).to_value());
 
     let first = session.locate("prose", 0).expect("first-glyph caret");
     let last = session.locate("prose", 10).expect("last-glyph caret");

@@ -3,8 +3,8 @@
 //! the Rust vocabulary it mirrors, read through an exhaustive match so a new
 //! member is a compile error here, where the mirror gets read.
 
-use quillmark_content::lines::island::IslandType;
-use quillmark_content::model::{BlockKind, ContainerKind, MarkKind};
+use quillmark_automerge::content::lines::island::IslandType;
+use quillmark_automerge::content::model::{BlockKind, ContainerKind, MarkKind};
 use quillmark_core::quill::VARIANT_DISCRIMINANT_KEY;
 
 const RUNTIME_JS: &str = include_str!("../runtime/runtime.js");

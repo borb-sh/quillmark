@@ -4,8 +4,8 @@
 //! place; a change made against the given value is renamed to the document's
 //! ids before it lowers, and a value read out is renamed back.
 
-use quillmark_content::change::Change;
-use quillmark_content::model::Content;
+use crate::content::change::Change;
+use crate::content::model::Content;
 use serde_json::Value;
 use std::collections::HashMap;
 

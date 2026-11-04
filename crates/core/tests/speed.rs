@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use quillmark_content::change::{Change, Splice, Step};
+use quillmark_automerge::content::change::{Change, Splice, Step};
 use quillmark_core::document::{Document, Target};
 
 const BUDGET: f64 = 5.0;

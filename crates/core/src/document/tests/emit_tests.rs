@@ -221,10 +221,10 @@ Body.
 #[test]
 fn an_indented_text_field_survives_emit_and_reparse() {
     let text = "    indented\nplain\ntrailing   ";
-    let content = quillmark_content::lines::import::from_plaintext(text);
+    let content = quillmark_automerge::content::lines::import::from_plaintext(text);
     let md = doc_with(&[(
         "sample",
-        quillmark_content::migrate::from_lines(&content).to_value(),
+        quillmark_automerge::content::migrate::from_lines(&content).to_value(),
     )])
     .to_markdown();
     let back = Document::parse(&md).expect("re-parses").document;
@@ -235,7 +235,7 @@ fn an_indented_text_field_survives_emit_and_reparse() {
         .and_then(|v| v.as_str())
         .expect("the field projected to a markdown string");
     assert_eq!(
-        quillmark_content::lines::import::from_markdown(projected)
+        quillmark_automerge::content::lines::import::from_markdown(projected)
             .expect("the projection re-imports")
             .content
             .text,
@@ -250,8 +250,8 @@ fn an_indented_text_field_survives_emit_and_reparse() {
 fn a_nested_content_cell_projects_and_ext_content_does_not() {
     use crate::value::QuillValue;
 
-    let content = quillmark_content::migrate::from_lines(
-        &quillmark_content::lines::import::from_markdown("and **this**")
+    let content = quillmark_automerge::content::migrate::from_lines(
+        &quillmark_automerge::content::lines::import::from_markdown("and **this**")
             .unwrap()
             .content,
     ).to_value();

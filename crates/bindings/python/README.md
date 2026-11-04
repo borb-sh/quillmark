@@ -96,8 +96,8 @@ w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit
                                           # warnings their markdown raised: [Diagnostic, ...]
                                           # add_card returns {"id", "warnings": [Diagnostic, ...]}
                                           # revise returns its receipt:
-                                          # {"applied", "heads", "dropped_anchors", "moved_anchors",
-                                          #  "warnings": [Diagnostic, ...], "minted"}
+                                          # {"before", "heads", "patches", "dropped_anchors",
+                                          #  "repairs", "warnings": [Diagnostic, ...]}
 w.revise_document(markdown)               # whole-document write: cards align by $kind and text, anchors ride their text,
                                           # then conform; returns {"dropped_anchors": [AnchorContext, ...],
                                           # "warnings": [Diagnostic, ...], "from": [int | None]}, clears doc.warnings

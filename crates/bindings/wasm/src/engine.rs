@@ -7,7 +7,7 @@ use js_sys::{Array, Uint8Array};
 use serde::Serialize;
 use std::collections::HashMap;
 #[cfg(feature = "render")]
-use quillmark_content::units::Utf16;
+use quillmark_automerge::content::units::Utf16;
 #[cfg(feature = "render")]
 use tsify::Ts;
 use wasm_bindgen::prelude::*;
@@ -1005,9 +1005,9 @@ impl Document {
         let target = quillmark_core::document::Target::from(addr.field.as_deref());
         let content = card.read(target).map_err(|e| edit_error_to_js(&e, &base))?;
         if !annotated {
-            return Ok(JsValue::from_str(&quillmark_content::markdown::to_text(&content)));
+            return Ok(JsValue::from_str(&quillmark_automerge::content::markdown::to_text(&content)));
         }
-        let read = quillmark_content::markdown::to_text_annotated(&content);
+        let read = quillmark_automerge::content::markdown::to_text_annotated(&content);
         let path = match &addr.field {
             None => base.body(),
             Some(field) => base.field(field),
@@ -1065,7 +1065,7 @@ impl Document {
     /// nothing remaps a card index. An id live anywhere in the document, a
     /// table cell's included, is answered as reattached and not written. Each
     /// id is answered once, by its first selector. `changes` maps a path to the
-    /// `applied` of the write that dropped its anchors, and a match there must
+    /// `patches` of the write that dropped its anchors, and a match there must
     /// overlap text that write inserted.
     ///
     /// Throws on a selector or change that is not one, or a `path` that does
@@ -1074,7 +1074,7 @@ impl Document {
     pub fn reattach(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "AnchorContext[]")] selectors: JsValue,
-        #[wasm_bindgen(unchecked_optional_param_type = "Record<string, Change>")] changes: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "Record<string, Patch[]>")] changes: JsValue,
     ) -> Result<JsValue, JsValue> {
         let invalid = |e: String| WasmError::from(format!("reattach: {e}")).to_js_value();
         let parse_path = |path: &str| {
@@ -1098,15 +1098,21 @@ impl Document {
         if !changes.is_undefined() && !changes.is_null() {
             let changes = match js_value_to_json(changes, "reattach")? {
                 serde_json::Value::Object(changes) => changes,
-                _ => return Err(invalid("changes must be a Record<string, Change>".into())),
+                _ => return Err(invalid("changes must be a Record<string, Patch[]>".into())),
             };
-            for (path, change) in changes {
-                let change = quillmark_content::change::Change::from_value(&change)
-                    .map_err(|e| invalid(format!("changes[{path:?}] is not a Change: {e}")))?;
-                by_path.insert(parse_path(&path)?, change);
+            for (path, patches) in changes {
+                let serde_json::Value::Array(patches) = patches else {
+                    return Err(invalid(format!("changes[{path:?}] is not a Patch[]")));
+                };
+                let patches = patches
+                    .iter()
+                    .map(quillmark_core::document::Patch::from_value)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| invalid(format!("changes[{path:?}] is not a Patch[]: {e}")))?;
+                by_path.insert(parse_path(&path)?, patches);
             }
         }
-        let out = self.inner.reattach_in(&selectors, &by_path, quillmark_content::units::Utf16);
+        let out = self.inner.reattach_in(&selectors, &by_path, quillmark_automerge::content::units::Utf16);
         let js = ReattachedJs {
             reattached: out.reattached.into_iter().map(Into::into).collect(),
             orphaned: out.orphaned.into_iter().map(Into::into).collect(),
@@ -1534,9 +1540,9 @@ impl Document {
     /// diffed against the current value, surviving anchors ride their text, and a field's
     /// result is schema-conformed, so a one-paragraph `richtext` field rejects a
     /// multi-block result with `edit::field_not_single_line`. Returns the
-    /// `Receipt` a content write answers: `applied`, the change from the value
-    /// before, which `mapPos` maps a position through (a `text` field's is one
-    /// splice over its literal text), and a `parse::dropped_construct` warning
+    /// `Receipt` a content write answers: `patches`, what the write did to the
+    /// value before (a `text` field's over its literal text), and a
+    /// `parse::dropped_construct` warning
     /// per construct the import dropped, its `path` the address written. An
     /// absent `addr.field` targets the body, an absent `addr.card` the main
     /// card.
@@ -1573,7 +1579,7 @@ impl Document {
             None => base.body(),
             Some(field) => base.field(field),
         };
-        let receipt = content::receipt_js(receipt.in_units(quillmark_content::units::Utf16), &path, card_id);
+        let receipt = content::receipt_js(receipt.in_units(quillmark_automerge::content::units::Utf16), &path, card_id);
         serialize_or_throw(&receipt, "revise")
     }
 
@@ -1939,14 +1945,14 @@ impl Addr {
 /// 10 MiB.
 #[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Imported")]
 pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
-    let imported = quillmark_content::markdown::from_markdown(markdown).map_err(|e| match e {
-        quillmark_content::lines::import::ImportError::TooLarge { .. } => {
+    let imported = quillmark_automerge::content::markdown::from_markdown(markdown).map_err(|e| match e {
+        quillmark_automerge::content::lines::import::ImportError::TooLarge { .. } => {
             WasmError { diagnostics: vec![quillmark_core::document::EditError::import(e).to_diagnostic(None)] }.to_js_value()
         }
         e => WasmError::from(format!("importMarkdown: {e}")).to_js_value(),
     })?;
     let out = ImportedJs {
-        content: imported.content.to_value_in(quillmark_content::units::Utf16),
+        content: imported.content.to_value_in(quillmark_automerge::content::units::Utf16),
         warnings: diags(quillmark_core::document::dropped_constructs(
             imported.warnings,
             None,
@@ -1969,9 +1975,9 @@ pub fn export_markdown(
     let annotated = markdown_options(&opts, "exportMarkdown")?;
     let content = content::content_in(rt, "exportMarkdown")?;
     if !annotated {
-        return Ok(JsValue::from_str(&quillmark_content::markdown::to_text(&content)));
+        return Ok(JsValue::from_str(&quillmark_automerge::content::markdown::to_text(&content)));
     }
-    let read = quillmark_content::markdown::to_text_annotated(&content);
+    let read = quillmark_automerge::content::markdown::to_text_annotated(&content);
     let out = serde_json::json!({
         "markdown": read.markdown,
         "anchors": read.anchors.into_iter().map(|a| serde_json::json!({ "id": a.id, "line": a.line })).collect::<Vec<_>>(),
@@ -2391,7 +2397,7 @@ fn js_value_to_json(value: JsValue, ctx: &str) -> Result<serde_json::Value, JsVa
         .map_err(|e| WasmError::from(format!("{}: invalid value: {}", ctx, e)).to_js_value())
 }
 
-/// Refuse a JS value nesting past [`MAX_JSON_DEPTH`](quillmark_content::MAX_JSON_DEPTH) **before**
+/// Refuse a JS value nesting past [`MAX_JSON_DEPTH`](quillmark_automerge::content::MAX_JSON_DEPTH) **before**
 /// `serde_wasm_bindgen` builds it: `from_value` recurses one frame per level, so
 /// a deep enough input overflows the 1 MB wasm32 stack during conversion, and
 /// that trap takes the module down rather than surfacing as a catchable error.
@@ -2399,7 +2405,7 @@ fn js_value_to_json(value: JsValue, ctx: &str) -> Result<serde_json::Value, JsVa
 /// nor walks past the limit. Arrays, plain objects, and `Map`s are the three
 /// containers `serde_wasm_bindgen` descends into; each is charged one level.
 fn reject_deep_js_value(value: &JsValue, ctx: &str) -> Result<(), JsValue> {
-    const MAX: usize = quillmark_content::MAX_JSON_DEPTH;
+    const MAX: usize = quillmark_automerge::content::MAX_JSON_DEPTH;
     let mut stack: Vec<(JsValue, usize)> = vec![(value.clone(), 0)];
     while let Some((v, depth)) = stack.pop() {
         let children = if Array::is_array(&v) {
@@ -2612,7 +2618,7 @@ fn ext_map_to_js(
 
 fn card_to_js(card: &quillmark_core::document::Card) -> Result<JsValue, JsValue> {
     let mut wire = quillmark_core::document::CardWire::from(card);
-    wire.body = card.body().to_value_in(quillmark_content::units::Utf16);
+    wire.body = card.body().to_value_in(quillmark_automerge::content::units::Utf16);
     for item in &mut wire.payload_items {
         if let quillmark_core::document::PayloadItemWire::Field { value, .. } = item {
             content::payload_out(value);

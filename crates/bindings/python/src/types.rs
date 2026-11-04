@@ -850,12 +850,18 @@ impl PyDocument {
         let mut by_path = std::collections::HashMap::new();
         if let Some(changes) = changes.filter(|c| !c.is_none()) {
             let serde_json::Value::Object(changes) = py_to_json(changes)? else {
-                return Err(invalid("changes must map a path to a change".into()));
+                return Err(invalid("changes must map a path to a write's patches".into()));
             };
-            for (path, change) in changes {
-                let change = quillmark_content::change::Change::from_value(&change)
-                    .map_err(|e| invalid(format!("changes[{path:?}] is not a change: {e}")))?;
-                by_path.insert(parse_path(&path)?, change);
+            for (path, patches) in changes {
+                let serde_json::Value::Array(patches) = patches else {
+                    return Err(invalid(format!("changes[{path:?}] is a list of patches")));
+                };
+                let patches = patches
+                    .iter()
+                    .map(quillmark_core::document::Patch::from_value)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| invalid(format!("changes[{path:?}] is not a list of patches: {e}")))?;
+                by_path.insert(parse_path(&path)?, patches);
             }
         }
         let out = self.inner.reattach(&selectors, &by_path);
@@ -901,11 +907,13 @@ impl PyDocument {
     }
 
     /// **Apply** `change` to the value at `field` on `card`, all its steps or
-    /// none, and return the receipt: `applied` (the change in its normalized
-    /// form, which `invert` undoes), `heads` (the document's heads after the
-    /// write, the next write's `heads`), `dropped_anchors`, `moved_anchors`,
-    /// `warnings` and `minted`, each placeholder id the change gave a record
-    /// mapped to the id the write minted. `actor` is the Automerge actor the
+    /// none, and return the receipt: `before` and `heads` (the document's
+    /// heads before and after the write, `heads` the next write's),
+    /// `patches` (what the write did to the value, Automerge's patches lowered
+    /// to it: applied in order to the value as it read before, they give the
+    /// value after), `dropped_anchors`, `repairs` and `warnings`. A record a
+    /// placeholder id named carries its minted id in the patch that puts it.
+    /// `actor` is the Automerge actor the
     /// write writes under, each id it mints an object id under it. `heads` is
     /// the revision the writer read (`heads()`), the change's offsets into the
     /// value as it read then; pass it. The change lands at those heads and
@@ -971,6 +979,27 @@ impl PyDocument {
         let content = crate::content::content_from_py(content, "replace")?;
         let edit = quillmark_core::document::Edit::Replace(content);
         crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { heads: heads.as_ref(), actor })
+    }
+
+    /// Take the value at `field` on `card` back to how it read at the
+    /// receipt's `before`, as one write at its `heads`, so it keeps what
+    /// others wrote since; its receipt is the undo's. Raises as `apply`.
+    #[pyo3(signature = (receipt, field=None, card=None))]
+    fn undo<'py>(
+        &mut self,
+        py: Python<'py>,
+        receipt: &Bound<'_, PyAny>,
+        field: Option<&str>,
+        card: Option<CardSel>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        require_card_id(&card, "undo")?;
+        let target = Target::resolve(&self.inner, card)?;
+        let heads_of = |key: &str| -> PyResult<quillmark_core::document::Heads> {
+            let list: Vec<String> = receipt.get_item(key).and_then(|v| v.extract()).map_err(|_| PyValueError::new_err(format!("undo: the receipt's `{key}` is a list of heads")))?;
+            quillmark_core::document::Heads::decode(&list).map_err(crate::content::refused)
+        };
+        let (before, heads) = (heads_of("before")?, heads_of("heads")?);
+        crate::content::taking(py, &mut self.inner, target.index, &target.base, field, |card, target| card.undo_between(target, &before, &heads))
     }
 
     /// The document as Automerge bytes, its whole history: the row a host
@@ -1864,7 +1893,7 @@ fn path_from_py(path: &Bound<'_, PyAny>, ctx: &str) -> PyResult<Vec<quillmark::P
 
 fn content_to_py<'py>(
     py: Python<'py>,
-    content: Option<quillmark_content::model::Content>,
+    content: Option<quillmark_automerge::content::model::Content>,
 ) -> PyResult<Option<Bound<'py, PyAny>>> {
     content.map(|c| crate::content::content_to_py(py, &c)).transpose()
 }

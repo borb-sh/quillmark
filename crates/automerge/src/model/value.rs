@@ -19,9 +19,9 @@ use automerge::transaction::Transactable;
 use automerge::{
     AutoCommit, Cursor, CursorPosition, ObjId, ObjType, ReadDoc, ScalarValue, Value as AmValue,
 };
-use quillmark_content::lines::island::IslandType;
-use quillmark_content::model::{Block, Codec, Content, ISLAND_SLOT, Island, MarkKind};
-use quillmark_content::wire;
+use crate::content::lines::island::IslandType;
+use crate::content::model::{Block, Codec, Content, ISLAND_SLOT, Island, MarkKind};
+use crate::content::wire;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap};
 
@@ -224,7 +224,7 @@ pub(crate) fn mark_key(kind: &MarkKind) -> (String, ScalarValue) {
 
 /// The mark `name` holds `value` over `[start, end)`, `None` where its type
 /// and attrs are not a mark's.
-fn mark_json(name: &str, value: &ScalarValue, start: usize, end: usize) -> Option<Value> {
+pub(crate) fn mark_json(name: &str, value: &ScalarValue, start: usize, end: usize) -> Option<Value> {
     let (ty, attrs) = match (name, value) {
         ("link", ScalarValue::Str(s)) => ("link".to_string(), Some(json!({ "url": s.as_str() }))),
         ("font_family", ScalarValue::Str(s)) => (
@@ -317,7 +317,7 @@ pub(crate) fn elements(doc: &AutoCommit, t: &ObjId) -> Vec<Element> {
         .collect()
 }
 
-fn is_embed(doc: &AutoCommit, m: &ObjId) -> bool {
+pub(crate) fn is_embed(doc: &AutoCommit, m: &ObjId) -> bool {
     matches!(doc.get(m, EMBED), Ok(Some((AmValue::Scalar(s), _))) if matches!(s.as_ref(), ScalarValue::Boolean(true)))
 }
 
@@ -328,7 +328,7 @@ fn is_embed(doc: &AutoCommit, m: &ObjId) -> bool {
 /// a path entry that is not a string, reads as the nearest one the decoder
 /// takes, so every document reads.
 ///
-/// [`Raw::from_value`]: quillmark_content::repair::Raw::from_value
+/// [`Raw::from_value`]: crate::content::repair::Raw::from_value
 pub(crate) fn read(doc: &AutoCommit, root: &ObjId) -> Value {
     let Some(t) = text(doc, root) else {
         return json!({ "text": "", "blocks": [{ "id": id_of(root), "kind": "para" }] });
@@ -441,13 +441,14 @@ fn attrs_json(doc: &AutoCommit, m: &ObjId) -> Map<String, Value> {
 /// The value offset the point `id` of `points` reads at.
 pub(crate) fn point_at(doc: &AutoCommit, points: &ObjId, t: &ObjId, id: &str) -> Option<usize> {
     let cursor = Cursor::try_from(get_str(doc, points, id)?.as_str()).ok()?;
-    let at = doc.get_cursor_position(t, &cursor, None).ok()?;
+    // Automerge 0.12 panics, rather than refusing, on a cursor naming an op of another object.
+    let at = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| doc.get_cursor_position(t, &cursor, None))).ok()?.ok()?;
     Some(at.saturating_sub(1).min(doc.length(t).saturating_sub(1)))
 }
 
 /// The block record `m`: a kind and attrs the decoder takes, a paragraph
 /// where they are not, and the string entries of its path.
-fn block_json(doc: &AutoCommit, m: &ObjId) -> Value {
+pub(crate) fn block_json(doc: &AutoCommit, m: &ObjId) -> Value {
     let mut b = Map::new();
     b.insert("id".into(), Value::String(id_of(m)));
     let (mut kind, mut attrs) = (get_str(doc, m, TYPE).unwrap_or_else(|| "para".into()), attrs_json(doc, m));
@@ -473,7 +474,7 @@ fn block_json(doc: &AutoCommit, m: &ObjId) -> Value {
 
 /// The container record `m`, `None` where its kind and attrs are not a
 /// container's.
-fn container_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
+pub(crate) fn container_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
     let (kind, attrs) = (get_str(doc, m, TYPE)?, attrs_json(doc, m));
     wire::container_kind_from(&kind, &attrs).ok()?;
     let mut c = json!({ "id": id_of(m), "kind": kind });
@@ -484,7 +485,7 @@ fn container_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
 }
 
 /// The island `m`, `None` where its type is not one a build reads.
-fn island_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
+pub(crate) fn island_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
     let ty = get_str(doc, m, TYPE).filter(|t| IslandType::parse(t).is_some())?;
     let props = obj(doc, m, PROPS)
         .map(|p| hydrate(doc, &p))

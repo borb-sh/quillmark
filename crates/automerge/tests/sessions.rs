@@ -15,8 +15,8 @@ use common::*;
 use proptest::prelude::*;
 use quillmark_automerge::automerge::{ActorId, ChangeHash, ObjId};
 use quillmark_automerge::model::Doc;
-use quillmark_content::change::apply;
-use quillmark_content::model::Content;
+use quillmark_automerge::content::change::apply;
+use quillmark_automerge::content::model::Content;
 
 #[derive(Debug, Default)]
 struct Outcome {
@@ -67,7 +67,7 @@ fn session(d: &Content, rounds: &[Round], out: &mut Outcome) {
     let mut base = Doc::new();
     let main = base.main();
     let root = base.put_value(&main, "body", d);
-    base.am_mut().commit();
+    base.commit();
     let mut peers: Vec<Doc> = (0..3).map(|_| base.clone()).collect();
     for (p, peer) in peers.iter_mut().enumerate() {
         peer.set_actor(ActorId::from(format!("peer{p}").as_bytes()));

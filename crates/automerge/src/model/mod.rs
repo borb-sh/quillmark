@@ -11,9 +11,12 @@
 //! each comment whole), `fields`, `nestedComments`, `ext`, `seed` and
 //! `body`; a body or content field is a value in the shape `value` states.
 
-pub mod json;
+pub mod cards;
 pub mod ids;
+pub mod json;
+pub mod patch;
 mod peer;
+mod stale;
 mod step;
 pub(crate) mod value;
 
@@ -25,10 +28,37 @@ use automerge::transaction::{CommitOptions, Transactable};
 use automerge::{
     ActorId, AutoCommit, ChangeHash, ObjId, ObjType, ROOT, ReadDoc, TextEncoding,
 };
-use quillmark_content::change::Change;
-use quillmark_content::model::Content;
-use quillmark_content::repair::{Raw, Repair, repair};
+use crate::content::change::Change;
+use crate::content::model::Content;
+use crate::content::repair::{Raw, Repair, repair};
 use serde_json::Value;
+
+/// The document as it was at `heads`, writing under a random actor: the
+/// changes `heads` reach, in the order the document holds them. None where
+/// one of them names an actor none of them brings, since Automerge 0.12
+/// panics applying such a change to a document that lacks the actor.
+pub(crate) fn fork(doc: &mut AutoCommit, heads: &[ChangeHash]) -> Option<AutoCommit> {
+    let mut reached = std::collections::HashSet::new();
+    let mut todo = heads.to_vec();
+    while let Some(h) = todo.pop() {
+        if reached.insert(h) {
+            todo.extend(doc.get_change_by_hash(&h)?.deps().iter().copied());
+        }
+    }
+    let changes: Vec<automerge::Change> = doc.get_changes(&[]).into_iter().filter(|c| reached.contains(&c.hash())).collect();
+    let actors: std::collections::HashSet<&ActorId> = changes.iter().map(|c| c.actor_id()).collect();
+    if !changes.iter().all(|c| c.other_actor_ids().iter().all(|a| actors.contains(a))) {
+        return None;
+    }
+    let mut f = AutoCommit::new_with_encoding(TextEncoding::UnicodeCodePoint);
+    f.apply_changes(changes).ok()?;
+    Some(f)
+}
+
+/// The most steps a write at earlier heads lowers into the document itself,
+/// isolated at those heads; a longer one lowers on a fork at them, where each
+/// op costs what it does at the heads now.
+const ISOLATED_STEPS: usize = 16;
 
 /// The schema a document's bytes hold under `schema`: the layout version of
 /// the live document.
@@ -226,10 +256,9 @@ impl Doc {
         &self.doc
     }
 
-    /// The document, to write outside [`apply`](Doc::apply). A caller
-    /// commits what it writes.
-    pub fn am_mut(&mut self) -> &mut AutoCommit {
-        &mut self.doc
+    /// Commits what the document holds uncommitted.
+    pub fn commit(&mut self) {
+        self.doc.commit();
     }
 
     pub fn main(&self) -> ObjId {
@@ -294,12 +323,26 @@ impl Doc {
     /// What the value `root` read as at `heads`, `None` where it held no
     /// value then.
     pub fn try_view_at(&mut self, root: &ObjId, heads: &[ChangeHash]) -> Option<View> {
-        self.isolated(heads, |d| value::text(&d.doc, root).is_some().then(|| d.view(root)))
+        self.reading_at(heads, |d| value::text(&d.doc, root).is_some().then(|| d.view(root)))
     }
 
     /// What the value `root` read as at `heads`.
     pub fn view_at(&mut self, root: &ObjId, heads: &[ChangeHash]) -> View {
-        self.isolated(heads, |d| d.view(root))
+        self.reading_at(heads, |d| d.view(root))
+    }
+
+    /// Reads the document as it was at `heads`. A read isolated at earlier
+    /// heads costs the whole text for each element it seeks, so it reads a
+    /// fork at them.
+    pub fn reading_at<T>(&mut self, heads: &[ChangeHash], read: impl FnOnce(&Doc) -> T) -> T {
+        self.doc.commit();
+        if heads == self.doc.get_heads().as_slice() {
+            return read(self);
+        }
+        match fork(&mut self.doc, heads) {
+            Some(doc) => read(&Doc { doc }),
+            None => self.isolated(heads, |d| read(d)),
+        }
     }
 
     /// The raw value `root` holds, before repair.
@@ -331,6 +374,12 @@ impl Doc {
         self.doc.commit();
         let before = self.doc.get_heads();
         let isolated = heads.filter(|h| *h != before.as_slice());
+        if let Some(h) = isolated
+            && change.steps.len() > ISOLATED_STEPS
+            && let Some(lowered) = stale::apply(&mut self.doc, root, change, h, read)
+        {
+            return lowered;
+        }
         if let Some(h) = isolated {
             self.doc.isolate(h);
         }
@@ -347,6 +396,34 @@ impl Doc {
             self.doc.integrate();
         }
         lowered
+    }
+
+    /// The patches taking the value `root` from `before` to now, each at
+    /// offsets into the value's text as the patches before it left it.
+    pub fn patches(&mut self, root: &ObjId, before: &[ChangeHash]) -> Vec<patch::Patch> {
+        let was = self.view_at(root, before).content;
+        self.patches_on(root, before, &was).0
+    }
+
+    /// Starts recording the changes from now, so [`patches_on`](Self::patches_on)
+    /// from the heads now reads them without scanning the document.
+    pub fn track(&mut self) {
+        self.doc.update_diff_cursor();
+    }
+
+    /// [`patches`](Self::patches) from `was`, the value as it read at
+    /// `before`, and the value now. A value the patches leave invalid reads
+    /// through repair, its patch the whole value.
+    pub fn patches_on(&mut self, root: &ObjId, before: &[ChangeHash], was: &Content) -> (Vec<patch::Patch>, View) {
+        self.doc.commit();
+        let after = self.doc.get_heads();
+        let (patches, content) = patch::lower(&mut self.doc, root, before, &after, was);
+        if content.validate().is_ok() {
+            debug_assert_eq!(content, self.view(root).content, "the patches leave the value the document reads");
+            return (patches, View { content, repairs: Vec::new() });
+        }
+        let view = self.view(root);
+        (vec![patch::Patch { slot: Vec::new(), action: patch::Action::Value(view.content.clone()) }], view)
     }
 
     /// Puts `content` under `key` of the map `parent` as a new value.

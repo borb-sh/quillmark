@@ -28,7 +28,6 @@ __all__ = [
     "SyncState",
     "Writer",
     "diff",
-    "invert",
 ]
 
 @final
@@ -160,7 +159,7 @@ class Document:
     def reattach(
         self,
         selectors: Sequence[AnchorContext],
-        changes: dict[str, Change] | None = None,
+        changes: dict[str, list[Patch]] | None = None,
     ) -> Reattached: ...
     def read(self, field: str | None = None, card: int | str | None = None) -> Content: ...
     @overload
@@ -195,6 +194,12 @@ class Document:
         heads: list[str] | None = None,
         actor: str | None = None,
     ) -> Receipt: ...
+    def undo(
+        self,
+        receipt: Receipt,
+        field: str | None = None,
+        card: str | None = None,
+    ) -> Receipt: ...
     def save(self) -> bytes: ...
     @staticmethod
     def load(data: bytes) -> Document: ...
@@ -222,33 +227,29 @@ Content = dict[str, Any]
 # An edit: `{"steps": [...]}`, each step a dict of one key naming it.
 Change = dict[str, Any]
 
-class MovedAnchor(TypedDict):
-    id: str
-    before: str
-    after: str
-    # What moved, the first that holds: "position" (an anchor step put it
-    # other than where the write's text edits carry it), "block" (its start
-    # sits in another block), "context" (its text or the eight characters
-    # either side read otherwise).
-    reason: Literal["position", "block", "context"]
-
 class ReceiptDroppedAnchor(AnchorContext, total=False):
     island: str
     slot: str
 
-class Receipt(TypedDict):
-    applied: Change
-    # The document's heads after the write, the next write's `heads`, empty
-    # for a card no document holds.
-    heads: list[str]
-    dropped_anchors: list[ReceiptDroppedAnchor]
-    moved_anchors: list[MovedAnchor]
-    warnings: list[Diagnostic]
-    # Each placeholder id the change gave a record it put, and the id the
-    # write minted for it.
-    minted: dict[str, str]
+# One change a write made to a value: a dict of one action key, `insert`
+# (`at`, `text`, `blocks`, `islands`, `marks`), `delete` (`at`, `len`),
+# `block`, `island`, `container`, `containerRemoved` (`id`), `mark`,
+# `unmark` (`start`, `end`, `tag`), `anchor`, `anchorRemoved` (`id`) or
+# `value`, and `slot`, the island slots it reaches, where it reaches one.
+Patch = dict[str, Any]
 
-def invert(change: Change, before: Content) -> Change: ...
+class Receipt(TypedDict):
+    # The document's heads before the write, which `undo` takes it back to.
+    before: list[str]
+    # The document's heads after the write, the next write's `heads`.
+    heads: list[str]
+    # Applied in order to the value as it read before the write, they give
+    # the value after. Offsets count code points.
+    patches: list[Patch]
+    dropped_anchors: list[ReceiptDroppedAnchor]
+    repairs: list[dict[str, Any]]
+    warnings: list[Diagnostic]
+
 def diff(before: Content, after: Content) -> Change: ...
 
 class Imported(TypedDict):

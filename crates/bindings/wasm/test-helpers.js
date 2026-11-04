@@ -188,3 +188,13 @@ export function storedByPlace(stored) {
   const names = new Map()
   return stored.replace(/\d+@[0-9a-f]+/g, (id) => names.get(id) ?? (names.set(id, `#${names.size}`), names.get(id)))
 }
+
+/** The `insert` patches of `receipt` on the value's own text, as `{ at, text }`. */
+export const inserts = (receipt) =>
+  receipt.patches.filter((p) => p.insert && !p.slot).map((p) => ({ at: p.insert.at, text: p.insert.text }))
+
+/** The id of each block and island the `insert` patches of `receipt` put, in order. */
+export const putIds = (receipt) =>
+  receipt.patches
+    .filter((p) => p.insert && !p.slot)
+    .flatMap((p) => [...p.insert.blocks.map((b) => b.id), ...p.insert.islands.map((i) => i.id)])

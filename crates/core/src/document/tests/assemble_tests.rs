@@ -549,7 +549,7 @@ Body.";
 
 /// A YAML scalar is opaque to the markdown layer, so a value that reads as
 /// markup anywhere else survives a payload whole, at every nesting. What the
-/// *body* does with `<<word>>` is CommonMark's, and `quillmark_content` owns
+/// *body* does with `<<word>>` is CommonMark's, and `quillmark_automerge::content` owns
 /// it.
 #[test]
 fn chevrons_survive_every_payload_position() {

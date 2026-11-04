@@ -226,11 +226,8 @@ impl<'a> TypedWriter<'a> {
         let base = DocPath::card(Some(kind), at.unwrap_or(self.doc.cards().len()));
         let mut warnings = set_all_impl(&mut card, schema, fields, &base)?;
         if let Some(md) = body {
-            warnings.extend(
-                card.revise_body(md)
-                    .map_err(|e| vec![("$body".to_string(), e)])?
-                    .diagnostics(Some(&base.body())),
-            );
+            let dropped = card.revise_body(md).map_err(|e| vec![("$body".to_string(), e)])?;
+            warnings.extend(crate::document::dropped_constructs(dropped, Some(&base.body())));
         }
         let id = self
             .doc

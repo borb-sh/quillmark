@@ -252,7 +252,7 @@ families:
   rides `doc.warnings` as a parse's do. 0.135 reads such a value; a later
   release refuses it, and the code goes with that window.
 - **`export::lost_construct` off a markdown export.** The receipt of an
-  export: `quillmark_content::export::to_markdown_checked` reads its markdown
+  export: `quillmark_automerge::content::markdown::to_markdown_checked` reads its markdown
   back and names each part of the content it does not carry, and
   `quillmark_core::document::lost_construct` mints one warning per part. The
   `construct` is a mark's wire type (`strong`, `link`, …) with its `start`

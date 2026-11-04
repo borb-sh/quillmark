@@ -6,17 +6,24 @@ include.workspace = true
 license.workspace = true
 homepage.workspace = true
 repository = "https://github.com/borb-sh/quillmark"
-keywords = ["richtext", "crdt", "automerge", "content-model"]
-categories = ["text-processing"]
-description = "A Quillmark content value held in an Automerge document: the mapping, the write that lowers a change into it, and the merged read through repair"
+keywords = ["richtext", "crdt", "automerge", "content-model", "markdown"]
+categories = ["text-processing", "parser-implementations"]
+description = "The Quillmark document held in one Automerge document: the content model and its canonical JSON, the changes that edit it and the markdown codecs, the write that lowers a change into the document, and the merged read through repair"
 # Published because `quillmark-core` (published) depends on it.
 publish = true
 
 [dependencies]
-quillmark-content = { workspace = true }
 automerge = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# The markdown projection's parser. This crate is the workspace's single home
+# for a CommonMark parser; render paths consume the content, never markdown.
+pulldown-cmark = { workspace = true }
+unicase = { workspace = true }
+similar = { workspace = true }
+unicode-segmentation = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+quillmark-fixtures = { workspace = true }

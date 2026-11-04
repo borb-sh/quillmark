@@ -20,7 +20,7 @@ quillmark-core = { workspace = true }
 # The content model `emit.rs` lowers to Typst markup, reached directly rather
 # than through core so the emitter names its types head-on. Nothing here parses
 # markdown: the content crosses the seam already imported.
-quillmark-content = { workspace = true }
+quillmark-automerge = { workspace = true }
 quillmark-pdf = { workspace = true }
 getrandom = { workspace = true }
 serde_json = { workspace = true }

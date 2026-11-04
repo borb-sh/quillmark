@@ -255,9 +255,9 @@ fn test_replace_body_reports_import_error() {
 
 #[test]
 fn test_overwrite_body_sets_directly() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::lines::import::from_markdown("underlined body")
+    let mut content = quillmark_automerge::content::lines::import::from_markdown("underlined body")
         .unwrap()
         .content
         .into_content();
@@ -271,9 +271,9 @@ fn test_overwrite_body_sets_directly() {
 
 #[test]
 fn test_overwrite_field_sets_directly() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
+    let mut content = quillmark_automerge::content::lines::import::from_markdown("underlined intro")
         .unwrap()
         .content
         .into_content();
@@ -289,7 +289,7 @@ fn test_overwrite_field_sets_directly() {
     assert_eq!(read, content);
 
     assert_eq!(
-        card.overwrite_field("$bad", quillmark_content::lines::model::Lines::empty())
+        card.overwrite_field("$bad", quillmark_automerge::content::lines::model::Lines::empty())
             .unwrap_err()
             .code(),
         "edit::invalid_field_name"
@@ -298,11 +298,12 @@ fn test_overwrite_field_sets_directly() {
 
 #[test]
 fn test_revise_field_diff_imports_and_returns_its_change() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
-    let mut card = Card::new("note").unwrap();
+    let mut doc = super::placed(Card::new("note").unwrap());
+    let mut card = doc.card_mut(0).unwrap();
     let revised = card.revise(crate::document::Target::from("intro"), "hello target world", None).unwrap();
-    assert!(!revised.applied.steps.is_empty());
+    assert!(!revised.patches.is_empty());
 
     let mut base = card
         .field_content("intro", Codec::Richtext)
@@ -327,13 +328,10 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
             .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
     );
 
-    card.store_field(
-        "count",
-        crate::value::QuillValue::from_json(serde_json::json!(3)),
-    )
-    .unwrap();
+    drop(card);
+    doc.unchecked().store_field(Some(0), "count", crate::value::QuillValue::from_json(serde_json::json!(3))).unwrap();
     assert_eq!(
-        card.revise(crate::document::Target::from("count"), "x", None).unwrap_err().code(),
+        doc.card_mut(0).unwrap().revise(crate::document::Target::from("count"), "x", None).unwrap_err().code(),
         "edit::field_decode"
     );
 }
@@ -341,7 +339,7 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
 #[test]
 fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
     use crate::quill::{FieldSchema, FieldType};
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
     let inline = FieldSchema::new(
         "subject".to_string(),
@@ -349,11 +347,12 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
         None,
     );
 
-    let mut card = Card::new("note").unwrap();
+    let mut doc = super::placed(Card::new("note").unwrap());
+    let mut card = doc.card_mut(0).unwrap();
     let revised = card
         .revise_field_checked("subject", "hello target world", &inline)
         .unwrap();
-    assert!(!revised.applied.steps.is_empty());
+    assert!(!revised.patches.is_empty());
 
     let mut base = card
         .field_content("subject", Codec::Richtext)
@@ -402,7 +401,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
     let d = card
         .revise_field_checked("body", "para one\n\npara two", &block)
         .unwrap();
-    assert!(!d.applied.steps.is_empty());
+    assert!(!d.patches.is_empty());
     assert!(
         card.field_text("body", Codec::Richtext)
             .unwrap()
@@ -413,15 +412,15 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
 
 #[test]
 fn test_commit_field_richtext_content_object_reads_back() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
+    let mut content = quillmark_automerge::content::lines::import::from_markdown("underlined intro")
         .unwrap()
         .content
         .into_content();
     content.marks.push(Mark::new(0, 10, MarkKind::Underline));
     let content = content.into_lines();
-    let json = quillmark_content::migrate::from_lines(&content).to_value();
+    let json = quillmark_automerge::content::migrate::from_lines(&content).to_value();
 
     let mut card = Card::new("note").unwrap();
     commit_richtext(&mut card, "intro", &json, false).unwrap();
@@ -616,25 +615,27 @@ fn test_field_content_absent_and_non_content() {
 }
 
 #[test]
-fn test_revise_body_returns_its_change_and_updates_body() {
-    use quillmark_content::change::Assoc;
-    use quillmark_content::mapping::Mapping;
-    use quillmark_content::model::Pos;
-
-    let mut card = Card::new("note").unwrap();
+fn test_revise_body_returns_its_patches_and_updates_body() {
+    let mut doc = super::placed(Card::new("note").unwrap());
+    let mut card = doc.card_mut(0).unwrap();
     let _ = card.revise(crate::document::Target::Body, "hello world", None).unwrap();
-    let applied = card.revise(crate::document::Target::Body, "hello brave world", None).unwrap().applied;
+    let patches = card.revise(crate::document::Target::Body, "hello brave world", None).unwrap().patches;
     assert_eq!(card.body_lines().text, "hello brave world");
-    let mapping = Mapping::from_change(&applied).unwrap();
-    assert_eq!(mapping.map(&Pos::at(6), Assoc::Before).pos, Pos::at(6));
-    assert_eq!(mapping.map(&Pos::at(11), Assoc::After).pos, Pos::at(17));
+    let inserted: Vec<(usize, &str)> = patches
+        .iter()
+        .filter_map(|p| match &p.action {
+            crate::document::PatchAction::Insert { at, text, .. } => Some((*at, text.as_str())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(inserted, [(6, "brave ")]);
 }
 
 #[test]
 fn test_revise_body_anchor_rides_its_text() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
-    let mut base = quillmark_content::lines::import::from_markdown("keep the target word")
+    let mut base = quillmark_automerge::content::lines::import::from_markdown("keep the target word")
         .unwrap()
         .content
         .into_content();
@@ -653,8 +654,8 @@ fn test_revise_body_anchor_rides_its_text() {
         .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
         .expect("identity anchor survives the whole-document replace");
     let text = &card.body_lines().text;
-    let s = quillmark_content::units::char_to_byte(text, anchor.start);
-    let e = quillmark_content::units::char_to_byte(text, anchor.end);
+    let s = quillmark_automerge::content::units::char_to_byte(text, anchor.start);
+    let e = quillmark_automerge::content::units::char_to_byte(text, anchor.end);
     assert_eq!(&text[s..e], "target");
 }
 
@@ -961,7 +962,7 @@ fn storage_dto_refuses_what_the_parser_refuses() {
 #[test]
 fn a_field_write_past_the_count_is_refused_at_the_write() {
     use crate::document::edit::{PayloadViolation, validate_payload};
-    use quillmark_content::lines::model::Lines;
+    use quillmark_automerge::content::lines::model::Lines;
 
     let max = crate::error::MAX_FIELD_COUNT;
     let names: Vec<String> = (0..max).map(|i| format!("f{i}")).collect();
@@ -1047,7 +1048,7 @@ fn a_batch_past_the_count_names_its_overflowing_tail() {
 fn no_verb_on_a_placed_card_moves_it_between_roles() {
     use crate::document::CardMut;
     use crate::quill::{FieldSchema, FieldType};
-    use quillmark_content::lines::model::Lines;
+    use quillmark_automerge::content::lines::model::Lines;
 
     fn richtext() -> FieldSchema {
         FieldSchema::new(
@@ -1119,8 +1120,8 @@ fn reversed_keys(v: &serde_json::Value) -> serde_json::Value {
 /// write, the wire and the load.
 #[test]
 fn a_field_write_holds_its_content_as_a_body_write_does() {
-    let mut content = quillmark_content::markdown::from_markdown("Hello *world*").unwrap().content;
-    content.anchors.push(quillmark_content::model::Anchor::new("a1", 0, 5));
+    let mut content = quillmark_automerge::content::markdown::from_markdown("Hello *world*").unwrap().content;
+    content.anchors.push(quillmark_automerge::content::model::Anchor::new("a1", 0, 5));
     let canonical = content.to_value();
     let shuffled = reversed_keys(&canonical);
     assert_ne!(serde_json::to_string(&shuffled).unwrap(), serde_json::to_string(&canonical).unwrap());

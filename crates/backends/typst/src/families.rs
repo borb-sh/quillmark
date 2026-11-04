@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_content::lines::model::Content;
+use quillmark_automerge::content::lines::model::Content;
 use quillmark_core::error::{Diagnostic, Severity};
 use quillmark_core::path::DocPath;
 use quillmark_core::quill::QuillConfig;
@@ -115,10 +115,10 @@ mod tests {
     }
 
     fn data(md: &str) -> serde_json::Value {
-        let rt = quillmark_content::lines::import::from_markdown(md)
+        let rt = quillmark_automerge::content::lines::import::from_markdown(md)
             .expect("import")
             .content;
-        serde_json::json!({ "prose": quillmark_content::migrate::from_lines(&rt).to_value() })
+        serde_json::json!({ "prose": quillmark_automerge::content::migrate::from_lines(&rt).to_value() })
     }
 
     /// Each run of text `prose` places, as `(text, family)`, and the session's

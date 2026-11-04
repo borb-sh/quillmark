@@ -4,10 +4,10 @@
 //! id lands beside what the other side set.
 
 use quillmark_automerge::merge3;
-use quillmark_content::change::{AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step};
-use quillmark_content::markdown::from_markdown;
-use quillmark_content::model::{Anchor, BlockKind, Container, ContainerKind, Content, ISLAND_SLOT, Mark, MarkKind};
-use quillmark_content::table::{Row, Table};
+use quillmark_automerge::content::change::{AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step};
+use quillmark_automerge::content::markdown::from_markdown;
+use quillmark_automerge::content::model::{Anchor, BlockKind, Container, ContainerKind, Content, ISLAND_SLOT, Mark, MarkKind};
+use quillmark_automerge::content::table::{Row, Table};
 use serde_json::json;
 
 fn table_change(d: &Content, edit: impl FnOnce(&mut Table), slots: &[(&str, &str)]) -> Change {
@@ -16,7 +16,7 @@ fn table_change(d: &Content, edit: impl FnOnce(&mut Table), slots: &[(&str, &str
     edit(&mut grid);
     let mut props = island.props.as_object().unwrap().clone();
     grid.write_into(&mut props);
-    let slots = slots.iter().map(|(k, v)| (k.to_string(), quillmark_content::markdown::from_plaintext(v))).collect();
+    let slots = slots.iter().map(|(k, v)| (k.to_string(), quillmark_automerge::content::markdown::from_plaintext(v))).collect();
     Change::new(vec![Step::Island(IslandStep::Props { id: island.id.clone(), props: props.into(), slots })])
 }
 
@@ -101,7 +101,7 @@ fn a_diff_names_only_the_block_fields_it_changes_so_a_quote_and_a_heading_both_l
     let id = d.blocks[1].id.clone();
     let mut heading = d.clone();
     heading.blocks[1].kind = BlockKind::Heading { level: 2 };
-    let mine = quillmark_content::diff::diff(&d, &heading).unwrap();
+    let mine = quillmark_automerge::content::diff::diff(&d, &heading).unwrap();
     let quote = Change::new(vec![
         Step::Container(ContainerStep::Set(Container::new("q-n", ContainerKind::Quote))),
         Step::SetBlock(SetBlock { id, path: Some(vec!["q-n".into()]), ..SetBlock::default() }),

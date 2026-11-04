@@ -11,11 +11,11 @@ use super::value::{self, ATTRS, CONTAINERS, PARENTS, SLOTS, TYPE, id_of, obj};
 use automerge::marks::Mark as AmMark;
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjId, ObjType, ReadDoc};
-use quillmark_content::change::{
+use crate::content::change::{
     AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step,
 };
-use quillmark_content::model::{Block, Content, Island};
-use quillmark_content::wire;
+use crate::content::model::{Block, Content, Island};
+use crate::content::wire;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 
@@ -85,14 +85,25 @@ fn check(view: &Content, step: &Step, n: usize) -> Result<(), StepError> {
         Step::Island(IslandStep::Insert { at, .. }) if *at > len => return Err(bounds(*at)),
         _ => {}
     }
+    let quoted = match step {
+        Step::Mark(MarkStep::Add { mark: m, quote: Some(q) }) => Some((m.start, m.end, q)),
+        Step::Mark(MarkStep::Remove { start, end, quote: Some(q), .. }) => Some((*start, *end, q)),
+        Step::Anchor(AnchorStep::Place { anchor: a, quote: Some(q) }) | Step::Anchor(AnchorStep::Move { anchor: a, quote: Some(q) }) => Some((a.start, a.end, q)),
+        _ => None,
+    };
+    if let Some((start, end, q)) = quoted {
+        if !view.text.chars().skip(start).take(end - start).eq(q.chars()) {
+            return Err(StepError::Stale { step: n, at: start });
+        }
+    }
     Ok(())
 }
 
 /// What the value `root` reads as inside the open transaction.
 fn current(doc: &AutoCommit, root: &ObjId) -> Content {
-    let raw = quillmark_content::repair::Raw::from_value(&value::read(doc, root))
+    let raw = crate::content::repair::Raw::from_value(&value::read(doc, root))
         .expect("a value reads as raw content");
-    quillmark_content::repair::repair(raw).0
+    crate::content::repair::repair(raw).0
 }
 
 fn renumber(e: StepError, n: usize) -> StepError {
@@ -147,17 +158,67 @@ fn note_scope(doc: &AutoCommit, root: &ObjId, given: &Content, scopes: &mut Scop
     scopes.insert(root.clone(), map);
 }
 
+/// The value's formatting as the steps so far left it, by Automerge mark
+/// name, with edges kept loosely: a range holds every mark that covers or
+/// touches it, and maybe one more. It answers which marks an insert can
+/// have taken in without reading the text.
+struct Formatting(Vec<(usize, usize, String)>);
+
+impl Formatting {
+    fn of(c: &Content) -> Formatting {
+        Formatting(c.marks.iter().map(|m| (m.start, m.end, value::mark_key(&m.kind).0)).collect())
+    }
+
+    /// The names of the marks over or beside offset `at`.
+    fn at(&self, at: usize) -> Vec<String> {
+        let mut names: Vec<String> = self.0.iter().filter(|(s, e, _)| *s <= at && at <= *e).map(|(_, _, n)| n.clone()).collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    /// Moves the edges across `del` characters at `at` replaced by `ins`.
+    fn splice(&mut self, at: usize, del: usize, ins: usize) {
+        let map = |p: usize| match p {
+            p if p <= at => p,
+            p if p >= at + del => p - del + ins,
+            _ => at,
+        };
+        for (s, e, _) in &mut self.0 {
+            (*s, *e) = (map(*s), map(*e).max(map(*s)));
+        }
+    }
+
+    fn add(&mut self, start: usize, end: usize, name: String) {
+        self.0.push((start, end, name));
+    }
+}
+
 fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Content>, out: &mut Lowered, scopes: &mut Scopes) -> Result<(), StepError> {
     let t = value::text(doc, root).ok_or(StepError::Bad { step: 0, reason: "the value holds no text" })?;
     let mut ids: HashMap<String, String> = scopes.get(root).cloned().unwrap_or_default();
+    let whole = read.as_ref().and_then(|r| crate::content::change::apply(r, change).ok());
+    let mut formatting = Formatting::of(&read.clone().unwrap_or_else(|| current(doc, root)));
     let mut next = read;
     for (n, step) in change.steps.iter().enumerate() {
-        let view = next.take().unwrap_or_else(|| current(doc, root));
-        check(&view, step, n)?;
-        let landed = quillmark_content::change::apply(&view, &Change::new(vec![step.clone()])).ok();
+        let (view, landed) = match &whole {
+            Some(_) => (None, None),
+            None => {
+                let view = next.take().unwrap_or_else(|| current(doc, root));
+                check(&view, step, n)?;
+                let landed = crate::content::change::apply(&view, &Change::new(vec![step.clone()])).ok();
+                (Some(view), landed)
+            }
+        };
         match step {
             Step::Splice(s) => {
-                splice(doc, &t, s, &mut ids, out, scopes);
+                let carried = formatting.at(s.at);
+                splice(doc, &t, s, &carried, &mut ids, out, scopes);
+                let ins = s.insert.chars().count();
+                formatting.splice(s.at, s.delete.chars().count(), ins);
+                for m in &s.marks {
+                    formatting.add(s.at + m.start, s.at + m.end, value::mark_key(&m.kind).0);
+                }
                 for d in landed.iter().flat_map(|l| &l.dropped) {
                     value::unplace(doc, root, &t, &d.context.id);
                 }
@@ -193,6 +254,7 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Co
                 doc.delete(&cs, at).unwrap();
             }
             Step::Mark(MarkStep::Add { mark: m, .. }) => {
+                formatting.add(m.start, m.end, value::mark_key(&m.kind).0);
                 if m.start < m.end {
                     let (name, v) = value::mark_key(&m.kind);
                     doc.mark(
@@ -215,6 +277,7 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Co
             }
             Step::Anchor(AnchorStep::Remove { id }) => value::unplace(doc, root, &t, id),
             Step::Island(IslandStep::Insert { at, island, .. }) => {
+                formatting.splice(*at, 0, 1);
                 let m = doc.split_block(&t, at + 1).unwrap();
                 value::put_island(doc, &m, island);
                 note_slots(doc, &m, island, scopes);
@@ -231,6 +294,7 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Co
                 }
                 write_json_at(doc, &m, value::PROPS, props);
                 let ty = view
+                    .unwrap_or_else(|| current(doc, root))
                     .islands
                     .iter()
                     .find(|i| i.id == id_of(&m) || i.id == *id)
@@ -268,6 +332,9 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Co
         }
         next = landed.filter(|_| matches!(step, Step::Splice(_) | Step::Mark(_) | Step::Anchor(_))).map(|l| l.content);
     }
+    for d in whole.iter().flat_map(|w| &w.dropped) {
+        value::unplace(doc, root, &t, &d.context.id);
+    }
     Ok(())
 }
 
@@ -293,6 +360,7 @@ fn splice(
     doc: &mut AutoCommit,
     t: &ObjId,
     s: &Splice,
+    carried: &[String],
     ids: &mut HashMap<String, String>,
     out: &mut Lowered,
     scopes: &mut Scopes,
@@ -334,7 +402,7 @@ fn splice(
     let (mut blocks, mut islands) = (mid_blocks.iter(), s.islands.iter());
     for (m, ch) in made.iter().zip(
         mid.chars()
-            .filter(|c| *c == '\n' || *c == quillmark_content::model::ISLAND_SLOT),
+            .filter(|c| *c == '\n' || *c == crate::content::model::ISLAND_SLOT),
     ) {
         let given = match ch {
             '\n' => blocks.next().map(|b| b.id.clone()),
@@ -353,15 +421,8 @@ fn splice(
         return;
     }
     let (start, end) = (s.at + 1, s.at + 1 + len);
-    let carried: Vec<String> = doc
-        .marks(t)
-        .unwrap()
-        .iter()
-        .filter(|m| !m.name().starts_with(value::ANCHOR) && m.start < end && m.end > start)
-        .map(|m| m.name().to_string())
-        .collect();
     for name in carried {
-        doc.unmark(t, &name, start, end, automerge::marks::ExpandMark::None)
+        doc.unmark(t, name, start, end, automerge::marks::ExpandMark::None)
             .unwrap();
     }
     for m in &s.marks {

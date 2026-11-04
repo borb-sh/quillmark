@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use quillmark_content::lines::delta::{MIN_WORD_SIMILARITY, word_similarity};
+use quillmark_automerge::content::lines::delta::{MIN_WORD_SIMILARITY, word_similarity};
 
 /// One composable card as alignment reads it: its `$kind`, the `$id` it
 /// spells, and a text to measure similarity over.

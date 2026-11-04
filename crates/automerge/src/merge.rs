@@ -3,9 +3,9 @@
 
 use crate::model::{Doc, StepError, View, ids};
 use automerge::ActorId;
-use quillmark_content::change::{ApplyError, Change, apply};
-use quillmark_content::diff::{self, Keeping, Revision, ReviseError};
-use quillmark_content::model::Content;
+use crate::content::change::{ApplyError, Change, apply};
+use crate::content::diff::{self, Keeping, Revision, ReviseError};
+use crate::content::model::Content;
 use std::collections::HashMap;
 
 /// The actors `merge3` writes under, `ours` after `theirs` where both put
@@ -26,7 +26,7 @@ pub fn merge3(base: &Content, ours: &Change, theirs: &Change) -> Result<View, Ap
     let mut doc = Doc::new();
     let main = doc.main();
     let root = doc.put_value(&main, VALUE, base);
-    doc.am_mut().commit();
+    doc.commit();
     let held = doc.view(&root).content;
     let before = doc.heads();
     doc.set_actor(ActorId::from(THEIRS));
