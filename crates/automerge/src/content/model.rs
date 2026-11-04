@@ -141,13 +141,6 @@ pub struct Island {
     pub slots: BTreeMap<String, Content>,
 }
 
-/// A position: an offset into a field's text, or one inside an island's slot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Pos {
-    At(Scalar),
-    In { island: String, slot: String, at: Box<Pos> },
-}
-
 impl BlockKind {
     pub fn tag(&self) -> &str {
         match self {
@@ -297,12 +290,6 @@ impl Island {
             IslandType::Image | IslandType::Math => Vec::new(),
             IslandType::Ext(_) => self.slots.keys().cloned().collect(),
         }
-    }
-}
-
-impl Pos {
-    pub fn at(n: Scalar) -> Pos {
-        Pos::At(n)
     }
 }
 

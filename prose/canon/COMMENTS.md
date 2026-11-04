@@ -56,9 +56,9 @@ A selector naming none is path-strict, as is the rest of every path: a path nami
 ## Drift
 
 Every revise verb is one revise at an address ([CONTENT.md](CONTENT.md) § "Writing a value"), and it can keep an anchor on different words: it relocates a moved quote of four characters or more to the first occurrence overlapping inserted text, and a word-level rewrite can leave both ends of a range over new text. `reattach` never sees those anchors.
-A write reports drift as patches: each surviving anchor the write moved, a point included, reaches its receipt as an `anchor` patch placing it where it reads after ([CONTENT.md](CONTENT.md) § "Live state and merge"), and a host re-reads that anchor's selector.
+A write reports drift as patches: a range anchor is the Automerge mark `anchor:<id>`, so a write that moves one reaches its receipt as a `mark` patch over it, and a point anchor is a cursor under the value's `points` ([CONTENT.md](CONTENT.md) § "Live state and merge"); a host re-reads the selector of an anchor whose text a patch touched.
 
-A host re-reads the selector of each anchor named there. Nothing moves an anchor on its own.
+Nothing moves an anchor on its own.
 
 ## Table cells and notes
 

@@ -1,22 +1,18 @@
-//! The change laws over generated documents and generated changes: every
-//! change inverts exactly, a mapped
-//! position lands on the character it named, and a change either yields a
-//! valid value or fails.
+//! The change laws over generated documents and generated changes: a change
+//! either yields a valid value or fails.
 
 use proptest::prelude::*;
 use quillmark_automerge::content::change::{
-    AnchorStep, ApplyError, Assoc, Change, ContainerStep, IslandStep, MapResult, Mapping, MarkStep, SetBlock, Splice, Step,
-    apply, invert, map_pos, map_pos_in,
+    AnchorStep, ApplyError, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step, apply,
 };
 use quillmark_automerge::content::structural::{Wrap, delete_range, indent, inherited_marks, join_blocks, outdent, split_block, wrap};
 use quillmark_automerge::content::lines::island::IslandType;
 use quillmark_automerge::content::markdown::from_markdown;
 use quillmark_automerge::content::model::{
     Anchor, Block, BlockKind, Container, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT, Invariant, Island, Mark, MarkKind,
-    Pos,
 };
 use quillmark_automerge::content::table::{Row, Table};
-use quillmark_automerge::content::units::{Utf16, change_from_scalars, change_to_scalars, from_scalars};
+use quillmark_automerge::content::units::{Utf16, change_from_scalars, change_to_scalars};
 use serde_json::json;
 use std::collections::BTreeSet;
 
@@ -378,32 +374,6 @@ fn change_from(d: &Content, ops: &[Op], k0: usize) -> Change {
     Change::new(steps)
 }
 
-fn positions(c: &Content) -> Vec<(Pos, char)> {
-    let mut out: Vec<(Pos, char)> = chars(c).into_iter().enumerate().map(|(i, ch)| (Pos::At(i), ch)).collect();
-    for island in &c.islands {
-        for (slot, content) in &island.slots {
-            for (i, ch) in chars(content).into_iter().enumerate() {
-                out.push((Pos::In { island: island.id.clone(), slot: slot.clone(), at: Box::new(Pos::At(i)) }, ch));
-            }
-        }
-    }
-    out
-}
-
-fn char_at(c: &Content, p: &Pos) -> Option<char> {
-    match p {
-        Pos::At(n) => c.text.chars().nth(*n),
-        Pos::In { island, slot, at } => char_at(c.slot(island, slot)?, at),
-    }
-}
-
-fn next(p: &Pos) -> Pos {
-    match p {
-        Pos::At(n) => Pos::At(n + 1),
-        Pos::In { island, slot, at } => Pos::In { island: island.clone(), slot: slot.clone(), at: Box::new(next(at)) },
-    }
-}
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(300))]
 
@@ -421,17 +391,6 @@ proptest! {
         let mut streamed = Vec::new();
         d.write_canonical(&mut streamed).unwrap();
         prop_assert_eq!(String::from_utf8(streamed).unwrap(), serde_json::to_string(&d.to_value()).unwrap());
-    }
-
-    #[test]
-    fn every_change_inverts_exactly(d in document(), ops in ops()) {
-        let c = change_for(&d, &ops);
-        let after = apply(&d, &c).unwrap();
-        let undo = invert(&c, &d).unwrap();
-        let back = apply(&after.content, &undo);
-        prop_assert!(back.is_ok(), "undo refused: {:?}\nchange {:?}\nundo {:?}", back, c, undo);
-        prop_assert_eq!(back.unwrap().content, d, "change {:?}", c);
-        prop_assert!(Mapping::from_change(&undo).is_ok(), "the inverse does not map: {:?}", undo);
     }
 
     #[test]
@@ -453,81 +412,6 @@ proptest! {
     }
 
 
-    /// Each character either goes, which the two edges around it both say,
-    /// or keeps its place: the edges land around it, and the survivors keep
-    /// their order. One in a slot the change neither edits nor leaves
-    /// otherwise, its island moved or not, keeps its place.
-    #[test]
-    fn a_mapped_position_lands_on_its_character(d in document(), ops in ops()) {
-        let c = change_for(&d, &ops);
-        let after = apply(&d, &c).unwrap();
-        let mut last: Option<usize> = None;
-        for (p, ch) in positions(&d) {
-            let q = map_pos(&after.applied, &p, Assoc::After).unwrap();
-            let r = map_pos(&after.applied, &next(&p), Assoc::Before).unwrap();
-            prop_assert_eq!(q.deleted, r.deleted, "{:?} under {:?}", p, c);
-            if let Pos::In { island, slot, .. } = &p {
-                let edited = c.steps.iter().any(|s| matches!(s, Step::Nested { island: i, slot: k, .. } if i == island && k == slot));
-                let kept = !edited && after.content.slot(island, slot).is_some_and(|now| Some(now) == d.slot(island, slot));
-                prop_assert!(!(kept && q.deleted), "{:?} in a slot the change kept, under {:?}", p, c);
-            }
-            if q.deleted {
-                prop_assert!(q.deleted_after && r.deleted_before);
-                continue;
-            }
-            prop_assert_eq!(next(&q.pos), r.pos.clone());
-            prop_assert_eq!(char_at(&after.content, &q.pos), Some(ch), "{:?} → {:?} under {:?}", p, q, c);
-            if let Pos::At(n) = q.pos {
-                prop_assert!(last.is_none_or(|l| l < n));
-                last = Some(n);
-            }
-        }
-    }
-
-    /// A change's maps, then their inverses each linked to its mirror, take
-    /// every position home: one the change deleted is put back where it was.
-    #[test]
-    fn a_change_and_its_mirrored_inverse_map_every_position_home(d in document(), ops in ops()) {
-        let after = apply(&d, &change_for(&d, &ops)).unwrap();
-        let forward = Mapping::from_change(&after.applied).unwrap();
-        let n = forward.len();
-        let mut both = forward.clone();
-        both.append_mapping_inverted(&forward);
-        for i in 0..n {
-            both.set_mirror(i, 2 * n - 1 - i);
-        }
-        let edges = (0..=d.len_scalars()).map(Pos::At);
-        for p in positions(&d).into_iter().map(|(p, _)| p).chain(edges) {
-            for assoc in [Assoc::Before, Assoc::After] {
-                prop_assert_eq!(&both.map(&p, assoc).pos, &p, "{:?} under {:?}", assoc, after.applied);
-            }
-        }
-        prop_assert_eq!(forward.invert().invert(), forward);
-    }
-}
-
-#[test]
-fn a_deleted_position_lands_on_the_deletions_edge_and_says_so() {
-    let c = Change::new(vec![Step::Splice(Splice::new(2, "cdef", "XY"))]);
-    let at = |p, assoc| {
-        let r = map_pos(&c, &Pos::At(p), assoc).unwrap();
-        (r.pos.clone(), flags(&r))
-    };
-    assert_eq!(at(4, Assoc::Before), (Pos::At(2), (true, true, true, true)));
-    assert_eq!(at(4, Assoc::After), (Pos::At(4), (true, true, true, true)));
-    assert_eq!(at(2, Assoc::After), (Pos::At(4), (true, false, true, false)));
-    assert_eq!(at(2, Assoc::Before), (Pos::At(2), (false, false, true, false)));
-    assert_eq!(at(6, Assoc::Before), (Pos::At(2), (true, true, false, false)));
-    assert_eq!(at(7, Assoc::Before), (Pos::At(5), (false, false, false, false)));
-
-    let d = from_markdown("a\n\n| x | y |\n| - | - |\n| p | q |").unwrap().content;
-    let slot = d.text.chars().position(|ch| ch == ISLAND_SLOT).unwrap();
-    let island = &d.islands[0];
-    let cell = Pos::In { island: island.id.clone(), slot: island.slot_order()[0].clone(), at: Box::new(Pos::At(1)) };
-    let gone = Change::new(vec![Step::Splice(Splice::new(slot, ISLAND_SLOT.to_string(), ""))]);
-    assert!(matches!(map_pos(&gone, &cell, Assoc::After), Err(ApplyError::BadStep { step: 0, .. })));
-    let r = map_pos(&apply(&d, &gone).unwrap().applied, &cell, Assoc::After).unwrap();
-    assert_eq!((r.pos.clone(), flags(&r)), (Pos::At(slot), (true, true, true, true)));
 }
 
 #[test]
@@ -542,7 +426,6 @@ fn a_step_sets_and_removes_a_reserved_name_and_refuses_another_unknown_one() {
     let done = apply(&d, &c).unwrap().content;
     assert_eq!(done.blocks[0].kind.tag(), "x-callout");
     assert_eq!(done.marks, [Mark::new(2, 5, MarkKind::Ext { name: "x-glow".into(), attrs: Default::default() })]);
-    assert_eq!(apply(&done, &invert(&c, &d).unwrap()).unwrap().content, d);
 
     let unknown = r#"{"steps": [{"mark": {"start": 0, "end": 2, "type": "glow", "add": false}}]}"#;
     assert!(matches!(Change::from_json(unknown), Err(quillmark_automerge::content::wire::ParseError::UnknownName { .. })));
@@ -758,14 +641,6 @@ fn the_receipt_and_the_inverse_carry_each_steps_precondition() {
     assert_eq!(done.applied.steps[0], Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }));
     assert_eq!(done.applied.steps[1], Step::Mark(MarkStep::Add { mark: Mark::new(0, 5, MarkKind::Strong), quote: Some("hello".into()) }));
     assert!(matches!(&done.applied.steps[2], Step::Island(IslandStep::Insert { block: Some(b), .. }) if *b == d.blocks[0].id));
-    let undo = invert(&c, &d).unwrap();
-    let guarded = |s: &Step| match s {
-        Step::Mark(MarkStep::Add { quote, .. } | MarkStep::Remove { quote, .. })
-        | Step::Anchor(AnchorStep::Place { quote, .. } | AnchorStep::Move { quote, .. }) => quote.is_some(),
-        _ => true,
-    };
-    assert!(undo.steps.iter().all(guarded), "{undo:?}");
-    assert!(undo.steps.iter().any(|s| matches!(s, Step::Mark(_))));
 }
 
 proptest! {
@@ -843,113 +718,6 @@ proptest! {
             prop_assert!(home.anchor(&a.context.id).is_some(), "{:?}", a);
         }
     }
-}
-
-/// Each anchor of `c`, in the text or a slot: the slots it sits in, its
-/// range, the id of the block its start sits in, and the eight characters
-/// before it, its text and the eight after.
-type Read = (Vec<(String, String)>, (usize, usize), String, [String; 3]);
-
-fn reads(c: &Content, path: &[(String, String)], out: &mut std::collections::BTreeMap<String, Read>) {
-    let cs = chars(c);
-    let text = |a: usize, b: usize| cs[a..b].iter().collect::<String>();
-    for a in &c.anchors {
-        let block = c.blocks[cs[..a.start].iter().filter(|&&ch| ch == '\n').count()].id.clone();
-        let around = [text(a.start.saturating_sub(8), a.start), text(a.start, a.end), text(a.end, (a.end + 8).min(cs.len()))];
-        out.insert(a.id.clone(), (path.to_vec(), (a.start, a.end), block, around));
-    }
-    for island in &c.islands {
-        for (slot, inner) in &island.slots {
-            let mut deeper = path.to_vec();
-            deeper.push((island.id.clone(), slot.clone()));
-            reads(inner, &deeper, out);
-        }
-    }
-}
-
-fn stepped(steps: &[Step], out: &mut BTreeSet<String>) {
-    for s in steps {
-        match s {
-            Step::Anchor(a @ (AnchorStep::Place { .. } | AnchorStep::Move { .. })) => {
-                out.insert(a.id().to_string());
-            }
-            Step::Nested { change, .. } => stepped(&change.steps, out),
-            _ => {}
-        }
-    }
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(300))]
-
-    /// Every anchor a change keeps is named in `moved` once where it moved,
-    /// a point included, with the text it covered before and after and the
-    /// first of these that holds: an `anchor` step put it other than where
-    /// the change's text edits carry it (`position`), its start sits in
-    /// another block (`block`), or its text or the eight characters either
-    /// side read otherwise (`context`).
-    #[test]
-    fn every_anchor_a_change_moves_is_named_with_what_moved(d in document(), ops in ops()) {
-        let c = change_for(&d, &ops);
-        let done = apply(&d, &c).unwrap();
-        let (mut before, mut after) = (Default::default(), Default::default());
-        reads(&d, &[], &mut before);
-        reads(&done.content, &[], &mut after);
-        let mut steps = BTreeSet::new();
-        stepped(&c.steps, &mut steps);
-        let map = Mapping::from_change(&done.applied).unwrap();
-        let local = |mut p: Pos| loop {
-            match p {
-                Pos::At(p) => return p,
-                Pos::In { at, .. } => p = *at,
-            }
-        };
-        let want: Vec<(String, String, String, &str)> = after
-            .into_iter()
-            .filter_map(|(id, (path, range, block, around))| {
-                let (wpath, (s, e), wblock, waround) = before.get(&id)?.clone();
-                let at = |p: usize| wpath.iter().rev().fold(Pos::At(p), |inner, (i, k)| Pos::In { island: i.clone(), slot: k.clone(), at: Box::new(inner) });
-                let carried = match s == e {
-                    true => {
-                        let p = local(map.map_point(&at(s)).pos);
-                        (p, p)
-                    }
-                    false => (local(map.map(&at(s), Assoc::After).pos), local(map.map(&at(e), Assoc::Before).pos)),
-                };
-                let reason = if steps.contains(&id) && (wpath != path || carried != range) {
-                    "position"
-                } else if wblock != block {
-                    "block"
-                } else if waround != around {
-                    "context"
-                } else {
-                    return None;
-                };
-                Some((id, waround[1].clone(), around[1].clone(), reason))
-            })
-            .collect();
-        let got: Vec<(String, String, String, &str)> = done.moved.into_iter().map(|m| (m.id, m.before, m.after, m.reason.name())).collect();
-        prop_assert_eq!(got, want, "{:?}", c);
-    }
-}
-
-/// A receipt names a point a step moved as moved by position, one whose
-/// block split off as moved by block, and one whose neighbours were
-/// retyped as moved by context; an anchor with nothing near the edit is not
-/// named.
-#[test]
-fn a_receipt_names_what_moved_about_each_anchor_points_included() {
-    let mut d = from_markdown("Alpha beta gamma delta epsilon zeta eta theta").unwrap().content;
-    d.anchors = vec![Anchor::new("p", 6, 6), Anchor::new("q", 40, 40), Anchor::new("r", 17, 22), Anchor::new("far", 0, 5)];
-    d.normalize();
-    let change = Change::new(vec![
-        Step::Anchor(AnchorStep::Move { anchor: Anchor::new("p", 11, 11), quote: None }),
-        Step::Splice(Splice { blocks: vec![Block::new("b9", BlockKind::Para)], ..Splice::new(35, " ", "\n") }),
-        Step::Splice(Splice::new(23, "", "!")),
-    ]);
-    let done = apply(&d, &change).unwrap();
-    let got: Vec<(&str, &str, &str, &str)> = done.moved.iter().map(|m| (m.id.as_str(), m.before.as_str(), m.after.as_str(), m.reason.name())).collect();
-    assert_eq!(got, [("p", "", "", "position"), ("q", "", "", "block"), ("r", "delta", "delta", "context")]);
 }
 
 /// Deleting an island's slot character, or dropping a table row with a props
@@ -1080,7 +848,6 @@ fn the_worked_edits_apply() {
         let c = Change::from_value(e).unwrap();
         let done = apply(&d, &c).unwrap_or_else(|err| panic!("{e}: {err}"));
         assert_eq!(Change::from_json(&done.applied.to_json()).unwrap(), done.applied);
-        assert_eq!(apply(&done.content, &invert(&c, &d).unwrap()).unwrap().content, d);
         results.push(done.content);
     }
     assert_eq!(results[0].marks[0], Mark::new(28, 32, MarkKind::Strong));
@@ -1099,7 +866,6 @@ fn deleting_the_last_block_of_an_item_drops_its_containers() {
     let done = apply(&d, &c).unwrap();
     assert!(done.content.container("i1").is_none());
     assert!(matches!(done.applied.steps.last(), Some(Step::Container(ContainerStep::Remove { id })) if id == "i1"));
-    assert_eq!(apply(&done.content, &invert(&c, &d).unwrap()).unwrap().content, d);
 }
 
 proptest! {
@@ -1157,9 +923,7 @@ proptest! {
         let c = Change::new(steps);
         if let Ok(done) = apply(&d, &c) {
             prop_assert_eq!(done.content.validate(), Ok(()));
-            let _ = invert(&c, &d).unwrap();
         }
-        let _ = map_pos(&c, &Pos::At(3), Assoc::After);
     }
 }
 
@@ -1464,30 +1228,6 @@ mod diffs {
     }
 }
 
-/// `p` with its offsets in UTF-16 code units, each level on its own text.
-fn flags(r: &MapResult) -> (bool, bool, bool, bool) {
-    (r.deleted, r.deleted_before, r.deleted_after, r.deleted_across)
-}
-
-/// Whether `c` holds the slot `p` names.
-fn holds(c: &Content, p: &Pos) -> bool {
-    match p {
-        Pos::At(_) => true,
-        Pos::In { island, slot, at } => c.slot(island, slot).is_some_and(|s| holds(s, at)),
-    }
-}
-
-fn pos_utf16(c: &Content, p: &Pos) -> Pos {
-    match p {
-        Pos::At(n) => Pos::At(from_scalars(Utf16, &c.text, *n)),
-        Pos::In { island, slot, at } => Pos::In {
-            island: island.clone(),
-            slot: slot.clone(),
-            at: Box::new(pos_utf16(c.slot(island, slot).expect("the position's slot"), at)),
-        },
-    }
-}
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(200))]
 
@@ -1503,21 +1243,6 @@ proptest! {
         prop_assert_eq!(change_to_scalars(&wire, &d, Utf16).unwrap(), c);
     }
 
-    #[test]
-    fn mapping_in_utf16_agrees_with_mapping_in_scalars(d in document(), ops in ops()) {
-        let after = apply(&d, &change_for(&d, &ops)).unwrap();
-        let c16 = change_from_scalars(&after.applied, &d, Utf16).unwrap();
-        for (p, _) in positions(&d) {
-            for assoc in [Assoc::Before, Assoc::After] {
-                let want = map_pos(&after.applied, &p, assoc).unwrap();
-                let got = map_pos_in(&c16, &pos_utf16(&d, &p), assoc, Utf16).unwrap();
-                prop_assert_eq!(flags(&got), flags(&want));
-                if holds(&after.content, &want.pos) {
-                    prop_assert_eq!(got.pos, pos_utf16(&after.content, &want.pos));
-                }
-            }
-        }
-    }
 }
 
 #[test]
@@ -1838,7 +1563,6 @@ fn a_placement_refuses_a_held_id_and_a_move_a_missing_one() {
     assert_eq!(apply(&d, &one(shift("c-2", 6, 11))).map(|_| ()), Err(ApplyError::UnknownAnchor { id: "c-2".into() }));
     let moved = apply(&d, &one(shift("c-1", 6, 11))).unwrap();
     assert_eq!(moved.content.anchor("c-1"), Some(&Anchor::new("c-1", 6, 11)));
-    assert_eq!(invert(&one(shift("c-1", 6, 11)), &d).unwrap().steps, [Step::Anchor(AnchorStep::Move { anchor: Anchor::new("c-1", 0, 5), quote: Some("Hello".into()) })]);
     let across = Change::new(vec![Step::Anchor(AnchorStep::Remove { id: "c-1".into() }), in_cell(place("c-1", 0, 1))]);
     assert!(apply(&d, &across).is_ok());
     for (step, wire) in [

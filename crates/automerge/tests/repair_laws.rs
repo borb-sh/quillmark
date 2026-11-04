@@ -10,8 +10,7 @@ use quillmark_automerge::content::markdown::from_markdown;
 use quillmark_automerge::content::model::{
     Anchor, Block, BlockKind, ContainerKind, Content, ISLAND_SLOT, Invariant, Mark, MarkKind,
 };
-use quillmark_automerge::content::change::{Assoc, Change, Mapping};
-use quillmark_automerge::content::model::Pos;
+use quillmark_automerge::content::change::Change;
 use quillmark_automerge::content::repair::{Raw, RawAnchor, RawIsland, Repair, repair};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -386,46 +385,6 @@ proptest! {
         if !repairs.iter().any(Repair::inserts) {
             prop_assert!(!adds(&m, &w.value));
             prop_assert_eq!(&repair(merge(&w, 2)).0, &w.value);
-        }
-    }
-
-    /// A position mapped through the change repair answers lands where
-    /// repair puts an anchor there: a point as `apply` moves one, a range's
-    /// edges inward, and a range whose edges cross is one repair dropped.
-    #[test]
-    fn repairs_change_maps_each_anchor_where_repair_puts_it(d in document(), ds in damages(), spread in 2usize..5) {
-        let mut raw = Raw::from(&d);
-        let len = d.len_scalars();
-        for k in (0..len).step_by(spread) {
-            let end = (k + spread).min(len);
-            raw.anchors.push(RawAnchor { anchor: Anchor::new(format!("g-{k}"), k, end), range: k < end });
-            raw.anchors.push(RawAnchor { anchor: Anchor::new(format!("p-{k}"), k, k), range: false });
-        }
-        for x in &ds {
-            damage(&mut raw, *x);
-        }
-        let (c, _, change) = repair(raw.clone());
-        let map = Mapping::from_change(&change).unwrap();
-        let at = |p: Pos| match p {
-            Pos::At(p) => p,
-            p => panic!("{p:?}"),
-        };
-        let n = raw.text.chars().count();
-        let mut seen = BTreeMap::new();
-        raw.anchors.iter().for_each(|a| *seen.entry(a.anchor.id.clone()).or_insert(0) += 1);
-        for RawAnchor { anchor: a, range } in &raw.anchors {
-            if seen[&a.id] > 1 || a.end > n || a.start > a.end || (*range && a.start == a.end) {
-                continue;
-            }
-            let held = c.anchor(&a.id);
-            if !*range && a.start == a.end {
-                let p = at(map.map_point(&Pos::At(a.start)).pos);
-                prop_assert_eq!(held.map(|h| (h.start, h.end)), Some((p, p)), "{} in {:?}\n{:?}", a.id, raw.text, change);
-            } else {
-                let (s, e) = (at(map.map(&Pos::At(a.start), Assoc::After).pos), at(map.map(&Pos::At(a.end), Assoc::Before).pos));
-                let want = (s < e).then_some((s, e));
-                prop_assert_eq!(held.map(|h| (h.start, h.end)), want, "{} in {:?}\n{:?}", a.id, raw.text, change);
-            }
         }
     }
 

@@ -6,7 +6,7 @@ use crate::content::ids::{is_ext_name, is_id};
 use crate::content::lines::island::IslandType;
 use crate::content::lines::model::{is_font_family_name, sort_keys_owned};
 use crate::content::model::{
-    Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, Invariant, Island, Mark, MarkKind, Pos,
+    Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, Invariant, Island, Mark, MarkKind,
 };
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -377,25 +377,6 @@ pub fn island_value(i: &Island) -> Value {
         );
     }
     Value::Object(m)
-}
-
-pub fn pos_value(p: &Pos) -> Value {
-    match p {
-        Pos::At(n) => (*n).into(),
-        Pos::In { island, slot, at } => {
-            obj([("island", island.as_str().into()), ("slot", slot.as_str().into()), ("at", pos_value(at))])
-        }
-    }
-}
-
-pub fn pos_from_value(v: &Value) -> Result<Pos, ParseError> {
-    if let Some(n) = v.as_u64() {
-        return Ok(Pos::At(usize_of(n)));
-    }
-    let island = str_key(v, "island")?;
-    let slot = str_key(v, "slot")?;
-    let at = v.get("at").ok_or_else(|| shape("a position inside a slot names `at`"))?;
-    Ok(Pos::In { island, slot, at: Box::new(pos_from_value(at)?) })
 }
 
 pub(crate) fn obj<const N: usize>(entries: [(&str, Value); N]) -> Value {

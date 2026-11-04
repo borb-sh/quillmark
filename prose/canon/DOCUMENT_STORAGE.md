@@ -66,6 +66,10 @@ the `$`/non-`$` boundary. A field item is `{type: field, key, value}`;
 `body` is the content-model value ([CONTENT.md](CONTENT.md)) embedded
 structurally (a nested object, not a markdown string), and a `richtext` field
 is stored as one inside its item's `value`; see Byte-stability.
+A stored value names its blocks, containers and islands by place, `p{n}`
+counted over its blocks, then its containers, then its islands, never by the
+Automerge object ids a live session holds them under, so a row's bytes are a
+function of its content and not of which actors wrote it.
 
 ```json
 {
@@ -80,7 +84,7 @@ is stored as one inside its item's `value`; see Byte-stability.
       ],
       "nested_comments": []
     },
-    "body": { "blocks": [ { "id": "b0", "kind": "para" } ], "text": "Hi" }
+    "body": { "blocks": [ { "id": "p0", "kind": "para" } ], "text": "Hi" }
   },
   "cards": [ ... ]
 }

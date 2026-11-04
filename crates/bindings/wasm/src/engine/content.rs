@@ -243,10 +243,6 @@ export interface Located {
     path: string[];
 }
 
-/** A position in a value: an offset into its text, or one inside a
- *  slot of an island. */
-export type Pos = number | { island: string; slot: string; at: Pos };
-
 /** What `wrap` opens around the blocks it wraps: a quote, or a list with an
  *  item per wrapped child, each `checked` as given. */
 export type WrapKind = { kind: "quote" } | { kind: "list"; ordered: boolean; checked?: boolean };
