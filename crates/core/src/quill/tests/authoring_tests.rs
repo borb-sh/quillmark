@@ -369,3 +369,15 @@ fn a_leaf_that_does_not_decode_exports_as_stored() {
         imported
     );
 }
+
+#[test]
+fn a_mark_markdown_cannot_write_is_a_named_loss_and_the_export_settles() {
+    let quill = quill();
+    let value = json!({ "cards": [{ "kind": "indorsement", "body": "_*a_***_*** " }] });
+    let first = quill.from_authoring(&value).expect("imports").document;
+    assert!(properties::loses_in_markdown(&first), "a strong `_` after a letter has no markdown");
+    let exported = quill.to_authoring(&first);
+    let second = quill.from_authoring(&exported).expect("an export imports").document;
+    assert_eq!(second.cards()[0].body().text, first.cards()[0].body().text);
+    assert_eq!(quill.to_authoring(&second), exported);
+}

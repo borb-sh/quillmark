@@ -339,10 +339,11 @@ A heading's hard break becomes a space as a splice rewrites it, so a range ancho
 
 ## What markdown keeps
 
-Markdown is a projection of a value, not its storage, so `from_markdown(to_markdown(c))` is `c` only where `c` is itself a cold import of markdown. This is the one list of what the round trip loses; the other pages point here.
+Markdown is a projection of a value, not its storage, so `from_markdown(to_markdown(c))` is `c` only where `c` is itself a cold import of markdown and `to_markdown_checked` names no loss of it. This is the one list of what the round trip loses; the other pages point here.
 
 - **Anchors.** The plain export spells none and a cold import mints none. The annotated read spells each one as a `qm-anchor` tag and each island it cannot write as a `qm-island` token, and a revise reads both back; a cold import drops the tags and reports each token ([markdown-spec.md](../references/markdown-spec.md) §6.4).
 - **Ids.** A cold import mints every block, container, island, row, column and slot id positionally (§ Ids), so a value whose ids a live session or an earlier revise minted reads back under others. A revise keeps the ids of what it kept.
+- **A mark no delimiter can bound.** A mark whose text opens with punctuation a letter stands before, or closes with punctuation a letter follows, drops (`Loss::Mark`). A cold import can still read one: `_*a_***_***` holds a strong `_` after a letter.
 - **What markdown cannot spell.** An empty paragraph; a hard break beside a block break or at a slot's edge (`Loss::SlotBreaks`); an `x-` block, which reads back as a paragraph, and an `x-` mark, which drops (`Loss::ExtBlock`, `Loss::ExtMark`); a covered cell's alignment; a table or cell key Quillmark does not name; a table that shares its block's line, which the export breaks onto a line of its own. The annotated read spells an island that would lose a key as its token.
 - **Spelling.** The export canonicalizes mark nesting, escaping, trailing whitespace and a table's pipe or HTML form, so the markdown a writer sent does not come back byte for byte.
 
