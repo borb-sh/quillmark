@@ -27,7 +27,7 @@ use crate::value::QuillValue;
 use crate::version::QuillReference;
 
 /// The storage version tag every save writes: each body a content-model
-/// value, its blocks, containers, anchors and island slots carrying ids.
+/// value, its blocks, containers and islands named by their place.
 ///
 /// The wire key is spelled `schema` though it names a storage version, not a
 /// field schema: it is the serde tag [`StoredDocument`] dispatches on, and
@@ -251,11 +251,13 @@ impl From<&Document> for DocumentV0_134_0 {
     }
 }
 
+/// A card stores each content part under its place, not the id a live
+/// document gave it, so a row is the same bytes whichever history wrote it.
 impl From<&Card> for CardV0_134_0 {
     fn from(card: &Card) -> Self {
         CardV0_134_0 {
-            payload: PayloadV0_134_0::from(card.payload()),
-            body: StoredContent::from(card.body().clone()),
+            payload: PayloadV0_134_0::from(&super::payload_by_place(card.payload())),
+            body: StoredContent::from(card.body().by_place()),
         }
     }
 }
@@ -1023,7 +1025,7 @@ title: Hi
             !body.marks.is_empty(),
             "test needs a non-trivial content (marks present)"
         );
-        let expected = body.to_json();
+        let expected = body.by_place().to_json();
         let envelope = serde_json::to_string(&doc).unwrap();
         let body = locate_body_subtree(&envelope);
         assert_eq!(

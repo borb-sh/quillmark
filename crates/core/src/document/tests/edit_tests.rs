@@ -1125,10 +1125,8 @@ fn a_field_write_holds_its_content_as_a_body_write_does() {
     assert_ne!(serde_json::to_string(&shuffled).unwrap(), serde_json::to_string(&canonical).unwrap());
 
     let mut a = make_doc();
-    a.set_actor("w").unwrap();
     a.unchecked().store_field(None, "f", QuillValue::from_json(shuffled.clone())).unwrap();
     let mut b = make_doc();
-    b.set_actor("w").unwrap();
     b.unchecked().store_field(None, "f", QuillValue::from_json(canonical.clone())).unwrap();
     assert_eq!(a, b);
     assert_eq!(stored(&a), stored(&b));

@@ -804,7 +804,7 @@ impl PartialEq for Card {
     }
 }
 
-fn payload_by_place(p: &Payload) -> Payload {
+pub(super) fn payload_by_place(p: &Payload) -> Payload {
     let items = p
         .items()
         .iter()
