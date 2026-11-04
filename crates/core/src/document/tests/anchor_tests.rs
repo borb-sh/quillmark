@@ -199,14 +199,14 @@ fn a_delta_binds_only_the_path_it_is_keyed_by() {
         .unwrap();
 
     let mut strict = bare.clone();
-    let here = HashMap::from([(DocPath::main_body(), revised.applied.clone())]);
+    let here = HashMap::from([(DocPath::main_body(), revised.patches.clone())]);
     assert_eq!(
         strict.reattach(&before, &here).orphaned,
         before,
         "both quotes sit in kept text"
     );
 
-    let elsewhere = HashMap::from([("cards.note[0].body".parse().unwrap(), revised.applied)]);
+    let elsewhere = HashMap::from([("cards.note[0].body".parse().unwrap(), revised.patches)]);
     let out = bare.reattach(&before, &elsewhere);
     assert_eq!(ids(&out.reattached), ["m1", "m2"]);
     assert_eq!(anchor_ids(bare.main().body_lines()), ["m1", "m2"]);
@@ -224,7 +224,7 @@ fn a_quote_found_again_in_inserted_text_is_placed_with_the_change() {
                      nine ten eleven twelve thirteen fiscal year we approved the budget for roads.";
     let mut bare = without_anchors(&doc);
     let revised = bare.main_mut().revise(crate::document::Target::Body, rewritten, None).unwrap();
-    let changes = HashMap::from([(DocPath::main_body(), revised.applied)]);
+    let changes = HashMap::from([(DocPath::main_body(), revised.patches)]);
     let out = bare.reattach(&before, &changes);
     assert!(out.orphaned.is_empty(), "{out:?}");
     assert_eq!(out.reattached[0].quote, "approved the budget");
@@ -253,12 +253,12 @@ fn every_field_revise_names_the_anchor_it_drops() {
         let mut card = Card::new("note").unwrap();
         card.overwrite_body(base.clone());
         card.overwrite_field("f", base.clone()).unwrap();
-        card
+        super::placed(card)
     };
-    type Rung = fn(&mut Card, &Lines, &FieldSchema) -> crate::document::Receipt;
+    type Rung = fn(&mut crate::document::CardMut<'_>, &Lines, &FieldSchema) -> crate::document::Receipt;
     let rungs: [(&str, Rung); 5] = [
         ("revise_body", |c, _, _| {
-            c.revise_body("Keep this line.").unwrap()
+            c.revise(crate::document::Target::Body, "Keep this line.", None).unwrap()
         }),
         ("revise_field", |c, _, _| {
             c.revise(crate::document::Target::from("f"), "Keep this line.", None).unwrap()
@@ -276,8 +276,8 @@ fn every_field_revise_names_the_anchor_it_drops() {
         }),
     ];
     for (rung, revise) in rungs {
-        let mut card = fresh();
-        let revised = revise(&mut card, &next, &schema);
+        let mut doc = fresh();
+        let revised = revise(&mut doc.card_mut(0).unwrap(), &next, &schema);
         let dropped: Vec<(&str, &str)> = revised
             .dropped_anchors
             .iter()
@@ -286,7 +286,8 @@ fn every_field_revise_names_the_anchor_it_drops() {
         assert_eq!(dropped, [("c1", "anchored")], "{rung}");
     }
 
-    let mut card = fresh();
+    let mut doc = fresh();
+    let mut card = doc.card_mut(0).unwrap();
     let kept = card
         .revise(crate::document::Target::from("f"), "Keep this line.\n\nDrop this anchored line, edited.", None)
         .unwrap();

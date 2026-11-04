@@ -149,29 +149,16 @@ pub(crate) fn receipt_to_py<'py>(
             entry
         })
         .collect();
-    let moved: Vec<_> = receipt
-        .moved_anchors
-        .into_iter()
-        .map(|m| serde_json::json!({ "id": m.id, "before": m.before, "after": m.after, "reason": m.reason.name() }))
-        .collect();
+    let patches: Vec<serde_json::Value> = receipt.patches.iter().map(|p| p.to_value()).collect();
+    let repairs: Vec<serde_json::Value> = receipt.repairs.iter().map(quillmark_content::repair::Repair::to_value).collect();
     let out = PyDict::new(py);
-    out.set_item("applied", json_to_py(py, &receipt.applied.to_value())?)?;
+    out.set_item("before", receipt.before.encode())?;
     out.set_item("heads", receipt.heads.encode())?;
+    out.set_item("patches", json_to_py(py, &serde_json::Value::Array(patches))?)?;
     out.set_item("dropped_anchors", json_to_py(py, &serde_json::Value::Array(dropped))?)?;
-    out.set_item("moved_anchors", json_to_py(py, &serde_json::Value::Array(moved))?)?;
+    out.set_item("repairs", json_to_py(py, &serde_json::Value::Array(repairs))?)?;
     out.set_item("warnings", warnings)?;
-    out.set_item("minted", receipt.minted)?;
     Ok(out)
-}
-
-/// The change that undoes `change` on `before`. Raises `QuillmarkError`
-/// (`edit::content_apply`) where `change` does not apply to `before`.
-#[pyfunction]
-pub fn invert<'py>(py: Python<'py>, change: &Bound<'_, PyAny>, before: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-    let before = content_from_py(before, "invert")?;
-    let change = change_from_py(change, "invert")?;
-    let undo = change::invert(&change, &before).map_err(change_error)?;
-    json_to_py(py, &undo.to_value())
 }
 
 /// A change taking `before` to `after`, word-aligned, for a writer with no

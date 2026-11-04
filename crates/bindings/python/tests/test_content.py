@@ -3,20 +3,21 @@ its producers `revise` and `replace`, the reads, and the pure helpers over
 changes. Offsets count code points."""
 
 import pytest
-from quillmark import Document, diff, export_markdown, import_markdown, invert, is_inline, is_plain, normalize, repair
+from quillmark import Document, diff, export_markdown, import_markdown, is_inline, is_plain, normalize, repair
 
 from conftest import by_place, raises_edit_code
 
 MD = "~~~card-yaml\n$quill: test_quill\n~~~\n\nhello world\n"
 
 
-def test_a_receipt_carries_the_normalized_change_which_invert_undoes():
+def test_a_receipt_carries_its_patches_and_undo_takes_the_write_back():
     doc = Document.parse(MD)
     before = doc.read()
     heads = doc.heads()
     receipt = doc.apply({"steps": [{"splice": {"at": 0, "delete": "hello", "insert": "hi"}}]}, heads=heads)
     assert doc.read()["text"] == "hi world"
-    assert receipt["heads"] == doc.heads()
+    assert (receipt["before"], receipt["heads"]) == (heads, doc.heads())
+    assert receipt["patches"] == [{"delete": {"at": 0, "len": 5}}, {"insert": {"at": 0, "text": "hi", "blocks": [], "islands": [], "marks": []}}]
     assert receipt["dropped_anchors"] == [] and receipt["warnings"] == []
     doc.apply({"steps": []}, heads=heads)
     foreign = Document.parse(MD)
@@ -25,7 +26,7 @@ def test_a_receipt_carries_the_normalized_change_which_invert_undoes():
         doc.apply({"steps": []}, heads=foreign.heads())
     with pytest.raises(ValueError):
         doc.apply({"steps": []}, heads=["never-read"])
-    doc.apply(invert(receipt["applied"], before), heads=receipt["heads"])
+    doc.undo(receipt)
     assert doc.read() == before
 
 
@@ -50,7 +51,7 @@ def test_a_quoted_step_refuses_text_its_writer_did_not_read():
     with raises_edit_code("edit::content_apply"):
         doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]})
     receipt = doc.apply({"steps": [{"mark": {"start": 9, "end": 14, "type": "strong", "add": True}}]})
-    assert receipt["applied"]["steps"][0]["mark"]["quote"] == "world"
+    assert receipt["patches"] == [{"mark": {"start": 9, "end": 14, "type": "strong"}}]
 
 
 def test_a_write_at_stale_heads_merges_with_the_change_since():
@@ -78,7 +79,7 @@ def test_a_placeholder_is_minted_under_the_writers_actor():
     doc = Document.parse(MD)
     change = {"steps": [{"splice": {"at": 5, "insert": "\nnew", "blocks": [{"id": "?n", "kind": "para"}]}}]}
     receipt = doc.apply(change, actor="ann")
-    (minted,) = receipt["minted"].values()
+    (minted,) = [b["id"] for p in receipt["patches"] if "insert" in p for b in p["insert"]["blocks"]]
     assert minted.endswith("@" + "ann".encode().hex())
     assert doc.read()["blocks"][1]["id"] == minted
     with raises_edit_code("edit::invalid_actor"):
@@ -161,7 +162,7 @@ def test_an_anchor_placement_refuses_a_held_id_and_a_move_moves_it():
     with raises_edit_code("edit::content_apply"):
         doc.apply({"steps": [{"anchor": {"id": "c9", "start": 6, "end": 11, "move": True}}]})
     receipt = doc.apply({"steps": [{"anchor": {"id": "c1", "start": 6, "end": 11, "move": True}}]})
-    assert receipt["applied"]["steps"][0]["anchor"]["move"] is True
+    assert receipt["patches"] == [{"anchor": {"id": "c1", "start": 6, "end": 11}}]
     assert doc.read()["anchors"] == [{"id": "c1", "start": 6, "end": 11}]
 
 
@@ -175,17 +176,15 @@ def test_repair_answers_the_change_from_the_merged_text():
     assert repair(valid) == {"content": valid, "repairs": [], "change": {"steps": []}}
 
 
-def test_a_receipt_names_each_anchor_a_write_moved_and_what_moved():
+def test_a_receipt_carries_each_anchor_a_write_touched_as_it_reads_after():
     doc = Document.parse(MD)
     doc.apply({"steps": [{"anchor": {"id": "p", "start": 0, "end": 0}}, {"anchor": {"id": "r", "start": 6, "end": 11}}]})
     receipt = doc.apply({"steps": [
         {"anchor": {"id": "p", "start": 5, "end": 5, "move": True}},
         {"splice": {"at": 5, "delete": " ", "insert": "\n", "blocks": [{"id": "b9", "kind": "para"}]}},
     ]})
-    assert receipt["moved_anchors"] == [
-        {"id": "p", "before": "", "after": "", "reason": "position"},
-        {"id": "r", "before": "world", "after": "world", "reason": "block"},
-    ]
+    anchors = [p["anchor"] for p in receipt["patches"] if "anchor" in p]
+    assert sorted(anchors, key=lambda a: a["id"]) == [{"id": "p", "start": 6, "end": 6}, {"id": "r", "start": 6, "end": 11}]
 
 
 def test_the_markdown_import_and_export_and_the_predicates_hold_no_document():

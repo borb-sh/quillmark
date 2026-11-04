@@ -4,7 +4,8 @@
 //! heads it read at or now, and lowers it as one Automerge change:
 //! at earlier heads it is concurrent with every change since and merges with
 //! them as Automerge merges, refusing nothing a concurrent change did. The
-//! card then takes the value the write left.
+//! card then takes the value the write left, which Automerge's patches since
+//! the write began build from the value before it.
 
 use std::collections::BTreeMap;
 
@@ -12,6 +13,7 @@ use quillmark_automerge::automerge::transaction::Transactable;
 use quillmark_automerge::automerge::{ActorId, ObjId, ReadDoc, Value as AmValue};
 use quillmark_automerge::model::{self as am, StepError};
 use quillmark_content::change::{self, AnchorStep, ApplyError, Change, Step};
+use quillmark_content::lines::import::ImportWarning;
 use quillmark_content::diff;
 use quillmark_content::ids::is_actor;
 use quillmark_content::model::Content;
@@ -71,20 +73,6 @@ fn renamed(change: &Change, minted: &BTreeMap<String, String>) -> Change {
     }
     let keep = ["text", "insert", "delete", "quote", "type", "op", "kind"];
     Change::from_value(&renamed_json(&change.to_value(), minted, &keep)).unwrap_or_else(|_| change.clone())
-}
-
-/// `content` with each id `minted` renames renamed.
-fn renamed_content(content: &Content, minted: &BTreeMap<String, String>) -> Content {
-    if minted.is_empty() {
-        return content.clone();
-    }
-    Content::from_value(&renamed_json(&content.to_value(), minted, &["text", "kind", "type"])).unwrap_or_else(|_| content.clone())
-}
-
-/// Whether `content` holds a point anchor, which Automerge keeps as a
-/// cursor that a splice can leave elsewhere than the content model does.
-fn holds_points(content: &Content) -> bool {
-    content.anchors.iter().any(|a| a.start == a.end) || content.islands.iter().any(|i| i.slots.values().any(holds_points))
 }
 
 fn removed_by(change: &Change, out: &mut Vec<String>) {
@@ -246,15 +234,20 @@ impl Document {
                     diff::ReviseError::Import(e) => EditError::import(e),
                     diff::ReviseError::Refused(e) => EditError::change(e),
                 })?;
+                keeps_ext_islands(&read, &revision.content)?;
                 (revision.change, revision.warnings, true)
             }
-            Edit::Replace(content) => (diff::replace_holding(&read, &content, &now).map_err(|e| EditError::change(e.into()))?, Vec::new(), true),
+            Edit::Replace(content) => {
+                let change = diff::replace_holding(&read, &content, &now).map_err(|e| EditError::change(e.into()))?;
+                keeps_ext_islands(&read, &content)?;
+                (change, Vec::new(), true)
+            }
         };
-        let mine = change::apply(&read, &change).map_err(EditError::change)?;
-        if diffed {
-            keeps_ext_islands(&read, &mine.content)?;
-        }
         let doc = &mut self.held().doc;
+        if heads.is_none() {
+            doc.track();
+        }
+        let before = Heads::from(doc.heads());
         let actor = doc.am().get_actor().clone();
         if let Some(a) = opts.actor {
             doc.set_actor(ActorId::from(a.as_bytes()));
@@ -263,43 +256,48 @@ impl Document {
         if opts.actor.is_some() {
             doc.set_actor(actor);
         }
-        let lowered = lowered.map_err(step_error)?;
+        lowered.map_err(step_error)?;
+        let (patches, view) = doc.patches_on(&root, before.hashes(), &now);
         let landed = Heads::from(doc.heads());
-        let merged = heads.is_some();
-        let named: BTreeMap<String, String> = mine.minted.iter().filter_map(|(placeholder, id)| Some((id.clone(), lowered.minted.get(placeholder)?.clone()))).collect();
-        let after = match merged || diffed || holds_points(&read) || holds_points(&mine.content) {
-            true => doc.view(&root).content,
-            false => {
-                let held: BTreeMap<String, String> = lowered.minted.iter().map(|(given, id)| (mine.minted.get(given).unwrap_or(given).clone(), id.clone())).collect();
-                let after = renamed_content(&mine.content, &held);
-                debug_assert_eq!(after, doc.view(&root).content);
-                after
+        let mut removed = Vec::new();
+        removed_by(&change, &mut removed);
+        let mut dropped = change::lost_anchors(&now, &view.content, |id| diffed || !removed.iter().any(|r| r == id));
+        if heads.is_some() {
+            let mine: Vec<_> = landed.hashes().iter().filter(|h| !before.hashes().contains(h)).copied().collect();
+            let wrote = doc.view_at(&root, &mine).content;
+            let held: std::collections::HashSet<String> = now.anchor_ids().into_iter().collect();
+            dropped.extend(change::lost_anchors(&wrote, &view.content, |id| !held.contains(id)));
+        }
+        self.set_read(at, target, &view.content);
+        let receipt = Receipt::landed(before, landed, patches, &now, dropped, view.repairs, warnings);
+        Ok(match u {
+            Some(u) => receipt.in_units(u),
+            None => receipt,
+        })
+    }
+
+    /// Runs `write`, which changes the value at `target` of the card at `at`
+    /// on the card, lands it in the document, and answers its receipt.
+    pub(crate) fn landing(&mut self, at: Option<usize>, target: Target<'_>, write: impl FnOnce(&mut Card) -> Result<Vec<ImportWarning>, EditError>) -> Result<Receipt, EditError> {
+        let (root, put) = self.value_obj(at, target)?;
+        self.doc().track();
+        let before = Heads::from(self.doc().heads());
+        let was = self.card_at(at).read(target)?;
+        let warnings = match write(self.card_at_mut(at)) {
+            Ok(w) => w,
+            Err(e) => {
+                if let (true, Target::Field(name)) = (put, target) {
+                    self.card_at_mut(at).remove_field(name)?;
+                }
+                self.flush();
+                return Err(e);
             }
         };
-        let (dropped_anchors, moved_anchors) = match merged || diffed {
-            false => (mine.dropped.clone(), mine.moved.clone()),
-            true => {
-                let mut removed = Vec::new();
-                removed_by(&change, &mut removed);
-                let mut dropped = change::lost_anchors(&now, &after, |id| diffed || !removed.iter().any(|r| r == id));
-                let held: std::collections::HashSet<String> = now.anchor_ids().into_iter().collect();
-                dropped.extend(change::lost_anchors(&mine.content, &after, |id| !held.contains(id)));
-                (dropped, change::moved_between(&now, &after, &held))
-            }
-        };
-        let applied = match merged || diffed {
-            true => diff::diff(&now, &after).map_err(|e| EditError::change(e.into()))?,
-            false => renamed(&mine.applied, &named),
-        };
-        let applied = match u {
-            Some(u) => units::change_from_scalars(&applied, &now, u).map_err(EditError::change)?,
-            None => applied,
-        };
-        self.set_read(at, target, &after);
-        let minted = match diffed {
-            true => BTreeMap::new(),
-            false => lowered.minted,
-        };
-        Ok(Receipt::landed(applied, dropped_anchors, moved_anchors, warnings, minted).at(landed))
+        self.flush();
+        let doc = &mut self.held().doc;
+        let (patches, view) = doc.patches_on(&root, before.hashes(), &was);
+        let landed = Heads::from(doc.heads());
+        let dropped = change::lost_anchors(&was, &view.content, |_| true);
+        Ok(Receipt::landed(before, landed, patches, &was, dropped, view.repairs, warnings))
     }
 }

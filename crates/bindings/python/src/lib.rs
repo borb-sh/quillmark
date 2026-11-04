@@ -30,7 +30,6 @@ fn _quillmark(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyOutputFormat>()?;
     m.add_class::<PySeverity>()?;
 
-    m.add_function(wrap_pyfunction!(content::invert, m)?)?;
     m.add_function(wrap_pyfunction!(content::diff, m)?)?;
     m.add_function(wrap_pyfunction!(content::repair, m)?)?;
     m.add_function(wrap_pyfunction!(content::import_markdown, m)?)?;

@@ -39,7 +39,7 @@ pub use quillmark_core::{
     document::{
         AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, Card, CardMut, Document,
         DocumentAnchor, DocumentRevised, Edit, EditError, Heads, ImportError, Located, Parsed,
-        Reattached, Receipt, Target, Unchecked, WriteOptions,
+        Patch, PatchAction, Reattached, Receipt, Target, Unchecked, WriteOptions,
     },
     error::{DOCUMENT_FILE, Diagnostic, Location, ParseError, RenderError, RenderResult, Severity},
     path::DocPath,
@@ -58,7 +58,7 @@ pub use quillmark_core::{
     writer::{CardAdded, TypedWriter},
 };
 
-pub use quillmark_content::change::{Change, Dropped, MoveReason, Moved};
+pub use quillmark_content::change::{Change, Dropped};
 
 mod load;
 mod orchestration;

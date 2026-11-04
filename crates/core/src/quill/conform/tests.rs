@@ -402,12 +402,12 @@ Body.
         .to_string();
     assert_eq!(text, r"a \*b\* line");
 
-    let applied = quill
+    let patches = quill
         .writer(&mut doc)
         .revise(crate::document::Target::from("note"), &text, None)
         .expect("revise")
-        .applied;
-    assert!(applied.steps.is_empty(), "a no-change revise changes nothing: {applied:?}");
+        .patches;
+    assert!(patches.is_empty(), "a no-change revise changes nothing: {patches:?}");
     assert_eq!(bytes(&doc), before, "a no-change revise moves no bytes");
 
     let _ = quill

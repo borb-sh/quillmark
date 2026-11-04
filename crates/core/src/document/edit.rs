@@ -944,16 +944,17 @@ impl<'a> CardMut<'a> {
     }
 
     /// A markdown revise of the value at `target` at `heads`, its receipt
-    /// counted in scalars on the value it landed on.
+    /// counted in scalars, which [`Receipt::in_units`](super::Receipt::in_units)
+    /// converts.
     pub(crate) fn revise_counted(&mut self, target: super::Target<'_>, markdown: &str, heads: Option<&super::Heads>) -> Result<super::Receipt, EditError> {
-        let before = self.read(target)?;
-        Ok(self.write(target, super::Edit::Revise(markdown), super::WriteOptions { heads, actor: None })?.counted_on(before))
+        self.write(target, super::Edit::Revise(markdown), super::WriteOptions { heads, actor: None })
     }
 
     #[doc(hidden)]
     pub fn revise_field_checked(&mut self, name: &str, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
-        let receipt = self.card().revise_field_checked(name, body, schema)?;
-        Ok(receipt.at(self.doc.heads()))
+        check_field_name(name)?;
+        let body = body.into();
+        self.doc.landing(self.at, super::Target::Field(name), |card| card.revise_field_payload(name, body, schema))
     }
 
     /// [`revise_field_checked`](Self::revise_field_checked) at `heads`. A
@@ -970,13 +971,30 @@ impl<'a> CardMut<'a> {
         let read = self.doc.read_under(self.at, target, Some(heads))?;
         let mut scratch = Card::from_parts(Payload::new(), quillmark_content::model::Content::empty());
         scratch.payload_mut().insert(name.to_string(), QuillValue::from_json(read.to_value())).map_err(EditError::InvalidPayload)?;
-        let revised = scratch.revise_field_checked(name, body, schema)?;
+        let warnings = scratch.revise_field_payload(name, body.into(), schema)?;
         let wanted = scratch.read(target)?;
         let change = quillmark_content::diff::diff(&read, &wanted).map_err(|e| EditError::change(e.into()))?;
-        let before = self.read(target)?;
         let mut receipt = self.write(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads), actor: None })?;
-        receipt.warnings = revised.warnings;
-        Ok(receipt.counted_on(before))
+        receipt.warnings = warnings;
+        Ok(receipt)
+    }
+
+    /// Takes the value at `target` back to how it read at the receipt's
+    /// `before`, as one write at its `heads`: it merges with every change
+    /// since as any write there does, so it undoes the write and keeps what
+    /// others wrote after it.
+    pub fn undo(&mut self, target: super::Target<'_>, receipt: &super::Receipt) -> Result<super::Receipt, EditError> {
+        self.undo_between(target, &receipt.before, &receipt.heads)
+    }
+
+    /// [`undo`](Self::undo) of the write that took the document from
+    /// `before` to `heads`, as a host that kept only its receipt's heads
+    /// names it.
+    pub fn undo_between(&mut self, target: super::Target<'_>, before: &super::Heads, heads: &super::Heads) -> Result<super::Receipt, EditError> {
+        let was = self.doc.read_under(self.at, target, Some(before))?;
+        let then = self.doc.read_under(self.at, target, Some(heads))?;
+        let change = quillmark_content::diff::replace(&then, &was).map_err(|e| EditError::change(e.into()))?;
+        self.write(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads), actor: None })
     }
 }
 
@@ -1480,12 +1498,12 @@ impl Card {
         Ok(drops)
     }
 
-    /// [`revise`](Self::revise) of the body with no base: the one revise at
-    /// [`Target::Body`](super::Target::Body), its receipt's `applied` counted
-    /// in scalars on the body it read, which
-    /// [`Receipt::in_units`](super::Receipt::in_units) converts.
-    pub(crate) fn revise_body(&mut self, body: impl Into<String>) -> Result<super::Receipt, EditError> {
-        self.revise_counted(super::Target::Body, &body.into())
+    /// The body revised by `body` as markdown, on the card alone; the
+    /// import's warnings.
+    pub(crate) fn revise_body(&mut self, body: &str) -> Result<Vec<quillmark_content::lines::import::ImportWarning>, EditError> {
+        let revised = self.revision(self.body(), body)?;
+        self.set_body(revised.content);
+        Ok(revised.warnings)
     }
 
     /// The field's current content value: a markdown string imports, an
@@ -1511,27 +1529,16 @@ impl Card {
         })
     }
 
-    /// Revise a content field from authored text **with schema enforcement**:
-    /// [`revise`](Self::revise) of the field, read under the
-    /// codec `schema` declares, then the conform
-    /// [`commit_field`](Self::commit_field) runs. Returns the
-    /// [`Receipt`](super::Receipt), and leaves the field unchanged on any error. A
-    /// `text` field imports no markdown, so its receipt holds no warning.
-    ///
-    /// **Hidden** on the same terms as [`commit_field`](Self::commit_field): its
-    /// door is
-    /// [`TypedWriter::revise`](crate::writer::TypedWriter::revise).
-    #[doc(hidden)]
-    pub fn revise_field_checked(
-        &mut self,
-        name: &str,
-        body: impl Into<String>,
-        schema: &FieldSchema,
-    ) -> Result<super::Receipt, EditError> {
+    /// Revise a content field from authored text **with schema enforcement**,
+    /// on the card alone: the field revised as a revise of it builds it, read
+    /// under the codec `schema` declares, then the conform
+    /// [`commit_field`](Self::commit_field) runs. Answers the import's
+    /// warnings, and leaves the field unchanged on any error. A `text` field
+    /// imports no markdown, so it answers none.
+    pub(crate) fn revise_field_payload(&mut self, name: &str, body: String, schema: &FieldSchema) -> Result<Vec<quillmark_content::lines::import::ImportWarning>, EditError> {
         check_field_name(name)?;
-        let target = super::Target::Field(name);
         if matches!(schema.r#type, FieldType::Text { .. }) {
-            let text = committed_text(name, body.into(), schema)?;
+            let text = committed_text(name, body, schema)?;
             let mut before = match self.payload.get(name) {
                 None => quillmark_content::model::Content::empty(),
                 Some(v) => Codec::Text.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Text, e))?,
@@ -1539,25 +1546,15 @@ impl Card {
             before.codec = Codec::Text.content();
             let revised = self.revision(&before, &text)?;
             let stored = QuillValue::from_json(revised.content.to_value());
-            return self.revising(target, Vec::new(), |card| {
-                card.payload_mut().insert(name.to_string(), stored).map(|_| ()).map_err(EditError::InvalidPayload)
-            });
+            self.payload_mut().insert(name.to_string(), stored).map_err(EditError::InvalidPayload)?;
+            return Ok(Vec::new());
         }
         let before = self.richtext_value(name)?;
-        let revised = self.revision(&before, &body.into())?;
+        let revised = self.revision(&before, &body)?;
         super::write::keeps_ext_islands(&before, &revised.content)?;
-        let (stored, _) = resolve_field_write(
-            name,
-            &QuillValue::from_json(revised.content.to_value()),
-            schema,
-            &DocPath::new(),
-        )?;
-        self.revising(target, revised.warnings, |card| {
-            card.payload_mut()
-                .insert(name.to_string(), stored)
-                .map(|_| ())
-                .map_err(EditError::InvalidPayload)
-        })
+        let (stored, _) = resolve_field_write(name, &QuillValue::from_json(revised.content.to_value()), schema, &DocPath::new())?;
+        self.payload_mut().insert(name.to_string(), stored).map_err(EditError::InvalidPayload)?;
+        Ok(revised.warnings)
     }
 }
 

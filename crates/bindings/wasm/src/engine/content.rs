@@ -125,8 +125,7 @@ export interface Change {
  *   `marks` is the formatting the inserted text carries, offsets into
  *   `insert`, a mark without `start`/`end` covering all of it; `blocks` the
  *   record of each block an inserted `\n` opens; `islands` the island of each
- *   inserted `U+FFFC`. `removed` is what the deleted text held, filled in on
- *   the receipt's `applied`.
+ *   inserted `U+FFFC`. `removed` is what the deleted text held.
  * - `setBlock` changes a block's kind, attributes or path.
  * - `container` adds a container or sets an existing one's attributes, or
  *   removes one no path names.
@@ -140,7 +139,7 @@ export interface Change {
  * island it inserts, may carry a placeholder id, `?` and an id (`"?1"`), and a
  * step may name it, as a `setBlock` path or a `nested` island does: the write
  * mints an id for it past every id the value holds, under `actor` where one is
- * given, and the receipt's `minted` names it.
+ * given, and the receipt's patch that puts the record carries it.
  *
  * A placement of a held id, and a move or removal of one the text does not
  * hold, is refused (`edit::content_apply`).
@@ -149,8 +148,7 @@ export interface Change {
  * covered when the writer read it, and an island insert takes `block`, the id
  * of the block the writer read `at` in. A step whose `quote` or `block` the
  * value no longer holds is refused as stale (`edit::content_apply`), as a
- * splice is whose `delete` the value no longer holds. The receipt's `applied`
- * fills both in.
+ * splice is whose `delete` the value no longer holds.
  */
 export type Step =
     | { splice: { at: number; delete?: string; insert: string;
@@ -165,38 +163,51 @@ export type Step =
     | { nested: { island: string; slot: string; change: Change } };
 
 /**
- * What a write did. `applied` is the change in its normalized form, which
- * `invert(applied, before)` undoes; `heads` is the document's heads after the
- * write, the next write's `heads`, empty for a card no document holds.
+ * One change a write made to a value, Automerge's patch lowered to it: at
+ * offsets (UTF-16) into the value as the patches before it left it. `insert`
+ * puts `text`, each `\n` opening the next of `blocks` and each island
+ * character holding the next of `islands`, carrying `marks`, offsets into
+ * `text`; `delete` takes `len` out at `at`; `block`, `island`, `container` and
+ * `anchor` are a record as it reads now, and `containerRemoved` and
+ * `anchorRemoved` name one gone; `mark` puts formatting over its range in
+ * place of any of its tag, and `unmark` takes `tag` off `[start, end)`;
+ * `value` is the whole value. `slot` names the island slots it reaches,
+ * outermost first, where it reaches one.
+ */
+export type Patch = { slot?: { island: string; slot: string }[] } & (
+    | { insert: { at: number; text: string; blocks: ContentBlock[]; islands: ContentIsland[]; marks: ContentMark[] } }
+    | { delete: { at: number; len: number } }
+    | { block: ContentBlock }
+    | { island: ContentIsland }
+    | { container: ContentContainer }
+    | { containerRemoved: { id: string } }
+    | { mark: ContentMark }
+    | { unmark: { start: number; end: number; tag: string } }
+    | { anchor: ContentAnchor }
+    | { anchorRemoved: { id: string } }
+    | { value: Content }
+);
+
+/**
+ * What a write did. `before` and `heads` are the document's heads before
+ * and after the write: `heads` is the next write's, and `undo` takes the
+ * value back to `before`. `patches`, applied in order to the value as it
+ * read before the write, give the value after.
  * `droppedAnchors` names each anchor the value held and holds
  * nowhere now, as it read before: every one a `revise` or `replace` lost, and
  * for an `apply` every one but those its `anchor` steps removed.
- * `movedAnchors` names each surviving one the write moved, a point included,
- * with the text it covered before and after and `reason`, the first of these
- * that holds: `position`, an anchor step put it other than where the write's
- * text edits carry it; `block`, its start sits in another block; `context`,
- * its text or the eight characters either side read otherwise.
+ * `repairs` names what reading the value after mended, where the write left
+ * it invalid; its patch is then the whole value.
  * `warnings` holds a `parse::dropped_construct` per construct a revise's
  * markdown dropped.
- * `minted` maps each
- * placeholder the change gave a record it put to the id the write minted for
- * it; a structural edit's own are `"?0"`, `"?1"` and on, in the order it puts them.
  */
 export interface Receipt {
-    applied: Change;
+    before: string[];
     heads: string[];
+    patches: Patch[];
     droppedAnchors: DroppedAnchor[];
-    movedAnchors: MovedAnchor[];
+    repairs: Repair[];
     warnings: Diagnostic[];
-    minted: Record<string, string>;
-}
-
-/** A surviving anchor a write moved, and what moved. */
-export interface MovedAnchor {
-    id: string;
-    before: string;
-    after: string;
-    reason: "position" | "block" | "context";
 }
 
 /**
@@ -325,12 +336,12 @@ export interface Repaired {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ReceiptJs {
-    applied: Value,
+    before: Vec<String>,
     heads: Vec<String>,
+    patches: Vec<Value>,
     dropped_anchors: Vec<DroppedAnchorJs>,
-    moved_anchors: Vec<MovedJs>,
+    repairs: Vec<Value>,
     warnings: Vec<Diagnostic>,
-    minted: std::collections::BTreeMap<String, String>,
 }
 
 /// A receipt's dropped anchor: its selector, and the island and slot that
@@ -345,13 +356,6 @@ struct DroppedAnchorJs {
     slot: Option<String>,
 }
 
-#[derive(serde::Serialize)]
-struct MovedJs {
-    id: String,
-    before: String,
-    after: String,
-    reason: &'static str,
-}
 
 /// A `WriteOptions` from JS: the `heads` the writer read and its `actor`.
 struct WriteOpts {
@@ -536,8 +540,10 @@ fn write(
 pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath, card_id: Option<String>) -> ReceiptJs {
     let warnings = super::diags(receipt.diagnostics(Some(path)));
     ReceiptJs {
-        applied: receipt.applied.to_value(),
+        before: receipt.before.encode(),
         heads: receipt.heads.encode(),
+        patches: receipt.patches.iter().map(|p| p.to_value_in(Utf16)).collect(),
+        repairs: receipt.repairs.iter().map(|r| r.to_value()).collect(),
         dropped_anchors: receipt
             .dropped_anchors
             .into_iter()
@@ -557,13 +563,7 @@ pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath,
                 }
             })
             .collect(),
-        moved_anchors: receipt
-            .moved_anchors
-            .into_iter()
-            .map(|m| MovedJs { id: m.id, before: m.before, after: m.after, reason: m.reason.name() })
-            .collect(),
         warnings,
-        minted: receipt.minted,
     }
 }
 
@@ -644,9 +644,37 @@ impl Document {
         serialize_or_throw(&receipt, "replace")
     }
 
+    /// **Undo** the write `receipt` answered at `addr`: the value goes back to
+    /// how it read at the receipt's `before`, as one write at its `heads`, so
+    /// it keeps what others wrote since. Answers the undo's `Receipt`; throws
+    /// as `apply`.
+    #[wasm_bindgen(js_name = undo, unchecked_return_type = "Receipt")]
+    pub fn undo(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "Receipt")] receipt: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let addr = Addr::for_write(&addr, &self.inner, "undo")?;
+        let json = js_value_to_json(receipt, "undo")?;
+        let heads_of = |key: &str| -> Result<Heads, JsValue> {
+            let hex: Vec<String> = json
+                .get(key)
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .ok_or_else(|| WasmError::from(format!("undo: the receipt's `{key}` is a list of heads")).to_js_value())?;
+            Heads::decode(&hex).map_err(|e| WasmError::from(format!("undo: {e}")).to_js_value())
+        };
+        let (before, heads) = (heads_of("before")?, heads_of("heads")?);
+        let card_base = card_base(&self.inner, &addr);
+        let path = value_path(&card_base, &addr);
+        let mut card = card_mut_of(&mut self.inner, &addr)?;
+        let receipt = card.undo_between(target(&addr), &before, &heads).map_err(|e| edit_error_to_js(&e, &card_base))?.in_units(Utf16);
+        let card_id = card.id().map(str::to_string);
+        serialize_or_throw(&receipt_js(receipt, &path, card_id), "undo")
+    }
+
     /// **Enter** at `at` (UTF-16, into the value as `opts.heads` read it): split
     /// the block holding it there, the text keeping its id and the new block
-    /// `opts.id`, or one the write mints and names in `minted` under `"?0"`.
+    /// `opts.id`, or one the write mints, which the receipt's insert carries.
     /// Answers the `Receipt`; throws as `apply`.
     #[wasm_bindgen(js_name = splitBlock, unchecked_return_type = "Receipt")]
     pub fn split_block(
@@ -723,8 +751,8 @@ impl Document {
 
     /// Wrap the blocks `first` to `last` in a quote or a list, around the
     /// children of their innermost shared item or quote the range touches; a
-    /// list the range sits in is wrapped whole. Answers the `Receipt`, the
-    /// containers it opens named in `minted`; throws as `apply`.
+    /// list the range sits in is wrapped whole. Answers the `Receipt`, whose
+    /// container patches carry the containers it opens; throws as `apply`.
     #[wasm_bindgen(js_name = wrap, unchecked_return_type = "Receipt")]
     pub fn wrap(
         &mut self,
@@ -787,21 +815,6 @@ fn string_opt(opts: &JsValue, key: &str, verb: &str) -> Result<Option<String>, J
         return Ok(None);
     }
     v.as_string().map(Some).ok_or_else(|| WasmError::from(format!("{verb}: {key} must be a string when given")).to_js_value())
-}
-
-/// The change that undoes `change` on `before`. Throws `edit::content_apply`
-/// where `change` does not apply to `before`.
-#[wasm_bindgen(js_name = invert, unchecked_return_type = "Change")]
-pub fn invert(
-    #[wasm_bindgen(unchecked_param_type = "Change")] change: JsValue,
-    #[wasm_bindgen(unchecked_param_type = "Content")] before: JsValue,
-) -> Result<JsValue, JsValue> {
-    let before = content_in(before, "invert")?;
-    let change = units::change_to_scalars(&change_in(change, "invert")?, &before, Utf16).map_err(apply_error)?;
-    let after = change::apply(&before, &change).map_err(apply_error)?.content;
-    let undo = change::invert(&change, &before).map_err(apply_error)?;
-    let undo = units::change_from_scalars(&undo, &after, Utf16).map_err(apply_error)?;
-    serialize_or_throw(&undo.to_value(), "invert")
 }
 
 /// A change taking `before` to `after`, word-aligned, for a writer with no
@@ -903,7 +916,7 @@ pub fn inherited_marks(
 /// Where `pos` lands after `change`, and what around it the change deleted;
 /// `assoc` (`"after"` by default) picks the side of text inserted at it.
 /// Throws `edit::content_apply` where a splice deletes an island and names
-/// none in `removed`, as the receipt's `applied` always does.
+/// none in `removed`.
 #[wasm_bindgen(js_name = mapPos, unchecked_return_type = "MapResult")]
 pub fn map_pos(
     #[wasm_bindgen(unchecked_param_type = "Change")] change: JsValue,

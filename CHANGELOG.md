@@ -4,6 +4,17 @@
 
 Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
 
+- feat(core)!: **a receipt carries Automerge's patches, and `undo` takes a
+  write back.** Every content write answers `{ before, heads, patches,
+  droppedAnchors, repairs, warnings }`: `patches` are the value's Automerge
+  patches between the heads, lowered onto the view, which applied to the
+  value the write read give the value it left, a stale write's merge
+  included. A minted id rides the patch putting its record, and a moved
+  anchor its `anchor` patch. `applied`, `movedAnchors`, `minted` and
+  `invert` are gone; `doc.undo(addr, receipt)` (`CardMut::undo`) lands the
+  value at `before` over the receipt's heads. `reattach` takes each path's
+  patches. The unbound `Card` write verbs are gone; a write goes through
+  `CardMut`.
 - feat(core)!: **a document is one Automerge document.** Every `Document`
   holds its cards in one Automerge 0.12 document, and the cards are a view of
   it: the root holds `schema`, `main`, `cards` by `$id` and `order`, a content

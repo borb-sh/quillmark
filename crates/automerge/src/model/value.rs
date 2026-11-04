@@ -224,7 +224,7 @@ pub(crate) fn mark_key(kind: &MarkKind) -> (String, ScalarValue) {
 
 /// The mark `name` holds `value` over `[start, end)`, `None` where its type
 /// and attrs are not a mark's.
-fn mark_json(name: &str, value: &ScalarValue, start: usize, end: usize) -> Option<Value> {
+pub(crate) fn mark_json(name: &str, value: &ScalarValue, start: usize, end: usize) -> Option<Value> {
     let (ty, attrs) = match (name, value) {
         ("link", ScalarValue::Str(s)) => ("link".to_string(), Some(json!({ "url": s.as_str() }))),
         ("font_family", ScalarValue::Str(s)) => (
@@ -317,7 +317,7 @@ pub(crate) fn elements(doc: &AutoCommit, t: &ObjId) -> Vec<Element> {
         .collect()
 }
 
-fn is_embed(doc: &AutoCommit, m: &ObjId) -> bool {
+pub(crate) fn is_embed(doc: &AutoCommit, m: &ObjId) -> bool {
     matches!(doc.get(m, EMBED), Ok(Some((AmValue::Scalar(s), _))) if matches!(s.as_ref(), ScalarValue::Boolean(true)))
 }
 
@@ -447,7 +447,7 @@ pub(crate) fn point_at(doc: &AutoCommit, points: &ObjId, t: &ObjId, id: &str) ->
 
 /// The block record `m`: a kind and attrs the decoder takes, a paragraph
 /// where they are not, and the string entries of its path.
-fn block_json(doc: &AutoCommit, m: &ObjId) -> Value {
+pub(crate) fn block_json(doc: &AutoCommit, m: &ObjId) -> Value {
     let mut b = Map::new();
     b.insert("id".into(), Value::String(id_of(m)));
     let (mut kind, mut attrs) = (get_str(doc, m, TYPE).unwrap_or_else(|| "para".into()), attrs_json(doc, m));
@@ -473,7 +473,7 @@ fn block_json(doc: &AutoCommit, m: &ObjId) -> Value {
 
 /// The container record `m`, `None` where its kind and attrs are not a
 /// container's.
-fn container_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
+pub(crate) fn container_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
     let (kind, attrs) = (get_str(doc, m, TYPE)?, attrs_json(doc, m));
     wire::container_kind_from(&kind, &attrs).ok()?;
     let mut c = json!({ "id": id_of(m), "kind": kind });
@@ -484,7 +484,7 @@ fn container_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
 }
 
 /// The island `m`, `None` where its type is not one a build reads.
-fn island_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
+pub(crate) fn island_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
     let ty = get_str(doc, m, TYPE).filter(|t| IslandType::parse(t).is_some())?;
     let props = obj(doc, m, PROPS)
         .map(|p| hydrate(doc, &p))

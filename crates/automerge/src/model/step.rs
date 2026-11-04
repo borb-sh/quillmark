@@ -85,6 +85,17 @@ fn check(view: &Content, step: &Step, n: usize) -> Result<(), StepError> {
         Step::Island(IslandStep::Insert { at, .. }) if *at > len => return Err(bounds(*at)),
         _ => {}
     }
+    let quoted = match step {
+        Step::Mark(MarkStep::Add { mark: m, quote: Some(q) }) => Some((m.start, m.end, q)),
+        Step::Mark(MarkStep::Remove { start, end, quote: Some(q), .. }) => Some((*start, *end, q)),
+        Step::Anchor(AnchorStep::Place { anchor: a, quote: Some(q) }) | Step::Anchor(AnchorStep::Move { anchor: a, quote: Some(q) }) => Some((a.start, a.end, q)),
+        _ => None,
+    };
+    if let Some((start, end, q)) = quoted {
+        if !view.text.chars().skip(start).take(end - start).eq(q.chars()) {
+            return Err(StepError::Stale { step: n, at: start });
+        }
+    }
     Ok(())
 }
 

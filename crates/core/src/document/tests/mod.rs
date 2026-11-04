@@ -23,6 +23,48 @@ pub(super) fn parse(src: &str) -> super::Document {
         .document
 }
 
+/// The id of each block and island the receipt's patches put in the
+/// value's own text, in order.
+pub(super) fn put_ids(r: &super::Receipt) -> Vec<String> {
+    r.patches
+        .iter()
+        .filter(|p| p.slot.is_empty())
+        .flat_map(|p| match &p.action {
+            super::PatchAction::Insert { blocks, islands, .. } => blocks.iter().map(|b| b.id.clone()).chain(islands.iter().map(|i| i.id.clone())).collect(),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+/// The id of each container the receipt's patches put that `before` held
+/// no record of.
+pub(super) fn new_containers(r: &super::Receipt, before: &quillmark_content::model::Content) -> Vec<String> {
+    r.patches
+        .iter()
+        .filter_map(|p| match &p.action {
+            super::PatchAction::Container(c) if p.slot.is_empty() && !before.containers.iter().any(|k| k.id == c.id) => Some(c.id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A document holding `card` as its one card, which `card_mut(0)` writes.
+pub(super) fn placed(card: super::Card) -> super::Document {
+    let mut doc = parse("~~~\n$quill: q\n~~~\n");
+    doc.unchecked().insert_card(None, card, None).expect("the card places");
+    doc
+}
+
+/// `before` with the receipt's patches applied, as a host holding it does.
+pub(super) fn replayed(before: &quillmark_content::model::Content, r: &super::Receipt) -> quillmark_content::model::Content {
+    let mut c = before.clone();
+    for p in &r.patches {
+        assert!(super::apply_patch(&mut c, p), "{p:?} reaches a held value");
+    }
+    c.normalize();
+    c
+}
+
 /// `Document::parse` with the warnings dropped, for a test reading the
 /// document or the refusal.
 pub(super) fn decompose(markdown: &str) -> Result<super::Document, crate::error::ParseError> {

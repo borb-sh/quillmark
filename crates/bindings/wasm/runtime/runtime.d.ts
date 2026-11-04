@@ -20,7 +20,6 @@ import type {
 	importMarkdown,
 	exportMarkdown,
 	normalize,
-	invert,
 	diff,
 	diffRange,
 	inheritedMarks,
@@ -47,7 +46,6 @@ export interface CoreSurface {
 	importMarkdown: typeof importMarkdown;
 	exportMarkdown: typeof exportMarkdown;
 	normalize: typeof normalize;
-	invert: typeof invert;
 	diff: typeof diff;
 	diffRange: typeof diffRange;
 	inheritedMarks: typeof inheritedMarks;
@@ -146,6 +144,7 @@ export type {
 	Change,
 	Step,
 	Receipt,
+	Patch,
 	DroppedAnchor,
 	WriteOptions,
 	CardInput,

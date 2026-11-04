@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 
 use quillmark_content::anchors::{AnchorContext, Reattached, anchor_context, anchor_contexts};
-use quillmark_content::change::{Change, inserted_spans};
+use quillmark_automerge::model::patch::{self, Patch};
 use quillmark_content::model::Content;
 use quillmark_content::units::{Scalars, Units};
 use serde_json::Value as JsonValue;
@@ -137,23 +137,23 @@ impl Document {
     /// - An id live anywhere in the document, a cell's anchor included, is not
     ///   written: it is answered as reattached, with the selector the first
     ///   value holding it reads.
-    /// - `changes` holds a write's change, its receipt's `applied`, per path
-    ///   where the caller has one, and a match at that path must then overlap
+    /// - `changes` holds a write's patches, its receipt's `patches`, per path
+    ///   where the caller has them, and a match at that path must then overlap
     ///   text the write inserted.
     pub fn reattach(
         &mut self,
         selectors: &[AnchorSelector],
-        changes: &HashMap<DocPath, Change>,
+        changes: &HashMap<DocPath, Vec<Patch>>,
     ) -> Reattached<AnchorSelector> {
         self.reattach_in(selectors, changes, Scalars)
     }
 
-    /// [`reattach`](Self::reattach) with each change counted in `u`, as
+    /// [`reattach`](Self::reattach) with each write's patches counted in `u`, as
     /// [`Receipt::in_units`](super::Receipt::in_units) answers it.
     pub fn reattach_in(
         &mut self,
         selectors: &[AnchorSelector],
-        changes: &HashMap<DocPath, Change>,
+        changes: &HashMap<DocPath, Vec<Patch>>,
         u: impl Units,
     ) -> Reattached<AnchorSelector> {
         let mut answered = HashSet::new();
@@ -199,7 +199,7 @@ impl Document {
             let ctxs: Vec<AnchorContext> = at.iter().map(|&i| selectors[i].context()).collect();
             let change = changes.get(path);
             let Some(placed) = self.edit_content_at(path, |content| {
-                let inserted = change.map(|c| inserted_spans(c, &content.text, u));
+                let inserted = change.map(|c| patch::inserted_spans(c, &content.text, u));
                 content
                     .reattach(&ctxs, inserted.as_deref(), &HashSet::new())
                     .reattached

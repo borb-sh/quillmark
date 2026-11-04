@@ -29,6 +29,7 @@ import {
   TEST_PLATE,
   TEST_MARKDOWN,
   storedByPlace,
+  inserts,
 } from './test-helpers.js'
 
 // The consumer contract, exercised as a consumer writes it: the gate is the only
@@ -157,7 +158,7 @@ card_kinds:
     const doc = blankDoc()
     const ed = quill.writer(doc)
     const receipt = ed.revise({}, 'New **body**.')
-    expect(Object.keys(receipt).sort()).toEqual(['applied', 'droppedAnchors', 'heads', 'minted', 'movedAnchors', 'warnings'])
+    expect(Object.keys(receipt).sort()).toEqual(['before', 'droppedAnchors', 'heads', 'patches', 'repairs', 'warnings'])
     expect(receipt.heads).toEqual(doc.heads())
     expect(doc.toMarkdown({})).toBe('New **body**.')
     const { warnings } = ed.revise('subject', 'Q3 <kbd>**results**</kbd>')
@@ -167,23 +168,21 @@ card_kinds:
     expect(quill.reader(doc).get('subject')).toBe('Q3 **results**')
   })
 
-  it('a writer revise answers its change in UTF-16, which maps a position and feeds reattach', () => {
+  it('a writer revise answers its patches in UTF-16, which feed reattach', () => {
     const doc = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\n😀 alpha gamma')
     const ed = buildQuill().writer(doc)
-    const { applied } = ed.revise({}, '😀 alpha beta gamma')
-    expect(mapPos(applied, 9, 'after').pos).toBe(14)
-    expect(mapPos(applied, 3, 'after').pos).toBe(3)
+    expect(inserts(ed.revise({}, '😀 alpha beta gamma'))).toEqual([{ at: 9, text: 'beta ' }])
 
     ed.revise('memo', 'a 😀 \\*b\\*')
     const memo = ed.revise('memo', 'a 😀 \\*b\\* c')
-    expect(memo.applied.steps).toEqual([{ splice: { at: 10, delete: '', insert: ' c', removed: {} } }])
-    expect(ed.revise('memo', 'a 😀 \\*b\\* c').applied.steps).toEqual([])
+    expect(memo.patches).toEqual([{ insert: { at: 10, text: ' c', blocks: [], islands: [], marks: [] } }])
+    expect(ed.revise('memo', 'a 😀 \\*b\\* c').patches).toEqual([])
 
     doc.apply({}, { steps: [{ anchor: { id: 'g', start: 14, end: 19 } }] })
     const [selector] = doc.anchorContexts()
     expect(ed.revise({}, '😀 alpha beta').droppedAnchors.map((a) => a.id)).toEqual(['g'])
     const back = ed.revise({}, '😀 alpha beta gamma')
-    expect(doc.reattach([selector], { 'main.body': back.applied }).reattached.map((a) => a.id)).toEqual(['g'])
+    expect(doc.reattach([selector], { 'main.body': back.patches }).reattached.map((a) => a.id)).toEqual(['g'])
   })
 
   it('revise names the anchors it drops', () => {
@@ -270,9 +269,9 @@ card_kinds:
       'cards.note[0].body'
     )
     expect(exportMarkdown(doc.cards[0].body)).toBe('Card body md.')
-    const { applied } = ed.card(0).revise('prose', 'Revised **field**.')
+    const { patches } = ed.card(0).revise('prose', 'Revised **field**.')
     expect(exportMarkdown(fieldOf(doc.cards[0], 'prose'))).toBe('Revised **field**.')
-    expect(Array.isArray(applied.steps)).toBe(true)
+    expect(patches.length).toBeGreaterThan(0)
   })
 
   it('reviseDocument revises the whole document, then conforms it, clearing the load warnings', () => {

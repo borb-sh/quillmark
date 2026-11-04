@@ -300,9 +300,10 @@ fn test_overwrite_field_sets_directly() {
 fn test_revise_field_diff_imports_and_returns_its_change() {
     use quillmark_content::lines::model::{Mark, MarkKind};
 
-    let mut card = Card::new("note").unwrap();
+    let mut doc = super::placed(Card::new("note").unwrap());
+    let mut card = doc.card_mut(0).unwrap();
     let revised = card.revise(crate::document::Target::from("intro"), "hello target world", None).unwrap();
-    assert!(!revised.applied.steps.is_empty());
+    assert!(!revised.patches.is_empty());
 
     let mut base = card
         .field_content("intro", Codec::Richtext)
@@ -327,13 +328,10 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
             .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
     );
 
-    card.store_field(
-        "count",
-        crate::value::QuillValue::from_json(serde_json::json!(3)),
-    )
-    .unwrap();
+    drop(card);
+    doc.unchecked().store_field(Some(0), "count", crate::value::QuillValue::from_json(serde_json::json!(3))).unwrap();
     assert_eq!(
-        card.revise(crate::document::Target::from("count"), "x", None).unwrap_err().code(),
+        doc.card_mut(0).unwrap().revise(crate::document::Target::from("count"), "x", None).unwrap_err().code(),
         "edit::field_decode"
     );
 }
@@ -349,11 +347,12 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
         None,
     );
 
-    let mut card = Card::new("note").unwrap();
+    let mut doc = super::placed(Card::new("note").unwrap());
+    let mut card = doc.card_mut(0).unwrap();
     let revised = card
         .revise_field_checked("subject", "hello target world", &inline)
         .unwrap();
-    assert!(!revised.applied.steps.is_empty());
+    assert!(!revised.patches.is_empty());
 
     let mut base = card
         .field_content("subject", Codec::Richtext)
@@ -402,7 +401,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
     let d = card
         .revise_field_checked("body", "para one\n\npara two", &block)
         .unwrap();
-    assert!(!d.applied.steps.is_empty());
+    assert!(!d.patches.is_empty());
     assert!(
         card.field_text("body", Codec::Richtext)
             .unwrap()
@@ -616,18 +615,20 @@ fn test_field_content_absent_and_non_content() {
 }
 
 #[test]
-fn test_revise_body_returns_its_change_and_updates_body() {
-    use quillmark_content::change::Assoc;
-    use quillmark_content::mapping::Mapping;
-    use quillmark_content::model::Pos;
-
-    let mut card = Card::new("note").unwrap();
+fn test_revise_body_returns_its_patches_and_updates_body() {
+    let mut doc = super::placed(Card::new("note").unwrap());
+    let mut card = doc.card_mut(0).unwrap();
     let _ = card.revise(crate::document::Target::Body, "hello world", None).unwrap();
-    let applied = card.revise(crate::document::Target::Body, "hello brave world", None).unwrap().applied;
+    let patches = card.revise(crate::document::Target::Body, "hello brave world", None).unwrap().patches;
     assert_eq!(card.body_lines().text, "hello brave world");
-    let mapping = Mapping::from_change(&applied).unwrap();
-    assert_eq!(mapping.map(&Pos::at(6), Assoc::Before).pos, Pos::at(6));
-    assert_eq!(mapping.map(&Pos::at(11), Assoc::After).pos, Pos::at(17));
+    let inserted: Vec<(usize, &str)> = patches
+        .iter()
+        .filter_map(|p| match &p.action {
+            crate::document::PatchAction::Insert { at, text, .. } => Some((*at, text.as_str())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(inserted, [(6, "brave ")]);
 }
 
 #[test]

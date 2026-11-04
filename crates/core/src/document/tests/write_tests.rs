@@ -1,9 +1,9 @@
-use quillmark_content::change::{AnchorStep, Change, Splice, Step, apply, invert};
+use quillmark_content::change::{AnchorStep, Change, Splice, Step};
 use quillmark_content::model::{Anchor, Block, BlockKind};
 
 use crate::document::{Card, Document, EditError, Target};
 
-use super::parse;
+use super::{new_containers, parse, put_ids, replayed};
 
 const SOURCE: &str = "~~~\n$quill: q\n~~~\n\nRevenue grew 12%.\n\nShip v2\n";
 
@@ -15,9 +15,10 @@ fn split_at(at: usize, id: &str) -> Change {
 }
 
 /// A split names the right half and the left keeps its record; the receipt's
-/// heads are the next write's base, and its change undoes the write.
+/// heads are the next write's base, its patches take the value it read to
+/// the value it left, and undo takes the value back.
 #[test]
-fn apply_lands_a_change_and_answers_its_inverse() {
+fn apply_lands_a_change_and_undo_takes_it_back() {
     let mut doc = parse(SOURCE);
     let before = doc.main().read(Target::Body).unwrap();
     let base = doc.heads();
@@ -28,10 +29,12 @@ fn apply_lands_a_change_and_answers_its_inverse() {
     assert_eq!(receipt.heads, doc.heads());
     let body = doc.main().body();
     assert_eq!(body.text, "Revenue grew\n12%.\nShip v2");
-    assert_eq!(block_ids(body), [before.blocks[0].id.clone(), receipt.minted["b9"].clone(), before.blocks[1].id.clone()]);
+    assert_eq!(block_ids(body), [before.blocks[0].id.clone(), put_ids(&receipt)[0].clone(), before.blocks[1].id.clone()]);
+    assert_eq!(&replayed(&before, &receipt), body);
 
-    let undo = invert(&receipt.applied, &before).unwrap();
-    assert_eq!(apply(body, &undo).unwrap().content, before);
+    let undone = doc.main_mut().undo(Target::Body, &receipt).unwrap();
+    assert_eq!(doc.main().body(), &before);
+    assert_eq!(undone.before, receipt.heads);
 }
 
 fn block_ids(content: &quillmark_content::model::Content) -> Vec<String> {
@@ -268,8 +271,8 @@ fn an_id_is_never_minted_again() {
     doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(11, "\ncharlie", ""))]), None).unwrap();
     let enter = Splice { blocks: vec![Block::new("b2".to_string(), BlockKind::Para)], ..Splice::new(5, "", "\nnew") };
     let receipt = doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(enter)]), None).unwrap();
-    assert_eq!(doc.main().body().blocks[1].id, receipt.minted["b2"]);
-    assert_ne!(receipt.minted["b2"], charlie);
+    assert_eq!(doc.main().body().blocks[1].id, put_ids(&receipt)[0]);
+    assert_ne!(put_ids(&receipt)[0], charlie);
 }
 
 /// A stale revise that moves a block lands as a delete and an insert, so
@@ -364,7 +367,7 @@ fn a_write_lands_on_the_card_its_writer_read() {
 
 /// Markdown cannot spell an `x-` island, so a revise from a plain read, or a
 /// replace from a model that holds none, refuses to remove one; a change of
-/// its own through `apply` removes it.
+/// its own, as undo writes, removes it.
 #[test]
 fn a_revise_or_replace_refuses_to_remove_an_x_island() {
     use quillmark_content::change::IslandStep;
@@ -374,7 +377,8 @@ fn a_revise_or_replace_refuses_to_remove_an_x_island() {
     let mut doc = parse(SOURCE);
     let island = Island::new("isl-x", IslandType::Ext("x-chart".into())).with_props(serde_json::json!({"series": [1]}));
     let insert = Change::new(vec![Step::Island(IslandStep::Insert { at: 7, island, block: None })]);
-    let isl = doc.main_mut().apply(Target::Body, &insert, None).unwrap().minted["isl-x"].clone();
+    let inserted = doc.main_mut().apply(Target::Body, &insert, None).unwrap();
+    let isl = put_ids(&inserted)[0].clone();
     let held = doc.clone();
     let plain = quillmark_content::markdown::to_markdown(doc.main().body());
     let err = doc.main_mut().revise(Target::Body, &plain, None).unwrap_err();
@@ -384,8 +388,7 @@ fn a_revise_or_replace_refuses_to_remove_an_x_island() {
     assert_eq!((err.code(), err.args()["island"].as_str()), ("edit::drops_ext_island", Some(isl.as_str())));
     assert_eq!(doc, held);
 
-    let removed = invert(&insert, &parse(SOURCE).main().read(Target::Body).unwrap()).unwrap();
-    doc.main_mut().apply(Target::Body, &removed, None).unwrap();
+    doc.main_mut().undo(Target::Body, &inserted).unwrap();
     assert!(doc.main().body().islands.is_empty());
 }
 
@@ -457,7 +460,7 @@ fn a_revise_with_the_annotated_read_keeps_what_markdown_cannot_spell() {
         let read = quillmark_content::markdown::to_markdown_annotated(&stored).markdown;
         let receipt = doc.main_mut().revise(Target::Body, &read, None).unwrap();
         assert_eq!(doc.main().body(), &stored, "{name}: {read:?}");
-        assert!(receipt.applied.is_empty(), "{name}: {:?}", receipt.applied);
+        assert!(receipt.patches.is_empty(), "{name}: {:?}", receipt.patches);
     }
     let mut doc = parse(SOURCE);
     for (name, value) in unspelled().into_iter().filter(|(n, _)| n.starts_with("empty paragraph between") || n.contains("link")) {
@@ -524,14 +527,12 @@ fn a_revise_and_a_replace_carry_an_anchor_through_one_word_diff() {
     let doc = anchored("The quick brown fox jumps over the lazy dog.\n", &[("c1", "brown fox"), ("c2", "dog")]);
     let md = "The quick brown wolf jumps over the lazy dog!";
     let mut revised = doc.clone();
-    let receipt = revised.main_mut().revise(Target::Body, md, None).unwrap();
+    revised.main_mut().revise(Target::Body, md, None).unwrap();
     let mut replaced = doc.clone();
     replaced.main_mut().replace(Target::Body, &quillmark_content::markdown::from_markdown(md).unwrap().content, None).unwrap();
     assert_eq!(quote_of(&revised, "c1").as_deref(), Some("brown "));
     assert_eq!(quote_of(&revised, "c2").as_deref(), Some("dog"));
     assert_eq!(revised.main().body().anchors, replaced.main().body().anchors);
-    let moved: Vec<_> = receipt.moved_anchors.iter().map(|m| (m.id.as_str(), m.reason.name())).collect();
-    assert_eq!(moved, [("c1", "context"), ("c2", "context")]);
 }
 
 /// A replaced run's lines pair by best similarity, so a paragraph the writer
@@ -548,18 +549,16 @@ fn an_inserted_look_alike_paragraph_takes_no_id_or_anchor_from_the_edited_one() 
     assert_eq!(body.block_at(body.anchors[0].start), 2);
 }
 
-/// One receipt spells anchor text one way, as stored: a dropped anchor's
-/// quote and a moved anchor's `before` both hold a hard break as `U+2028`,
-/// as the selector `anchor_contexts` read before the write did.
+/// A receipt spells a dropped anchor's quote as stored, a hard break as
+/// `U+2028`, as the selector `anchor_contexts` read before the write did.
 #[test]
-fn a_receipt_spells_a_dropped_and_a_moved_anchor_as_stored() {
+fn a_receipt_spells_a_dropped_anchor_as_stored() {
     let mut doc = anchored("Alpha\\\nbeta gamma\\\ndelta.\n", &[("c1", "Alpha\u{2028}beta"), ("c2", "gamma\u{2028}delta")]);
     let read = doc.anchor_contexts();
     assert_eq!(read[0].quote, "Alpha\u{2028}beta");
     let receipt = doc.main_mut().revise(Target::Body, "gamma\\\ndelt.", None).unwrap();
     assert_eq!(receipt.dropped_anchors.iter().map(|d| d.context.quote.as_str()).collect::<Vec<_>>(), ["Alpha\u{2028}beta"]);
     assert_eq!(receipt.dropped_anchors[0].context, read[0].context());
-    assert_eq!(receipt.moved_anchors.iter().map(|m| (m.id.as_str(), m.before.as_str())).collect::<Vec<_>>(), [("c2", "gamma\u{2028}delta")]);
 }
 
 /// A write past an input bound refuses under the bound's code before any of
@@ -581,7 +580,8 @@ fn a_write_past_an_input_bound_refuses_under_its_code() {
 /// Two live writers make structural edits from one read under their own
 /// actors: each verb answers its receipt, the second merged, and each id a
 /// write mints is minted under its writer's actor. A placeholder is filled
-/// and named in `minted`, and a bad actor writes nothing.
+/// and its record's id rides the receipt's patches, and a bad actor writes
+/// nothing.
 #[test]
 fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
     use crate::document::WriteOptions;
@@ -592,15 +592,19 @@ fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
     let base = doc.heads();
     let ann = WriteOptions { heads: Some(&base), actor: Some("ann") };
     let bo = WriteOptions { heads: Some(&base), actor: Some("bo") };
+    let start = doc.main().body().clone();
     let quoted = doc.main_mut().wrap(Target::Body, &read[0], &read[1], Wrap::Quote, ann).unwrap();
-    let quote = quoted.minted["?0"].clone();
+    let quote = new_containers(&quoted, &start)[0].clone();
     assert!(under(&quote, "ann"), "{quote}");
     let split = doc.main_mut().split_block(Target::Body, 14, None, bo).unwrap();
-    assert!(under(&split.minted["?0"], "bo"));
+    let right = put_ids(&split)[0].clone();
+    assert!(under(&right, "bo"));
+    let held = doc.main().body().clone();
     let listed = doc.main_mut().wrap(Target::Body, &read[2], &read[2], Wrap::List { ordered: true, checked: None }, bo).unwrap();
-    assert!(listed.minted.values().all(|id| under(id, "bo")) && listed.minted.len() == 2, "{:?}", listed.minted);
+    let made = new_containers(&listed, &held);
+    assert!(made.iter().all(|id| under(id, "bo")) && made.len() == 2, "{made:?}");
     let body = doc.main().body();
-    assert_eq!(block_ids(body), [read[0].clone(), read[1].clone(), read[2].clone(), split.minted["?0"].clone()]);
+    assert_eq!(block_ids(body), [read[0].clone(), read[1].clone(), read[2].clone(), right]);
     let located = doc.main().block_at(Target::Body, 7).unwrap();
     assert_eq!((located.id.as_str(), located.index, located.path.as_slice()), (read[1].as_str(), 1, &[quote][..]));
 
@@ -614,7 +618,7 @@ fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
         }),
     ]);
     let filled = doc.main_mut().apply(Target::Body, &insert, Some(&base)).unwrap();
-    let p = filled.minted["?p"].clone();
+    let p = put_ids(&filled)[0].clone();
     assert!(doc.main().body().blocks.iter().any(|b| b.id == p && matches!(b.kind, BlockKind::Heading { level: 2 })));
 
     let now = doc.heads();
@@ -673,7 +677,7 @@ fn a_document_saves_loads_and_syncs() {
 }
 
 /// A write's receipt and a revise's carry the heads the document is left
-/// at; a card no document holds has none.
+/// at.
 #[test]
 fn a_receipt_carries_the_heads_its_write_left() {
     let mut doc = parse(SOURCE);
@@ -683,9 +687,6 @@ fn a_receipt_carries_the_heads_its_write_left() {
     let revised = doc.revise("~~~\n$quill: q\n~~~\n\nRevenue fell.\n").unwrap();
     assert_ne!(revised.heads, receipt.heads);
     assert_eq!(revised.heads, doc.heads());
-
-    let mut card = Card::from_parts(crate::document::Payload::new(), quillmark_content::model::Content::empty());
-    assert!(card.revise(Target::Body, "Free.", None).unwrap().heads.hashes().is_empty());
 }
 
 /// A stored document reads from its saved bytes, history and all, or from
