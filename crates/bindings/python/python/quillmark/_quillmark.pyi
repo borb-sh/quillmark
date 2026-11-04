@@ -175,6 +175,7 @@ class Document:
         change: Change,
         field: str | None = None,
         card: str | None = None,
+        *,
         heads: list[str] | None = None,
     ) -> Receipt: ...
     def revise(
@@ -182,6 +183,7 @@ class Document:
         markdown: str,
         field: str | None = None,
         card: str | None = None,
+        *,
         heads: list[str] | None = None,
     ) -> Receipt: ...
     def replace(
@@ -189,6 +191,7 @@ class Document:
         content: Content,
         field: str | None = None,
         card: str | None = None,
+        *,
         heads: list[str] | None = None,
     ) -> Receipt: ...
     def undo(

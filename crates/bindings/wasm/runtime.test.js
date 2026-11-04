@@ -218,7 +218,7 @@ card_kinds:
     expect(doc.toMarkdown({})).toBe('Alpha, edited, again.\n\nBeta, two.\n\nGamma, rewritten.')
     ed.revise({}, 'Alpha.\n\nBeta.\n\nGamma.\n\nDelta.', { heads: first })
     expect(doc.toMarkdown({})).toBe('Alpha, edited, again.\n\nBeta, two.\n\nGamma, rewritten.\n\nDelta.')
-    expect(() => ed.reviseDocument(read, { heads: first, baseStored: doc.save() })).toThrow(/unknown option `baseStored`/)
+    expect(() => ed.reviseDocument(read, { heads: first, baseStored: doc.save() })).toThrow(/unknown key `baseStored`/)
     expect(() => ed.revise({}, 'x', { heads: undefined })).toThrow(/heads must be a string array/)
     expect(() => ed.reviseDocument(read, { heads: foreign.heads() })).toThrow(
       expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base' })] }),

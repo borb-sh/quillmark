@@ -850,10 +850,10 @@ describe('Document apply: the write primitive', () => {
     expect(c.text).toBe('😀 ab\none\ntwo')
 
     const [, first, second] = c.blocks.map((b) => b.id)
-    doc.indent({}, second)
+    doc.indent({}, second, second)
     expect(doc.read({}).blocks[2].path).toHaveLength(4)
     doc.setActor('ann')
-    doc.outdent({}, second)
+    doc.outdent({}, second, second)
     expect(doc.read({}).blocks[2].path).toHaveLength(2)
     const held = new Set(c.containers.map((k) => k.id))
     doc.wrap({}, c.blocks[0].id, c.blocks[0].id, { kind: 'quote' })
@@ -861,7 +861,7 @@ describe('Document apply: the write primitive', () => {
     const [quote] = c.containers.filter((k) => !held.has(k.id)).map((k) => k.id)
     expect(c.blocks[0].path).toEqual([quote])
     expect(c.containers.find((k) => k.id === quote).kind).toBe('quote')
-    expectEditCode(() => doc.indent({}, first), 'edit::content_apply')
+    expectEditCode(() => doc.indent({}, first, first), 'edit::content_apply')
     expect(() => doc.wrap({}, first, first, { kind: 'quote' }, { actor: 'ann' })).toThrow(/unknown key `actor`/)
 
     doc.deleteRange({}, 0, 6)

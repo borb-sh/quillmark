@@ -878,7 +878,7 @@ export class DocumentWriter {
 	/**
 	 * @param {import('../core/wasm.js').Addr | string} addr
 	 * @param {string} text
-	 * @param {import('../core/wasm.js').HeadsOptions} [opts]
+	 * @param {import('../core/wasm.js').WriteOptions} [opts]
 	 * @returns {import('../core/wasm.js').Receipt}
 	 */
 	revise(addr, text, opts) {
@@ -886,7 +886,7 @@ export class DocumentWriter {
 	}
 	/**
 	 * @param {string} markdown
-	 * @param {import('../core/wasm.js').HeadsOptions} [opts]
+	 * @param {import('../core/wasm.js').WriteOptions} [opts]
 	 * @returns {import('../core/wasm.js').DocumentRevised}
 	 */
 	reviseDocument(markdown, opts) {
@@ -960,7 +960,7 @@ export class CardWriter {
 	/**
 	 * @param {{ field?: string } | string} addr
 	 * @param {string} text
-	 * @param {import('../core/wasm.js').HeadsOptions} [opts]
+	 * @param {import('../core/wasm.js').WriteOptions} [opts]
 	 * @returns {import('../core/wasm.js').Receipt}
 	 */
 	revise(addr, text, opts) {

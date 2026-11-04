@@ -87,10 +87,12 @@ impl Document {
         self.inner.heads().encode()
     }
 
-    /// The changes since `heads`, as bytes `merge` takes.
+    /// The changes since `heads`, as bytes `merge` takes. A head that is no
+    /// change hash throws, as a malformed `heads` option does.
     #[wasm_bindgen(js_name = saveSince)]
     pub fn save_since(&mut self, heads: Vec<String>) -> Result<Vec<u8>, JsValue> {
-        Ok(self.inner.save_since(&Heads::decode(&heads).map_err(refused)?))
+        let heads = Heads::decode(&heads).map_err(|e| crate::error::WasmError::from(format!("saveSince: {e}")).to_js_value())?;
+        Ok(self.inner.save_since(&heads))
     }
 
     /// Takes the changes `bytes` hold, another peer's `save` or `saveSince`,

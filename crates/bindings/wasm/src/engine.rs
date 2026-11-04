@@ -310,20 +310,6 @@ export interface Delta {
 }
 
 /**
- * What a `revise` or `reviseDocument`'s writer read, its optional last
- * argument: `heads`, the document's revision then (`doc.heads()`). A key
- * present with no string array throws. The writer's change lands at those
- * heads and merges with every change since as Automerge merges (CONTENT.md
- * § "Live state and merge"); a field both sides set reads as the later
- * write. Heads the document's history does not hold, as any read before the
- * document was loaded from its stored row, throw `edit::stale_base` before
- * any mutation.
- */
-export interface HeadsOptions {
-    heads?: string[];
-}
-
-/**
  * The receipt of `writer.reviseDocument`. `droppedAnchors` names every
  * anchor the write did not keep, a table cell's included, as the selector
  * `reattach` takes, read off the stored document. `warnings` are the parse's, then each revised
@@ -1533,7 +1519,7 @@ impl Document {
     /// absent `addr.field` targets the body, an absent `addr.card` the main
     /// card.
     ///
-    /// `opts.heads` names the revision the writer read (`HeadsOptions`): the
+    /// `opts.heads` names the revision the writer read (`WriteOptions`): the
     /// write lands there and merges with the change since as Automerge
     /// merges (CONTENT.md § "Live state and merge").
     ///
@@ -1545,9 +1531,9 @@ impl Document {
         quill: &Quill,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         text: &str,
-        #[wasm_bindgen(unchecked_optional_param_type = "HeadsOptions")] opts: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let heads = heads_options(&opts, "revise")?;
+        let heads = content::WriteOpts::from_js(&opts, "revise", &[])?.heads;
         let addr = Addr::for_write(&addr, &self.inner, "revise")?;
         let base = self.addr_base(&addr);
         let card_id = self.addr_card_ref(&addr)?.id().map(str::to_string);
@@ -1580,9 +1566,9 @@ impl Document {
         &mut self,
         quill: &Quill,
         markdown: &str,
-        #[wasm_bindgen(unchecked_optional_param_type = "HeadsOptions")] opts: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let heads = heads_options(&opts, "reviseDocument")?;
+        let heads = content::WriteOpts::from_js(&opts, "reviseDocument", &[])?.heads;
         let mut writer = quill.inner.writer(&mut self.inner);
         let revised = match heads {
             None => writer.revise_document(markdown),
@@ -1981,25 +1967,6 @@ fn markdown_options(opts: &JsValue, verb: &str) -> Result<bool, JsValue> {
     let opts: Opts = serde_json::from_value(js_value_to_json(opts.clone(), verb)?)
         .map_err(|e| WasmError::from(format!("{verb}: options must be MarkdownOptions: {e}")).to_js_value())?;
     Ok(opts.annotated.unwrap_or(false))
-}
-
-/// The `heads` of a `HeadsOptions`, none where `opts` is absent or names
-/// none. Another key, or a `heads` that is no string array, throws.
-fn heads_options(opts: &JsValue, verb: &str) -> Result<Option<quillmark_core::document::Heads>, JsValue> {
-    if opts.is_undefined() || opts.is_null() {
-        return Ok(None);
-    }
-    let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
-    if !opts.is_object() {
-        return Err(invalid("options must be an object".into()));
-    }
-    for key in js_sys::Object::keys(opts.unchecked_ref::<js_sys::Object>()).iter() {
-        let key = key.as_string().unwrap_or_default();
-        if key != "heads" {
-            return Err(invalid(format!("unknown option `{key}`; expected heads")));
-        }
-    }
-    content::heads_opt(opts, verb)
 }
 
 /// The canonical form of `rt`, read without a document: the one spelling

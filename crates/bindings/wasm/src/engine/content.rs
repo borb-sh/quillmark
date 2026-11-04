@@ -323,13 +323,13 @@ struct DroppedAnchorJs {
 
 
 /// A `WriteOptions` from JS: the `heads` the writer read.
-struct WriteOpts {
-    heads: Option<Heads>,
+pub(super) struct WriteOpts {
+    pub(super) heads: Option<Heads>,
 }
 
 impl WriteOpts {
     /// The options of `verb`, which also reads the keys `extra` names.
-    fn from_js(opts: &JsValue, verb: &str, extra: &[&str]) -> Result<WriteOpts, JsValue> {
+    pub(super) fn from_js(opts: &JsValue, verb: &str, extra: &[&str]) -> Result<WriteOpts, JsValue> {
         let mut out = WriteOpts { heads: None };
         if opts.is_undefined() || opts.is_null() {
             return Ok(out);
@@ -679,8 +679,8 @@ impl Document {
         self.structural(addr, StructuralEdit::DeleteRange { start: start as usize, end: end as usize }, opts, "deleteRange", &[])
     }
 
-    /// **Tab** over the blocks `first` to `last` (`first` alone when absent):
-    /// nest their items under the item before them. Answers the `Receipt`;
+    /// **Tab** over the blocks `first` to `last`: nest their items under the
+    /// item before them. Answers the `Receipt`;
     /// throws as `apply`, and `edit::content_apply` where `first` is in no
     /// item, the range leaves its list, or its first item is the list's
     /// first.
@@ -689,15 +689,14 @@ impl Document {
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         first: &str,
-        last: Option<String>,
+        last: &str,
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let last = last.unwrap_or_else(|| first.to_string());
-        self.structural(addr, StructuralEdit::Indent { first: first.to_string(), last }, opts, "indent", &[])
+        self.structural(addr, StructuralEdit::Indent { first: first.to_string(), last: last.to_string() }, opts, "indent", &[])
     }
 
-    /// **Shift-Tab** over the blocks `first` to `last` (`first` alone when
-    /// absent): lift them out of the innermost item or quote holding `first`.
+    /// **Shift-Tab** over the blocks `first` to `last`: lift them out of the
+    /// innermost item or quote holding `first`.
     /// Answers the `Receipt`; throws as `apply`, and `edit::content_apply`
     /// where `first` is in neither or the range leaves it.
     #[wasm_bindgen(js_name = outdent, unchecked_return_type = "Receipt")]
@@ -705,11 +704,10 @@ impl Document {
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         first: &str,
-        last: Option<String>,
+        last: &str,
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let last = last.unwrap_or_else(|| first.to_string());
-        self.structural(addr, StructuralEdit::Outdent { first: first.to_string(), last }, opts, "outdent", &[])
+        self.structural(addr, StructuralEdit::Outdent { first: first.to_string(), last: last.to_string() }, opts, "outdent", &[])
     }
 
     /// Wrap the blocks `first` to `last` in a quote or a list, around the

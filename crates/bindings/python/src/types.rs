@@ -917,7 +917,7 @@ impl PyDocument {
     /// state and merge"), raising `edit::stale_base` where the document's
     /// history does not hold them. A refused change raises
     /// `edit::content_apply` and writes nothing.
-    #[pyo3(signature = (change, field=None, card=None, heads=None))]
+    #[pyo3(signature = (change, field=None, card=None, *, heads=None))]
     fn apply<'py>(
         &mut self,
         py: Python<'py>,
@@ -938,7 +938,7 @@ impl PyDocument {
     /// islands whose `qm-*` tags it keeps (`annotated` spells them) stay put,
     /// and the rest keeps what a word-aligned diff keeps. Returns the receipt,
     /// its `warnings` the import's. Raises as `apply`.
-    #[pyo3(signature = (markdown, field=None, card=None, heads=None))]
+    #[pyo3(signature = (markdown, field=None, card=None, *, heads=None))]
     fn revise<'py>(
         &mut self,
         py: Python<'py>,
@@ -957,7 +957,7 @@ impl PyDocument {
     /// Write `content` over the value at `field` on `card`, carrying each
     /// anchor it does not name where a diff keeps its text and reporting the
     /// rest in `dropped_anchors`. Raises as `apply`.
-    #[pyo3(signature = (content, field=None, card=None, heads=None))]
+    #[pyo3(signature = (content, field=None, card=None, *, heads=None))]
     fn replace<'py>(
         &mut self,
         py: Python<'py>,
@@ -989,7 +989,7 @@ impl PyDocument {
         let target = Target::resolve(&self.inner, card)?;
         let heads_of = |key: &str| -> PyResult<quillmark_core::document::Heads> {
             let list: Vec<String> = receipt.get_item(key).and_then(|v| v.extract()).map_err(|_| PyValueError::new_err(format!("undo: the receipt's `{key}` is a list of heads")))?;
-            quillmark_core::document::Heads::decode(&list).map_err(crate::content::refused)
+            heads_of(&list)
         };
         let (before, heads) = (heads_of("before")?, heads_of("heads")?);
         crate::content::taking(py, &mut self.inner, target.index, &target.base, field, |card, target| card.undo_between(target, &before, &heads))
@@ -1031,9 +1031,10 @@ impl PyDocument {
         self.inner.heads().encode()
     }
 
-    /// The changes since `heads`, as bytes `merge` takes.
+    /// The changes since `heads`, as bytes `merge` takes. A head that is no
+    /// change hash raises `ValueError`, as a malformed `heads=` does.
     fn save_since<'py>(&mut self, py: Python<'py>, heads: Vec<String>) -> PyResult<Bound<'py, PyBytes>> {
-        let heads = quillmark_core::document::Heads::decode(&heads).map_err(crate::content::refused)?;
+        let heads = heads_of(&heads)?;
         Ok(PyBytes::new(py, &self.inner.save_since(&heads)))
     }
 
@@ -1143,9 +1144,12 @@ fn index_error(index: usize, len: usize) -> PyErr {
 /// The `heads` a writer read, decoded; a head that is no change hash is a
 /// `ValueError`.
 fn heads_arg(heads: Option<Vec<String>>) -> PyResult<Option<quillmark_core::document::Heads>> {
-    heads
-        .map(|h| quillmark_core::document::Heads::decode(&h).map_err(|e| PyValueError::new_err(e.to_string())))
-        .transpose()
+    heads.map(|h| heads_of(&h)).transpose()
+}
+
+/// The heads `hex` spells; a head that is no change hash raises `ValueError`.
+fn heads_of(hex: &[String]) -> PyResult<quillmark_core::document::Heads> {
+    quillmark_core::document::Heads::decode(hex).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 /// How a `card=` selector names a composable card: by index, or by `$id`.

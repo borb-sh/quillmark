@@ -150,7 +150,6 @@ export type {
 	Addr,
 	CardAddr,
 	Delta,
-	HeadsOptions,
 	DocumentRevised,
 	CardAdded,
 	AnnotatedMarkdown,
@@ -682,7 +681,7 @@ export interface DocumentUnchecked {
 	insertCard(card: CardInput, at?: number): string;
 }
 
-import type { Addr, CardAdded, CardInput, HeadsOptions, Content, DocumentRevised, PathStep, Receipt, Resolved } from '../core/wasm.js';
+import type { Addr, CardAdded, CardInput, Content, DocumentRevised, PathStep, Receipt, Resolved, WriteOptions } from '../core/wasm.js';
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
@@ -733,7 +732,7 @@ export declare class DocumentWriter {
 	 * merges (CONTENT.md § "Live state and merge"); heads the document's
 	 * history does not hold throw `edit::stale_base`.
 	 */
-	revise(addr: Addr | string, text: string, opts?: HeadsOptions): Receipt;
+	revise(addr: Addr | string, text: string, opts?: WriteOptions): Receipt;
 	/**
 	 * Replace the bound document with `markdown`, then conform it. Composable
 	 * cards align to the stored ones by `$kind` and text similarity, an aligned
@@ -751,7 +750,7 @@ export declare class DocumentWriter {
 	 * set reading as the later write. Heads the history does not hold throw
 	 * `edit::stale_base` before any mutation.
 	 */
-	reviseDocument(markdown: string, opts?: HeadsOptions): DocumentRevised;
+	reviseDocument(markdown: string, opts?: WriteOptions): DocumentRevised;
 	/**
 	 * Build a composable card of `kind`, typed-commit `fields` onto it, set its
 	 * body from optional markdown, and place it. `at` omitted appends, a number
@@ -793,7 +792,7 @@ export declare class CardWriter {
 	 * holds none of, so `opts` naming heads throws: it goes through
 	 * `writer.revise({ card: id, field }, ...)`.
 	 */
-	revise(addr: { field?: string } | string, text: string, opts?: HeadsOptions): Receipt;
+	revise(addr: { field?: string } | string, text: string, opts?: WriteOptions): Receipt;
 }
 
 /**
