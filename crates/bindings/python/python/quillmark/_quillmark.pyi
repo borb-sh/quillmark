@@ -176,7 +176,6 @@ class Document:
         field: str | None = None,
         card: str | None = None,
         heads: list[str] | None = None,
-        actor: str | None = None,
     ) -> Receipt: ...
     def revise(
         self,
@@ -184,7 +183,6 @@ class Document:
         field: str | None = None,
         card: str | None = None,
         heads: list[str] | None = None,
-        actor: str | None = None,
     ) -> Receipt: ...
     def replace(
         self,
@@ -192,7 +190,6 @@ class Document:
         field: str | None = None,
         card: str | None = None,
         heads: list[str] | None = None,
-        actor: str | None = None,
     ) -> Receipt: ...
     def undo(
         self,
@@ -203,6 +200,9 @@ class Document:
     def save(self) -> bytes: ...
     @staticmethod
     def load(data: bytes) -> Document: ...
+    @property
+    def actor(self) -> str | None: ...
+    def set_actor(self, actor: str) -> None: ...
     def heads(self) -> list[str]: ...
     def save_since(self, heads: list[str]) -> bytes: ...
     def merge(self, data: bytes) -> None: ...
@@ -355,7 +355,7 @@ class Quill:
 class Unchecked:
     def store_field(self, name: str, value: Any, card: int | str | None = None) -> None: ...
     def insert_card(
-        self, card: Any, at: int | None = None, actor: str | None = None
+        self, card: Any, at: int | None = None
     ) -> str: ...
 
 @final
@@ -384,7 +384,6 @@ class Writer:
         fields: dict[str, Any] | None = None,
         body: str | None = None,
         at: int | None = None,
-        actor: str | None = None,
     ) -> CardAdded: ...
     def remove_card(self, index: int) -> dict[str, Any] | None: ...
 

@@ -2,7 +2,7 @@
 //! card one. The policy is `prose/canon/DOCUMENT_STORAGE.md` § "The id
 //! handles".
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use sha2::{Digest, Sha256};
 
@@ -75,21 +75,40 @@ pub(crate) struct Mint {
     next: usize,
 }
 
-/// Where each actor's mint stands in one [`Document`](super::Document)'s
-/// life since its parse, load or seed: the index of the token past the last
-/// one it minted under that actor, so an actor never mints an id twice,
-/// whether or not a card still holds it. Not document state: equality and
-/// storage skip it.
+/// Who writes through one [`Document`](super::Document) handle, and where
+/// its card-id mint stands since the handle's parse, load or seed: the index
+/// of the token past the last one it minted, so the handle never mints an id
+/// twice, whether or not a card still holds it. Not document state: equality
+/// and storage skip it.
 #[derive(Clone, Default)]
-pub(crate) struct ActorMints(HashMap<String, usize>);
+pub(crate) struct ActorMints {
+    actor: Option<String>,
+    next: usize,
+}
 
 impl ActorMints {
-    /// A mint past `held` and past every token minted under `actor` before.
-    pub(crate) fn mint(&mut self, held: HashSet<String>, actor: &str) -> String {
-        let next = self.0.entry(actor.to_string()).or_default();
-        let mut mint = Mint { taken: held, next: *next };
+    pub(crate) fn actor(&self) -> Option<&str> {
+        self.actor.as_deref()
+    }
+
+    /// Writes under `actor` from now on, its mint starting over where the
+    /// actor changes.
+    pub(crate) fn set_actor(&mut self, actor: &str) {
+        if self.actor.as_deref() != Some(actor) {
+            self.actor = Some(actor.to_string());
+            self.next = 0;
+        }
+    }
+
+    /// A card id past `held`: under the actor, `{actor}-{token}` past every
+    /// token it minted before; positionally with none.
+    pub(crate) fn mint(&mut self, held: HashSet<String>) -> String {
+        let Some(actor) = self.actor.as_deref() else {
+            return Mint::new(held).mint();
+        };
+        let mut mint = Mint { taken: held, next: self.next };
         let id = mint.mint_as(Some(actor));
-        *next = mint.next;
+        self.next = mint.next;
         id
     }
 }

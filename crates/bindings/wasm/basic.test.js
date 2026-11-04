@@ -15,7 +15,6 @@ import {
   diff,
   diffRange,
   inheritedMarks,
-  mapPos,
   repair,
   isInline,
   isPlain,
@@ -470,12 +469,17 @@ describe('Card ids', () => {
   it('a live client places a card under its actor and carries the id it answers', () => {
     const a = Document.parse(MD)
     const b = a.clone()
-    const minted = a._uncheckedInsertCard(makeCard('note', {}, 'From a.'), 1, { actor: '7' })
+    expect(a.actor).toBeUndefined()
+    a.setActor('7')
+    b.setActor('8')
+    expect(a.actor).toBe('7')
+    const minted = a._uncheckedInsertCard(makeCard('note', {}, 'From a.'), 1)
     expect(minted).toBe(a.cards[1].id)
     expect(minted).toMatch(/^7-c[a-z2-9]{5}$/)
-    expect(b._uncheckedInsertCard(makeCard('note', {}, 'From b.'), 1, { actor: '8' })).not.toBe(minted)
+    expect(b._uncheckedInsertCard(makeCard('note', {}, 'From b.'), 1)).not.toBe(minted)
     expect(b._uncheckedInsertCard({ ...makeCard('note', {}, 'From a.'), id: minted }, 1)).toBe(minted)
-    expectEditCode(() => a._uncheckedInsertCard(makeCard('note'), 0, { actor: 'a:b' }), 'edit::invalid_actor')
+    expectEditCode(() => a.setActor('a:b'), 'edit::invalid_actor')
+    expect(a.actor).toBe('7')
   })
 
   it('a selector names its card, and reattach follows the card wherever it moved', () => {
@@ -819,12 +823,14 @@ describe('Document apply: the write primitive', () => {
     const doc = blankDoc()
     doc.replace({}, importMarkdown('😀 ab\n\n- one\n- two').content)
     const heads = doc.heads()
-    const split = doc.splitBlock({}, 4, { heads, actor: 'ann' })
+    doc.setActor('ann')
+    const split = doc.splitBlock({}, 4, { heads })
     expect(inserts(split)).toEqual([{ at: 4, text: '\n' }])
     const [ann] = putIds(split)
     expect(ann).toMatch(/@616e6e$/)
     expect(doc.read({}).text).toBe('😀 a\nb\none\ntwo')
-    doc.splitBlock({}, 1 + 2, { heads, actor: 'bo' })
+    doc.setActor('bo')
+    doc.splitBlock({}, 1 + 2, { heads })
     expect(doc.read({}).text).toBe('😀 \na\nb\none\ntwo')
     const mine = doc.read({}).blocks[1].id
     expect(mine).toMatch(/@626f$/)
@@ -836,16 +842,17 @@ describe('Document apply: the write primitive', () => {
     const [, first, second] = c.blocks.map((b) => b.id)
     doc.indent({}, second)
     expect(doc.read({}).blocks[2].path).toHaveLength(4)
-    doc.outdent({}, second, undefined, { actor: 'ann' })
+    doc.setActor('ann')
+    doc.outdent({}, second)
     expect(doc.read({}).blocks[2].path).toHaveLength(2)
     const held = new Set(c.containers.map((k) => k.id))
-    const wrapped = doc.wrap({}, c.blocks[0].id, c.blocks[0].id, { kind: 'quote' }, { actor: 'ann' })
+    const wrapped = doc.wrap({}, c.blocks[0].id, c.blocks[0].id, { kind: 'quote' })
     const [quote] = wrapped.patches.filter((p) => p.container && !held.has(p.container.id)).map((p) => p.container.id)
     c = doc.read({})
     expect(c.blocks[0].path).toEqual([quote])
     expect(c.containers.find((k) => k.id === quote).kind).toBe('quote')
     expectEditCode(() => doc.indent({}, first), 'edit::content_apply')
-    expectEditCode(() => doc.wrap({}, first, first, { kind: 'quote' }, { actor: 'a:b' }), 'edit::invalid_actor')
+    expect(() => doc.wrap({}, first, first, { kind: 'quote' }, { actor: 'ann' })).toThrow(/unknown key `actor`/)
 
     doc.deleteRange({}, 0, 6)
     c = doc.read({})
@@ -855,11 +862,6 @@ describe('Document apply: the write primitive', () => {
 
     doc.replace({}, importMarkdown('**bold** x').content)
     expect(inheritedMarks(doc.read({}), 4)).toEqual([{ type: 'strong' }])
-
-    const insert = { steps: [{ splice: { at: 0, delete: '', insert: '😀' } }] }
-    expect(mapPos(insert, 0)).toMatchObject({ pos: 2, deleted: false })
-    expect(mapPos(insert, 0, 'before').pos).toBe(0)
-    expect(() => mapPos(insert, 0, 'sideways')).toThrow(/assoc/)
   })
 
   it('diffRange lowers a range an editor knows as one exact splice', () => {
@@ -881,7 +883,8 @@ describe('Document apply: the write primitive', () => {
       { splice: { at: 3, insert: '\nnew', blocks: [{ id: '?n', kind: 'para' }] } },
       { setBlock: { id: '?n', kind: 'heading', attrs: { level: 2 } } },
     ] }
-    const receipt = doc.apply({}, change, { heads, actor: 'ann' })
+    doc.setActor('ann')
+    const receipt = doc.apply({}, change, { heads })
     const [made] = putIds(receipt)
     expect(made).toMatch(/@616e6e$/)
     expect(doc.read({}).blocks[1]).toEqual({ id: made, kind: 'heading', attrs: { level: 2 } })
@@ -913,7 +916,6 @@ describe('Document apply: the write primitive', () => {
     const forbidden = { text: '😀\r ab', blocks: [{ id: 'b0', kind: 'para' }], anchors: [{ id: 'p', start: 4, end: 4 }] }
     const read = repair(forbidden)
     expect(read.change.steps).toEqual([{ splice: { at: 2, delete: '\r', insert: '' } }])
-    expect(mapPos(read.change, 4).pos).toBe(read.content.anchors[0].start)
   })
 
   it('replace takes what normalize answers, and both refuse what is not valid', () => {

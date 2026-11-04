@@ -54,8 +54,8 @@ describe('a document as Automerge bytes', () => {
     const a = parse('Hello world')
     const b = Document.load(a.save())
     const heads = a.heads()
-    a.apply({}, splice(5, ' brave'), { actor: 'ann' })
-    b.apply({}, splice(11, '!'), { actor: 'b0' })
+    a.apply({}, splice(5, ' brave'))
+    b.apply({}, splice(11, '!'))
 
     b.merge(a.saveSince(heads))
     a.merge(b.save())
@@ -69,8 +69,8 @@ describe('the sync protocol', () => {
   it('brings two documents from one save to one value', () => {
     const a = parse('😀 one two')
     const b = Document.load(a.save())
-    a.apply({}, splice(3, 'X'), { actor: 'ann' })
-    b.apply({}, splice(10, ' three'), { actor: 'b0' })
+    a.apply({}, splice(3, 'X'))
+    b.apply({}, splice(10, ' three'))
 
     const states = [new SyncState(), new SyncState()]
     expect(sync(a, b, states)).toBeGreaterThan(0)
@@ -85,7 +85,7 @@ describe('the sync protocol', () => {
     const b = Document.load(a.save())
     const states = [new SyncState(), new SyncState()]
     sync(a, b, states)
-    a.apply({}, splice(5, ' brave'), { actor: 'ann' })
+    a.apply({}, splice(5, ' brave'))
 
     sync(a, b, states.map((s) => SyncState.decode(s.encode())))
     expect(b.read({}).text).toBe('Hello brave world')

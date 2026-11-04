@@ -64,6 +64,23 @@ impl Document {
         self.inner.save()
     }
 
+    /// The actor this document writes under, where one was set: each write's
+    /// Automerge actor, and the scope of each card id a placement mints,
+    /// `{actor}-{token}`. `undefined` writes under a random actor and mints
+    /// card ids positionally.
+    #[wasm_bindgen(getter)]
+    pub fn actor(&self) -> Option<String> {
+        self.inner.actor().map(str::to_string)
+    }
+
+    /// Writes under `actor` from now on: a live client sets one unique to its
+    /// session. One that is not 1 to 57 of `[A-Za-z0-9_-]`, opening with a
+    /// letter or digit, throws `edit::invalid_actor`.
+    #[wasm_bindgen(js_name = setActor)]
+    pub fn set_actor(&mut self, actor: &str) -> Result<(), JsValue> {
+        self.inner.set_actor(actor).map_err(|e| edit_error_to_js(&e, &DocPath::main()))
+    }
+
     /// The document's revision: the hashes of its Automerge heads.
     pub fn heads(&mut self) -> Vec<String> {
         self.inner.heads().encode()

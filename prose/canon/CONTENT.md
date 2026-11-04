@@ -121,8 +121,8 @@ So a value decodes only from the bytes it encodes to, up to the wire's own spell
 
 Blocks, containers, islands, slots, table rows and table columns have structural ids. Outside a document Quillmark mints every one, by one rule (`ids`, `mint`); inside one, a block, container or island takes the Automerge object id of its record (§ "Live state and merge"):
 
-- Import, migration and a write with no actor mint positionally, `{prefix}{n}` past the highest number the values in play hold under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A revise, as an LLM writer makes it, passes no actor.
-- A live client mints through the engine under its actor: a write given `actor` mints `{actor}:{prefix}{n}` the same way. An actor is 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, the one grammar a content write and a card placement both hold it to ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Card-id identity"), one per session, so two clients writing from one value never mint one id and their merge needs no repair. No positional id holds a `:`, and a repair's `a-b` or a diff's `{id}-{n}` holds one only where it derives from an actor's.
+- Import, migration and a write through a handle with no actor mint positionally, `{prefix}{n}` past the highest number the values in play hold under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A revise, as an LLM writer makes it, sets no actor.
+- A live client mints through the engine under its handle's actor: a write through a document with an actor set (`Document::set_actor`) mints `{actor}:{prefix}{n}` the same way. An actor is 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, the one grammar a content write and a card placement both hold it to ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Card-id identity"), one per session, so two clients writing from one value never mint one id and their merge needs no repair. No positional id holds a `:`, and a repair's `a-b` or a diff's `{id}-{n}` holds one only where it derives from an actor's.
 - A record a change puts may carry a placeholder in place of its id: `?` and an id, such as `"?1"`, which other steps of the change may name. No id opens with `?`. The write that lands the change mints an id for each placeholder, which the receipt's patch putting the record carries; a placeholder put twice, or named and never put, refuses the change.
 - A write into a document fills a placeholder with the object id of the record it puts, so no write mints an id twice (§ "Writing a value").
 
@@ -246,7 +246,7 @@ The receipt's `before` and `heads` are the document's heads either side of the w
 
 Bytes `merge` takes leniently, as Automerge loads an increment: a trailing run that does not decode is left out.
 
-A write with no actor writes under its document's own random Automerge actor, which a clone keeps, so a clone is the same peer and a second peer reads the bytes; a writer's actor is its own bytes, so two peers writing under one actor mint one sequence number twice. Both bindings expose the verbs on `Document` ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive").
+A handle with no actor set writes under its document's own random Automerge actor, which a clone keeps, so a clone is the same peer and a second peer reads the bytes; a writer's actor is its own bytes, so two peers writing under one actor mint one sequence number twice. Both bindings expose the verbs on `Document` ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive").
 
 ## The laws
 

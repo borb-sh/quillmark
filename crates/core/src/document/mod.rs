@@ -1040,9 +1040,35 @@ impl Document {
     }
 
     /// The document `doc` holds, its cards read from it.
-    pub(crate) fn read_from(doc: quillmark_automerge::model::Doc, mints: card_id::ActorMints) -> Result<Self, String> {
+    pub(crate) fn read_from(mut doc: quillmark_automerge::model::Doc, mints: card_id::ActorMints) -> Result<Self, String> {
         let (main, cards) = held::read(&doc)?;
+        if let Some(actor) = mints.actor() {
+            doc.set_actor(quillmark_automerge::automerge::ActorId::from(actor.as_bytes()));
+        }
         Ok(Self { main, cards, mints, held: Bound(Some(Held::new(doc, false))) })
+    }
+
+    /// The actor this handle writes under, where one was set: each write's
+    /// Automerge actor, and the scope of each card id a placement mints,
+    /// `{actor}-{token}`. With none, writes take a random actor and card ids
+    /// mint positionally.
+    pub fn actor(&self) -> Option<&str> {
+        self.mints.actor()
+    }
+
+    /// Writes under `actor` from now on. A live client sets one unique to its
+    /// session, so two clients writing from one document never mint one id.
+    /// One that is not an [actor](quillmark_automerge::content::ids::is_actor)
+    /// is refused with `edit::invalid_actor`.
+    pub fn set_actor(&mut self, actor: &str) -> Result<(), EditError> {
+        if !quillmark_automerge::content::ids::is_actor(actor) {
+            return Err(EditError::InvalidActor(actor.to_string()));
+        }
+        self.mints.set_actor(actor);
+        if let Some(held) = self.held.0.as_mut() {
+            held.doc.set_actor(quillmark_automerge::automerge::ActorId::from(actor.as_bytes()));
+        }
+        Ok(())
     }
 
     /// Holds the document in an Automerge document where it is not yet,
@@ -1053,7 +1079,10 @@ impl Document {
         if self.held.0.is_some() {
             return;
         }
-        let doc = held::build(&self.main, &self.cards);
+        let mut doc = held::build(&self.main, &self.cards);
+        if let Some(actor) = self.mints.actor() {
+            doc.set_actor(quillmark_automerge::automerge::ActorId::from(actor.as_bytes()));
+        }
         let (main, cards) = held::read(&doc).expect("built cards read back");
         let unplaced = cards.len() != self.cards.len();
         self.held = Bound(Some(Held::new(doc, unplaced)));

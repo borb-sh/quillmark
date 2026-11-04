@@ -138,12 +138,14 @@ def test_a_live_client_places_a_card_under_its_actor():
     id it answers places the same card on a peer."""
     a = Document.parse(SIMPLE_MD)
     b = a.clone()
-    minted = a.unchecked.insert_card(make_card("note", {}), actor="7")
+    a.set_actor("7")
+    b.set_actor("8")
+    minted = a.unchecked.insert_card(make_card("note", {}))
     assert minted == a.cards[0]["id"] and minted.startswith("7-c")
-    assert b.unchecked.insert_card(make_card("note", {}), actor="8") != minted
+    assert b.unchecked.insert_card(make_card("note", {})) != minted
     assert b.unchecked.insert_card({**make_card("note", {}), "id": minted}) == minted
     with raises_edit_code("edit::invalid_actor"):
-        a.unchecked.insert_card(make_card("note", {}), actor="a:b")
+        a.set_actor("a:b")
 
 
 def test_a_field_holds_its_content_as_a_body_does():

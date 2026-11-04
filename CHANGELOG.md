@@ -4,6 +4,12 @@
 
 Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
 
+- feat!: **the actor belongs to the document handle.** `doc.actor` reads
+  it and `doc.setActor(actor)` (`set_actor` in Rust and Python) sets it, and
+  every write and card placement through the handle writes under it.
+  `WriteOptions.actor`, `PlaceOptions` and the `actor` argument of
+  `insert_card` and `add_card` are gone. `mapPos` is gone from the WASM
+  surface.
 - refactor!: **`quillmark-content` folds into `quillmark-automerge`.** The
   content model, its changes, repair and the markdown codecs are the
   `content` module of `quillmark-automerge`, beside the Automerge document

@@ -34,7 +34,7 @@ import {
 
 // The consumer contract, exercised as a consumer writes it: the gate is the only
 // door to the core surface.
-const { Quill, Document, importMarkdown, exportMarkdown, normalize, mapPos } = await init()
+const { Quill, Document, importMarkdown, exportMarkdown, normalize } = await init()
 
 function makeRuntimeQuill() {
   return Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))

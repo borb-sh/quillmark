@@ -20,7 +20,7 @@ import initCore, { Quill, Document, SyncState } from '../core/wasm.js';
 // Resolution-time, so `node:fs` never enters a browser graph.
 import { toModuleSource } from '#quillmark-env';
 import { importMarkdown, exportMarkdown, normalize, diff, diffRange } from '../core/wasm.js';
-import { inheritedMarks, mapPos, repair } from '../core/wasm.js';
+import { inheritedMarks, repair } from '../core/wasm.js';
 import { isInline, isPlain } from '../core/wasm.js';
 import { parseDocPath, formatDocPath, formatDiagnostic } from '../core/wasm.js';
 
@@ -53,7 +53,6 @@ const CORE_SURFACE = Object.freeze({
 	diff,
 	diffRange,
 	inheritedMarks,
-	mapPos,
 	repair,
 	isInline,
 	isPlain,
@@ -830,11 +829,10 @@ class DocumentUnchecked {
 	/**
 	 * @param {import('../core/wasm.js').CardInput} card
 	 * @param {number} [at] insertion index; appends when omitted
-	 * @param {import('../core/wasm.js').PlaceOptions} [opts]
 	 * @returns {string}
 	 */
-	insertCard(card, at, opts) {
-		return this.#doc._uncheckedInsertCard(card, at, opts);
+	insertCard(card, at) {
+		return this.#doc._uncheckedInsertCard(card, at);
 	}
 }
 
@@ -899,11 +897,10 @@ export class DocumentWriter {
 	 * @param {Record<string, unknown>} [fields]
 	 * @param {string} [body]
 	 * @param {number} [at] insertion index; appends when omitted
-	 * @param {import('../core/wasm.js').PlaceOptions} [opts]
 	 * @returns {import('../core/wasm.js').Diagnostic[]}
 	 */
-	addCard(kind, fields, body, at, opts) {
-		return this.#doc._addCard(this.#quill, kind, fields, body, at, opts);
+	addCard(kind, fields, body, at) {
+		return this.#doc._addCard(this.#quill, kind, fields, body, at);
 	}
 	/**
 	 * @param {number} index

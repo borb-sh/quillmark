@@ -51,7 +51,7 @@ pub(super) fn new_containers(r: &super::Receipt, before: &quillmark_automerge::c
 /// A document holding `card` as its one card, which `card_mut(0)` writes.
 pub(super) fn placed(card: super::Card) -> super::Document {
     let mut doc = parse("~~~\n$quill: q\n~~~\n");
-    doc.unchecked().insert_card(None, card, None).expect("the card places");
+    doc.unchecked().insert_card(None, card).expect("the card places");
     doc
 }
 

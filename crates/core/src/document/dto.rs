@@ -776,7 +776,7 @@ This body and the metadata above are an indorsement card.
             .unwrap()
             .document;
         for _ in 0..MAX_CARD_COUNT {
-            doc.unchecked().insert_card(None, Card::new("note").unwrap(), None).unwrap();
+            doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
         }
         let row = serde_json::to_value(&doc).unwrap();
         let loads = |row: serde_json::Value| -> Result<Document, String> {

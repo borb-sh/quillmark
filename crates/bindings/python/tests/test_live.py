@@ -51,8 +51,8 @@ def test_changes_since_heads_merge_into_a_peer():
     a = parse("Hello world")
     b = Document.load(a.save())
     heads = a.heads()
-    a.apply({"steps": [{"splice": {"at": 5, "delete": "", "insert": " brave"}}]}, actor="ann")
-    b.apply({"steps": [{"splice": {"at": 11, "delete": "", "insert": "!"}}]}, actor="b0")
+    a.apply({"steps": [{"splice": {"at": 5, "delete": "", "insert": " brave"}}]})
+    b.apply({"steps": [{"splice": {"at": 11, "delete": "", "insert": "!"}}]})
 
     b.merge(a.save_since(heads))
     a.merge(b.save())
@@ -66,8 +66,8 @@ def test_changes_since_heads_merge_into_a_peer():
 def test_two_documents_from_one_save_sync_to_one_value():
     a = parse("😀 one two")
     b = Document.load(a.save())
-    a.apply({"steps": [{"splice": {"at": 2, "delete": "", "insert": "X"}}]}, actor="ann")
-    b.apply({"steps": [{"splice": {"at": 9, "delete": "", "insert": " three"}}]}, actor="b0")
+    a.apply({"steps": [{"splice": {"at": 2, "delete": "", "insert": "X"}}]})
+    b.apply({"steps": [{"splice": {"at": 9, "delete": "", "insert": " three"}}]})
 
     states = (SyncState(), SyncState())
     assert sync(a, b, states) > 0
@@ -83,7 +83,7 @@ def test_a_sync_state_survives_encode_and_decode():
     b = Document.load(a.save())
     states = (SyncState(), SyncState())
     sync(a, b, states=states)
-    a.apply({"steps": [{"splice": {"at": 5, "delete": "", "insert": " brave"}}]}, actor="ann")
+    a.apply({"steps": [{"splice": {"at": 5, "delete": "", "insert": " brave"}}]})
 
     decoded = tuple(SyncState.decode(s.encode()) for s in states)
     sync(a, b, states=decoded)

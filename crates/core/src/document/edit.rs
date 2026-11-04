@@ -947,7 +947,7 @@ impl<'a> CardMut<'a> {
     /// counted in scalars, which [`Receipt::in_units`](super::Receipt::in_units)
     /// converts.
     pub(crate) fn revise_counted(&mut self, target: super::Target<'_>, markdown: &str, heads: Option<&super::Heads>) -> Result<super::Receipt, EditError> {
-        self.write(target, super::Edit::Revise(markdown), super::WriteOptions { heads, actor: None })
+        self.write(target, super::Edit::Revise(markdown), super::WriteOptions { heads })
     }
 
     #[doc(hidden)]
@@ -974,7 +974,7 @@ impl<'a> CardMut<'a> {
         let warnings = scratch.revise_field_payload(name, body.into(), schema)?;
         let wanted = scratch.read(target)?;
         let change = quillmark_automerge::content::diff::diff(&read, &wanted).map_err(|e| EditError::change(e.into()))?;
-        let mut receipt = self.write(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads), actor: None })?;
+        let mut receipt = self.write(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) })?;
         receipt.warnings = warnings;
         Ok(receipt)
     }
@@ -994,7 +994,7 @@ impl<'a> CardMut<'a> {
         let was = self.doc.read_under(self.at, target, Some(before))?;
         let then = self.doc.read_under(self.at, target, Some(heads))?;
         let change = quillmark_automerge::content::diff::replace(&then, &was).map_err(|e| EditError::change(e.into()))?;
-        self.write(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads), actor: None })
+        self.write(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) })
     }
 }
 
@@ -1028,7 +1028,7 @@ impl Document {
 
     /// Place `card` at `at` (`None` appends), its `$id` as
     /// [`Unchecked::insert_card`] takes it, answering that id.
-    pub(crate) fn place_card(&mut self, at: Option<usize>, mut card: Card, actor: Option<&str>) -> Result<String, EditError> {
+    pub(crate) fn place_card(&mut self, at: Option<usize>, mut card: Card) -> Result<String, EditError> {
         let len = self.cards().len();
         let index = at.unwrap_or(len);
         if index > len {
@@ -1036,9 +1036,6 @@ impl Document {
         }
         Self::check_composable_placement(&card)?;
         self.check_card_room()?;
-        if let Some(actor) = actor.filter(|a| !quillmark_automerge::content::ids::is_actor(a)) {
-            return Err(EditError::InvalidActor(actor.to_string()));
-        }
         let held: std::collections::HashSet<String> = self
             .cards()
             .iter()
@@ -1054,10 +1051,7 @@ impl Document {
             }
             Some(id) => id.to_string(),
             None => {
-                let id = match actor {
-                    Some(actor) => self.mints.mint(held, actor),
-                    None => super::card_id::Mint::new(held).mint(),
-                };
+                let id = self.mints.mint(held);
                 card.payload_mut().set_id(id.clone());
                 id
             }
@@ -1181,11 +1175,11 @@ impl Unchecked<'_> {
     /// ([`EditError::TooManyCards`]). A card spelling an id keeps it, refused
     /// where it is no card id ([`EditError::InvalidCardId`]) or another card
     /// holds it ([`EditError::DuplicateCardId`]). A card spelling none mints
-    /// one: under `actor`, `{actor}-{token}`, so two writers placing cards
-    /// from one document never mint one id, and positionally with none. An
-    /// actor that cannot open a card id is [`EditError::InvalidActor`].
-    pub fn insert_card(&mut self, at: Option<usize>, card: Card, actor: Option<&str>) -> Result<String, EditError> {
-        self.0.place_card(at, card, actor)
+    /// one: under the document's [actor](Document::actor), `{actor}-{token}`,
+    /// so two writers placing cards from one document never mint one id, and
+    /// positionally with none.
+    pub fn insert_card(&mut self, at: Option<usize>, card: Card) -> Result<String, EditError> {
+        self.0.place_card(at, card)
     }
 }
 
