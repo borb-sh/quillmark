@@ -1,28 +1,62 @@
 //! Two changes made from one value, merged as Automerge merges them, and the
 //! markdown revise that merges what its read could not spell back in.
 
-use crate::{Held, Read};
-use quillmark_content::change::{ApplyError, Change, apply, apply_traced};
+use crate::model::{Doc, StepError, View, ids};
+use automerge::ActorId;
+use quillmark_content::change::{ApplyError, Change, apply};
 use quillmark_content::diff::{self, Keeping, Revision, ReviseError};
 use quillmark_content::model::Content;
+use std::collections::HashMap;
 
-/// `ours` and `theirs`, both made from `base`, merged: `ours` written on
-/// `base` and `theirs` on a fork of it at `base`, the anchors and marks
-/// `ours` put held to their edges ([`Held::clip`]), and the merged state
-/// read through repair.
-pub fn merge3(base: &Content, ours: &Change, theirs: &Change) -> Result<Read, ApplyError> {
-    let (mine, mine_trace) = apply_traced(base, ours)?;
-    let (since, since_trace) = apply_traced(base, theirs)?;
-    let mut held = Held::new(base, "");
-    let heads = held.heads();
-    held.write(&mine_trace, &mine.content);
-    let mine_heads = held.heads();
-    let mut fork = held.fork_at(&heads, None).expect("a document forks at its own heads");
-    fork.write(&since_trace, &since.content);
-    let theirs_heads = fork.heads();
-    held.merge(&mut fork).expect("a fork merges back into its document");
-    held.clip(&mine_heads, &theirs_heads, &mine_trace);
-    Ok(held.read())
+/// The actors `merge3` writes under, `ours` after `theirs` where both put
+/// text at one place, so the merge is a function of its inputs.
+const OURS: &[u8] = b"ours";
+const THEIRS: &[u8] = b"theirs";
+
+/// The key the merged value sits under in the document's main card.
+const VALUE: &str = "value";
+
+/// `ours` and `theirs`, both made from `base`, merged as a write at earlier
+/// heads merges with the writes since: `base` held in a document, `theirs`
+/// lowered at its heads and `ours` at the heads `base` was held at, and the
+/// merged state read through repair, under the ids `base` holds and the ids
+/// each change put.
+pub fn merge3(base: &Content, ours: &Change, theirs: &Change) -> Result<View, ApplyError> {
+    let (mine, since) = (apply(base, ours)?.content, apply(base, theirs)?.content);
+    let mut doc = Doc::new();
+    let main = doc.main();
+    let root = doc.put_value(&main, VALUE, base);
+    doc.am_mut().commit();
+    let held = doc.view(&root).content;
+    let before = doc.heads();
+    doc.set_actor(ActorId::from(THEIRS));
+    doc.apply_from(&root, &ids::renamed(theirs, base, &held), None, Some(&held)).map_err(refused)?;
+    let mut back: HashMap<String, String> = ids::places(&doc.view(&root).content, &since);
+    let after_theirs = doc.heads();
+    doc.set_actor(ActorId::from(OURS));
+    doc.apply_from(&root, &ids::renamed(ours, base, &held), Some(&before), Some(&held)).map_err(refused)?;
+    if let Some(at_ours) = doc.heads().into_iter().find(|h| !after_theirs.contains(h)).map(|h| vec![h]) {
+        back.extend(ids::places(&doc.view_at(&root, &at_ours).content, &mine));
+    }
+    let View { content, repairs } = doc.view(&root);
+    Ok(View { content: ids::renamed_content(&content, &back), repairs })
+}
+
+/// A step the document could not lower, as the error `apply` gives for it.
+fn refused(e: StepError) -> ApplyError {
+    match e {
+        StepError::Stale { step, .. } | StepError::Bounds { step, .. } => ApplyError::Stale { step },
+        StepError::Unknown { what: "block", id, .. } => ApplyError::UnknownBlock { id },
+        StepError::Unknown { what: "container", id, .. } => ApplyError::UnknownContainer { id },
+        StepError::Unknown { what: "anchor", id, .. } => ApplyError::UnknownAnchor { id },
+        StepError::Unknown { what: "slot", id, .. } => match id.split_once('/') {
+            Some((island, slot)) => ApplyError::UnknownSlot { island: island.to_string(), slot: slot.to_string() },
+            None => ApplyError::UnknownSlot { island: id, slot: String::new() },
+        },
+        StepError::Unknown { id, .. } => ApplyError::UnknownIsland { id },
+        StepError::AnchorHeld { id, .. } => ApplyError::AnchorHeld { id },
+        StepError::Bad { step, reason } => ApplyError::BadStep { step, reason },
+    }
 }
 
 /// [`revise_keeping`] of a write that lands on `before`.

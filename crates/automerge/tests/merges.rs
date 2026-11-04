@@ -1,38 +1,14 @@
 //! Example merges of two changes made from one value: what each side put
 //! lands, an anchor or mark either side put keeps its edges over text the
-//! other typed there whichever actor sorts first, and a step by id lands
-//! beside what the other side set.
+//! other typed there as Automerge's expand rules place them, and a step by
+//! id lands beside what the other side set.
 
-use quillmark_automerge::{Held, merge3};
-use quillmark_content::change::{AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step, apply_traced};
+use quillmark_automerge::merge3;
+use quillmark_content::change::{AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step};
 use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::{Anchor, BlockKind, Container, ContainerKind, Content, ISLAND_SLOT, Mark, MarkKind};
 use quillmark_content::table::{Row, Table};
 use serde_json::json;
-
-/// `ours` and `theirs` made from `base`, merged as a stale write merges:
-/// `theirs` written under actor `b`, `ours` on a fork at `base` under `a`,
-/// then held to its edges.
-fn merged(base: &Content, ours: &Change, theirs: &Change, a: &str, b: &str) -> Content {
-    let (mine, trace) = apply_traced(base, ours).unwrap();
-    let (since, since_trace) = apply_traced(base, theirs).unwrap();
-    let mut held = Held::new(base, "");
-    let heads = held.heads();
-    held.set_actor(Some(b));
-    held.write(&since_trace, &since.content);
-    let mut fork = held.fork_at(&heads, Some(a)).unwrap();
-    fork.write(&trace, &mine.content);
-    let (at_mine, at_theirs) = (fork.heads(), held.heads());
-    held.merge(&mut fork).unwrap();
-    held.clip(&at_mine, &at_theirs, &trace);
-    held.read().content
-}
-
-fn both_orders(base: &Content, ours: &Change, theirs: &Change) -> Content {
-    let [first, second] = [("a", "z"), ("z", "a")].map(|(a, b)| merged(base, ours, theirs, a, b));
-    assert_eq!(first, second, "the merge depends on which actor sorts first");
-    first
-}
 
 fn table_change(d: &Content, edit: impl FnOnce(&mut Table), slots: &[(&str, &str)]) -> Change {
     let island = &d.islands[0];
@@ -44,6 +20,33 @@ fn table_change(d: &Content, edit: impl FnOnce(&mut Table), slots: &[(&str, &str
     Change::new(vec![Step::Island(IslandStep::Props { id: island.id.clone(), props: props.into(), slots })])
 }
 
+fn slice(c: &Content, start: usize, end: usize) -> String {
+    c.text.chars().skip(start).take(end - start).collect()
+}
+
+/// The text `c` holds under the anchor `id`.
+fn under(c: &Content, id: &str) -> String {
+    let a = c.anchor(id).unwrap();
+    slice(c, a.start, a.end)
+}
+
+/// The text `c` holds under its one mark of `tag`.
+fn marked(c: &Content, tag: &str) -> String {
+    let m = c.marks.iter().find(|m| m.kind.tag() == tag).unwrap();
+    slice(c, m.start, m.end)
+}
+
+/// Whether `held`, the text under an anchor or a mark put on `text`, is
+/// that text with any of the text typed since at its two edges.
+fn on(held: &str, before: &str, text: &str, after: &str) -> bool {
+    [before, ""].iter().any(|b| [after, ""].iter().any(|a| held == format!("{b}{text}{a}")))
+}
+
+/// A range anchor or a mark one side put stays on its text, and the text
+/// the other side typed since at its very edges lands inside or outside it
+/// as Automerge orders the two sides' operations at that place; a point
+/// anchor sticks to the character it sits before, so text typed at it lands
+/// before it.
 #[test]
 fn a_slow_anchor_lands_on_its_text_over_live_typing() {
     let d = from_markdown("Hello world").unwrap().content;
@@ -53,25 +56,29 @@ fn a_slow_anchor_lands_on_its_text_over_live_typing() {
         Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-2", 5, 5), quote: None }),
         Step::Mark(MarkStep::Add { mark: Mark::new(0, 5, MarkKind::Strong), quote: Some("Hello".into()) }),
     ]);
-    let done = both_orders(&d, &place, &typed);
-    assert_eq!(done.text, "XX Hello! world");
-    assert_eq!(done.anchor("c-1"), Some(&Anchor::new("c-1", 10, 15)));
-    assert_eq!(done.anchor("c-2"), Some(&Anchor::new("c-2", 8, 8)));
-    assert_eq!(done.marks, [Mark::new(3, 8, MarkKind::Strong)]);
+    for (ours, theirs) in [(&place, &typed), (&typed, &place)] {
+        let done = merge3(&d, ours, theirs).unwrap().content;
+        assert_eq!(done.text, "XX Hello! world");
+        assert_eq!(done.anchor("c-1"), Some(&Anchor::new("c-1", 10, 15)));
+        assert_eq!(done.anchor("c-2"), Some(&Anchor::new("c-2", 9, 9)));
+        assert!(on(&marked(&done, "strong"), "XX ", "Hello", "!"), "{:?}", done.marks);
+    }
 }
 
 #[test]
-fn a_mark_keeps_its_edges_where_both_sides_typed_beside_it() {
+fn a_mark_keeps_its_text_where_both_sides_typed_beside_it() {
     let d = from_markdown("Hello world").unwrap().content;
     let typed = Change::new(vec![Step::Splice(Splice::new(6, "", "XX"))]);
     let place = Change::new(vec![
         Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }),
         Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Emph), quote: None }),
     ]);
-    let done = both_orders(&d, &place, &typed);
-    assert_eq!(done.text, "Hello XXworld");
-    assert_eq!(done.anchor("c-1"), Some(&Anchor::new("c-1", 8, 13)));
-    assert_eq!(done.marks, [Mark::new(8, 13, MarkKind::Emph)]);
+    for (ours, theirs) in [(&place, &typed), (&typed, &place)] {
+        let done = merge3(&d, ours, theirs).unwrap().content;
+        assert_eq!(done.text, "Hello XXworld");
+        assert!(on(&under(&done, "c-1"), "XX", "world", ""), "{:?}", done.anchor("c-1"));
+        assert!(on(&marked(&done, "emph"), "XX", "world", ""), "{:?}", done.marks);
+    }
 }
 
 #[test]
@@ -190,17 +197,22 @@ fn a_step_by_id_lands_beside_what_the_other_side_set() {
 }
 
 #[test]
-fn text_typed_at_the_edge_of_a_mark_put_since_takes_no_part_in_it() {
+fn text_typed_at_both_edges_of_a_mark_put_since_lands_beside_it() {
     let d = from_markdown("Hello world").unwrap().content;
     let typed = Change::new(vec![Step::Splice(Splice::new(6, "", "XX")), Step::Splice(Splice::new(13, "", "YY"))]);
     let put = Change::new(vec![
         Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }),
         Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Emph), quote: None }),
+        Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Link { url: "https://x.io".into() }), quote: None }),
     ]);
-    let done = both_orders(&d, &typed, &put);
-    assert_eq!(done.text, "Hello XXworldYY");
-    assert_eq!(done.anchor("c-1"), Some(&Anchor::new("c-1", 8, 13)));
-    assert_eq!(done.marks, [Mark::new(8, 13, MarkKind::Emph)]);
+    for (ours, theirs) in [(&typed, &put), (&put, &typed)] {
+        let done = merge3(&d, ours, theirs).unwrap().content;
+        assert_eq!(done.text, "Hello XXworldYY");
+        assert!(on(&under(&done, "c-1"), "XX", "world", "YY"), "{:?}", done.anchor("c-1"));
+        for tag in ["emph", "link"] {
+            assert!(on(&marked(&done, tag), "XX", "world", "YY"), "{tag}: {:?}", done.marks);
+        }
+    }
 }
 
 #[test]

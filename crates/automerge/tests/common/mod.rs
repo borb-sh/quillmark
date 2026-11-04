@@ -10,7 +10,8 @@ use quillmark_content::lines::island::IslandType;
 use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::{Anchor, Block, BlockKind, Container, ContainerKind, Content, ISLAND_SLOT, Island, Mark, MarkKind};
 use quillmark_content::table::{Row, Table};
-use serde_json::json;
+use serde_json::{Value, json};
+use std::collections::HashMap;
 
 /// A case count, `var` where it is set.
 pub fn cases(var: &str, default: u32) -> u32 {
@@ -406,4 +407,72 @@ pub fn windowed(d: &Content, ops: &[Op], (lo, mut hi): (usize, usize), side: &st
         }
     }
     Change::new(steps)
+}
+
+/// The keys whose string values are prose, never an id.
+const PROSE: [&str; 6] = ["text", "insert", "delete", "quote", "url", "name"];
+
+fn rename(v: &Value, map: &HashMap<String, String>) -> Value {
+    match v {
+        Value::String(s) => Value::String(map.get(s).cloned().unwrap_or_else(|| s.clone())),
+        Value::Array(a) => Value::Array(a.iter().map(|x| rename(x, map)).collect()),
+        Value::Object(o) => Value::Object(
+            o.iter()
+                .map(|(k, x)| match PROSE.contains(&k.as_str()) && x.is_string() {
+                    true => (k.clone(), x.clone()),
+                    false => (k.clone(), rename(x, map)),
+                })
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// `c` with each id renamed by its place, each slot on its own, so values
+/// whose ids differ by construction compare.
+pub fn canon(c: &Content) -> Value {
+    let mut map = HashMap::new();
+    for (n, id) in c.blocks.iter().map(|b| &b.id).chain(c.containers.iter().map(|x| &x.id)).chain(c.islands.iter().map(|i| &i.id)).enumerate() {
+        map.entry(id.clone()).or_insert_with(|| format!("p{n}"));
+    }
+    let mut v = rename(&c.to_value(), &map);
+    if let Some(islands) = v.get_mut("islands").and_then(Value::as_array_mut) {
+        for (i, island) in islands.iter_mut().enumerate() {
+            for (k, s) in &c.islands[i].slots {
+                island["slots"][k] = canon(s);
+            }
+        }
+    }
+    v
+}
+
+/// `v`, a value's JSON, without its marks and anchors at any depth, whose
+/// edges Automerge places as its expand rules say rather than as `apply`
+/// does.
+pub fn strip(v: &mut Value) {
+    if let Some(o) = v.as_object_mut() {
+        o.remove("marks");
+        o.remove("anchors");
+        if let Some(islands) = o.get_mut("islands").and_then(Value::as_array_mut) {
+            for i in islands {
+                if let Some(slots) = i.get_mut("slots").and_then(Value::as_object_mut) {
+                    slots.values_mut().for_each(strip);
+                }
+            }
+        }
+    }
+}
+
+/// [`canon`] without formatting and anchors.
+pub fn structure(c: &Content) -> Value {
+    let mut v = canon(c);
+    strip(&mut v);
+    v
+}
+
+/// `c`'s JSON without formatting and anchors, its ids as they are.
+pub fn shape(c: &Content) -> Value {
+    let mut v = c.to_value();
+    strip(&mut v);
+    v
 }

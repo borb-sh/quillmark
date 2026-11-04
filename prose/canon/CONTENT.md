@@ -251,12 +251,12 @@ A write with no actor writes under its document's own random Automerge actor, wh
 Each law is a property test over generated values and generated changes (`tests/change_laws.rs`, `tests/repair_laws.rs`).
 
 1. `apply(apply(d, c), invert(c, d)) == d`. Every change undoes exactly, deleted islands, anchors and block records included.
-2. A change lowered into a document whose value reads as `d` reads as `apply(d, c)`, through a save and a load too (`crates/automerge/tests/parity.rs`).
+2. A change lowered into a document whose value reads as `d` reads as `apply(d, c)` in text, records and anchor ids, with marks and anchor edges where Automerge's expand rules put them, and a save and a load read as the live document (`crates/automerge/tests/model.rs`).
 3. `map_pos(c, p)` agrees with `apply`: the two edges of a character both say it was deleted, or land around it afterwards in the same order, a character inside a nested slot included, and one in an island the change moves keeps its place. A change's maps followed by their mirrored inverses take every position home.
 4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes. `parse` refuses a value `normalize` would change, and the lenient read of it reaches one `parse` accepts (`tests/properties.rs`).
 5. Every `Change` yields a valid value or fails and changes nothing.
 6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported.
-7. Two changes made from one value merge into a valid value, and a change merged with an empty one is itself either way round. Two changes to text either side of a character neither touches, joining no blocks, merge into text holding each side as its writer left it, the same text in either order. A block kind one side set and the other left alone stays (`crates/automerge/tests/convergence.rs`, beside sessions of three peers writing and merging at random, stale writes included, that reach one value).
+7. Two changes made from one value merge into a valid value, and a change merged with an empty one is itself in text and records either way round. Two changes to text either side of a character neither touches, joining no blocks, merge into text holding each side as its writer left it, the same text in either order. A block kind one side set and the other left alone stays (`crates/automerge/tests/convergence.rs`, beside sessions of three peers writing and merging at random, stale writes included, that reach one value, `crates/automerge/tests/sessions.rs`).
 
 ## Writing a value
 

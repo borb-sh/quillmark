@@ -49,6 +49,16 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   `Document::from_stored_any` reads either carrier, telling Automerge bytes
   by their leading bytes. The per-value `Card::save`, `load` and sync verbs
   are gone, and a `0.134.0` row reads into a new document.
+- refactor(automerge)!: **one Automerge engine.** `merge3` merges two
+  changes in a `model::Doc`, as a write at earlier heads merges with the
+  writes since, and answers a `model::View`; an anchor or mark either side
+  put keeps its text, and text typed at its very edge lands inside or
+  outside it as Automerge orders the two sides' operations there. The
+  single-value engine is gone: `Held`, the crate-root `KEY`, `Read` and
+  `LoadError`, and `quillmark_content::change::Trace` and `apply_traced`.
+  A step naming an id whose actor part is not hex refuses as an unknown
+  id where it panicked, and a value a peer left holding a record, mark or
+  island no build reads reads as the nearest one the decoder takes.
 - feat(wasm)!: **a live session crosses as bytes, and every write takes
   `heads`.** `doc.save()`, `Document.load(bytes)`, `doc.heads()`,
   `doc.saveSince(heads)`, `doc.merge(bytes)`, and

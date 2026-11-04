@@ -282,6 +282,10 @@ fn unknown(step: usize, what: &'static str, id: &str) -> StepError {
 /// The object an id names: one this change minted, or an object id.
 fn find(doc: &AutoCommit, id: &str, ids: &HashMap<String, String>) -> Option<ObjId> {
     let id = ids.get(id).map(String::as_str).unwrap_or(id);
+    let (_, actor) = id.split_once('@')?;
+    if actor.is_empty() || actor.len() % 2 == 1 || !actor.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
     doc.import(id).ok().map(|(o, _)| o)
 }
 

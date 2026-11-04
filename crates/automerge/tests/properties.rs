@@ -1,21 +1,20 @@
-//! The byte boundary of a held value: [`Held::load`] and a received sync
+//! The byte boundary of a document: [`Doc::load`] and a received sync
 //! message refuse a document they cannot read rather than panic. The input
 //! is a value's own document with generated edits at every depth, keys put,
 //! deleted or retyped, text elements of every kind inserted and deleted,
 //! marks of anchor and formatting names, and its saved bytes truncated or
-//! flipped. A document that loads reads as the value it answered, and syncing
-//! it to that value leaves it reading so with nothing to repair. `CASES`
-//! raises the case count.
+//! flipped. A document that loads reads every value it holds as a valid
+//! value, and so does a reload of it. `CASES` raises the case count.
 
 mod common;
 
 use common::*;
 use proptest::prelude::*;
-use quillmark_automerge::Held;
 use quillmark_automerge::automerge::marks::{ExpandMark, Mark};
 use quillmark_automerge::automerge::sync::{State, SyncDoc};
 use quillmark_automerge::automerge::transaction::Transactable;
 use quillmark_automerge::automerge::{AutoCommit, ObjId, ObjType, ROOT, ReadDoc, ScalarValue, Value};
+use quillmark_automerge::model::{Doc, LoadError, SyncMessage, SyncState};
 use quillmark_content::model::Content;
 
 const KEYS: [&str; 10] = ["value", "text", "containers", "codec", "k", "kind", "id", "slots", "props", "c"];
@@ -86,21 +85,41 @@ fn hit(doc: &mut AutoCommit, (target, op, x, y): Hit) {
     };
 }
 
+/// A document holding `content` as its main card's body.
+fn held(content: &Content) -> Doc {
+    let mut doc = Doc::new();
+    let main = doc.main();
+    doc.put_value(&main, "body", content);
+    doc.am_mut().commit();
+    doc
+}
+
 fn bent(content: &Content, hits: &[Hit]) -> AutoCommit {
-    let mut doc = AutoCommit::load(&Held::new(content, "").save()).unwrap();
+    let mut doc = AutoCommit::load(&held(content).save()).unwrap();
     for h in hits {
         hit(&mut doc, *h);
     }
     doc
 }
 
-fn holds(loaded: Result<(Held, quillmark_automerge::Read), quillmark_automerge::LoadError>) -> Result<(), TestCaseError> {
-    let Ok((mut held, read)) = loaded else { return Ok(()) };
-    prop_assert_eq!(&held.read(), &read);
-    held.sync_to(&read.content);
-    let again = held.read();
-    prop_assert_eq!(&again.content, &read.content);
-    prop_assert!(again.repairs.is_empty(), "{:?}", again.repairs);
+/// Every value the main card holds under a key, each read through repair.
+fn reads(doc: &Doc) -> Vec<Content> {
+    let main = doc.main();
+    doc.am()
+        .keys(&main)
+        .filter_map(|k| doc.value(&main, &k))
+        .map(|root| doc.view(&root).content)
+        .collect()
+}
+
+fn holds(loaded: Result<Doc, LoadError>) -> Result<(), TestCaseError> {
+    let Ok(mut doc) = loaded else { return Ok(()) };
+    let values = reads(&doc);
+    for v in &values {
+        prop_assert_eq!(v.validate(), Ok(()));
+    }
+    let again = Doc::load(&doc.save()).unwrap();
+    prop_assert_eq!(reads(&again), values);
     Ok(())
 }
 
@@ -114,40 +133,36 @@ proptest! {
     #[test]
     fn a_document_edited_at_any_depth_loads_or_is_refused(content in document(), seed in any::<u8>(), hits in hits()) {
         let content = with_ext(content, seed);
-        holds(Held::load(&bent(&content, &hits).save(), ""))?;
+        holds(Doc::load(&bent(&content, &hits).save()))?;
     }
 
     #[test]
     fn bytes_cut_or_flipped_load_or_are_refused(content in document(), at in any::<u16>(), bit in 0u8..8, cut in any::<bool>()) {
-        let mut bytes = Held::new(&content, "").save();
+        let mut bytes = held(&content).save();
         let at = at as usize % bytes.len();
         match cut {
             true => bytes.truncate(at),
             false => bytes[at] ^= 1 << bit,
         }
-        holds(Held::load(&bytes, ""))?;
+        holds(Doc::load(&bytes))?;
     }
 
     #[test]
     fn a_message_bringing_an_edited_document_lands_or_changes_nothing(content in document(), hits in hits()) {
-        let mut held = Held::new(&content, "");
+        let mut doc = held(&content);
         let mut peer = bent(&content, &hits);
-        let mut before = held.read();
-        let (mut ours, mut theirs) = (State::new(), State::new());
+        let (mut ours, mut theirs) = (SyncState::new(), State::new());
         for _ in 0..8 {
-            if let Some(m) = held.generate_sync_message(&mut ours) {
-                peer.sync().receive_sync_message(&mut theirs, m).unwrap();
+            if let Some(m) = doc.generate_sync_message(&mut ours) {
+                peer.sync().receive_sync_message(&mut theirs, quillmark_automerge::automerge::sync::Message::decode(&m.encode()).unwrap()).unwrap();
             }
             let Some(m) = peer.sync().generate_sync_message(&mut theirs) else { break };
-            let kept = ours.clone();
-            match held.receive_sync_message(&mut ours, m) {
-                Ok(read) => {
-                    before = read.clone();
-                    holds(Ok((held.clone(), read)))?
-                }
+            let (kept, mut before) = (ours.encode(), doc.clone());
+            match doc.receive_sync_message(&mut ours, SyncMessage::decode(&m.encode()).unwrap()) {
+                Ok(()) => holds(Ok(doc.clone()))?,
                 Err(_) => {
-                    prop_assert_eq!(&held.read(), &before);
-                    prop_assert_eq!(&ours, &kept);
+                    prop_assert_eq!(doc.heads(), before.heads());
+                    prop_assert_eq!(ours.encode(), kept);
                     break;
                 }
             }

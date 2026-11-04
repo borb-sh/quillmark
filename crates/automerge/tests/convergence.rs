@@ -1,8 +1,9 @@
 //! The convergence laws: two changes made from one value merge as Automerge
-//! merges them into one valid value, a change merged with nothing is itself,
-//! changes to text either side of a character neither touches keep the text
-//! each wrote, and what one side set by id the other left alone stays set.
-//! `CASES` raises the case count.
+//! merges them into one valid value, a change merged with nothing is itself
+//! in text and structure, with its marks and anchors where Automerge's
+//! expand rules put them, changes to text either side of a character neither
+//! touches keep the text each wrote, and what one side set by id the other
+//! left alone stays set. `CASES` raises the case count.
 
 mod common;
 
@@ -29,9 +30,9 @@ proptest! {
     #[test]
     fn a_change_merged_with_nothing_is_itself(d in document(), ops in ops()) {
         let c = change_for(&d, &ops);
-        let done = apply(&d, &c).unwrap().content;
-        prop_assert_eq!(&merge3(&d, &c, &Change::default()).unwrap().content, &done);
-        prop_assert_eq!(&merge3(&d, &Change::default(), &c).unwrap().content, &done);
+        let done = shape(&apply(&d, &c).unwrap().content);
+        prop_assert_eq!(shape(&merge3(&d, &c, &Change::default()).unwrap().content), done.clone());
+        prop_assert_eq!(shape(&merge3(&d, &Change::default(), &c).unwrap().content), done);
     }
 
     /// The text left of the character as the one wrote it, the text right of

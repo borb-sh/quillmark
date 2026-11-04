@@ -2,124 +2,15 @@
 //! straight into the document reads as the value `apply` gives, bytes and
 //! change bytes carry the state, and peers writing at once converge. Ids
 //! differ by construction, so values compare with each id renamed by its
-//! place. `CASES` raises the case counts.
+//! place (`common::canon`). `CASES` raises the case counts.
 
 mod common;
 
 use common::*;
 use proptest::prelude::*;
-use quillmark_automerge::model::Doc;
+use quillmark_automerge::model::{Doc, ids};
 use quillmark_content::change::{Change, apply};
 use quillmark_content::model::Content;
-use serde_json::Value;
-use std::collections::HashMap;
-
-/// Each id `old` holds in its own scope, by the place it holds it, and the
-/// id `new` holds there.
-fn ids(old: &Content, new: &Content) -> HashMap<String, String> {
-    let mut out = HashMap::new();
-    for (a, b) in old.blocks.iter().zip(&new.blocks) {
-        out.insert(a.id.clone(), b.id.clone());
-    }
-    for (a, b) in old.containers.iter().zip(&new.containers) {
-        out.insert(a.id.clone(), b.id.clone());
-    }
-    for (a, b) in old.islands.iter().zip(&new.islands) {
-        out.insert(a.id.clone(), b.id.clone());
-    }
-    out
-}
-
-/// The change JSON `v`, made against `old`, renamed to `new`'s ids, each
-/// nested change to its slot's.
-fn rename_change(v: &Value, old: &Content, new: &Content) -> Value {
-    let map = ids(old, new);
-    let steps = v["steps"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|step| match step.get("nested") {
-            Some(n) => {
-                let (island, slot) = (n["island"].as_str().unwrap(), n["slot"].as_str().unwrap());
-                let Some(i) = old.islands.iter().position(|i| i.id == island) else {
-                    return step.clone();
-                };
-                let mut out = n.clone();
-                out["island"] = Value::String(new.islands[i].id.clone());
-                if let (Some(so), Some(sn)) = (old.islands[i].slots.get(slot), new.islands[i].slots.get(slot)) {
-                    out["change"] = rename_change(&n["change"], so, sn);
-                }
-                serde_json::json!({ "nested": out })
-            }
-            None => rename(step, &map),
-        });
-    serde_json::json!({ "steps": steps.collect::<Vec<_>>() })
-}
-
-const PROSE: [&str; 6] = ["text", "insert", "delete", "quote", "url", "name"];
-
-fn rename(v: &Value, map: &HashMap<String, String>) -> Value {
-    match v {
-        Value::String(s) => Value::String(map.get(s).cloned().unwrap_or_else(|| s.clone())),
-        Value::Array(a) => Value::Array(a.iter().map(|x| rename(x, map)).collect()),
-        Value::Object(o) => Value::Object(
-            o.iter()
-                .map(
-                    |(k, x)| match PROSE.contains(&k.as_str()) && x.is_string() {
-                        true => (k.clone(), x.clone()),
-                        false => (k.clone(), rename(x, map)),
-                    },
-                )
-                .collect(),
-        ),
-        other => other.clone(),
-    }
-}
-
-/// `c` with each id renamed by its place, each slot on its own.
-fn canon(c: &Content) -> Value {
-    let mut map = HashMap::new();
-    for (n, id) in c
-        .blocks
-        .iter()
-        .map(|b| &b.id)
-        .chain(c.containers.iter().map(|x| &x.id))
-        .chain(c.islands.iter().map(|i| &i.id))
-        .enumerate()
-    {
-        map.entry(id.clone()).or_insert_with(|| format!("p{n}"));
-    }
-    let mut v = rename(&c.to_value(), &map);
-    if let Some(islands) = v.get_mut("islands").and_then(Value::as_array_mut) {
-        for (i, island) in islands.iter_mut().enumerate() {
-            for (k, s) in &c.islands[i].slots {
-                island["slots"][k] = canon(s);
-            }
-        }
-    }
-    v
-}
-
-/// `canon(c)` without formatting and anchors, whose edges Automerge places
-/// as its expand flags say rather than as `apply` does.
-fn structure(c: &Content) -> Value {
-    fn strip(v: &mut Value) {
-        if let Some(o) = v.as_object_mut() {
-            o.remove("marks");
-            o.remove("anchors");
-            if let Some(islands) = o.get_mut("islands").and_then(Value::as_array_mut) {
-                for i in islands {
-                    if let Some(slots) = i.get_mut("slots").and_then(Value::as_object_mut) {
-                        slots.values_mut().for_each(strip);
-                    }
-                }
-            }
-        }
-    }
-    let mut v = canon(c);
-    strip(&mut v);
-    v
-}
 
 fn held(d: &Content) -> (Doc, automerge::ObjId) {
     let mut doc = Doc::new();
@@ -131,12 +22,7 @@ fn held(d: &Content) -> (Doc, automerge::ObjId) {
 
 /// `change`, made against `d`, renamed to the ids the document gives `d`.
 fn renamed(doc: &Doc, root: &automerge::ObjId, d: &Content, change: &Change) -> Change {
-    Change::from_value(&rename_change(
-        &change.to_value(),
-        d,
-        &doc.view(root).content,
-    ))
-    .unwrap()
+    ids::renamed(change, d, &doc.view(root).content)
 }
 
 proptest! {
@@ -226,4 +112,14 @@ fn bytes_that_are_not_a_document_refuse() {
     assert_eq!(Doc::load(b"nope").unwrap_err().name(), "decode");
     let mut other = automerge::AutoCommit::new();
     assert_eq!(Doc::load(&other.save()).unwrap_err().name(), "shape");
+}
+
+#[test]
+fn a_step_naming_an_id_no_object_spells_refuses() {
+    let (mut doc, root) = held(&quillmark_content::markdown::from_markdown("one").unwrap().content);
+    for id in ["b0", "1@zz", "1@abc", "x@ab"] {
+        let step = quillmark_content::change::Step::SetBlock(quillmark_content::change::SetBlock { id: id.into(), kind: Some("para".into()), ..Default::default() });
+        let err = doc.apply(&root, &Change::new(vec![step]), None).unwrap_err();
+        assert!(matches!(err, quillmark_automerge::model::StepError::Unknown { .. }), "{id}: {err}");
+    }
 }

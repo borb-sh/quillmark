@@ -12,6 +12,7 @@
 //! `body`; a body or content field is a value in the shape `value` states.
 
 pub mod json;
+pub mod ids;
 mod peer;
 mod step;
 pub(crate) mod value;
