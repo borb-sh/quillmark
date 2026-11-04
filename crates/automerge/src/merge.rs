@@ -26,7 +26,7 @@ pub fn merge3(base: &Content, ours: &Change, theirs: &Change) -> Result<View, Ap
     let mut doc = Doc::new();
     let main = doc.main();
     let root = doc.put_value(&main, VALUE, base);
-    doc.am_mut().commit();
+    doc.commit();
     let held = doc.view(&root).content;
     let before = doc.heads();
     doc.set_actor(ActorId::from(THEIRS));

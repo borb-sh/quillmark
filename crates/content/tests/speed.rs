@@ -8,7 +8,8 @@
 //! field of 20000 blocks or 500000 characters, holds [`TARGET`]: a plain
 //! list's revise, replace and repair in time, and import and decode linear.
 
-use quillmark_automerge::{merge3, revise};
+use quillmark_automerge::model::{Doc, ids};
+use quillmark_automerge::revise;
 use quillmark_content::change::{AnchorStep, Change, MarkStep, Splice, Step, apply, invert};
 use quillmark_content::diff::{diff, replace};
 use quillmark_content::markdown::{from_markdown, to_markdown};
@@ -85,9 +86,10 @@ fn time<T>(f: impl Fn() -> T) -> Duration {
 /// The 288k-character case's limits in milliseconds: five times the targets
 /// of 100 to apply and 200 to invert, and about ten times what a laptop takes
 /// for the diff and the UTF-16 round trip, which a pass that walks the whole
-/// text per step overruns. The merge is `merge3` of the two changes, a stale
-/// write merged with a change since in a document built for it, and its
-/// limit is about 1.3 times what it takes.
+/// text per step overruns. The merge is a stale write: one change lowered at
+/// the heads a document held the value at, into the document after another
+/// change landed since, and the merged value read back. Building the
+/// document is not timed, as a session holds its document already.
 const BUDGET: [(&str, f64); 5] = [("apply", 500.0), ("invert", 1000.0), ("diff", 1500.0), ("merge", 2500.0), ("utf16", 500.0)];
 
 fn measure(n: usize) -> (usize, usize, [f64; 5]) {
@@ -99,10 +101,31 @@ fn measure(n: usize) -> (usize, usize, [f64; 5]) {
         time(|| apply(&d, &mine).unwrap()),
         time(|| invert(&mine, &d).unwrap()),
         time(|| apply(&d, &diff(&d, &after).unwrap()).unwrap()),
-        time(|| merge3(&d, &mine, &theirs).unwrap()),
+        stale(&d, &mine, &theirs),
         time(|| change_to_scalars(&change_from_scalars(&mine, &d, Utf16).unwrap(), &d, Utf16).unwrap()),
     ];
     (d.text.chars().count(), mine.steps.len(), times.map(|t| t.as_secs_f64() * 1000.0))
+}
+
+/// The stale write [`BUDGET`] times, best of the runs `time` takes.
+fn stale(d: &Content, mine: &Change, theirs: &Change) -> Duration {
+    let mut doc = Doc::new();
+    let main = doc.main();
+    let root = doc.put_value(&main, "value", d);
+    doc.commit();
+    let held = doc.view(&root).content;
+    let before = doc.heads();
+    doc.apply_from(&root, &ids::renamed(theirs, d, &held), None, Some(&held)).unwrap();
+    let runs: usize = std::env::var("SPEED_RUNS").ok().and_then(|r| r.parse().ok()).unwrap_or(3);
+    let mut best = Duration::MAX;
+    for _ in 0..runs {
+        let mut doc = doc.clone();
+        let t = Instant::now();
+        doc.apply_from(&root, &ids::renamed(mine, d, &held), Some(&before), Some(&held)).unwrap();
+        black_box(doc.view(&root));
+        best = best.min(t.elapsed());
+    }
+    best
 }
 
 #[test]

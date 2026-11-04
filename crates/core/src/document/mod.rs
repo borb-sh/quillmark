@@ -1136,7 +1136,7 @@ impl Document {
             return None;
         }
         let mints = self.mints.clone();
-        let (main, cards) = self.doc().isolated(heads.hashes(), |d| held::read(d).expect("a held document reads as cards"));
+        let (main, cards) = self.doc().reading_at(heads.hashes(), |d| held::read(d).expect("a held document reads as cards"));
         Some(Self::assembled(main, cards, mints))
     }
 
