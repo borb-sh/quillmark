@@ -237,7 +237,7 @@ pub(crate) fn refresh(d: &mut Doc, before: &super::Heads, main: &mut Card, all: 
             };
             match field {
                 None => Some(card.body().clone()),
-                Some(key) => card.payload().get(key).filter(|v| cards::is_content(v.as_json())).and_then(|v| Content::from_value(v.as_json()).ok()),
+                Some(key) => card.payload().get(key).filter(|v| quillmark_automerge::content::units::is_content_value(v.as_json())).and_then(|v| Content::from_value(v.as_json()).ok()),
             }
         };
         cards::refresh(d, before, held, u)

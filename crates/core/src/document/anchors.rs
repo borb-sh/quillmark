@@ -8,6 +8,7 @@ use std::ops::ControlFlow;
 use quillmark_automerge::content::anchors::{AnchorContext, Reattached, anchor_context, anchor_contexts};
 use quillmark_automerge::model::patch;
 use quillmark_automerge::content::model::Content;
+use quillmark_automerge::content::units::is_content_value;
 use serde_json::Value as JsonValue;
 
 use super::{Card, Document};
@@ -367,5 +368,5 @@ fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut Visit<'_>) -> Cont
 }
 
 fn content_of(value: &JsonValue) -> Option<Content> {
-    value.is_object().then(|| Content::from_value_lenient(value).ok()).flatten().map(|read| read.content)
+    is_content_value(value).then(|| Content::from_value_lenient(value).ok()).flatten().map(|read| read.content)
 }

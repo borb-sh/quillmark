@@ -74,12 +74,6 @@ impl Card {
     }
 }
 
-/// Whether a field's value, or a value at any depth in it, is a content
-/// value: the document holds it as a text value.
-pub fn is_content(v: &Value) -> bool {
-    value::content_of(v).is_some()
-}
-
 /// A new document holding `main` and each of `cards` that holds an id,
 /// built under the first actor: equal cards build equal bytes in every
 /// process.

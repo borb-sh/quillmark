@@ -114,10 +114,12 @@ pub(crate) fn fill(doc: &mut AutoCommit, root: &ObjId, content: &Content) {
     }
 }
 
-/// The content `v` holds, where it is a content value.
+/// The content `v` holds, where it is a content value
+/// ([`is_content_value`](crate::content::units::is_content_value)) that
+/// decodes: a write refuses one that does not before it reaches the
+/// document.
 pub(crate) fn content_of(v: &Value) -> Option<Content> {
-    let shaped = v.get("text").is_some_and(Value::is_string) && v.get("blocks").is_some_and(Value::is_array);
-    shaped.then(|| Content::from_value(v).ok()).flatten()
+    crate::content::units::is_content_value(v).then(|| Content::from_value(v).ok()).flatten()
 }
 
 /// What the value `root` reads as: its raw value read through repair.

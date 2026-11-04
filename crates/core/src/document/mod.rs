@@ -807,7 +807,7 @@ impl PartialEq for Card {
 
 /// `v` with each content value in it, at any depth, by place.
 fn value_by_place(v: &serde_json::Value) -> serde_json::Value {
-    if quillmark_automerge::model::cards::is_content(v) {
+    if quillmark_automerge::content::units::is_content_value(v) {
         return Content::from_value(v).expect("a content value reads").by_place().to_value();
     }
     match v {

@@ -121,8 +121,10 @@ The document's root holds `schema` (`quillmark/document@0.135.0`), `main`,
 `cards` and `order`: `cards` maps each composable card's `$id` to its card,
 and `order` lists the `$id`s in document order. A card holds `layout`, its
 payload items' order and comments; `fields`, each field by key; `ext`; `seed`;
-`nestedComments`; and `body`. A body, and each content value in a field (a
-`richtext` or `text` field in its stored form, [SCHEMAS.md](SCHEMAS.md)
+`nestedComments`; and `body`. A body, and each content value in a field (an
+object holding a `text` string and a `blocks` array, the one test every layer
+asks, `content::units::is_content_value`: a `richtext` or `text` field in its
+stored form, [SCHEMAS.md](SCHEMAS.md)
 § "Content fields are stored per codec"), the field's whole value or one at
 any depth in it, an `array<richtext>` element or an object's content
 property, is an Automerge text object with its blocks as markers, maps keyed
