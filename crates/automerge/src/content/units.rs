@@ -54,6 +54,24 @@ impl Units for Utf16 {
     }
 }
 
+/// The units a document handle's host counts text offsets in: Rust's and
+/// Python's scalars, or JavaScript's UTF-16.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum HostUnits {
+    #[default]
+    Scalars,
+    Utf16,
+}
+
+impl Units for HostUnits {
+    fn char_len(self, c: char) -> usize {
+        match self {
+            HostUnits::Scalars => 1,
+            HostUnits::Utf16 => c.len_utf16(),
+        }
+    }
+}
+
 /// The scalar offset `n` units into `text`; `None` inside a character or past
 /// the end.
 pub fn to_scalars(u: impl Units, text: &str, n: usize) -> Option<Scalar> {

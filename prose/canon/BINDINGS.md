@@ -124,7 +124,7 @@ Storage is scalars, and every host speaks its own: storage and core count Unicod
 - `repair` reads a `RawContent` as a merged state, so it refuses no offset: one inside a surrogate pair moves to the character's start and one past the text to its end, and the mend is reported.
 - `diff` answers in the units of `before`.
 - A content write's change converts on the value as its `heads` read it, which stale heads make an earlier value than the one it writes over; its receipt's `patches` count text indexes on each text as the patches before them left it.
-- `merge` and `receiveSyncMessage` answer a receipt whose `patches` count in the host's units, as a write's do.
+- Core's `Document` handle carries its host's units (`Document::set_units`, scalars by default), and WASM sets UTF-16 on every handle it makes, so a write's offsets, `undo`, `reattach` and every receipt's `patches`, `merge`'s and `receiveSyncMessage`'s included, count in them with no units argument.
 - The render seam ([PREVIEW.md](PREVIEW.md)) converts on the text of the content value the compile read at each field: a region's `span`, `positionAt`'s `pos`, and `locate`'s `pos`, which answers nothing inside a surrogate pair. Core's `LiveSession::*_in` and `Engine::render_in` take the units.
 - `reattach` reads the patches it takes on the value's text now, the text that write left.
 - A diagnostic's `location` is a line and column in a source file, not a content offset, and crosses as the parser counts it.

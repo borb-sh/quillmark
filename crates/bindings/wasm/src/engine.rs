@@ -473,6 +473,15 @@ pub struct Document {
     parse_warnings: Vec<quillmark_core::error::Diagnostic>,
 }
 
+impl Document {
+    /// A handle on `inner` counting text offsets in UTF-16, as JavaScript
+    /// does.
+    fn handle(mut inner: quillmark_core::document::Document, parse_warnings: Vec<quillmark_core::error::Diagnostic>) -> Document {
+        inner.set_units(quillmark_automerge::content::units::HostUnits::Utf16);
+        Document { inner, parse_warnings }
+    }
+}
+
 #[cfg(feature = "render")]
 #[wasm_bindgen(typescript_custom_section)]
 const FONT_FACE_TS: &'static str = r#"
@@ -713,10 +722,7 @@ impl Quill {
     ) -> Result<Document, JsValue> {
         let value = js_value_to_json(value, "fromAuthoring")?;
         let parsed = self.inner.from_authoring(&value).map_err(js_err)?;
-        Ok(Document {
-            inner: parsed.document,
-            parse_warnings: parsed.warnings,
-        })
+        Ok(Document::handle(parsed.document, parsed.warnings))
     }
 
     /// Document schema for the quill: the user-fillable fields plus their `ui`
@@ -778,10 +784,7 @@ impl Quill {
             .inner
             .parse(markdown)
             .map_err(|e| js_err(e.to_diagnostics()))?;
-        Ok(Document {
-            inner: parsed.document,
-            parse_warnings: parsed.warnings,
-        })
+        Ok(Document::handle(parsed.document, parsed.warnings))
     }
 
     /// Land `doc`'s declared content fields in their stored form **in
@@ -822,10 +825,7 @@ impl Quill {
     /// reached by spelling the reference.
     #[wasm_bindgen(js_name = emptyDocument)]
     pub fn empty_document(&self) -> Document {
-        Document {
-            inner: self.inner.empty_document(),
-            parse_warnings: Vec::new(),
-        }
+        Document::handle(self.inner.empty_document(), Vec::new())
     }
 
     /// The quill's example document, `undefined` when no field or body declares
@@ -835,10 +835,7 @@ impl Quill {
     /// kept.
     #[wasm_bindgen(js_name = exampleDocument)]
     pub fn example_document(&self) -> Option<Document> {
-        self.inner.example_document().map(|inner| Document {
-            inner,
-            parse_warnings: Vec::new(),
-        })
+        self.inner.example_document().map(|inner| Document::handle(inner, Vec::new()))
     }
 
     /// Seed a starter `Document` from the schema: the main card plus one instance
@@ -847,10 +844,7 @@ impl Quill {
     /// field's blank).
     #[wasm_bindgen(js_name = seedDocument)]
     pub fn seed_document(&self) -> Document {
-        Document {
-            inner: self.inner.seed_document(),
-            parse_warnings: Vec::new(),
-        }
+        Document::handle(self.inner.seed_document(), Vec::new())
     }
 
     /// Seed a starter composable `Card` of the given kind (carries `$kind`),
@@ -893,10 +887,7 @@ impl Document {
         let qr: quillmark_core::version::QuillReference = quill_ref
             .parse()
             .map_err(|e: String| invalid_quill_reference("Document", quill_ref, &e))?;
-        Ok(Document {
-            inner: quillmark_core::document::Document::new(qr),
-            parse_warnings: Vec::new(),
-        })
+        Ok(Document::handle(quillmark_core::document::Document::new(qr), Vec::new()))
     }
 
     /// Parse a whole document's markdown, quill-free: the document-level
@@ -909,10 +900,7 @@ impl Document {
             .map_err(WasmError::from)
             .map_err(|e| e.to_js_value())?;
 
-        Ok(Document {
-            inner: output.document,
-            parse_warnings: output.warnings,
-        })
+        Ok(Document::handle(output.document, output.warnings))
     }
 
     /// Reconstruct a `Document` from a versioned storage DTO string produced by
@@ -926,10 +914,7 @@ impl Document {
         let parsed = quillmark_core::document::Document::from_stored(json).map_err(|e| {
             WasmError::from(format!("fromStored: invalid storage DTO: {e}")).to_js_value()
         })?;
-        Ok(Document {
-            inner: parsed.document,
-            parse_warnings: parsed.warnings,
-        })
+        Ok(Document::handle(parsed.document, parsed.warnings))
     }
 
     /// Read the storage version tag from a raw storage DTO string without a full
@@ -1083,7 +1068,7 @@ impl Document {
                 by_path.insert(parse_path(&path)?, patches);
             }
         }
-        let out = self.inner.reattach_in(&selectors, &by_path, quillmark_automerge::content::units::Utf16);
+        let out = self.inner.reattach(&selectors, &by_path);
         let js = ReattachedJs {
             reattached: out.reattached.into_iter().map(Into::into).collect(),
             orphaned: out.orphaned.into_iter().map(Into::into).collect(),
@@ -1106,10 +1091,7 @@ impl Document {
     /// other. A clone that places cards under an actor calls `setActor`.
     #[wasm_bindgen(js_name = clone)]
     pub fn clone_doc(&self) -> Document {
-        Document {
-            inner: self.inner.fork(),
-            parse_warnings: self.parse_warnings.clone(),
-        }
+        Document::handle(self.inner.fork(), self.parse_warnings.clone())
     }
 
     #[wasm_bindgen(getter, js_name = quillRef)]
@@ -1553,8 +1535,6 @@ impl Document {
             None => base.body(),
             Some(field) => base.field(field),
         };
-        let mut receipt = receipt;
-        receipt.patches = self.inner.patches(&receipt.before, &receipt.heads, quillmark_automerge::content::units::Utf16);
         let receipt = content::receipt_js(receipt, &path, card_id);
         serialize_or_throw(&receipt, "revise")
     }

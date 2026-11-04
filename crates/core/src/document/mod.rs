@@ -10,6 +10,7 @@ use quillmark_automerge::content::lines::export::ExportLoss;
 use quillmark_automerge::content::lines::import::{Imported, from_markdown as import_markdown};
 use quillmark_automerge::content::lines::model::Lines;
 use quillmark_automerge::content::model::Content;
+use quillmark_automerge::content::units::HostUnits;
 
 use crate::error::ParseError;
 use crate::error::{Diagnostic, Severity};
@@ -1007,6 +1008,24 @@ pub struct Document {
     cards: Vec<Card>,
     mints: card_id::ActorMints,
     held: Bound,
+    units: Units,
+}
+
+/// The units the handle's host counts text offsets in. No part of what the
+/// document equals.
+#[derive(Clone, Copy, Default)]
+struct Units(HostUnits);
+
+impl PartialEq for Units {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl std::fmt::Debug for Units {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 /// The Automerge document a [`Document`] is held in, once it is; the cards
@@ -1066,7 +1085,7 @@ impl Document {
     /// A document holding `main` and `cards`, held in an Automerge
     /// document from its first write, save or [`bind`](Self::bind) on.
     pub(crate) fn assembled(main: Card, cards: Vec<Card>, mints: card_id::ActorMints) -> Self {
-        Self { main, cards, mints, held: Bound(None) }
+        Self { main, cards, mints, held: Bound(None), units: Units::default() }
     }
 
     /// The document `doc` holds, its cards read from it.
@@ -1075,7 +1094,7 @@ impl Document {
         if let Some(actor) = mints.actor() {
             doc.set_actor(actor);
         }
-        Ok(Self { main, cards, mints, held: Bound(Some(doc)) })
+        Ok(Self { main, cards, mints, held: Bound(Some(doc)), units: Units::default() })
     }
 
     /// The actor this handle writes under, where one was set: each write's
@@ -1111,13 +1130,30 @@ impl Document {
             cards: self.cards.clone(),
             mints: card_id::ActorMints::default(),
             held: Bound(self.held.0.as_ref().map(quillmark_automerge::model::Doc::fork)),
+            units: self.units,
         }
     }
 
     /// This document's cards alone, held in no Automerge document: a copy
     /// to read, render or store that carries no history.
     pub fn snapshot(&self) -> Document {
-        Self::assembled(self.main.clone(), self.cards.clone(), self.mints.clone())
+        let mut doc = Self::assembled(self.main.clone(), self.cards.clone(), self.mints.clone());
+        doc.units = self.units;
+        doc
+    }
+
+    /// The units this handle's host counts text offsets in: each write's
+    /// edit counts its offsets in them, and each receipt's patches, a
+    /// merge's included, count theirs. Scalars until
+    /// [`set_units`](Self::set_units).
+    pub fn units(&self) -> HostUnits {
+        self.units.0
+    }
+
+    /// Counts text offsets in `units` from now on, as the host does: the
+    /// WASM binding sets UTF-16 on every handle it makes.
+    pub fn set_units(&mut self, units: HostUnits) {
+        self.units = Units(units);
     }
 
     /// Holds the document in an Automerge document where it is not yet,
@@ -1203,7 +1239,7 @@ impl Document {
             (Some(_), None) => return,
         }
         doc.commit();
-        held::refresh(doc, &before, &mut self.main, &mut self.cards, false, quillmark_automerge::content::units::Scalars);
+        held::refresh(doc, &before, &mut self.main, &mut self.cards, false, self.units.0);
     }
 
     /// Places `card` at `index` among the composable cards.
@@ -1244,7 +1280,7 @@ impl Document {
         doc.track();
         let before = Heads::from(doc.heads());
         held::write_over(doc, (&self.main, &self.cards), (&main, &cards));
-        held::refresh(doc, &before, &mut self.main, &mut self.cards, true, quillmark_automerge::content::units::Scalars);
+        held::refresh(doc, &before, &mut self.main, &mut self.cards, true, self.units.0);
     }
 
     /// This document with each id its Automerge document gave a content part
@@ -1281,7 +1317,7 @@ impl Document {
         let before = Heads::from(doc.heads());
         doc.isolated(heads.hashes(), |d| held::write_over(d, (&then.main, &then.cards), (&wanted.main, &wanted.cards)));
         let doc = self.held.0.as_mut().expect("bound");
-        held::refresh(doc, &before, &mut self.main, &mut self.cards, true, quillmark_automerge::content::units::Scalars);
+        held::refresh(doc, &before, &mut self.main, &mut self.cards, true, self.units.0);
     }
 
     /// The document as Automerge bytes, its whole history: what a peer
@@ -1318,45 +1354,28 @@ impl Document {
     /// Takes a peer's sync message and answers what it changed; one that
     /// leaves the document outside its schema is refused and undone.
     pub fn receive_sync_message(&mut self, state: &mut SyncState, message: SyncMessage) -> Result<Receipt, EditError> {
-        self.receive_sync_message_in(state, message, quillmark_automerge::content::units::Scalars)
-    }
-
-    /// [`receive_sync_message`](Document::receive_sync_message) for a host
-    /// counting offsets in `u`.
-    pub fn receive_sync_message_in(&mut self, state: &mut SyncState, message: SyncMessage, u: impl quillmark_automerge::content::units::Units) -> Result<Receipt, EditError> {
         let before = self.heads();
         self.doc().track();
         self.doc().receive_sync_message(state, message).map_err(EditError::bad_live_bytes)?;
-        Ok(self.took(before, u))
+        Ok(self.took(before))
     }
 
     /// Takes the changes `bytes` hold, another peer's save or
     /// [`save_since`](Document::save_since), and answers what they changed.
     pub fn merge(&mut self, bytes: &[u8]) -> Result<Receipt, EditError> {
-        self.merge_in(bytes, quillmark_automerge::content::units::Scalars)
-    }
-
-    /// [`merge`](Document::merge) for a host counting offsets in `u`.
-    pub fn merge_in(&mut self, bytes: &[u8], u: impl quillmark_automerge::content::units::Units) -> Result<Receipt, EditError> {
         let before = self.heads();
         self.doc().track();
         self.doc().merge(bytes).map_err(EditError::bad_live_bytes)?;
-        Ok(self.took(before, u))
+        Ok(self.took(before))
     }
 
-    /// The receipt of the changes taken since `before`, its patches counted
-    /// in `u`, each card part they reached followed or read again.
-    fn took(&mut self, before: Heads, u: impl quillmark_automerge::content::units::Units) -> Receipt {
+    /// The receipt of the changes taken since `before`, each card part they
+    /// reached followed or read again.
+    fn took(&mut self, before: Heads) -> Receipt {
         let doc = self.held.0.as_mut().expect("bound");
-        let patches = held::refresh(doc, &before, &mut self.main, &mut self.cards, true, u);
+        let patches = held::refresh(doc, &before, &mut self.main, &mut self.cards, true, self.units.0);
         let heads = Heads::from(doc.heads());
         Receipt { before, heads, patches, dropped_anchors: Vec::new(), repairs: Vec::new(), warnings: Vec::new() }
-    }
-
-    /// Automerge's patches taking the document from `before` to `heads`, as
-    /// a [`Receipt`] spells them, text indexes counted in `u`.
-    pub fn patches(&mut self, before: &Heads, heads: &Heads, u: impl quillmark_automerge::content::units::Units) -> Vec<serde_json::Value> {
-        self.doc().patches_between(before.hashes(), heads.hashes(), u)
     }
 
     /// Create a blank document: a main card carrying only `$quill`, an empty

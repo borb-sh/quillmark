@@ -2,7 +2,6 @@
 //! heads, and the sync protocol a peer runs against it.
 
 use super::{Document, edit_error_to_js, serialize_or_throw};
-use quillmark_automerge::content::units::Utf16;
 use quillmark_core::document::{EditError, Heads, LoadError, SyncMessage};
 use quillmark_core::path::DocPath;
 use wasm_bindgen::prelude::*;
@@ -56,7 +55,7 @@ impl Document {
     /// this build reads, throw `edit::bad_live_bytes`.
     pub fn load(bytes: &[u8]) -> Result<Document, JsValue> {
         let inner = quillmark_core::document::Document::load(bytes).map_err(|e| edit_error_to_js(&e, &DocPath::main()))?;
-        Ok(Document { inner, parse_warnings: Vec::new() })
+        Ok(Document::handle(inner, Vec::new()))
     }
 
     /// The document as Automerge bytes, its whole history: what a peer `load`s
@@ -101,7 +100,7 @@ impl Document {
     /// `edit::bad_live_bytes` and change nothing.
     #[wasm_bindgen(unchecked_return_type = "Receipt")]
     pub fn merge(&mut self, bytes: &[u8]) -> Result<JsValue, JsValue> {
-        let receipt = self.inner.merge_in(bytes, Utf16).map_err(|e| edit_error_to_js(&e, &DocPath::main()))?;
+        let receipt = self.inner.merge(bytes).map_err(|e| edit_error_to_js(&e, &DocPath::main()))?;
         serialize_or_throw(&super::content::receipt_js(receipt, &DocPath::main(), None), "merge")
     }
 
@@ -119,7 +118,7 @@ impl Document {
     #[wasm_bindgen(js_name = receiveSyncMessage, unchecked_return_type = "Receipt")]
     pub fn receive_sync_message(&mut self, state: &mut SyncState, message: &[u8]) -> Result<JsValue, JsValue> {
         let message = SyncMessage::decode(message).map_err(refused)?;
-        let receipt = self.inner.receive_sync_message_in(&mut state.inner, message, Utf16).map_err(|e| edit_error_to_js(&e, &DocPath::main()))?;
+        let receipt = self.inner.receive_sync_message(&mut state.inner, message).map_err(|e| edit_error_to_js(&e, &DocPath::main()))?;
         serialize_or_throw(&super::content::receipt_js(receipt, &DocPath::main(), None), "receiveSyncMessage")
     }
 }

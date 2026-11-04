@@ -494,7 +494,7 @@ fn write(
     let path = value_path(&card_base, addr);
     let to_js = |e: EditError| edit_error_to_js(&e, &card_base);
     let mut card = card_mut_of(doc, addr)?;
-    let receipt: Receipt = card.write_in(target(addr), edit, opts, Utf16).map_err(to_js)?;
+    let receipt: Receipt = card.write(target(addr), edit, opts).map_err(to_js)?;
     let card_id = card.id().map(str::to_string);
     Ok(receipt_js(receipt, &path, card_id))
 }
@@ -631,7 +631,7 @@ impl Document {
         let card_base = card_base(&self.inner, &addr);
         let path = value_path(&card_base, &addr);
         let mut card = card_mut_of(&mut self.inner, &addr)?;
-        let receipt = card.undo_between_in(target(&addr), &before, &heads, Utf16).map_err(|e| edit_error_to_js(&e, &card_base))?;
+        let receipt = card.undo_between(target(&addr), &before, &heads).map_err(|e| edit_error_to_js(&e, &card_base))?;
         let card_id = card.id().map(str::to_string);
         serialize_or_throw(&receipt_js(receipt, &path, card_id), "undo")
     }

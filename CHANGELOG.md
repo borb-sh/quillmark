@@ -12,6 +12,12 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   `Document::fork`) is a new peer, a random Automerge actor and no actor
   set, whose writes merge back into its source. `mapPos` is gone from the
   WASM surface.
+- refactor(core)!: **a document handle carries its host's units.**
+  `Document::set_units(HostUnits)` sets the units a handle's host counts
+  offsets in, scalars by default; every write, `undo`, `reattach`, `merge`
+  and `receive_sync_message` counts in them, and the WASM binding sets
+  UTF-16 on every handle. `CardMut::write_in` and `Document::reattach_in`
+  are gone.
 - feat(core)!: **a stored row names each record by place.** A content
   value's blocks, containers and islands store as `p0`, `p1`, … rather than
   the live document's Automerge object ids, so equal content stores as equal
