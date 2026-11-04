@@ -221,14 +221,19 @@ A block, container or island id inside a document is the Automerge object id of 
 
 Formatting and anchors are Automerge marks, so they ride the text's own history and merge as its characters do. A mark carries the expand flags of its growth default (§ Changes); an anchor expands at neither edge.
 
-A content write builds its change against the value its writer read and lowers it as one Automerge change. A base the value has moved on from names the heads a write left the hash at (`Base::Hash`), or the value read (`Base::Content`), found by its hash among the heads the document noted:
+A content write builds its change against the value its writer read and lowers it as one Automerge change. A write names what its writer read by the document's heads then (`WriteOptions.heads`, as `Document::heads` answers them), and a write at heads the document has moved on from:
 
-- The write is built on the value at those heads and lowered there, so it is concurrent with every change since, and merges with them as Automerge merges. Nothing refuses: text both writers edited keeps both edits, interleaved as Automerge orders them; a block record, container, island's props or card field both set reads as the later write in Automerge's order, last writer wins; and a record the writer set that a change since deleted stays deleted.
-- A write at earlier heads makes its ops after every op the document holds, so a stale anchor or mark placed at text typed since at its start takes that text in, and a stale anchor whose text a change since deleted lands on nothing and is named dropped.
-- The merged state reads through repair (§ "Merge repair"), which nothing writes back.
-- The heads are noted per hash a write left, per flush of the view, and per body and content field's hash at the heads the document is built or loaded at, so a base read before any write is found, the latest `HISTORY` (`crates/core/src/document/mod.rs`) kept, and a `Base::Content` is looked for among them as a `Base::Hash` is. A base no noted heads reach refuses with `edit::stale_base`, as every base read before a document came from its stored row does (`Document::from_stored` holds no history); bytes keep it.
+- is built on the value at those heads and lowered there, so it is concurrent with every change since, and merges with them as Automerge merges. Nothing refuses: text both writers edited keeps both edits, interleaved as Automerge orders them; a block record, container, island's props or card field both set reads as the later write in Automerge's order, last writer wins; and a record the writer set that a change since deleted stays deleted.
+- makes its ops after every op the document holds, so a stale anchor or mark placed at text typed since at its start takes that text in, and a stale anchor whose text a change since deleted lands on nothing and is named dropped.
+- reads through repair (§ "Merge repair"), which nothing writes back.
 
-The receipt's `applied` is the change from the value before the write to the merge, `rebased` is true where the write landed at earlier heads, `droppedAnchors` names every anchor the value held before the write and the merge holds nowhere, besides one the write's own `anchor` step removed, and `movedAnchors` each one the merge moved.
+Heads are the only base. The document holds every heads its history reaches, so heads read at any point of a session resolve, a thousand keystrokes later as readily as one; heads the history does not hold refuse with `edit::stale_base`, and the writer reads again. A session lasts as long as its peers share one history:
+
+- `Document::load` of a `save`, and a peer synced from it, hold every heads the saving document held.
+- A reload from the stored row (`Document::from_stored`) starts a new session, in which no heads read before the reload resolve.
+- Two processes loading one row build one origin, since a document's first change is written under one actor at time 0, so peers rejoining from the row share it and differ only in the changes since.
+
+The receipt's `applied` is the change from the value before the write to the merge, `heads` the document's heads after it, `droppedAnchors` names every anchor the value held before the write and the merge holds nowhere, besides one the write's own `anchor` step removed, and `movedAnchors` each one the merge moved.
 
 `Document::save` answers the whole document as Automerge bytes, its history included, and `Document::load` reads them back. `heads` answers the document's revision, `save_since(heads)` the changes past it, and `merge(bytes)` takes another peer's changes. `generate_sync_message` and `receive_sync_message` run Automerge's sync protocol with a peer over the whole document. Bytes or a message that leave the document outside its schema refuse with `edit::bad_live_bytes` and a `reason`, and the document and the sync state stay as they were:
 
@@ -275,22 +280,21 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 - `Card::revise` builds it, at the body or a field.
 - The typed writer's revise (`TypedWriter::revise`, WASM `writer.revise`) is it, a field read under its schema's codec and then conformed.
 - `Document::revise` runs it on each body and content field of each card it aligns. A value whose markdown imports to one that does not validate keeps its stored value, with an `edit::content_apply` warning at its address.
-- A typed revise under a whole-document base (`DocumentBase::Stored`) lands the writer's document at the heads it was read at, merged with every change since ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive").
+- A typed revise of the whole document at the heads it was read (`TypedWriter::revise_document_at`) lands the writer's document there, merged with every change since ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive").
 
-A binding's write names its card by `$id`, or the main card, never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, the base cannot tell. An id no card holds refuses with `edit::unknown_card_id`.
+A binding's write names its card by `$id`, or the main card, never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, nothing tells the write. An id no card holds refuses with `edit::unknown_card_id`.
 
-Each write answers a `Receipt`: `applied`, the change in its normalized form, which `invert(applied, before)` undoes; `hash`, the value's new hash and the next write's base; `heads`, the document's heads after the write, empty for a card no document holds; `droppedAnchors`; `movedAnchors`; a revise's import warnings; `rebased`, true where the write merged with a change since its base; and `minted`, each placeholder and the id the write gave it. A write's options are `base` and `actor` (`WriteOptions`); the actor scopes every id the write mints (§ Ids), and one that is not an actor refuses with `edit::invalid_actor`.
+Each write answers a `Receipt`: `applied`, the change in its normalized form, which `invert(applied, before)` undoes; `heads`, the document's heads after the write and the next write's base, empty for a card no document holds; `droppedAnchors`; `movedAnchors`; a revise's import warnings; and `minted`, each placeholder and the id the write gave it. A write's options are `heads` and `actor` (`WriteOptions`); the actor scopes every id the write mints (§ Ids), and one that is not an actor refuses with `edit::invalid_actor`.
 
-**Pass the base.** `base` is the hash the writer read (`hash(addr)`), or on the typed writer's `revise` the value itself (`Base::Content`). Without one, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. A value that no longer hashes to the base merges the write with what changed since (§ "Live state and merge"):
+**Pass the heads.** `heads` is the document's revision when the writer read (`Document::heads`). Without it, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. A write at heads the document has moved on from merges with what changed since (§ "Live state and merge"):
 
-- A base merges where the document's history reaches it: bytes carry the history, and a document loaded from its stored row has none, so a `baseHash` read before its load refuses with `edit::stale_base`.
-- A revise or replace diffs from the value the base names, so an edit made since is not read as text the writer deleted.
-- Each block, container and island id a revise or replace introduces is minted afresh where the value now holds it, past the ids of the value the base names, the value now and the write (`diff::revise_holding`, `diff::replace_holding`), a replace's own id among them. Under an actor, each id such a write minted rather than took from its writer moves under the actor (`mint::remint`).
+- Heads merge where the document's history holds them: a session's bytes carry the history, and a document loaded from its stored row has none, so heads read before its load refuse with `edit::stale_base`.
+- A revise or replace diffs from the value as the heads read it, so an edit made since is not read as text the writer deleted.
+- Each block, container and island id a revise or replace introduces is minted afresh where the value now holds it, past the ids of the value the heads read, the value now and the write (`diff::revise_holding`, `diff::replace_holding`), a replace's own id among them. Under an actor, each id such a write minted rather than took from its writer moves under the actor (`mint::remint`).
 - Minting reads those two values alone, so equal values written over equal values by one actor, or none, store equal bytes, and `normalize` predicts what `replace` stores up to the first block's id, which a replace keeps, and the actor's ids.
 - Two stale writes that each add a paragraph both land, and no id is minted twice.
-- A write that sets what a change since set lands as the later write; a base no noted heads reach refuses with `edit::stale_base`, carrying `current`, and the writer reads again.
+- A write that sets what a change since set lands as the later write; heads the document's history does not hold refuse with `edit::stale_base`, and the writer reads again.
 - A change may hold at most `MAX_CHANGE_STEPS` (16384) steps, nested ones counted; a writer splits a larger edit into several changes.
-- A card keeps the hash each write left on its body or field, which the next write reads as the value's hash instead of hashing it again; a write with no base hashes nothing before it applies. Any other write to the body or the payload forgets it.
 
 `diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line and then by word, and a revise keeps its anchors through the same diff, but for one whose tag the writer kept, which stands where the tag does.
 

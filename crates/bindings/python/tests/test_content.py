@@ -13,16 +13,19 @@ MD = "~~~card-yaml\n$quill: test_quill\n~~~\n\nhello world\n"
 def test_a_receipt_carries_the_normalized_change_which_invert_undoes():
     doc = Document.parse(MD)
     before = doc.read()
-    base = doc.hash_at()
-    receipt = doc.apply({"steps": [{"splice": {"at": 0, "delete": "hello", "insert": "hi"}}]}, base=base)
+    heads = doc.heads()
+    receipt = doc.apply({"steps": [{"splice": {"at": 0, "delete": "hello", "insert": "hi"}}]}, heads=heads)
     assert doc.read()["text"] == "hi world"
-    assert receipt["hash"] == doc.hash_at()
+    assert receipt["heads"] == doc.heads()
     assert receipt["dropped_anchors"] == [] and receipt["warnings"] == []
-    assert receipt["rebased"] is False
-    assert doc.apply({"steps": []}, base=base)["rebased"] is True
+    doc.apply({"steps": []}, heads=heads)
+    foreign = Document.parse(MD)
+    foreign.apply({"steps": [{"splice": {"at": 0, "insert": "elsewhere "}}]})
     with raises_edit_code("edit::stale_base"):
-        doc.apply({"steps": []}, base="never-read")
-    doc.apply(invert(receipt["applied"], before), base=receipt["hash"])
+        doc.apply({"steps": []}, heads=foreign.heads())
+    with pytest.raises(ValueError):
+        doc.apply({"steps": []}, heads=["never-read"])
+    doc.apply(invert(receipt["applied"], before), heads=receipt["heads"])
     assert doc.read() == before
 
 
@@ -50,15 +53,14 @@ def test_a_quoted_step_refuses_text_its_writer_did_not_read():
     assert receipt["applied"]["steps"][0]["mark"]["quote"] == "world"
 
 
-def test_a_stale_base_merges_with_the_change_since():
+def test_a_write_at_stale_heads_merges_with_the_change_since():
     doc = Document.parse(MD)
-    base = doc.hash_at()
+    heads = doc.heads()
     doc.apply({"steps": [{"splice": {"at": 0, "insert": "XX "}}]})
-    receipt = doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]}, base=base)
-    assert receipt["rebased"] is True
+    doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]}, heads=heads)
     assert doc.read()["anchors"] == [{"id": "a1", "start": 9, "end": 14}]
     doc.apply({"steps": [{"splice": {"at": 9, "delete": "w", "insert": "W"}}]})
-    assert doc.apply({"steps": [{"splice": {"at": 6, "delete": "world", "insert": "there"}}]}, base=base)["rebased"] is True
+    doc.apply({"steps": [{"splice": {"at": 6, "delete": "world", "insert": "there"}}]}, heads=heads)
     assert doc.read()["text"] in ("XX hello thereW", "XX hello Wthere")
 
     block = doc.read()["blocks"][0]["id"]
@@ -66,9 +68,9 @@ def test_a_stale_base_merges_with_the_change_since():
     def heading(level):
         return {"steps": [{"setBlock": {"id": block, "kind": "heading", "attrs": {"level": level}}}]}
 
-    read = doc.hash_at()
+    read = doc.heads()
     doc.apply(heading(2))
-    assert doc.apply(heading(3), base=read)["rebased"] is True
+    doc.apply(heading(3), heads=read)
     assert doc.read()["blocks"][0]["attrs"] == {"level": 3}
 
 
@@ -129,13 +131,13 @@ def test_a_content_write_names_its_card_by_id_wherever_it_moved():
         "~~~card-yaml\n$kind: note\n~~~\n\nHello\n"
     )
     card = doc.cards[1]["id"]
-    base = doc.hash_at(card=card)
+    heads = doc.heads()
     doc.move_card(1, 0)
     with pytest.raises(ValueError):
-        doc.apply({"steps": []}, card=1, base=base)
+        doc.apply({"steps": []}, card=1, heads=heads)
     with raises_edit_code("edit::unknown_card_id"):
         doc.apply({"steps": []}, card="nobody")
-    doc.apply({"steps": [{"splice": {"at": 5, "insert": " world"}}]}, card=card, base=base)
+    doc.apply({"steps": [{"splice": {"at": 5, "insert": " world"}}]}, card=card, heads=heads)
     assert [(c["id"] == card, doc.read(card=c["id"])["text"]) for c in doc.cards] == [(True, "Hello world"), (False, "Hello")]
 
 

@@ -127,8 +127,6 @@ class Document:
     @overload
     def to_markdown(self, *, annotated: Literal[True]) -> AnnotatedMarkdown: ...
     def to_stored(self) -> str: ...
-    def hash(self) -> str: ...
-    def hash_at(self, field: str | None = None, card: int | str | None = None) -> str: ...
     @property
     def quill_ref(self) -> str: ...
     def set_quill_ref(self, ref_str: str) -> None: ...
@@ -178,7 +176,7 @@ class Document:
         change: Change,
         field: str | None = None,
         card: str | None = None,
-        base: str | None = None,
+        heads: list[str] | None = None,
         actor: str | None = None,
     ) -> Receipt: ...
     def revise(
@@ -186,7 +184,7 @@ class Document:
         markdown: str,
         field: str | None = None,
         card: str | None = None,
-        base: str | None = None,
+        heads: list[str] | None = None,
         actor: str | None = None,
     ) -> Receipt: ...
     def replace(
@@ -194,7 +192,7 @@ class Document:
         content: Content,
         field: str | None = None,
         card: str | None = None,
-        base: str | None = None,
+        heads: list[str] | None = None,
         actor: str | None = None,
     ) -> Receipt: ...
     def save(self) -> bytes: ...
@@ -240,16 +238,12 @@ class ReceiptDroppedAnchor(AnchorContext, total=False):
 
 class Receipt(TypedDict):
     applied: Change
-    hash: str
-    # The document's heads after the write, empty for a card no document
-    # holds.
+    # The document's heads after the write, the next write's `heads`, empty
+    # for a card no document holds.
     heads: list[str]
     dropped_anchors: list[ReceiptDroppedAnchor]
     moved_anchors: list[MovedAnchor]
     warnings: list[Diagnostic]
-    # The base was a value the field had moved on from, and the write was
-    # merged with what changed since.
-    rebased: bool
     # Each placeholder id the change gave a record it put, and the id the
     # write minted for it.
     minted: dict[str, str]
@@ -367,8 +361,6 @@ class Unchecked:
 class Writer:
     @property
     def document(self) -> Document: ...
-    def hash(self) -> str: ...
-    def hash_at(self, field: str | None = None, card: int | str | None = None) -> str: ...
     def set(self, name: str, value: Any, card: int | str | None = None) -> list[Diagnostic]: ...
     def set_all(self, fields: dict[str, Any], card: int | str | None = None) -> list[Diagnostic]: ...
     def revise(
@@ -377,15 +369,13 @@ class Writer:
         field: str | None = None,
         card: str | None = None,
         *,
-        base_hash: str | None = None,
-        base_content: dict[str, Any] | None = None,
+        heads: list[str] | None = None,
     ) -> Receipt: ...
     def revise_document(
         self,
         markdown: str,
         *,
-        base_hash: str | None = None,
-        base_stored: bytes | str | None = None,
+        heads: list[str] | None = None,
     ) -> DocumentRevised: ...
     def add_card(
         self,

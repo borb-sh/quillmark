@@ -864,19 +864,6 @@ export class DocumentWriter {
 		this.#doc = doc;
 	}
 	/**
-	 * @returns {string}
-	 */
-	hash() {
-		return this.#doc._hash(this.#quill);
-	}
-	/**
-	 * @param {import('../core/wasm.js').Addr | string} addr
-	 * @returns {string}
-	 */
-	hashAt(addr) {
-		return this.#doc._hashAt(this.#quill, addr);
-	}
-	/**
 	 * @param {string} name
 	 * @param {unknown} value
 	 * @returns {import('../core/wasm.js').Diagnostic[]}
@@ -894,7 +881,7 @@ export class DocumentWriter {
 	/**
 	 * @param {import('../core/wasm.js').Addr | string} addr
 	 * @param {string} text
-	 * @param {import('../core/wasm.js').BaseOptions} [opts]
+	 * @param {import('../core/wasm.js').HeadsOptions} [opts]
 	 * @returns {import('../core/wasm.js').Receipt}
 	 */
 	revise(addr, text, opts) {
@@ -902,7 +889,7 @@ export class DocumentWriter {
 	}
 	/**
 	 * @param {string} markdown
-	 * @param {import('../core/wasm.js').DocumentBaseOptions} [opts]
+	 * @param {import('../core/wasm.js').HeadsOptions} [opts]
 	 * @returns {import('../core/wasm.js').DocumentRevised}
 	 */
 	reviseDocument(markdown, opts) {
@@ -960,13 +947,6 @@ export class CardWriter {
 		this.#index = index;
 	}
 	/**
-	 * @param {{ field?: string } | string} [addr]
-	 * @returns {string}
-	 */
-	hashAt(addr) {
-		return this.#doc._hashAt(this.#quill, { card: this.#index, field: cardField(addr) });
-	}
-	/**
 	 * @param {string} name
 	 * @param {unknown} value
 	 * @returns {import('../core/wasm.js').Diagnostic[]}
@@ -984,11 +964,11 @@ export class CardWriter {
 	/**
 	 * @param {{ field?: string } | string} addr
 	 * @param {string} text
-	 * @param {import('../core/wasm.js').BaseOptions} [opts]
+	 * @param {import('../core/wasm.js').HeadsOptions} [opts]
 	 * @returns {import('../core/wasm.js').Receipt}
 	 */
 	revise(addr, text, opts) {
-		const based = opts != null && ('baseHash' in opts || 'baseContent' in opts);
+		const based = opts != null && 'heads' in opts;
 		const card = based ? this.#index : this.#doc.card(this.#index).id;
 		return this.#doc._revise(this.#quill, { card, field: cardField(addr) }, text, opts);
 	}

@@ -104,11 +104,10 @@ def test_writer_revise_field():
     doc = Document("sample_form@0.1.0")
     w = quill.writer(doc)
     receipt = w.revise("make it **bold**", "bio")
-    assert sorted(receipt) == ["applied", "dropped_anchors", "hash", "heads", "minted", "moved_anchors", "rebased", "warnings"]
+    assert sorted(receipt) == ["applied", "dropped_anchors", "heads", "minted", "moved_anchors", "warnings"]
     assert receipt["applied"]["steps"][0]["splice"]["insert"] == "make it bold"
-    assert receipt["hash"] == w.hash_at("bio")
     assert receipt["heads"] == doc.heads()
-    assert (receipt["dropped_anchors"], receipt["moved_anchors"], receipt["warnings"], receipt["rebased"]) == ([], [], [], False)
+    assert (receipt["dropped_anchors"], receipt["moved_anchors"], receipt["warnings"]) == ([], [], [])
     assert quill.reader(doc).get("bio") == "make it **bold**"
     (dropped,) = w.revise("make it <kbd>**bold**</kbd>", "bio")["warnings"]
     assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
@@ -156,56 +155,54 @@ def test_writer_revise_document():
     assert doc.to_markdown() == before
 
 
-def test_a_base_merges_a_stale_revise_and_a_read():
-    """base_hash or base_content merges a write with a value changed since
-    the read, and a base_hash refuses one it cannot reach, naming the hash
-    now; base_stored merges a whole document as Automerge merges."""
+def test_heads_merge_a_stale_revise_and_refuse_an_unknown_one():
+    """A revise at the heads the writer read merges with the value changed
+    since; heads the history does not hold refuse; a document revise at
+    heads merges the whole document as Automerge merges."""
     quill = richtext_quill()
     doc = quill.parse("~~~\n$quill: sample_form@0.1.0\n~~~\n\nAlpha.\n\nBeta.\n")
     w = quill.writer(doc)
-    read, stored, hash = doc.to_markdown(), doc.save(), w.hash()
-    base = doc.read()
-    body_hash = w.hash_at()
-    assert body_hash == doc.hash_at()
-    assert w.revise("Alpha, edited.\n\nBeta.")["rebased"] is False
-    merged = w.revise("Alpha.\n\nBeta, mine.", base_content=base)
-    assert merged["rebased"] is True
+    read, first = doc.to_markdown(), doc.heads()
+    w.revise("Alpha, edited.\n\nBeta.")
+    w.revise("Alpha.\n\nBeta, mine.", heads=first)
     assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, mine.\n")
     w.revise("Alpha, edited.\n\nBeta.")
-    read_hash = w.hash_at()
+    read_heads = doc.heads()
     w.revise("Alpha, edited.\n\nBeta, two.")
-    assert w.revise("Alpha, again.\n\nBeta.", base_hash=read_hash)["rebased"] is True
+    w.revise("Alpha, again.\n\nBeta.", heads=read_heads)
     assert doc.to_markdown().endswith("Alpha, again.\n\nBeta, two.\n")
     w.revise("Alpha, edited.\n\nBeta.")
+    foreign = quill.parse("~~~\n$quill: sample_form@0.1.0\n~~~\n\nElsewhere.\n")
+    foreign.revise("Elsewhere, edited.")
     with raises_edit_code("edit::stale_base") as exc_info:
-        w.revise("Other.", base_hash="never-read")
-    assert exc_info.value.diagnostics[0].args == {"current": doc.hash_at()}
+        w.revise("Other.", heads=foreign.heads())
+    assert exc_info.value.diagnostics[0].args == {}
     with raises_edit_code("edit::stale_base"):
-        w.revise_document(read, base_hash=hash)
-    w.revise_document(read.replace("Beta.", "Beta, rewritten."), base_stored=stored)
+        w.revise_document(read, heads=foreign.heads())
+    w.revise_document(read.replace("Beta.", "Beta, rewritten."), heads=first)
     assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, rewritten.\n")
-    w.revise_document(read.replace("Beta.", "Beta, mine."), base_stored=stored)
+    w.revise_document(read.replace("Beta.", "Beta, mine."), heads=first)
     assert doc.to_markdown().endswith(("Beta, rewritten, mine.\n", "Beta, mine, rewritten.\n"))
     with pytest.raises(ValueError):
-        w.revise("x", base_hash=hash, base_content=base)
-    with pytest.raises(ValueError):
-        w.revise_document(read, base_hash=hash, base_stored=stored)
+        w.revise("x", heads=["never-read"])
 
 
-def test_a_field_hash_reads_through_the_schema():
-    """A richtext field hashes its content whether it rests as a markdown
-    string or as conformed content, so a conform between the read and the
-    write does not stale the base; an undeclared name raises."""
+def test_a_row_starts_a_new_session_and_bytes_continue_one():
+    """Heads read before a document was stored as its row do not resolve on
+    the document loaded from it; a peer loaded from the bytes holds them."""
     quill = richtext_quill()
-    doc = Document.parse("~~~\n$quill: sample_form@0.1.0\nbio: Hello *world*\n~~~\n")
+    doc = quill.parse("~~~\n$quill: sample_form@0.1.0\nbio: Hello *world*\n~~~\n\nBody.\n")
     w = quill.writer(doc)
-    hash, whole = w.hash_at("bio"), w.hash()
-    assert hash == doc.hash_at("bio")
-    quill.conform(doc)
-    assert (w.hash_at("bio"), w.hash()) == (hash, whole)
-    w.revise("Hello _world_, hi", "bio", base_hash=hash)
+    read = doc.heads()
+    w.revise("Other body.")
+    reloaded = Document.from_stored(doc.to_stored())
+    with raises_edit_code("edit::stale_base"):
+        quill.writer(reloaded).revise("Mine.", heads=read)
+    peer = Document.load(doc.save())
+    quill.writer(peer).revise("Hello _world_, hi", "bio", heads=read)
+    assert quill.reader(peer).get("bio") == "Hello *world*, hi"
     with raises_edit_code("edit::unknown_field"):
-        w.hash_at("nope")
+        quill.writer(peer).revise("x", "nope", heads=read)
 
 
 def test_an_anchor_survives_the_field_and_document_revises():
@@ -480,5 +477,4 @@ def test_a_text_field_revise_answers_one_splice_over_its_literal_text():
     w.revise("a \U0001F600 \\*b\\*", "title")
     receipt = w.revise("a \U0001F600 \\*b\\* c", "title")
     assert receipt["applied"] == {"steps": [{"splice": {"at": 9, "delete": "", "insert": " c", "removed": {}}}]}
-    assert receipt["hash"] == w.hash_at("title")
     assert w.revise("a \U0001F600 \\*b\\* c", "title")["applied"] == {"steps": []}

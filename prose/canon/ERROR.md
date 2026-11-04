@@ -98,19 +98,17 @@ peer of the render-path namespaces. Identity is the code, never message text:
 routing coercion-vs-undeclared is `edit::field_coercion_failed` vs.
 `edit::unknown_field`, read off `diagnostics[0].code`.
 
-A revise guarded by what its writer read (a `Base`) refuses under one more:
-`edit::stale_base` when the value no longer hashes to the writer's base and
-the document's history does not reach it (every base read before the
-document was loaded from its stored row, which holds no history), carrying
-`current`, the hash of the value now: a writer reads the value again and
-writes from it. A base the history reaches merges, as Automerge merges, and
-refuses nothing ([CONTENT.md](CONTENT.md) § "Live state and merge"). A
-refusal on a field anchors at the field. The whole-document revise raises it
-through `BoundParseError::Base`, as it raises a parse failure, before any
-mutation.
+A write at the heads its writer read refuses under one more:
+`edit::stale_base` when the document's history does not hold those heads
+(every heads read before the document was loaded from its stored row, which
+holds no history): a writer reads the document again and writes from it.
+Heads the history holds merge, as Automerge merges, and refuse nothing
+([CONTENT.md](CONTENT.md) § "Live state and merge"). A refusal on a field
+anchors at the field. The whole-document revise raises it through
+`BoundParseError::Edit`, as it raises a parse failure, before any mutation.
 
-The content writes (`apply`, `revise`, `replace`) take a `base` hash, which
-merges or stales as above. Bytes or a sync message the document cannot take
+The content writes (`apply`, `revise`, `replace`) take `heads`, which merge
+or stale as above. Bytes or a sync message the document cannot take
 are `edit::bad_live_bytes`, carrying the `reason` (`decode`, `shape`,
 `schema`, and `apply` for a sync message that decodes but does not apply);
 core's `Document::load`, `merge` and `receive_sync_message` answer it as
@@ -592,7 +590,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::too_many_marks` | `count`, `max` | structured |
 | `edit::too_many_anchors` | `count`, `max` | structured |
 | `edit::invalid_payload` | — | fallback |
-| `edit::stale_base` | `current` | structured |
+| `edit::stale_base` | — | structured |
 | `edit::drops_ext_island` | `island`, `type` | structured |
 | `edit::invalid_actor` | `actor` | structured |
 | `edit::bad_live_bytes` | `reason` | structured |

@@ -13,7 +13,7 @@ use quillmark_content::structural::{self, StructuralEdit, Wrap};
 use quillmark_content::model::Content;
 use quillmark_content::units::{self, Utf16};
 use quillmark_content::wire::ParseError;
-use quillmark_core::document::{Card, CardMut, Edit, EditError, Receipt, Target, WriteOptions, check_change, check_content_value};
+use quillmark_core::document::{Card, CardMut, Edit, EditError, Heads, Receipt, Target, WriteOptions, check_change, check_content_value};
 use quillmark_core::path::DocPath;
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
@@ -166,9 +166,9 @@ export type Step =
 
 /**
  * What a write did. `applied` is the change in its normalized form, which
- * `invert(applied, before)` undoes; `hash` is the value's new hash, the next
- * write's `base`; `heads` is the document's heads after the write, empty for
- * a card no document holds. `droppedAnchors` names each anchor the value held and holds
+ * `invert(applied, before)` undoes; `heads` is the document's heads after the
+ * write, the next write's `heads`, empty for a card no document holds.
+ * `droppedAnchors` names each anchor the value held and holds
  * nowhere now, as it read before: every one a `revise` or `replace` lost, and
  * for an `apply` every one but those its `anchor` steps removed.
  * `movedAnchors` names each surviving one the write moved, a point included,
@@ -178,19 +178,16 @@ export type Step =
  * its text or the eight characters either side read otherwise.
  * `warnings` holds a `parse::dropped_construct` per construct a revise's
  * markdown dropped.
- * `rebased` says the write's `base` was a value the field had moved on from,
- * and the write was merged with what changed since. `minted` maps each
+ * `minted` maps each
  * placeholder the change gave a record it put to the id the write minted for
  * it; a structural edit's own are `"?0"`, `"?1"` and on, in the order it puts them.
  */
 export interface Receipt {
     applied: Change;
-    hash: string;
     heads: string[];
     droppedAnchors: DroppedAnchor[];
     movedAnchors: MovedAnchor[];
     warnings: Diagnostic[];
-    rebased: boolean;
     minted: Record<string, string>;
 }
 
@@ -212,12 +209,13 @@ export interface DroppedAnchor extends AnchorContext {
     slot?: string;
 }
 
-/** `base` is the hash a writer read. A value that has changed since merges
- *  the write with the change as Automerge merges (CONTENT.md § "Live state
- *  and merge"), refusing it with `edit::stale_base` where the document's
- *  history does not reach that hash, as for any base read before it was
- *  loaded from its stored row. Pass it: a write without one
- *  lands over whatever the value now holds.
+/** `heads` is the document's revision the writer read (`doc.heads()`), and
+ *  the write's offsets are into the value as it read then. The write lands
+ *  at those heads and merges with every change since as Automerge merges
+ *  (CONTENT.md § "Live state and merge"). Heads the document's history does
+ *  not hold, as any read before the document was loaded from its stored row,
+ *  throw `edit::stale_base`. Pass it: a write without one lands over
+ *  whatever the value now holds.
  *
  *  `actor` names the writer, one per live session: the write writes under
  *  that Automerge actor, so each id it mints is an object id under it and two
@@ -226,7 +224,7 @@ export interface DroppedAnchor extends AnchorContext {
  *  actor is 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, as a
  *  card placement's is; another throws `edit::invalid_actor`. */
 export interface WriteOptions {
-    base?: string;
+    heads?: string[];
     actor?: string;
 }
 
@@ -328,12 +326,10 @@ export interface Repaired {
 #[serde(rename_all = "camelCase")]
 pub(super) struct ReceiptJs {
     applied: Value,
-    hash: String,
     heads: Vec<String>,
     dropped_anchors: Vec<DroppedAnchorJs>,
     moved_anchors: Vec<MovedJs>,
     warnings: Vec<Diagnostic>,
-    rebased: bool,
     minted: std::collections::BTreeMap<String, String>,
 }
 
@@ -357,45 +353,50 @@ struct MovedJs {
     reason: &'static str,
 }
 
-/// A `WriteOptions` from JS: the `base` the writer read and its `actor`.
+/// A `WriteOptions` from JS: the `heads` the writer read and its `actor`.
 struct WriteOpts {
-    base: Option<String>,
+    heads: Option<Heads>,
     actor: Option<String>,
 }
 
 impl WriteOpts {
     /// The options of `verb`, which also reads the keys `extra` names.
     fn from_js(opts: &JsValue, verb: &str, extra: &[&str]) -> Result<WriteOpts, JsValue> {
-        let mut out = WriteOpts { base: None, actor: None };
+        let mut out = WriteOpts { heads: None, actor: None };
         if opts.is_undefined() || opts.is_null() {
             return Ok(out);
         }
-        let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
-        let keys: Vec<&str> = ["base", "baseHash", "actor"].into_iter().chain(extra.iter().copied()).collect();
+        let keys: Vec<&str> = ["heads", "actor"].into_iter().chain(extra.iter().copied()).collect();
         reject_unknown_keys(opts, &keys, "options", |k| {
-            format!("{verb}: options have unknown key `{k}`; a write takes {}", keys.iter().filter(|k| **k != "baseHash").map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "))
+            format!("{verb}: options have unknown key `{k}`; a write takes {}", keys.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "))
         })?;
-        for key in ["base", "baseHash"] {
-            if !js_sys::Reflect::has(opts, &key.into()).unwrap_or(false) {
-                continue;
-            }
-            let v = js_sys::Reflect::get(opts, &key.into()).unwrap_or(JsValue::UNDEFINED);
-            // A key present with no string is a caller bug (a lookup that found
-            // nothing, a missing `await`), and would drop into an unguarded write.
-            let Some(hash) = v.as_string() else {
-                return Err(invalid(format!("{key} must be a string when given")));
-            };
-            if out.base.replace(hash).is_some() {
-                return Err(invalid("name base or baseHash, not both".into()));
-            }
-        }
+        out.heads = heads_opt(opts, verb)?;
         out.actor = string_opt(opts, "actor", verb)?;
         Ok(out)
     }
 
     fn as_ref(&self) -> WriteOptions<'_> {
-        WriteOptions { base: self.base.as_deref().map(quillmark_core::document::Base::Hash), actor: self.actor.as_deref() }
+        WriteOptions { heads: self.heads.as_ref(), actor: self.actor.as_deref() }
     }
+}
+
+/// The `heads` key of `opts`, absent where `opts` or the key is. A key
+/// present with no string array is a caller bug (a lookup that found
+/// nothing, a missing `await`), and would drop into an unguarded write.
+pub(super) fn heads_opt(opts: &JsValue, verb: &str) -> Result<Option<Heads>, JsValue> {
+    if opts.is_undefined() || opts.is_null() || !js_sys::Reflect::has(opts, &"heads".into()).unwrap_or(false) {
+        return Ok(None);
+    }
+    let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
+    let v = js_sys::Reflect::get(opts, &"heads".into()).unwrap_or(JsValue::UNDEFINED);
+    if !js_sys::Array::is_array(&v) {
+        return Err(invalid("heads must be a string array when given".into()));
+    }
+    let hex: Vec<String> = js_sys::Array::from(&v)
+        .iter()
+        .map(|h| h.as_string().ok_or_else(|| invalid("heads must be a string array when given".into())))
+        .collect::<Result<_, _>>()?;
+    Heads::decode(&hex).map(Some).map_err(|e| invalid(e.to_string()))
 }
 
 pub(super) fn target(addr: &Addr) -> Target<'_> {
@@ -536,7 +537,6 @@ pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath,
     let warnings = super::diags(receipt.diagnostics(Some(path)));
     ReceiptJs {
         applied: receipt.applied.to_value(),
-        hash: receipt.hash,
         heads: receipt.heads.encode(),
         dropped_anchors: receipt
             .dropped_anchors
@@ -563,7 +563,6 @@ pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath,
             .map(|m| MovedJs { id: m.id, before: m.before, after: m.after, reason: m.reason.name() })
             .collect(),
         warnings,
-        rebased: receipt.rebased,
         minted: receipt.minted,
     }
 }
@@ -587,11 +586,12 @@ impl Document {
     }
 
     /// **Apply** `change` to the value at `addr`, all its steps or none, and
-    /// answer the `Receipt`. `opts.base` is the hash the writer read
-    /// (`hash(addr)`), and the change's offsets are into the value it names:
-    /// one the value has moved on from merges the change with the change
+    /// answer the `Receipt`. `opts.heads` is the revision the writer read
+    /// (`doc.heads()`), and the change's offsets are into the value as it
+    /// read then: the change lands at those heads and merges with the change
     /// since as Automerge merges (CONTENT.md § "Live state and merge"),
-    /// throwing `edit::stale_base` where the document's history does not reach the hash. A refused change throws `edit::content_apply` and writes
+    /// throwing `edit::stale_base` where the document's history does not
+    /// hold them. A refused change throws `edit::content_apply` and writes
     /// nothing.
     #[wasm_bindgen(js_name = apply, unchecked_return_type = "Receipt")]
     pub fn apply(
@@ -644,7 +644,7 @@ impl Document {
         serialize_or_throw(&receipt, "replace")
     }
 
-    /// **Enter** at `at` (UTF-16, into the value `opts.base` names): split
+    /// **Enter** at `at` (UTF-16, into the value as `opts.heads` read it): split
     /// the block holding it there, the text keeping its id and the new block
     /// `opts.id`, or one the write mints and names in `minted` under `"?0"`.
     /// Answers the `Receipt`; throws as `apply`.

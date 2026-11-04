@@ -28,7 +28,7 @@
 use indexmap::IndexMap;
 
 use crate::document::edit::{overflow_errors, resolve_field_write};
-use crate::document::{Base, Card, Document, DocumentBase, DocumentRevised, EditError, Receipt, Revising, Target};
+use crate::document::{Card, Document, DocumentRevised, EditError, Heads, Receipt, Revising, Target};
 use crate::error::Diagnostic;
 use crate::path::DocPath;
 use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
@@ -116,18 +116,19 @@ impl<'a> TypedWriter<'a> {
     /// carrying escapes is a byte no-op, and its [`Receipt`]'s change is one
     /// splice over the literal text.
     ///
-    /// A `base` names what the writer read, its hash
-    /// [`hash_of`](Self::hash_of) or its [`Content`](crate::Content): a value
-    /// that has moved on rebases the write over the change since, refused
-    /// where the two touch.
+    /// `heads` names the document's heads when the writer read, as
+    /// [`Document::heads`] answered them: a content field or the body is
+    /// revised as it read then, and the change lands at those heads, merged
+    /// with every change since as Automerge merges; heads the document's
+    /// history does not hold refuse with `edit::stale_base`.
     pub fn revise<'t>(
         &mut self,
         target: impl Into<Target<'t>>,
         text: &str,
-        base: Option<Base<'_>>,
+        heads: Option<&Heads>,
     ) -> Result<Receipt, EditError> {
         let schema = Some(&self.config.main.fields);
-        revise_impl(self.doc.main_mut(), schema, target.into(), base, text)
+        revise_impl(self.doc.main_mut(), schema, target.into(), heads, text)
     }
 
     /// Replace the document with `markdown` through [`Document::revise`], then
@@ -143,37 +144,27 @@ impl<'a> TypedWriter<'a> {
         self.revise_parsed(revising)
     }
 
-    /// [`revise_document`](Self::revise_document) under `base`: the hash is
-    /// [`hash`](Self::hash), and a stored read is the document the writer
-    /// read. Each side is conformed and emitted before the merge. A stale or
-    /// conflicting write fails as [`BoundParseError::Base`] before any
-    /// mutation.
-    pub fn revise_document_against(
+    /// [`revise_document`](Self::revise_document) at `heads`, the document's
+    /// heads when the writer read: the writer's revise of the document as it
+    /// was then lands as one Automerge change at those heads, merged with
+    /// every change since as Automerge merges. A card both sides changed
+    /// merges field by field, a field both set reads as the later write, and
+    /// text both edited keeps both edits. Heads the document's history does
+    /// not hold fail as [`BoundParseError::Edit`] (`edit::stale_base`) before
+    /// any mutation.
+    pub fn revise_document_at(
         &mut self,
-        base: DocumentBase<'_>,
+        heads: &Heads,
         markdown: &str,
     ) -> Result<DocumentRevised, BoundParseError> {
-        let read = match base {
-            DocumentBase::Hash(read) => {
-                let current = self.hash()?;
-                if current != read {
-                    return Err(crate::document::BaseError::Stale { current, field: None }.into());
-                }
-                return self.revise_document(markdown);
-            }
-            DocumentBase::Stored(read) => read,
-        };
-        let mut wanted = read.clone();
-        let heads = wanted.held_heads().filter(|h| self.doc.holds(h));
-        let Some(heads) = heads else {
-            let current = self.hash()?;
-            if crate::document::base::conformed(self.config, read)?.hash() == current {
-                return self.revise_document(markdown);
-            }
-            return Err(crate::document::BaseError::Stale { current, field: None }.into());
+        if self.doc.heads() == *heads {
+            return self.revise_document(markdown);
+        }
+        let Some(mut wanted) = self.doc.at(heads) else {
+            return Err(EditError::StaleHeads { field: None }.into());
         };
         let mut revised = TypedWriter::new(self.config, &mut wanted).revise_document(markdown)?;
-        self.doc.land_at(&heads, &wanted);
+        self.doc.land_at(heads, &wanted);
         let recard = |path: &str| -> Option<String> {
             let path: crate::path::DocPath = path.parse().ok()?;
             let Some(crate::path::DocSeg::Card { index, .. }) = path.segs().first() else { return None };
@@ -188,25 +179,6 @@ impl<'a> TypedWriter<'a> {
         revised.warnings.extend(self.config.conform(self.doc).expect("the landed document carries the checked `$quill`"));
         revised.heads = self.doc.heads();
         Ok(revised)
-    }
-
-    /// The hash of the document as this quill conforms it: the [`Base::Hash`]
-    /// [`revise_document_against`](Self::revise_document_against) checks. A
-    /// document loaded without its quill hashes as its conformed self, so a
-    /// conform between the read and the write does not stale the base. Fails
-    /// as [`BoundParseError::Mismatch`] on a `$quill` this quill does not
-    /// answer to.
-    pub fn hash(&self) -> Result<String, BoundParseError> {
-        Ok(crate::document::base::conformed(self.config, self.doc)?.hash())
-    }
-
-    /// The hash of the main card's body or a field through its schema: the
-    /// [`Base::Hash`] [`revise`](Self::revise) checks. A `richtext` or `text`
-    /// field hashes its content however it is stored, ids and anchors
-    /// included, any other type its stored value. An undeclared name fails
-    /// with [`EditError::UnknownField`].
-    pub fn hash_of<'t>(&self, target: impl Into<Target<'t>>) -> Result<String, EditError> {
-        hash_impl(self.doc.main(), Some(&self.config.main.fields), target.into())
     }
 
     fn revise_parsed(&mut self, revising: Revising) -> Result<DocumentRevised, BoundParseError> {
@@ -353,16 +325,11 @@ impl<'a> CardWriter<'a> {
         &mut self,
         target: impl Into<Target<'t>>,
         text: &str,
-        base: Option<Base<'_>>,
+        heads: Option<&Heads>,
     ) -> Result<Receipt, EditError> {
         let schema = self.fields_schema();
         let card = self.doc.card_mut(self.index).expect("bound in range, and cards cannot move while this cursor holds the document");
-        revise_impl(card, schema, target.into(), base, text)
-    }
-
-    /// The card twin of [`TypedWriter::hash_of`].
-    pub fn hash_of<'t>(&self, target: impl Into<Target<'t>>) -> Result<String, EditError> {
-        hash_impl(self.card(), self.fields_schema(), target.into())
+        revise_impl(card, schema, target.into(), heads, text)
     }
 
     /// Write several fields on this card atomically; see
@@ -406,36 +373,21 @@ fn revise_impl(
     mut card: crate::document::CardMut<'_>,
     fields_schema: Option<&IndexMap<String, FieldSchema>>,
     target: Target<'_>,
-    base: Option<Base<'_>>,
+    heads: Option<&Heads>,
     text: &str,
 ) -> Result<Receipt, EditError> {
     let name = match target {
         Target::Body => {
-            return card.revise_counted(Target::Body, text, base);
+            return card.revise_counted(Target::Body, text, heads);
         }
         Target::Field(name) => name,
     };
     let Some(schema) = fields_schema.and_then(|m| m.get(name)) else {
         return Err(EditError::unknown_field(name));
     };
-    match base {
+    match heads {
         None => card.revise_field_checked(name, text, schema),
-        Some(base) => card.revise_field_checked_against(name, base, text, schema),
-    }
-}
-
-fn hash_impl(
-    card: &Card,
-    fields_schema: Option<&IndexMap<String, FieldSchema>>,
-    target: Target<'_>,
-) -> Result<String, EditError> {
-    let name = match target {
-        Target::Body => return Ok(card.body_hash()),
-        Target::Field(name) => name,
-    };
-    match fields_schema.and_then(|m| m.get(name)) {
-        Some(schema) => card.field_hash_checked(name, schema),
-        None => Err(EditError::unknown_field(name)),
+        Some(heads) => card.revise_field_checked_at(name, heads, text, schema),
     }
 }
 

@@ -2,11 +2,11 @@
 //!
 //! [`Card::write`] lands an [`Edit`] on a body or a richtext field and
 //! answers a [`Receipt`]: a [`Change`], or one built from a structural edit, a
-//! writer's markdown or a whole value. Each takes the hash its writer read as
-//! [`WriteOptions::base`]. A base the value has moved on from lowers the
-//! write into the document's Automerge document at the heads that base was
-//! left at, where it merges with what changed since as Automerge merges; a
-//! base the history does not reach is refused with `edit::stale_base`.
+//! writer's markdown or a whole value. Each takes the heads its writer read
+//! as [`WriteOptions::heads`]. A write at heads the document has moved on
+//! from lowers into the document's Automerge document at those heads, where
+//! it merges with what changed since as Automerge merges; heads the
+//! document's history does not hold refuse with `edit::stale_base`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -21,7 +21,6 @@ use quillmark_content::lines::island::IslandType;
 use quillmark_content::model::Content;
 use quillmark_content::units::{self, Units};
 
-use super::base::{Base, BaseError, content_hash};
 use super::edit::EditError;
 use super::{Card, Heads};
 use crate::value::QuillValue;
@@ -75,9 +74,12 @@ impl<'a> From<Option<&'a str>> for Target<'a> {
 /// What a write reads besides its edit.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct WriteOptions<'a> {
-    /// What the writer read, which a write over a value that has moved on
-    /// merges from.
-    pub base: Option<Base<'a>>,
+    /// The document's heads when the writer read, as `heads()` answered
+    /// them. A write at heads the document has moved on from is built on
+    /// the value at those heads and lowered there, so it merges with every
+    /// change since; heads the document's history does not hold refuse with
+    /// `edit::stale_base`. None writes on the value now.
+    pub heads: Option<&'a Heads>,
     /// Who writes: in a document, the Automerge actor the write writes
     /// under, each id it mints an object id under it; on a card outside one,
     /// the scope of each id it mints, `{actor}:{prefix}{n}`. A live client
@@ -88,28 +90,28 @@ pub struct WriteOptions<'a> {
     pub actor: Option<&'a str>,
 }
 
-impl<'a> From<Option<&'a str>> for WriteOptions<'a> {
-    /// The options of a write with this hash for its base and no actor.
-    fn from(base: Option<&'a str>) -> Self {
-        WriteOptions { base: base.map(Base::Hash), actor: None }
+impl<'a> From<Option<&'a Heads>> for WriteOptions<'a> {
+    /// The options of a write at these heads and no actor.
+    fn from(heads: Option<&'a Heads>) -> Self {
+        WriteOptions { heads, actor: None }
     }
 }
 
-impl<'a> From<Base<'a>> for WriteOptions<'a> {
-    /// The options of a write with this base and no actor.
-    fn from(base: Base<'a>) -> Self {
-        WriteOptions { base: Some(base), actor: None }
+impl<'a> From<&'a Heads> for WriteOptions<'a> {
+    /// The options of a write at these heads and no actor.
+    fn from(heads: &'a Heads) -> Self {
+        WriteOptions { heads: Some(heads), actor: None }
     }
 }
 
 /// How a write builds its change from the value its writer read.
 #[derive(Debug, Clone)]
 pub enum Edit<'a> {
-    /// A change, its offsets into the value the base names. A record it puts
+    /// A change, its offsets into the value the heads name. A record it puts
     /// may carry a [placeholder](quillmark_content::ids::is_placeholder),
     /// which the write fills and names in [`Receipt::minted`].
     Apply(Change),
-    /// A structural edit's change on the value the base names, its offsets into it;
+    /// A structural edit's change on the value the heads name, its offsets into it;
     /// the ids it opens are placeholders the write fills.
     Structural(StructuralEdit),
     /// The value rewritten as markdown: the anchors and islands whose `qm-*`
@@ -126,10 +128,8 @@ pub enum Edit<'a> {
 pub struct Receipt {
     /// The change in its normalized form, which [`change::invert`] undoes.
     pub applied: Change,
-    /// The value's new hash, the next write's base.
-    pub hash: String,
-    /// The document's heads after the write, empty for a card no document
-    /// holds.
+    /// The document's heads after the write, the next write's `heads`;
+    /// empty for a card no document holds.
     pub heads: Heads,
     /// Each anchor the value held and holds nowhere now, as it read before,
     /// with the slot that held it: every one a revise or replace lost, and
@@ -140,12 +140,9 @@ pub struct Receipt {
     pub moved_anchors: Vec<Moved>,
     /// The markdown import's warnings, for a revise.
     pub warnings: Vec<ImportWarning>,
-    /// The base was a value the field had moved on from, and the write was
-    /// merged with what changed since.
-    pub rebased: bool,
     /// Each placeholder the change gave a record it put, and the id the
     /// write minted for it past every id the value it landed on and the
-    /// value its base named hold.
+    /// value its heads named hold.
     pub minted: BTreeMap<String, String>,
     counted: Counted,
 }
@@ -172,8 +169,8 @@ impl Receipt {
         self
     }
 
-    pub(crate) fn landed(applied: Change, hash: String, dropped_anchors: Vec<Dropped>, moved_anchors: Vec<Moved>, warnings: Vec<ImportWarning>, rebased: bool, minted: BTreeMap<String, String>) -> Receipt {
-        Receipt { applied, hash, heads: Heads::default(), dropped_anchors, moved_anchors, warnings, rebased, minted, counted: Counted::Host }
+    pub(crate) fn landed(applied: Change, dropped_anchors: Vec<Dropped>, moved_anchors: Vec<Moved>, warnings: Vec<ImportWarning>, minted: BTreeMap<String, String>) -> Receipt {
+        Receipt { applied, heads: Heads::default(), dropped_anchors, moved_anchors, warnings, minted, counted: Counted::Host }
     }
 
     /// The receipt with `applied` counted in `u`. A writer's revise answers
@@ -198,19 +195,27 @@ impl Receipt {
 }
 
 impl Card {
+    /// The body's annotated read ([`to_markdown_annotated`]): the scoped read
+    /// a body revise reads back. Its anchors carry no path; the body is theirs.
+    ///
+    /// [`to_markdown_annotated`]: quillmark_content::markdown::to_markdown_annotated
+    pub(crate) fn body_annotated(&self) -> quillmark_content::lines::export::Annotated {
+        quillmark_content::markdown::to_markdown_annotated(self.body())
+    }
+
+    /// The field's annotated read, decoded as a schema-blind revise decodes
+    /// it, an absent field the empty content's: the scoped read a field
+    /// revise reads back. A field stored under `codec: "plain"` reads as its
+    /// literal text, its anchors listed and no tag spelled.
+    pub(crate) fn field_annotated(&self, name: &str) -> Result<quillmark_content::lines::export::Annotated, EditError> {
+        Ok(quillmark_content::markdown::to_text_annotated(&self.richtext_value(name)?))
+    }
+
     /// The value at `target`.
     pub fn read<'t>(&self, target: impl Into<Target<'t>>) -> Result<Content, EditError> {
         match target.into() {
             Target::Body => Ok(self.body().clone()),
             Target::Field(name) => self.richtext_value(name),
-        }
-    }
-
-    /// The hash of the value at `target`, the `base` a write to it names.
-    pub fn hash_of<'t>(&self, target: impl Into<Target<'t>>) -> Result<String, EditError> {
-        match target.into() {
-            Target::Body => Ok(self.body_hash()),
-            Target::Field(name) => self.field_hash(name),
         }
     }
 
@@ -288,11 +293,11 @@ impl Card {
         Ok(Located { id: block.id.clone(), index, path: block.path.clone() })
     }
 
-    /// Land `edit` on the value at `target`, all of it or none, the
-    /// writer's base the value now: a card not yet placed in a document
-    /// keeps no history, so a base it has moved on from refuses with
-    /// `edit::stale_base`. [`CardMut::write`](super::CardMut::write) is the
-    /// write of a placed card, which merges.
+    /// Land `edit` on the value at `target`, all of it or none, on the
+    /// value now: a card not yet placed in a document keeps no history, so
+    /// a write naming heads refuses with `edit::stale_base`.
+    /// [`CardMut::write`](super::CardMut::write) is the write of a placed
+    /// card, which merges.
     pub fn write<'o>(&mut self, target: Target<'_>, edit: Edit<'_>, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
         self.write_with(target, edit, opts.into(), None::<units::Scalars>)
     }
@@ -311,10 +316,7 @@ impl Card {
         if let Some(actor) = opts.actor.filter(|a| !is_actor(a)) {
             return Err(EditError::InvalidActor(actor.to_string()));
         }
-        let now = self.read_at(target, opts.base.map(|b| match b {
-            Base::Hash(h) => h.to_string(),
-            Base::Content(c) => content_hash(c),
-        }).as_deref())?;
+        let now = self.read_at(target, opts.heads)?;
         let fill = |change: &Change| mint::fill(change, &[&now], opts.actor).map_err(EditError::change);
         let mut minted = BTreeMap::new();
         let (change, warnings, diffed) = match edit {
@@ -364,11 +366,11 @@ impl Card {
             Some(u) => units::change_from_scalars(&applied.applied, &now, u).map_err(EditError::change)?,
             None => applied.applied.clone(),
         };
-        let hash = self.store(target, &now, applied.content)?;
-        Ok(Receipt { applied: shown, hash, heads: Heads::default(), dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, rebased: false, minted, counted: Counted::Host })
+        self.store(target, &now, applied.content)?;
+        Ok(Receipt { applied: shown, heads: Heads::default(), dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, minted, counted: Counted::Host })
     }
 
-    /// [`revise`](Self::revise) with no base, its receipt counted in scalars
+    /// [`revise`](Self::revise) at no heads, its receipt counted in scalars
     /// on the value it read, which [`Receipt::in_units`] converts.
     pub(crate) fn revise_counted(&mut self, target: Target<'_>, markdown: &str) -> Result<Receipt, EditError> {
         let before = self.read(target)?;
@@ -392,39 +394,34 @@ impl Card {
         let dropped_anchors = change::lost_anchors(&before, &after, |_| true);
         Ok(Receipt {
             applied: applied.applied,
-            hash: content_hash(&after),
             heads: Heads::default(),
             dropped_anchors,
             moved_anchors: applied.moved,
             warnings,
-            rebased: false,
             minted: applied.minted,
             counted: Counted::Content(Arc::new(before)),
         })
     }
 
-    /// The value at `target` as the writer that read `base` read it: the
-    /// value now, where `base` is absent or its hash, and refused with
-    /// `edit::stale_base` otherwise.
-    pub fn read_at(&self, target: Target<'_>, base: Option<&str>) -> Result<Content, EditError> {
-        let now = self.read(target)?;
-        match base {
-            Some(read) if read != content_hash(&now) => Err(EditError::Base(BaseError::Stale { current: content_hash(&now), field: target.field().map(str::to_string) })),
-            _ => Ok(now),
+    /// The value at `target` as the writer that read at `heads` read it: the
+    /// value now where `heads` is absent, and refused with `edit::stale_base`
+    /// otherwise, since a card outside a document keeps no history.
+    pub fn read_at(&self, target: Target<'_>, heads: Option<&Heads>) -> Result<Content, EditError> {
+        match heads {
+            Some(_) => Err(EditError::StaleHeads { field: target.field().map(str::to_string) }),
+            None => self.read(target),
         }
     }
 
-    /// Store `content` at `target`, where it differs from `before`, and
-    /// answer its hash.
-    fn store(&mut self, target: Target<'_>, before: &Content, content: Content) -> Result<String, EditError> {
-        let hash = content_hash(&content);
+    /// Store `content` at `target`, where it differs from `before`.
+    fn store(&mut self, target: Target<'_>, before: &Content, content: Content) -> Result<(), EditError> {
         if content != *before {
             match target {
                 Target::Field(name) => self.payload_mut().insert(name.to_string(), QuillValue::from_json(content.to_value())).map(drop).map_err(EditError::InvalidPayload)?,
                 Target::Body => self.set_body(content),
             }
         }
-        Ok(hash)
+        Ok(())
     }
 }
 
@@ -492,15 +489,6 @@ pub fn check_content_value(v: &serde_json::Value) -> Result<(), EditError> {
         size if size > max => Err(EditError::InputTooLarge { size, max }),
         _ => Ok(()),
     }
-}
-
-/// The address of the value at `target` on the card `card` names, `None`
-/// for the main card, spelled as the path with the card's `$id` in place of
-/// its index, `main.body`, `main.summary`, `cards[n1].body`,
-/// `cards[n1].summary`: the key a base hash is noted under.
-pub(crate) fn address(card: Option<&str>, target: Target<'_>) -> String {
-    let card = card.map_or_else(|| "main".to_string(), |id| format!("cards[{id}]"));
-    format!("{card}.{}", target.field().unwrap_or("body"))
 }
 
 fn steps_in(change: &Change) -> usize {

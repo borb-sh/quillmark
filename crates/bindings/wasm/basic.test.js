@@ -311,10 +311,10 @@ describe('Document editor surface: setQuillRef / replace / revise', () => {
 
   it('revise({}, md) revises the main body and returns the content receipt', () => {
     const doc = Document.parse(TEST_MARKDOWN)
-    const { applied, hash, warnings } = doc.revise({}, 'Body from **markdown**.')
+    const { applied, heads, warnings } = doc.revise({}, 'Body from **markdown**.')
     expect(exportMarkdown(doc.main.body)).toBe('Body from **markdown**.')
     expect(Array.isArray(applied.steps)).toBe(true)
-    expect(hash).toBe(doc.hashAt({}))
+    expect(heads).toEqual(doc.heads())
     expect(warnings).toEqual([])
   })
 
@@ -725,42 +725,46 @@ describe('Document apply: the write primitive', () => {
     expect(doc.read({ field: 'intro' })).toEqual(held)
   })
 
-  it('a receipt carries the normalized change, which invert undoes, and the next base', () => {
+  it('a receipt carries the normalized change, which invert undoes, and the next heads; one row loads to one origin', () => {
     const doc = blankDoc()
     const before = doc.read({})
-    const base = doc.hash({})
-    const receipt = doc.apply({}, { steps: [{ splice: { at: 0, delete: 'Body', insert: 'Text' } }] }, { base })
-    expect(receipt.hash).toBe(doc.hash({}))
+    const heads = doc.heads()
+    const receipt = doc.apply({}, { steps: [{ splice: { at: 0, delete: 'Body', insert: 'Text' } }] }, { heads })
+    expect(receipt.heads).toEqual(doc.heads())
     expect(receipt.applied.steps).toHaveLength(1)
-    expect(doc.apply({}, { steps: [] }, { base }).rebased).toBe(true)
-    expectEditCode(() => doc.apply({}, { steps: [] }, { base: 'never-read' }), 'edit::stale_base')
-    expect(() => doc.apply({}, { steps: [] }, { baseMarkdown: 'Body.' })).toThrow(/unknown key `baseMarkdown`/)
+    doc.apply({}, { steps: [] }, { heads })
+    const foreign = blankDoc()
+    expect(foreign.heads()).toEqual(heads)
+    foreign.apply({}, { steps: [{ splice: { at: 0, delete: '', insert: 'Elsewhere ' } }] })
+    expectEditCode(() => doc.apply({}, { steps: [] }, { heads: foreign.heads() }), 'edit::stale_base')
+    expect(() => doc.apply({}, { steps: [] }, { heads: 'never-read' })).toThrow(/heads must be a string array/)
+    expect(() => doc.apply({}, { steps: [] }, { heads: ['never-read'] })).toThrow(/head `never-read`/)
+    expect(() => doc.apply({}, { steps: [] }, { base: 'x' })).toThrow(/unknown key `base`/)
 
-    doc.apply({}, invert(receipt.applied, before), { base: receipt.hash })
+    doc.apply({}, invert(receipt.applied, before), { heads: receipt.heads })
     expect(doc.read({})).toEqual(before)
   })
 
-  it('a stale base merges a write with the change since, offsets in UTF-16 as the writer read them', () => {
+  it('a write at stale heads merges with the change since, offsets in UTF-16 as the writer read them', () => {
     const doc = blankDoc()
     doc.replace({}, importMarkdown('😀 hello world').content)
-    const base = doc.hash({})
+    const heads = doc.heads()
     doc.apply({}, { steps: [{ splice: { at: 0, delete: '', insert: '🎉 ' } }] })
     const anchor = { steps: [{ anchor: { id: 'a1', start: 9, end: 14, quote: 'world' } }] }
-    const receipt = doc.apply({}, anchor, { base })
-    expect(receipt.rebased).toBe(true)
+    const receipt = doc.apply({}, anchor, { heads })
     expect(receipt.applied.steps[0].anchor).toMatchObject({ start: 12, end: 17 })
     expect(doc.read({}).anchors).toEqual([{ id: 'a1', start: 12, end: 17 }])
 
     const reworded = { steps: [{ splice: { at: 9, delete: 'world', insert: 'there' } }] }
     doc.apply({}, { steps: [{ splice: { at: 14, delete: 'r', insert: 'R' } }] })
-    expect(doc.apply({}, reworded, { base }).rebased).toBe(true)
+    doc.apply({}, reworded, { heads })
     expect(['🎉 😀 hello thereR', '🎉 😀 hello Rthere']).toContain(doc.read({}).text)
 
     const id = doc.read({}).blocks[0].id
     const heading = (level) => ({ steps: [{ setBlock: { id, kind: 'heading', attrs: { level } } }] })
-    const read = doc.hash({})
+    const read = doc.heads()
     doc.apply({}, heading(2))
-    expect(doc.apply({}, heading(3), { base: read }).rebased).toBe(true)
+    doc.apply({}, heading(3), { heads: read })
     expect(doc.read({}).blocks[0].attrs).toEqual({ level: 3 })
   })
 
@@ -817,14 +821,13 @@ describe('Document apply: the write primitive', () => {
   it('the structural edits write on the document in UTF-16 offsets and answer receipts', () => {
     const doc = blankDoc()
     doc.replace({}, importMarkdown('😀 ab\n\n- one\n- two').content)
-    const base = doc.hash({})
-    const split = doc.splitBlock({}, 4, { base, actor: 'ann' })
+    const heads = doc.heads()
+    const split = doc.splitBlock({}, 4, { heads, actor: 'ann' })
     expect(split.applied.steps[0].splice.at).toBe(4)
     const ann = split.minted['?0']
     expect(ann).toMatch(/@616e6e$/)
     expect(doc.read({}).text).toBe('😀 a\nb\none\ntwo')
-    const stale = doc.splitBlock({}, 1 + 2, { base, actor: 'bo' })
-    expect(stale.rebased).toBe(true)
+    doc.splitBlock({}, 1 + 2, { heads, actor: 'bo' })
     expect(doc.read({}).text).toBe('😀 \na\nb\none\ntwo')
     const mine = doc.read({}).blocks[1].id
     expect(mine).toMatch(/@626f$/)
@@ -873,14 +876,13 @@ describe('Document apply: the write primitive', () => {
   it('a placeholder a change puts is filled under the actor and named in minted', () => {
     const doc = blankDoc()
     doc.replace({}, importMarkdown('one').content)
-    const base = doc.hash({})
+    const heads = doc.heads()
     doc.apply({}, { steps: [{ splice: { at: 3, insert: ' more' } }] })
     const change = { steps: [
       { splice: { at: 3, insert: '\nnew', blocks: [{ id: '?n', kind: 'para' }] } },
       { setBlock: { id: '?n', kind: 'heading', attrs: { level: 2 } } },
     ] }
-    const receipt = doc.apply({}, change, { base, actor: 'ann' })
-    expect(receipt.rebased).toBe(true)
+    const receipt = doc.apply({}, change, { heads, actor: 'ann' })
     expect(receipt.minted['?n']).toMatch(/@616e6e$/)
     expect(doc.read({}).blocks[1]).toEqual({ id: receipt.minted['?n'], kind: 'heading', attrs: { level: 2 } })
   })
@@ -1159,10 +1161,10 @@ describe('Document editor surface: storeField / removeField / replace / revise (
   it('a content write names its card by id, and lands on it wherever the card moved', () => {
     const doc = Document.parse('~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nHello\n\n~~~\n$kind: note\n~~~\n\nHello\n')
     const id = doc.cards[1].id
-    const base = doc.hash({ card: id })
+    const heads = doc.heads()
     doc.moveCard(1, 0)
-    expect(() => doc.apply({ card: 1 }, { steps: [] }, { base })).toThrow(/\$id/)
-    doc.apply({ card: id }, { steps: [{ splice: { at: 5, delete: '', insert: ' world' } }] }, { base })
+    expect(() => doc.apply({ card: 1 }, { steps: [] }, { heads })).toThrow(/\$id/)
+    doc.apply({ card: id }, { steps: [{ splice: { at: 5, delete: '', insert: ' world' } }] }, { heads })
     expect(doc.cards.map((c) => [c.id, c.body.text])).toEqual([[id, 'Hello world'], [expect.any(String), 'Hello']])
   })
 })

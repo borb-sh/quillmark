@@ -1,7 +1,7 @@
 //! The content write, landed in the document's Automerge document.
 //!
 //! A write builds its change against the value its writer read, at the
-//! heads its base was left at or now, and lowers it as one Automerge change:
+//! heads it read at or now, and lowers it as one Automerge change:
 //! at earlier heads it is concurrent with every change since and merges with
 //! them as Automerge merges, refusing nothing a concurrent change did. The
 //! card then takes the value the write left.
@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use quillmark_automerge::automerge::transaction::Transactable;
-use quillmark_automerge::automerge::{ActorId, ChangeHash, ObjId, ReadDoc, Value as AmValue};
+use quillmark_automerge::automerge::{ActorId, ObjId, ReadDoc, Value as AmValue};
 use quillmark_automerge::model::{self as am, StepError};
 use quillmark_content::change::{self, AnchorStep, ApplyError, Change, Step};
 use quillmark_content::diff;
@@ -17,9 +17,8 @@ use quillmark_content::ids::is_actor;
 use quillmark_content::model::Content;
 use quillmark_content::units::{self, Units};
 
-use super::base::{Base, BaseError, content_hash};
 use super::edit::EditError;
-use super::write::{Edit, Receipt, Target, WriteOptions, address, check_change, keeps_ext_islands};
+use super::write::{Edit, Receipt, Target, WriteOptions, check_change, keeps_ext_islands};
 use super::{Card, Document, Heads};
 use crate::value::QuillValue;
 
@@ -150,52 +149,19 @@ impl Document {
         Ok((v, put))
     }
 
-    fn address_of(&self, at: Option<usize>, target: Target<'_>) -> String {
-        address(self.card_at(at).id(), target)
-    }
-
-    /// The heads a write naming `base` builds at: none for the value now,
-    /// the heads a write left the hash at otherwise.
-    fn heads_for(&mut self, at: Option<usize>, target: Target<'_>, root: &ObjId, base: Option<Base<'_>>) -> Result<Option<Vec<ChangeHash>>, EditError> {
-        let Some(base) = base else { return Ok(None) };
-        let now = self.doc().view(root).content;
-        let hash = match base {
-            Base::Hash(h) => h.to_string(),
-            Base::Content(c) => content_hash(c),
-        };
-        let current = content_hash(&now);
-        if hash == current {
+    /// The heads a write at `heads` builds at: none for the value now, and
+    /// refused with `edit::stale_base` where the document's history does not
+    /// hold them.
+    fn heads_for(&mut self, target: Target<'_>, heads: Option<&Heads>) -> Result<Option<Heads>, EditError> {
+        let Some(heads) = heads else { return Ok(None) };
+        let doc = self.doc();
+        if doc.heads() == heads.hashes() {
             return Ok(None);
         }
-        let key = (self.address_of(at, target), hash);
-        if let Some(heads) = self.seen().get(&key) {
-            return Ok(Some(heads.clone()));
+        match doc.holds(heads.hashes()) {
+            true => Ok(Some(heads.clone())),
+            false => Err(EditError::StaleHeads { field: target.field().map(str::to_string) }),
         }
-        let history = self.history().clone();
-        for heads in history.iter().rev() {
-            let read = self.doc().try_view_at(root, heads);
-            if read.is_some_and(|v| content_hash(&v.content) == key.1) {
-                self.seen().insert(key, heads.clone());
-                return Ok(Some(heads.clone()));
-            }
-        }
-        Err(EditError::Base(BaseError::Stale { current, field: target.field().map(str::to_string) }))
-    }
-
-    /// Notes `content`, the value at `target` of the card at `at` now, as
-    /// read at the document's heads, and answers its hash.
-    fn note(&mut self, at: Option<usize>, target: Target<'_>, content: &Content) -> String {
-        let address = self.address_of(at, target);
-        let live = self.held();
-        let heads = live.doc.heads();
-        let hash = match &live.last {
-            Some((a, h, hash)) if *a == address && *h == heads => hash.clone(),
-            _ => content_hash(content),
-        };
-        super::remember(&mut live.history, heads.clone());
-        live.seen.entry((address.clone(), hash.clone())).or_insert_with(|| heads.clone());
-        live.last = Some((address, heads, hash.clone()));
-        hash
     }
 
     /// Takes `after`, what the value at `target` of the card at `at` reads as
@@ -215,23 +181,24 @@ impl Document {
         }
     }
 
-    /// The value at `target` of the card at `at` as its writer read it under
-    /// `base`, refused with `edit::stale_base` where no write left it.
-    pub(crate) fn read_under(&mut self, at: Option<usize>, target: Target<'_>, base: Option<&str>) -> Result<Content, EditError> {
-        if base.is_none() {
+    /// The value at `target` of the card at `at` as its writer read it at
+    /// `heads`, refused with `edit::stale_base` where the document's history
+    /// does not hold them.
+    pub(crate) fn read_under(&mut self, at: Option<usize>, target: Target<'_>, heads: Option<&Heads>) -> Result<Content, EditError> {
+        if heads.is_none() {
             return self.card_at(at).read(target);
         }
         let (root, _) = self.value_obj(at, target)?;
-        let heads = self.heads_for(at, target, &root, base.map(Base::Hash))?;
+        let heads = self.heads_for(target, heads)?;
         let doc = self.doc();
         Ok(match heads {
-            Some(h) => doc.view_at(&root, &h).content,
+            Some(h) => doc.view_at(&root, h.hashes()).content,
             None => doc.view(&root).content,
         })
     }
 
     /// Lands `edit` on the value at `target` of the card at `at`, the main
-    /// card where `None`, built against the value its base names.
+    /// card where `None`, built against the value its heads name.
     pub(crate) fn write_at<U: Units>(&mut self, at: Option<usize>, target: Target<'_>, edit: Edit<'_>, opts: WriteOptions<'_>, u: Option<U>) -> Result<Receipt, EditError> {
         if let Edit::Apply(change) = &edit {
             check_change(change)?;
@@ -250,12 +217,11 @@ impl Document {
 
     fn write_on<U: Units>(&mut self, at: Option<usize>, target: Target<'_>, root: &ObjId, edit: Edit<'_>, opts: WriteOptions<'_>, u: Option<U>) -> Result<Receipt, EditError> {
         let root = root.clone();
-        let heads = self.heads_for(at, target, &root, opts.base)?;
+        let heads = self.heads_for(target, opts.heads)?;
         let now = self.card_at(at).read(target)?;
         debug_assert_eq!(now, self.held().doc.view(&root).content);
-        self.note(at, target, &now);
         let read = match &heads {
-            Some(h) => self.held().doc.view_at(&root, h).content,
+            Some(h) => self.held().doc.view_at(&root, h.hashes()).content,
             None => now.clone(),
         };
         let (change, warnings, diffed) = match edit {
@@ -293,7 +259,7 @@ impl Document {
         if let Some(a) = opts.actor {
             doc.set_actor(ActorId::from(a.as_bytes()));
         }
-        let lowered = doc.apply_from(&root, &change, heads.as_deref(), Some(&read));
+        let lowered = doc.apply_from(&root, &change, heads.as_ref().map(Heads::hashes), Some(&read));
         if opts.actor.is_some() {
             doc.set_actor(actor);
         }
@@ -330,11 +296,10 @@ impl Document {
             None => applied,
         };
         self.set_read(at, target, &after);
-        let hash = self.note(at, target, &after);
         let minted = match diffed {
             true => BTreeMap::new(),
             false => lowered.minted,
         };
-        Ok(Receipt::landed(applied, hash, dropped_anchors, moved_anchors, warnings, merged, minted).at(landed))
+        Ok(Receipt::landed(applied, dropped_anchors, moved_anchors, warnings, minted).at(landed))
     }
 }
