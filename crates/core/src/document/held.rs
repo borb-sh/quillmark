@@ -123,3 +123,22 @@ pub(crate) fn flush(d: &mut Doc, was: (&Card, &[Card]), now: (&Card, &[Card])) {
     let now_all: Vec<_> = now.1.iter().map(held).collect();
     cards::flush(d, (&held(was.0), &was_all), (&held(now.0), &now_all));
 }
+
+/// Writes what the card changed since it read as `was` into the document,
+/// the main card where `main`, and answers it as it reads after.
+pub(crate) fn write_card(d: &mut Doc, main: bool, was: &Card, now: &Card) -> Card {
+    card(cards::write_one(d, main, &held(was), &held(now)))
+}
+
+/// Places `c` at `index` of the document's cards, and answers it as it reads.
+pub(crate) fn insert_card(d: &mut Doc, index: usize, c: &Card) -> Card {
+    card(cards::insert(d, index, &held(c)))
+}
+
+pub(crate) fn remove_card(d: &mut Doc, id: &str) {
+    cards::remove(d, id);
+}
+
+pub(crate) fn move_card(d: &mut Doc, id: &str, index: usize) {
+    cards::move_to(d, id, index);
+}

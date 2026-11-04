@@ -179,9 +179,7 @@ impl Document {
             anchor.card_id = self.card_id_at(&anchor.path).map(str::to_string);
         }
 
-        self.main = main;
-        self.cards = revised_cards;
-        self.touch();
+        self.replace_cards(main, revised_cards);
         DocumentRevised {
             dropped_anchors,
             warnings,

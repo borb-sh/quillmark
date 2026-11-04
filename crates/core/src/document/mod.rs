@@ -1010,13 +1010,48 @@ impl PartialEq for Bound {
 #[derive(Clone)]
 pub(crate) struct Held {
     doc: quillmark_automerge::model::Doc,
-    /// The cards were written to since they last read as the document.
-    dirty: bool,
 }
 
 impl Held {
-    fn new(doc: quillmark_automerge::model::Doc, dirty: bool) -> Held {
-        Held { doc, dirty }
+    fn new(doc: quillmark_automerge::model::Doc) -> Held {
+        Held { doc }
+    }
+}
+
+/// One card of a [`Document`] under edit: a `&mut Card` whose changes are
+/// written into the document's Automerge document when it drops.
+pub(crate) struct CardEdit<'a> {
+    doc: &'a mut Document,
+    at: Option<usize>,
+    was: Option<Card>,
+}
+
+impl<'a> CardEdit<'a> {
+    fn new(doc: &'a mut Document, at: Option<usize>) -> Self {
+        let was = doc.held.0.is_some().then(|| doc.card_at(at).clone());
+        CardEdit { doc, at, was }
+    }
+}
+
+impl std::ops::Deref for CardEdit<'_> {
+    type Target = Card;
+
+    fn deref(&self) -> &Card {
+        self.doc.card_at(self.at)
+    }
+}
+
+impl std::ops::DerefMut for CardEdit<'_> {
+    fn deref_mut(&mut self) -> &mut Card {
+        self.doc.card_raw_mut(self.at)
+    }
+}
+
+impl Drop for CardEdit<'_> {
+    fn drop(&mut self) {
+        if let Some(was) = self.was.take() {
+            self.doc.write_card(self.at, &was);
+        }
     }
 }
 
@@ -1045,7 +1080,7 @@ impl Document {
         if let Some(actor) = mints.actor() {
             doc.set_actor(quillmark_automerge::automerge::ActorId::from(actor.as_bytes()));
         }
-        Ok(Self { main, cards, mints, held: Bound(Some(Held::new(doc, false))) })
+        Ok(Self { main, cards, mints, held: Bound(Some(Held::new(doc))) })
     }
 
     /// The actor this handle writes under, where one was set: each write's
@@ -1072,32 +1107,20 @@ impl Document {
     }
 
     /// Holds the document in an Automerge document where it is not yet,
-    /// each part then read back carrying the id that document gives it. A
-    /// card holding no id yet stays out of it until a flush after its id is
-    /// settled.
+    /// each part then read back carrying the id that document gives it.
     pub(crate) fn bind(&mut self) {
         if self.held.0.is_some() {
             return;
         }
+        debug_assert!(self.cards.iter().all(|c| c.id().is_some()), "a document binds once its card ids are settled");
         let mut doc = held::build(&self.main, &self.cards);
         if let Some(actor) = self.mints.actor() {
             doc.set_actor(quillmark_automerge::automerge::ActorId::from(actor.as_bytes()));
         }
         let (main, cards) = held::read(&doc).expect("built cards read back");
-        let unplaced = cards.len() != self.cards.len();
-        self.held = Bound(Some(Held::new(doc, unplaced)));
+        self.held = Bound(Some(Held::new(doc)));
         self.main = main;
-        if !unplaced {
-            self.cards = cards;
-        }
-    }
-
-    /// Marks the cards written to, so the next [`flush`](Self::flush)
-    /// writes them into the Automerge document.
-    pub(crate) fn touch(&mut self) {
-        if let Some(held) = self.held.0.as_mut() {
-            held.dirty = true;
-        }
+        self.cards = cards;
     }
 
     fn held(&mut self) -> &mut Held {
@@ -1105,23 +1128,8 @@ impl Document {
         self.held.0.as_mut().expect("bound")
     }
 
-    /// Writes what the cards changed since they last read as the Automerge
-    /// document into it, and reads them back from it.
-    pub(crate) fn flush(&mut self) {
-        self.bind();
-        let held = self.held.0.as_mut().expect("bound");
-        if !held.dirty {
-            return;
-        }
-        let doc = &mut held.doc;
-        let was = held::read(doc).expect("a held document reads as cards");
-        held::flush(doc, (&was.0, &was.1), (&self.main, &self.cards));
-        self.reread();
-    }
-
-    /// The Automerge document, with every change to the cards written in.
+    /// The Automerge document the cards are read from.
     pub(crate) fn doc(&mut self) -> &mut quillmark_automerge::model::Doc {
-        self.flush();
         &mut self.held().doc
     }
 
@@ -1130,9 +1138,85 @@ impl Document {
     pub(crate) fn reread(&mut self) {
         let held = self.held();
         let (main, cards) = held::read(&held.doc).expect("a held document reads as cards");
-        held.dirty = false;
         self.main = main;
         self.cards = cards;
+    }
+
+    /// The card at `at` to edit in place, the main card where `None`. Writes
+    /// only through [`edit_card`](Self::edit_card), [`CardEdit`] or
+    /// [`CardMut`], which carry the edit into the Automerge document.
+    fn card_raw_mut(&mut self, at: Option<usize>) -> &mut Card {
+        match at {
+            None => &mut self.main,
+            Some(i) => &mut self.cards[i],
+        }
+    }
+
+    /// Runs `f` on the card at `at`, the main card where `None`, and writes
+    /// what it changed into the Automerge document as one change.
+    pub(crate) fn edit_card<R>(&mut self, at: Option<usize>, f: impl FnOnce(&mut Card) -> R) -> R {
+        let was = self.held.0.is_some().then(|| self.card_at(at).clone());
+        let out = f(self.card_raw_mut(at));
+        if let Some(was) = was {
+            self.write_card(at, &was);
+        }
+        out
+    }
+
+    /// Writes what the card at `at` changed since it read as `was` into the
+    /// Automerge document, and reads it back, each part it put carrying the
+    /// id the document gave it.
+    pub(crate) fn write_card(&mut self, at: Option<usize>, was: &Card) {
+        let Some(held) = self.held.0.as_mut() else { return };
+        let now = match at {
+            None => &self.main,
+            Some(i) => &self.cards[i],
+        };
+        let read = held::write_card(&mut held.doc, at.is_none(), was, now);
+        match at {
+            None => self.main = read,
+            Some(i) => self.cards[i] = read,
+        }
+    }
+
+    /// Places `card` at `index` among the composable cards.
+    pub(crate) fn insert_card_at(&mut self, index: usize, card: Card) {
+        let card = match self.held.0.as_mut() {
+            Some(held) => held::insert_card(&mut held.doc, index, &card),
+            None => card,
+        };
+        self.cards.insert(index, card);
+    }
+
+    /// Takes the composable card at `index` out of the document.
+    pub(crate) fn remove_card_at(&mut self, index: usize) -> Card {
+        let card = self.cards.remove(index);
+        if let (Some(held), Some(id)) = (self.held.0.as_mut(), card.id()) {
+            held::remove_card(&mut held.doc, id);
+        }
+        card
+    }
+
+    /// Moves the composable card at `from` to `to`.
+    pub(crate) fn move_card_at(&mut self, from: usize, to: usize) {
+        let card = self.cards.remove(from);
+        if let (Some(held), Some(id)) = (self.held.0.as_mut(), card.id()) {
+            held::move_card(&mut held.doc, id, to);
+        }
+        self.cards.insert(to, card);
+    }
+
+    /// Writes `main` and `cards` over the document's cards as one change,
+    /// each card by what it changed.
+    pub(crate) fn replace_cards(&mut self, main: Card, cards: Vec<Card>) {
+        if self.held.0.is_none() {
+            self.main = main;
+            self.cards = cards;
+            return;
+        }
+        let held = self.held.0.as_mut().expect("bound");
+        held::flush(&mut held.doc, (&self.main, &self.cards), (&main, &cards));
+        self.reread();
     }
 
     /// This document with each id its Automerge document gave a content part
@@ -1142,14 +1226,6 @@ impl Document {
     pub(crate) fn by_place(&self) -> Document {
         let card = |c: &Card| Card::from_parts(payload_by_place(&c.payload), c.body.by_place());
         Document::assembled(card(&self.main), self.cards.iter().map(card).collect(), self.mints.clone())
-    }
-
-    /// Writes what the cards changed into the Automerge document, where the
-    /// document is held in one.
-    pub(crate) fn settle(&mut self) {
-        if self.held.0.is_some() {
-            self.flush();
-        }
     }
 
     /// Whether this document's history holds `heads`.
@@ -1173,7 +1249,6 @@ impl Document {
     /// `heads`, as one change at those heads: concurrent with every change
     /// since, and merged with them.
     pub(crate) fn land_at(&mut self, heads: &Heads, wanted: &Document) {
-        self.flush();
         self.held().doc.isolated(heads.hashes(), |d| {
             let (main, cards) = held::read(d).expect("a held document reads as cards");
             held::flush(d, (&main, &cards), (&wanted.main, &wanted.cards));
@@ -1306,7 +1381,7 @@ impl Document {
         let mut parsed = Self::parse_unsettled(markdown)?;
         let reserved = std::collections::HashSet::new();
         card_id::settle_reporting(&mut parsed.document.cards, &reserved, &mut parsed.warnings);
-        parsed.document.flush();
+        parsed.document.bind();
         Ok(parsed)
     }
 
@@ -1368,14 +1443,13 @@ impl Document {
         self.card_index(id).map(|index| &self.cards[index])
     }
 
-    pub(crate) fn main_card_mut(&mut self) -> &mut Card {
-        self.touch();
-        &mut self.main
+    pub(crate) fn main_card_mut(&mut self) -> CardEdit<'_> {
+        CardEdit::new(self, None)
     }
 
-    pub(crate) fn cards_vec_mut(&mut self) -> &mut Vec<Card> {
-        self.touch();
-        &mut self.cards
+    /// The composable card at `index` to edit, `None` where none is.
+    pub(crate) fn card_edit(&mut self, index: usize) -> Option<CardEdit<'_>> {
+        (index < self.cards.len()).then(|| CardEdit::new(self, Some(index)))
     }
 
     /// Serialize to the JSON wire shape consumed by backend plates. This is

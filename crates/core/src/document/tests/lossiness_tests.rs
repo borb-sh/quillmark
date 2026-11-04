@@ -855,7 +855,7 @@ fn orphan_inline_after_remove_degrades_to_own_line() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\nfield: value # tail\nother: 2\n~~~\n";
 
     let mut doc = Document::parse(src).unwrap().document;
-    doc.main_mut().payload_mut().remove("field");
+    doc.main_card_mut().payload_mut().remove("field");
 
     let emitted = doc.to_markdown();
     assert!(

@@ -288,19 +288,17 @@ impl Document {
         path: &DocPath,
         f: impl FnOnce(&mut Content) -> R,
     ) -> Option<R> {
-        self.touch();
-        let (card, rest) = match path.segs() {
-            [DocSeg::Main, rest @ ..] => (&mut self.main, rest),
+        let (at, rest) = match path.segs() {
+            [DocSeg::Main, rest @ ..] => (None, rest),
             [DocSeg::Card { kind, index }, rest @ ..] => {
-                let card = self.cards.get_mut(*index)?;
-                if card.kind() != kind.as_deref() {
+                if self.cards.get(*index)?.kind() != kind.as_deref() {
                     return None;
                 }
-                (card, rest)
+                (Some(*index), rest)
             }
             _ => return None,
         };
-        match rest {
+        self.edit_card(at, |card| match rest {
             [DocSeg::Body] => {
                 let mut body = card.body().clone();
                 let out = f(&mut body);
@@ -330,7 +328,7 @@ impl Document {
                 Some(out)
             }
             _ => None,
-        }
+        })
     }
 
     /// `visit` each body and content value with its path, in the order

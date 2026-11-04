@@ -53,7 +53,6 @@ impl Placed {
     fn new(card: Card) -> Placed {
         let mut doc = Document::new(std::str::FromStr::from_str("memo@1.0.0").unwrap());
         doc.unchecked().insert_card(None, card).unwrap();
-        doc.settle();
         Placed(doc)
     }
 

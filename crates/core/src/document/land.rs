@@ -84,24 +84,17 @@ impl Document {
         }
     }
 
-    pub(crate) fn card_at_mut(&mut self, at: Option<usize>) -> &mut Card {
-        self.touch();
-        match at {
-            None => &mut self.main,
-            Some(i) => &mut self.cards[i],
-        }
-    }
-
     /// The value at `target` of the card at `at`, a field made a text value
     /// where it holds its content as JSON or holds nothing; `true` with it
     /// where the field was absent and is put now.
     fn value_obj(&mut self, at: Option<usize>, target: Target<'_>) -> Result<(ObjId, bool), EditError> {
+        self.bind();
         let mut put = false;
         let mut content = None;
         if let Target::Field(name) = target {
             let read = content.insert(self.card_at(at).read(target)?).to_value();
             if self.card_at(at).payload().get(name).is_none() {
-                self.card_at_mut(at).payload_mut().insert(name.to_string(), QuillValue::from_json(read)).map_err(EditError::InvalidPayload)?;
+                self.edit_card(at, |c| c.payload_mut().insert(name.to_string(), QuillValue::from_json(read))).map_err(EditError::InvalidPayload)?;
                 put = true;
             }
         }
@@ -178,8 +171,7 @@ impl Document {
         let (root, put) = self.value_obj(at, target)?;
         let landed = self.write_on(at, target, &root, edit, opts, u);
         if let (Err(_), true, Target::Field(name)) = (&landed, put, target) {
-            self.card_at_mut(at).remove_field(name)?;
-            self.flush();
+            self.edit_card(at, |c| c.remove_field(name))?;
         }
         landed
     }
@@ -257,17 +249,13 @@ impl Document {
         self.doc().track();
         let before = Heads::from(self.doc().heads());
         let was = self.card_at(at).read(target)?;
-        let warnings = match write(self.card_at_mut(at)) {
-            Ok(w) => w,
-            Err(e) => {
+        let warnings = self.edit_card(at, |card| {
+            write(card).inspect_err(|_| {
                 if let (true, Target::Field(name)) = (put, target) {
-                    self.card_at_mut(at).remove_field(name)?;
+                    let _ = card.remove_field(name);
                 }
-                self.flush();
-                return Err(e);
-            }
-        };
-        self.flush();
+            })
+        })?;
         let doc = &mut self.held().doc;
         let (patches, view) = doc.patches_on(&root, before.hashes(), &was);
         let landed = Heads::from(doc.heads());

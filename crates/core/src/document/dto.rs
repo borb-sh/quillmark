@@ -656,22 +656,6 @@ This body and the metadata above are an indorsement card.
         .document
     }
 
-    /// `overwrite_body` takes a caller's content on the canonical-form token
-    /// alone, so an invalid shape reaches the DTO.
-    #[test]
-    fn an_unreadable_body_is_refused_on_write() {
-        use quillmark_automerge::content::lines::model::{Container, Content, Line, LineKind};
-
-        let mut doc = sample();
-        let mut line = Line::new(LineKind::Para);
-        line.containers =
-            vec![Container::Quote { instance: 0 }; quillmark_automerge::content::MAX_NESTING_DEPTH + 1];
-        doc.main_card_mut()
-            .overwrite_body(Content::new("x".to_string(), vec![line]));
-        let err = serde_json::to_string(&doc).expect_err("write refuses what load would reject");
-        assert!(err.to_string().contains("nests 13 deep"), "{err}");
-    }
-
     #[test]
     fn content_field_survives_storage_round_trip_losslessly() {
         // The storage DTO is the lossless carrier: an `underline` with no

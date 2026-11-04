@@ -984,7 +984,7 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
             .unwrap_err(),
     );
     refused.push(
-        commit_richtext(doc.main_card_mut(), "late", &serde_json::json!("v"), false).unwrap_err(),
+        commit_richtext(&mut doc.main_card_mut(), "late", &serde_json::json!("v"), false).unwrap_err(),
     );
     for err in refused {
         assert_eq!(err.code(), "edit::invalid_payload");
@@ -1127,8 +1127,10 @@ fn a_field_write_holds_its_content_as_a_body_write_does() {
     assert_ne!(serde_json::to_string(&shuffled).unwrap(), serde_json::to_string(&canonical).unwrap());
 
     let mut a = make_doc();
+    a.set_actor("w").unwrap();
     a.unchecked().store_field(None, "f", QuillValue::from_json(shuffled.clone())).unwrap();
     let mut b = make_doc();
+    b.set_actor("w").unwrap();
     b.unchecked().store_field(None, "f", QuillValue::from_json(canonical.clone())).unwrap();
     assert_eq!(a, b);
     assert_eq!(stored(&a), stored(&b));
@@ -1153,7 +1155,8 @@ fn a_field_write_holds_its_content_as_a_body_write_does() {
     wire.payload_items.push(crate::document::PayloadItemWire::Field { key: "f".into(), value: bad.clone() });
     assert_eq!(Card::try_from(wire).unwrap_err().code(), "edit::field_decode");
 
-    let row = stored(&b).replace(&serde_json::to_string(&canonical).unwrap(), &serde_json::to_string(&bad).unwrap());
+    let row = stored(&b).replace(r#"{"end":5,"id":"a1","start":0}"#, r#"{"end":99,"id":"a1","start":0}"#);
+    assert_ne!(row, stored(&b));
     assert!(Document::from_stored(&row).is_err(), "a load refuses a field it would refuse as a body");
 }
 

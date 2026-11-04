@@ -203,6 +203,96 @@ pub fn flush(d: &mut Doc, was: (&Card, &[Card]), now: (&Card, &[Card])) {
     d.doc.commit();
 }
 
+/// Writes what the card changed since it read as `was` into the document as
+/// one change, the main card where `main` and otherwise the card `was`'s
+/// `$id` names, and answers it as it reads after. A card whose `$id`
+/// changed is put under the new one at the old one's place in `order`.
+pub fn write_one(d: &mut Doc, main: bool, was: &Card, now: &Card) -> Card {
+    let c = if main {
+        let m = d.main();
+        write_card(d, &m, Some(was), now);
+        m
+    } else {
+        let all = d.cards();
+        let (old, new) = (was.id().expect("a held card has an id"), now.id().expect("a held card has an id"));
+        let held = value::obj(&d.doc, &all, old).expect("a held card is in the document");
+        if old == new {
+            write_card(d, &held, Some(was), now);
+            held
+        } else {
+            d.doc.delete(&all, old).unwrap();
+            let c = d.doc.put_object(&all, new, ObjType::Map).unwrap();
+            d.card_skeleton(&c);
+            write_card(d, &c, None, now);
+            let order = order_obj(d);
+            if let Some(at) = position(d, &order, old) {
+                d.doc.put(&order, at, new).unwrap();
+            }
+            c
+        }
+    };
+    d.doc.commit();
+    read_card(d, &c).expect("a written card reads")
+}
+
+/// Puts `card` among the cards at `index` of `order` as one change, and
+/// answers it as it reads.
+pub fn insert(d: &mut Doc, index: usize, card: &Card) -> Card {
+    let id = card.id().expect("a placed card has an id");
+    let all = d.cards();
+    if d.doc.get(&all, id).unwrap().is_some() {
+        d.doc.delete(&all, id).unwrap();
+    }
+    let c = d.doc.put_object(&all, id, ObjType::Map).unwrap();
+    d.card_skeleton(&c);
+    write_card(d, &c, None, card);
+    let order = order_obj(d);
+    let at = nth_slot(d, &order, index);
+    d.doc.insert(&order, at, id).unwrap();
+    d.doc.commit();
+    read_card(d, &c).expect("a placed card reads")
+}
+
+/// Takes the card `id` out of `cards` and `order` as one change.
+pub fn remove(d: &mut Doc, id: &str) {
+    let all = d.cards();
+    if d.doc.get(&all, id).unwrap().is_some() {
+        d.doc.delete(&all, id).unwrap();
+    }
+    let order = order_obj(d);
+    while let Some(at) = position(d, &order, id) {
+        d.doc.delete(&order, at).unwrap();
+    }
+    d.doc.commit();
+}
+
+/// Moves the card `id` to `index` of the order as one change: Automerge has
+/// no move, so its id leaves `order` and goes in again, and an edit inside
+/// the card concurrent with the move keeps.
+pub fn move_to(d: &mut Doc, id: &str, index: usize) {
+    let order = order_obj(d);
+    while let Some(at) = position(d, &order, id) {
+        d.doc.delete(&order, at).unwrap();
+    }
+    let at = nth_slot(d, &order, index);
+    d.doc.insert(&order, at, id).unwrap();
+    d.doc.commit();
+}
+
+/// The index in the `order` list of the first entry spelling `id`.
+fn position(d: &Doc, order: &ObjId, id: &str) -> Option<usize> {
+    d.doc.values(order).position(|(v, _)| matches!(&v, AmValue::Scalar(s) if s.as_str() == Some(id)))
+}
+
+/// The index in the `order` list before which the card the document reads
+/// at `index` of its order sits, or the list's end: the list can hold ids
+/// the read skips, a card removed concurrently or an id held twice.
+fn nth_slot(d: &Doc, order: &ObjId, index: usize) -> usize {
+    let read = d.order();
+    let Some(id) = read.get(index) else { return d.doc.length(order) };
+    position(d, order, id).unwrap_or_else(|| d.doc.length(order))
+}
+
 /// The value at the body of the card `card` names, or the main card's, or
 /// at its field `field`, and whether it is put now: a field holding its
 /// content as JSON or holding nothing is put as a text value of `content`,
