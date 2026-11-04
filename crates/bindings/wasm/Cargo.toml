@@ -20,7 +20,7 @@ quillmark = { path = "../../quillmark", default-features = false }
 quillmark-core = { workspace = true }
 # The content model (importMarkdown / exportMarkdown / invert / diff) and the
 # units the bindings convert offsets in.
-quillmark-content = { workspace = true }
+quillmark-automerge = { workspace = true }
 wasm-bindgen = { workspace = true }
 serde = { workspace = true }
 serde_bytes = "0.11"

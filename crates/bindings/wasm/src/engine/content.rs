@@ -8,11 +8,11 @@ use super::{
 };
 use crate::error::WasmError;
 use crate::types::Diagnostic;
-use quillmark_content::change::{self, Assoc, Change};
-use quillmark_content::structural::{self, StructuralEdit, Wrap};
-use quillmark_content::model::Content;
-use quillmark_content::units::{self, Utf16};
-use quillmark_content::wire::ParseError;
+use quillmark_automerge::content::change::{self, Assoc, Change};
+use quillmark_automerge::content::structural::{self, StructuralEdit, Wrap};
+use quillmark_automerge::content::model::Content;
+use quillmark_automerge::content::units::{self, Utf16};
+use quillmark_automerge::content::wire::ParseError;
 use quillmark_core::document::{Card, CardMut, Edit, EditError, Heads, Receipt, Target, WriteOptions, check_change, check_content_value};
 use quillmark_core::path::DocPath;
 use serde_json::Value;
@@ -826,7 +826,7 @@ pub fn diff(
     #[wasm_bindgen(unchecked_param_type = "Content")] after: JsValue,
 ) -> Result<JsValue, JsValue> {
     let (before, after) = (content_in(before, "diff")?, content_in(after, "diff")?);
-    let change = quillmark_content::diff::diff(&before, &after).map_err(|e| apply_error(e.into()))?;
+    let change = quillmark_automerge::content::diff::diff(&before, &after).map_err(|e| apply_error(e.into()))?;
     let change = units::change_from_scalars(&change, &before, Utf16).map_err(apply_error)?;
     serialize_or_throw(&change.to_value(), "diff")
 }
@@ -840,13 +840,13 @@ pub fn diff(
 pub fn repair(#[wasm_bindgen(unchecked_param_type = "RawContent")] raw: JsValue) -> Result<JsValue, JsValue> {
     let json = js_value_to_json(raw, "repair")?;
     check_content_value(&json).map_err(bound_error)?;
-    let raw = quillmark_content::repair::Raw::from_value_in(&json, Utf16)
+    let raw = quillmark_automerge::content::repair::Raw::from_value_in(&json, Utf16)
         .map_err(|e| WasmError::from(format!("repair: not shaped as content: {e}")).to_js_value())?;
-    let (content, repairs, change) = quillmark_content::repair::repair(raw.clone());
+    let (content, repairs, change) = quillmark_automerge::content::repair::repair(raw.clone());
     let out = serde_json::json!({
         "content": content.to_value_in(Utf16),
-        "repairs": repairs.iter().map(quillmark_content::repair::Repair::to_value).collect::<Vec<_>>(),
-        "change": quillmark_content::repair::change_in(&raw, &change, Utf16).to_value(),
+        "repairs": repairs.iter().map(quillmark_automerge::content::repair::Repair::to_value).collect::<Vec<_>>(),
+        "change": quillmark_automerge::content::repair::change_in(&raw, &change, Utf16).to_value(),
     });
     serialize_or_throw(&out, "repair")
 }
@@ -883,7 +883,7 @@ pub fn diff_range(
             .ok_or_else(|| WasmError::from(format!("diffRange: range.{key} must be a non-negative integer")).to_js_value())
     };
     let (from, to) = (offset_in(&before, bound("from")?)?, offset_in(&before, bound("to")?)?);
-    let change = quillmark_content::diff::diff_range(&before, &after, from, to).map_err(|e| apply_error(e.into()))?;
+    let change = quillmark_automerge::content::diff::diff_range(&before, &after, from, to).map_err(|e| apply_error(e.into()))?;
     let change = units::change_from_scalars(&change, &before, Utf16).map_err(apply_error)?;
     serialize_or_throw(&change.to_value(), "diffRange")
 }
@@ -904,7 +904,7 @@ pub fn inherited_marks(
         .map(|k| {
             let mut m = serde_json::Map::new();
             m.insert("type".into(), k.tag().into());
-            if let Some(attrs) = quillmark_content::wire::mark_attrs(k) {
+            if let Some(attrs) = quillmark_automerge::content::wire::mark_attrs(k) {
                 m.insert("attrs".into(), attrs);
             }
             Value::Object(m)
@@ -924,7 +924,7 @@ pub fn map_pos(
     #[wasm_bindgen(unchecked_optional_param_type = "\"before\" | \"after\"")] assoc: JsValue,
 ) -> Result<JsValue, JsValue> {
     let change = change_in(change, "mapPos")?;
-    let pos = quillmark_content::wire::pos_from_value(&js_value_to_json(pos, "mapPos")?)
+    let pos = quillmark_automerge::content::wire::pos_from_value(&js_value_to_json(pos, "mapPos")?)
         .map_err(|e| WasmError::from(format!("mapPos: not a position: {e}")).to_js_value())?;
     let assoc = match assoc.as_string().as_deref() {
         None | Some("after") => Assoc::After,
@@ -935,7 +935,7 @@ pub fn map_pos(
     };
     let r = change::map_pos_in(&change, &pos, assoc, Utf16).map_err(apply_error)?;
     let out = serde_json::json!({
-        "pos": quillmark_content::wire::pos_value(&r.pos),
+        "pos": quillmark_automerge::content::wire::pos_value(&r.pos),
         "deleted": r.deleted,
         "deletedBefore": r.deleted_before,
         "deletedAfter": r.deleted_after,

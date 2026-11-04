@@ -19,9 +19,9 @@ use automerge::transaction::Transactable;
 use automerge::{
     AutoCommit, Cursor, CursorPosition, ObjId, ObjType, ReadDoc, ScalarValue, Value as AmValue,
 };
-use quillmark_content::lines::island::IslandType;
-use quillmark_content::model::{Block, Codec, Content, ISLAND_SLOT, Island, MarkKind};
-use quillmark_content::wire;
+use crate::content::lines::island::IslandType;
+use crate::content::model::{Block, Codec, Content, ISLAND_SLOT, Island, MarkKind};
+use crate::content::wire;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap};
 
@@ -328,7 +328,7 @@ pub(crate) fn is_embed(doc: &AutoCommit, m: &ObjId) -> bool {
 /// a path entry that is not a string, reads as the nearest one the decoder
 /// takes, so every document reads.
 ///
-/// [`Raw::from_value`]: quillmark_content::repair::Raw::from_value
+/// [`Raw::from_value`]: crate::content::repair::Raw::from_value
 pub(crate) fn read(doc: &AutoCommit, root: &ObjId) -> Value {
     let Some(t) = text(doc, root) else {
         return json!({ "text": "", "blocks": [{ "id": id_of(root), "kind": "para" }] });

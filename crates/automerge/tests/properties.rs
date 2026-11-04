@@ -15,7 +15,7 @@ use quillmark_automerge::automerge::sync::{State, SyncDoc};
 use quillmark_automerge::automerge::transaction::Transactable;
 use quillmark_automerge::automerge::{AutoCommit, ObjId, ObjType, ROOT, ReadDoc, ScalarValue, Value};
 use quillmark_automerge::model::{Doc, LoadError, SyncMessage, SyncState};
-use quillmark_content::model::Content;
+use quillmark_automerge::content::model::Content;
 
 const KEYS: [&str; 10] = ["value", "text", "containers", "codec", "k", "kind", "id", "slots", "props", "c"];
 const NAMES: [&str; 6] = ["@a", "<a", ">a", "strong", "a", "link"];

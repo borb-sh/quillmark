@@ -58,7 +58,7 @@ pub use quillmark_core::{
     writer::{CardAdded, TypedWriter},
 };
 
-pub use quillmark_content::change::{Change, Dropped};
+pub use quillmark_automerge::content::change::{Change, Dropped};
 
 mod load;
 mod orchestration;

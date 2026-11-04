@@ -12,7 +12,7 @@ use proptest::prelude::*;
 use quillmark_automerge::automerge::ObjId;
 use quillmark_automerge::model::patch::{Action, Patch};
 use quillmark_automerge::model::{Doc, ids};
-use quillmark_content::model::{Content, ISLAND_SLOT, MarkKind};
+use quillmark_automerge::content::model::{Content, ISLAND_SLOT, MarkKind};
 use std::collections::BTreeSet;
 
 /// A value as a host holds it to apply patches: text, the record each block
@@ -31,8 +31,8 @@ struct Held {
 }
 
 fn kind_key(k: &MarkKind) -> String {
-    quillmark_content::wire::mark_value(&quillmark_content::model::Mark::new(0, 1, k.clone()))["type"].to_string()
-        + &quillmark_content::wire::mark_value(&quillmark_content::model::Mark::new(0, 1, k.clone())).get("attrs").map(|a| a.to_string()).unwrap_or_default()
+    quillmark_automerge::content::wire::mark_value(&quillmark_automerge::content::model::Mark::new(0, 1, k.clone()))["type"].to_string()
+        + &quillmark_automerge::content::wire::mark_value(&quillmark_automerge::content::model::Mark::new(0, 1, k.clone())).get("attrs").map(|a| a.to_string()).unwrap_or_default()
 }
 
 fn held(c: &Content) -> Held {
@@ -44,10 +44,10 @@ fn held(c: &Content) -> Held {
     }
     Held {
         text: c.text.chars().collect(),
-        blocks: c.blocks.iter().map(quillmark_content::wire::block_value).collect(),
+        blocks: c.blocks.iter().map(quillmark_automerge::content::wire::block_value).collect(),
         islands: c.islands.iter().map(|i| held_island(i)).collect(),
         island_records: c.islands.iter().map(|i| serde_json::json!({ "id": i.id, "type": i.island_type.as_str(), "props": i.props })).collect(),
-        containers: c.containers.iter().map(|k| quillmark_content::wire::container_value(k).to_string()).collect(),
+        containers: c.containers.iter().map(|k| quillmark_automerge::content::wire::container_value(k).to_string()).collect(),
         anchors: c.anchors.iter().map(|a| (a.id.clone(), a.start, a.end)).collect(),
         marks,
         ids: (c.blocks.iter().map(|b| b.id.clone()).collect(), c.islands.iter().map(|i| i.id.clone()).collect()),
@@ -55,7 +55,7 @@ fn held(c: &Content) -> Held {
 }
 
 /// An island's slots, in key order, as one `Held` each; held in `islands`.
-fn held_island(i: &quillmark_content::model::Island) -> Held {
+fn held_island(i: &quillmark_automerge::content::model::Island) -> Held {
     let mut h = held(&Content::empty());
     h.islands = i.slots.values().map(held).collect();
     h.island_records = i
@@ -109,7 +109,7 @@ fn apply(h: &mut Held, p: &Patch) {
             h.marks.splice(*at..*at, sets);
             h.blocks.splice(
                 b..b,
-                blocks.iter().map(quillmark_content::wire::block_value),
+                blocks.iter().map(quillmark_automerge::content::wire::block_value),
             );
             h.ids.0.splice(b..b, blocks.iter().map(|x| x.id.clone()));
             h.islands.splice(i..i, islands.iter().map(held_island));
@@ -137,7 +137,7 @@ fn apply(h: &mut Held, p: &Patch) {
                 .iter()
                 .position(|x| *x == b.id)
                 .expect("a block patch names a held block");
-            h.blocks[k] = quillmark_content::wire::block_value(b);
+            h.blocks[k] = quillmark_automerge::content::wire::block_value(b);
         }
         Action::Island(x) => {
             let k = h
@@ -151,7 +151,7 @@ fn apply(h: &mut Held, p: &Patch) {
                 serde_json::json!({ "id": x.id, "type": x.island_type.as_str(), "props": x.props });
         }
         Action::Container(c) => {
-            let v = quillmark_content::wire::container_value(c);
+            let v = quillmark_automerge::content::wire::container_value(c);
             h.containers
                 .retain(|x| !x.contains(&format!("\"id\":\"{}\"", c.id)));
             h.containers.insert(v.to_string());

@@ -10,7 +10,7 @@
 
 use automerge::transaction::Transactable;
 use automerge::{ObjId, ObjType, ROOT, ReadDoc, Value as AmValue};
-use quillmark_content::model::Content;
+use crate::content::model::Content;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -261,7 +261,7 @@ fn write_card(d: &mut Doc, c: &ObjId, was: Option<&Card>, now: &Card) {
 fn merge_value(d: &mut Doc, root: &ObjId, want: &Content) -> bool {
     let now = d.view(root).content;
     now == *want
-        || quillmark_content::diff::diff(&now, want)
+        || crate::content::diff::diff(&now, want)
             .ok()
             .is_some_and(|change| d.apply(root, &change, None).is_ok())
 }

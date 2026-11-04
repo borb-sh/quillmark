@@ -7,7 +7,7 @@ use js_sys::{Array, Uint8Array};
 use serde::Serialize;
 use std::collections::HashMap;
 #[cfg(feature = "render")]
-use quillmark_content::units::Utf16;
+use quillmark_automerge::content::units::Utf16;
 #[cfg(feature = "render")]
 use tsify::Ts;
 use wasm_bindgen::prelude::*;
@@ -1005,9 +1005,9 @@ impl Document {
         let target = quillmark_core::document::Target::from(addr.field.as_deref());
         let content = card.read(target).map_err(|e| edit_error_to_js(&e, &base))?;
         if !annotated {
-            return Ok(JsValue::from_str(&quillmark_content::markdown::to_text(&content)));
+            return Ok(JsValue::from_str(&quillmark_automerge::content::markdown::to_text(&content)));
         }
-        let read = quillmark_content::markdown::to_text_annotated(&content);
+        let read = quillmark_automerge::content::markdown::to_text_annotated(&content);
         let path = match &addr.field {
             None => base.body(),
             Some(field) => base.field(field),
@@ -1112,7 +1112,7 @@ impl Document {
                 by_path.insert(parse_path(&path)?, patches);
             }
         }
-        let out = self.inner.reattach_in(&selectors, &by_path, quillmark_content::units::Utf16);
+        let out = self.inner.reattach_in(&selectors, &by_path, quillmark_automerge::content::units::Utf16);
         let js = ReattachedJs {
             reattached: out.reattached.into_iter().map(Into::into).collect(),
             orphaned: out.orphaned.into_iter().map(Into::into).collect(),
@@ -1579,7 +1579,7 @@ impl Document {
             None => base.body(),
             Some(field) => base.field(field),
         };
-        let receipt = content::receipt_js(receipt.in_units(quillmark_content::units::Utf16), &path, card_id);
+        let receipt = content::receipt_js(receipt.in_units(quillmark_automerge::content::units::Utf16), &path, card_id);
         serialize_or_throw(&receipt, "revise")
     }
 
@@ -1945,14 +1945,14 @@ impl Addr {
 /// 10 MiB.
 #[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Imported")]
 pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
-    let imported = quillmark_content::markdown::from_markdown(markdown).map_err(|e| match e {
-        quillmark_content::lines::import::ImportError::TooLarge { .. } => {
+    let imported = quillmark_automerge::content::markdown::from_markdown(markdown).map_err(|e| match e {
+        quillmark_automerge::content::lines::import::ImportError::TooLarge { .. } => {
             WasmError { diagnostics: vec![quillmark_core::document::EditError::import(e).to_diagnostic(None)] }.to_js_value()
         }
         e => WasmError::from(format!("importMarkdown: {e}")).to_js_value(),
     })?;
     let out = ImportedJs {
-        content: imported.content.to_value_in(quillmark_content::units::Utf16),
+        content: imported.content.to_value_in(quillmark_automerge::content::units::Utf16),
         warnings: diags(quillmark_core::document::dropped_constructs(
             imported.warnings,
             None,
@@ -1975,9 +1975,9 @@ pub fn export_markdown(
     let annotated = markdown_options(&opts, "exportMarkdown")?;
     let content = content::content_in(rt, "exportMarkdown")?;
     if !annotated {
-        return Ok(JsValue::from_str(&quillmark_content::markdown::to_text(&content)));
+        return Ok(JsValue::from_str(&quillmark_automerge::content::markdown::to_text(&content)));
     }
-    let read = quillmark_content::markdown::to_text_annotated(&content);
+    let read = quillmark_automerge::content::markdown::to_text_annotated(&content);
     let out = serde_json::json!({
         "markdown": read.markdown,
         "anchors": read.anchors.into_iter().map(|a| serde_json::json!({ "id": a.id, "line": a.line })).collect::<Vec<_>>(),
@@ -2397,7 +2397,7 @@ fn js_value_to_json(value: JsValue, ctx: &str) -> Result<serde_json::Value, JsVa
         .map_err(|e| WasmError::from(format!("{}: invalid value: {}", ctx, e)).to_js_value())
 }
 
-/// Refuse a JS value nesting past [`MAX_JSON_DEPTH`](quillmark_content::MAX_JSON_DEPTH) **before**
+/// Refuse a JS value nesting past [`MAX_JSON_DEPTH`](quillmark_automerge::content::MAX_JSON_DEPTH) **before**
 /// `serde_wasm_bindgen` builds it: `from_value` recurses one frame per level, so
 /// a deep enough input overflows the 1 MB wasm32 stack during conversion, and
 /// that trap takes the module down rather than surfacing as a catchable error.
@@ -2405,7 +2405,7 @@ fn js_value_to_json(value: JsValue, ctx: &str) -> Result<serde_json::Value, JsVa
 /// nor walks past the limit. Arrays, plain objects, and `Map`s are the three
 /// containers `serde_wasm_bindgen` descends into; each is charged one level.
 fn reject_deep_js_value(value: &JsValue, ctx: &str) -> Result<(), JsValue> {
-    const MAX: usize = quillmark_content::MAX_JSON_DEPTH;
+    const MAX: usize = quillmark_automerge::content::MAX_JSON_DEPTH;
     let mut stack: Vec<(JsValue, usize)> = vec![(value.clone(), 0)];
     while let Some((v, depth)) = stack.pop() {
         let children = if Array::is_array(&v) {
@@ -2618,7 +2618,7 @@ fn ext_map_to_js(
 
 fn card_to_js(card: &quillmark_core::document::Card) -> Result<JsValue, JsValue> {
     let mut wire = quillmark_core::document::CardWire::from(card);
-    wire.body = card.body().to_value_in(quillmark_content::units::Utf16);
+    wire.body = card.body().to_value_in(quillmark_automerge::content::units::Utf16);
     for item in &mut wire.payload_items {
         if let quillmark_core::document::PayloadItemWire::Field { value, .. } = item {
             content::payload_out(value);

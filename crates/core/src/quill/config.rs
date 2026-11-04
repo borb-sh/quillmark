@@ -567,8 +567,8 @@ impl QuillConfig {
                 }
             }
             FieldType::Text { multiline } => {
-                let mut plain_check = |rt: quillmark_content::lines::model::Lines| -> Result<
-                    quillmark_content::lines::model::Lines,
+                let mut plain_check = |rt: quillmark_automerge::content::lines::model::Lines| -> Result<
+                    quillmark_automerge::content::lines::model::Lines,
                     CoercionError,
                 > {
                     if !rt.is_plain() {
@@ -598,11 +598,11 @@ impl QuillConfig {
                     }
                     Ok(rt)
                 };
-                let commit = |old: Option<&serde_json::Value>, rt: &quillmark_content::lines::model::Lines| {
-                    QuillValue::from_json(crate::document::stored_as(old, rt, quillmark_content::model::Codec::Plain))
+                let commit = |old: Option<&serde_json::Value>, rt: &quillmark_automerge::content::lines::model::Lines| {
+                    QuillValue::from_json(crate::document::stored_as(old, rt, quillmark_automerge::content::model::Codec::Plain))
                 };
                 if json_value.is_object() {
-                    let rt = quillmark_content::migrate::lines_from_value(json_value).map_err(|e| {
+                    let rt = quillmark_automerge::content::migrate::lines_from_value(json_value).map_err(|e| {
                         CoercionError::uncoercible(
                             path,
                             "<object>",
@@ -623,7 +623,7 @@ impl QuillConfig {
                         )),
                     };
                 };
-                let rt = quillmark_content::migrate::to_lines(&quillmark_content::markdown::from_plaintext(&text));
+                let rt = quillmark_automerge::content::migrate::to_lines(&quillmark_automerge::content::markdown::from_plaintext(&text));
                 Ok(commit(None, &plain_check(rt)?))
             }
             FieldType::RichText { multiline } => {
@@ -642,7 +642,7 @@ impl QuillConfig {
                              container and no islands; declare multiline: true to admit blocks",
                     )
                 };
-                let inline_check = |rt: &quillmark_content::model::Content| -> Result<(), CoercionError> {
+                let inline_check = |rt: &quillmark_automerge::content::model::Content| -> Result<(), CoercionError> {
                     if !multiline && !rt.is_inline() {
                         return Err(inline_err());
                     }
@@ -674,7 +674,7 @@ impl QuillConfig {
                         });
                 }
                 if json_value.is_object() {
-                    let mut rt = quillmark_content::model::Content::from_value(json_value).map_err(|e| {
+                    let mut rt = quillmark_automerge::content::model::Content::from_value(json_value).map_err(|e| {
                         CoercionError::uncoercible(
                             path,
                             "<object>",
@@ -683,7 +683,7 @@ impl QuillConfig {
                         )
                     })?;
                     inline_check(&rt)?;
-                    rt.codec = quillmark_content::model::Codec::Rich;
+                    rt.codec = quillmark_automerge::content::model::Codec::Rich;
                     return Ok(QuillValue::from_json(rt.to_value()));
                 }
                 let Some(markdown) = lenient_string(json_value) else {
@@ -692,7 +692,7 @@ impl QuillConfig {
                     return Ok(value.clone());
                 };
                 let imported =
-                    quillmark_content::markdown::from_markdown(&markdown).map_err(|e| {
+                    quillmark_automerge::content::markdown::from_markdown(&markdown).map_err(|e| {
                         CoercionError::uncoercible(
                             path,
                             &markdown,
@@ -2002,7 +2002,7 @@ impl QuillConfig {
                 match value {
                     serde_json::Value::Null => true,
                     serde_json::Value::String(md) => crate::document::import_body(md)
-                        .is_ok_and(|body| body == quillmark_content::lines::model::Lines::empty()),
+                        .is_ok_and(|body| body == quillmark_automerge::content::lines::model::Lines::empty()),
                     _ => false,
                 }
             } else {
@@ -3106,7 +3106,7 @@ fn populate_card_content(card: &mut CardSchema, label: &str, errors: &mut Vec<Di
     let Some(example) = card.body.as_ref().and_then(|b| b.example.as_deref()) else {
         return;
     };
-    let reason = match quillmark_content::lines::import::from_markdown(example) {
+    let reason = match quillmark_automerge::content::lines::import::from_markdown(example) {
         Err(e) => e.to_string(),
         Ok(imported) => match imported.warnings.first() {
             None => return,
@@ -3196,7 +3196,7 @@ fn literal_content(
             Ok(Some(QuillValue::from_json(crate::document::stored_as(
                 None,
                 &rt,
-                quillmark_content::model::Codec::Plain,
+                quillmark_automerge::content::model::Codec::Plain,
             ))))
         }
         FieldType::Array => {

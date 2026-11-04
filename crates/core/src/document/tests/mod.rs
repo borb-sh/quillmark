@@ -38,7 +38,7 @@ pub(super) fn put_ids(r: &super::Receipt) -> Vec<String> {
 
 /// The id of each container the receipt's patches put that `before` held
 /// no record of.
-pub(super) fn new_containers(r: &super::Receipt, before: &quillmark_content::model::Content) -> Vec<String> {
+pub(super) fn new_containers(r: &super::Receipt, before: &quillmark_automerge::content::model::Content) -> Vec<String> {
     r.patches
         .iter()
         .filter_map(|p| match &p.action {
@@ -56,7 +56,7 @@ pub(super) fn placed(card: super::Card) -> super::Document {
 }
 
 /// `before` with the receipt's patches applied, as a host holding it does.
-pub(super) fn replayed(before: &quillmark_content::model::Content, r: &super::Receipt) -> quillmark_content::model::Content {
+pub(super) fn replayed(before: &quillmark_automerge::content::model::Content, r: &super::Receipt) -> quillmark_automerge::content::model::Content {
     let mut c = before.clone();
     for p in &r.patches {
         assert!(super::apply_patch(&mut c, p), "{p:?} reaches a held value");

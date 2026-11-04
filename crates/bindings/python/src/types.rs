@@ -1893,7 +1893,7 @@ fn path_from_py(path: &Bound<'_, PyAny>, ctx: &str) -> PyResult<Vec<quillmark::P
 
 fn content_to_py<'py>(
     py: Python<'py>,
-    content: Option<quillmark_content::model::Content>,
+    content: Option<quillmark_automerge::content::model::Content>,
 ) -> PyResult<Option<Bound<'py, PyAny>>> {
     content.map(|c| crate::content::content_to_py(py, &c)).transpose()
 }

@@ -29,7 +29,7 @@
 //! boundary; those surfaces construct one per call from the quill handle.
 
 use indexmap::IndexMap;
-use quillmark_content::model::Content;
+use quillmark_automerge::content::model::Content;
 
 use crate::document::edit::field_decode;
 use crate::document::{Card, Document, EditError, Target};

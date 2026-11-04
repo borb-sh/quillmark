@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use quillmark::{Diagnostic, Document, Engine, OutputFormat, Quill, RenderOptions};
 use quillmark_core::document::Target;
-use quillmark_content::{
+use quillmark_automerge::content::{
     change::apply,
     diff::diff,
     markdown::{ImportWarning, from_markdown, to_markdown, to_markdown_annotated},

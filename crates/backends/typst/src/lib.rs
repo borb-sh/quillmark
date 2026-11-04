@@ -819,10 +819,10 @@ mod tests {
 
     /// The shape the seam carries for a richtext field.
     fn content(markdown: &str) -> serde_json::Value {
-        let rt = quillmark_content::lines::import::from_markdown(markdown)
+        let rt = quillmark_automerge::content::lines::import::from_markdown(markdown)
             .expect("import")
             .content;
-        quillmark_content::migrate::from_lines(&rt).to_value()
+        quillmark_automerge::content::migrate::from_lines(&rt).to_value()
     }
 
     /// The two quills differ only by an extra unused schema field, which
@@ -914,9 +914,9 @@ mod tests {
             );
             Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
         };
-        let counts = |rt: &quillmark_content::lines::model::Lines| {
+        let counts = |rt: &quillmark_automerge::content::lines::model::Lines| {
             let json =
-                serde_json::json!({ "prose": quillmark_content::migrate::from_lines(rt).to_value() });
+                serde_json::json!({ "prose": quillmark_automerge::content::migrate::from_lines(rt).to_value() });
             let q = quill();
             let plate_content = read_plate(&q).expect("plate");
             let transform_schema =
@@ -942,7 +942,7 @@ mod tests {
         // The second half is the same five markers with nothing after them, which
         // Typst reads off the line's end: the bare `/` is a term list missing its
         // colon, so an unescaped one fails the compile rather than the count.
-        use quillmark_content::lines::model::{Container, Content, Line, LineKind};
+        use quillmark_automerge::content::lines::model::{Container, Content, Line, LineKind};
         let para = |_: usize| Line::new(LineKind::Para);
         let rt = Content::new(
             "= Heading\n- bullet\n+ numbered\n1. dotted\n/ term: desc\n=\n-\n+\n1.\n/".to_string(),

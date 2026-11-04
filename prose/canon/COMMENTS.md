@@ -1,6 +1,6 @@
 # Comment Anchors
 
-> **Implementation**: `crates/content/src/` (the `anchors` module), `crates/core/src/document/` (the `anchors` module)
+> **Implementation**: `crates/automerge/src/content/` (the `anchors` module), `crates/core/src/document/` (the `anchors` module)
 > **Related**: [CONTENT.md](CONTENT.md), [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md), [BINDINGS.md](BINDINGS.md)
 
 ## TL;DR
@@ -96,6 +96,6 @@ A host that stores markdown recovers by running `reattach` over every stored sel
 
 ## Links
 
-- Per-field rule and constants: the `anchors` module of `quillmark-content` (`anchor_contexts`, `locate_site`, `Content::reattach`).
+- Per-field rule and constants: the `content::anchors` module of `quillmark-automerge` (`anchor_contexts`, `locate_site`, `Content::reattach`).
 - Document walk and the path writer: `Document::anchor_contexts`, `anchor_context`, `reattach`.
 - Receipts: `Receipt.dropped_anchors` and `DocumentRevised.dropped_anchors`.

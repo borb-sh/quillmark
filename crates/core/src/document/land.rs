@@ -11,12 +11,12 @@ use std::collections::BTreeMap;
 
 use quillmark_automerge::automerge::{ActorId, ObjId};
 use quillmark_automerge::model::{StepError, cards};
-use quillmark_content::change::{self, AnchorStep, ApplyError, Change, Step};
-use quillmark_content::lines::import::ImportWarning;
-use quillmark_content::diff;
-use quillmark_content::ids::is_actor;
-use quillmark_content::model::Content;
-use quillmark_content::units::{self, Units};
+use quillmark_automerge::content::change::{self, AnchorStep, ApplyError, Change, Step};
+use quillmark_automerge::content::lines::import::ImportWarning;
+use quillmark_automerge::content::diff;
+use quillmark_automerge::content::ids::is_actor;
+use quillmark_automerge::content::model::Content;
+use quillmark_automerge::content::units::{self, Units};
 
 use super::edit::EditError;
 use super::write::{Edit, Receipt, Target, WriteOptions, check_change, keeps_ext_islands};
@@ -200,7 +200,7 @@ impl Document {
         let (change, warnings, diffed) = match edit {
             Edit::Apply(change) => match u {
                 Some(u) => {
-                    let filled = quillmark_content::mint::fill(&change, &[&read], None).map_err(EditError::change)?;
+                    let filled = quillmark_automerge::content::mint::fill(&change, &[&read], None).map_err(EditError::change)?;
                     let scalars = units::change_to_scalars(&filled.change, &read, u).map_err(EditError::change)?;
                     let back = filled.minted.into_iter().map(|(placeholder, id)| (id, placeholder)).collect();
                     (renamed(&scalars, &back), Vec::new(), false)

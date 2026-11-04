@@ -9,8 +9,8 @@
 
 use std::collections::BTreeSet;
 
-use quillmark_content::lines::island::IslandType;
-use quillmark_content::lines::model::Content;
+use quillmark_automerge::content::lines::island::IslandType;
+use quillmark_automerge::content::lines::model::Content;
 use quillmark_core::error::{Diagnostic, Severity};
 use quillmark_core::path::DocPath;
 use quillmark_core::quill::QuillConfig;

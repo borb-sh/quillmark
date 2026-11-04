@@ -6,7 +6,7 @@ use quillmark_core::{
     session::LiveSession,
     types::{OutputFormat, RenderOptions},
 };
-use quillmark_content::units::{Scalars, Units};
+use quillmark_automerge::content::units::{Scalars, Units};
 use std::collections::HashMap;
 use std::sync::Arc;
 

@@ -28,9 +28,9 @@ use automerge::transaction::{CommitOptions, Transactable};
 use automerge::{
     ActorId, AutoCommit, ChangeHash, ObjId, ObjType, ROOT, ReadDoc, TextEncoding,
 };
-use quillmark_content::change::Change;
-use quillmark_content::model::Content;
-use quillmark_content::repair::{Raw, Repair, repair};
+use crate::content::change::Change;
+use crate::content::model::Content;
+use crate::content::repair::{Raw, Repair, repair};
 use serde_json::Value;
 
 /// The document as it was at `heads`, writing under a random actor: the

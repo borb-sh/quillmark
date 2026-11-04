@@ -5,7 +5,7 @@ use crate::{
     region::{ContentHit, FieldCoverage, RenderedRegion},
     types::RenderOptions,
 };
-use quillmark_content::units::{self, Units};
+use quillmark_automerge::content::units::{self, Units};
 use std::sync::OnceLock;
 
 /// What a committed [`LiveSession::update`] changed.
@@ -614,7 +614,7 @@ main:
         });
         let session = LiveSession::new(Box::new(SpanHandle), config(), test_date(), &data);
         let spans: Vec<_> = session
-            .regions_in(quillmark_content::units::Utf16)
+            .regions_in(quillmark_automerge::content::units::Utf16)
             .into_iter()
             .map(|r| (r.field, r.span))
             .collect();

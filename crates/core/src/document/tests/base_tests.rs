@@ -1,5 +1,5 @@
-use quillmark_content::lines::export::to_markdown_annotated;
-use quillmark_content::lines::import::from_markdown;
+use quillmark_automerge::content::lines::export::to_markdown_annotated;
+use quillmark_automerge::content::lines::import::from_markdown;
 
 use crate::document::{Card, Document, EditError, Heads};
 use crate::quill::{BoundParseError, QuillConfig};
@@ -69,7 +69,7 @@ impl Placed {
         self.0.heads()
     }
 
-    fn overwrite_body(&mut self, content: impl Into<quillmark_content::lines::model::Lines>) {
+    fn overwrite_body(&mut self, content: impl Into<quillmark_automerge::content::lines::model::Lines>) {
         self.0.card_mut(0).unwrap().overwrite_body(content);
     }
 }
@@ -370,7 +370,7 @@ fn a_moved_tag_pins_through_a_merge() {
         .unwrap();
     let revised = card.revise_body_at(&at, &moved).unwrap();
     assert!(revised.dropped_anchors.is_empty());
-    let ctx = quillmark_content::lines::anchor::anchor_context(card.body_lines(), "c1").unwrap();
+    let ctx = quillmark_automerge::content::lines::anchor::anchor_context(card.body_lines(), "c1").unwrap();
     assert!(ctx.quote.starts_with("beta"), "{ctx:?}");
     assert!(card.body_markdown().contains("Third, theirs."));
 }
@@ -457,7 +457,7 @@ fn a_token_survives_a_merge() {
         doc.main().body_lines().text,
         "Alpha, mine, \u{FFFC}.\nBeta two, theirs."
     );
-    let shape = |islands: &[quillmark_content::lines::model::Island]| islands.iter().map(|i| (i.island_type.clone(), i.props.clone())).collect::<Vec<_>>();
+    let shape = |islands: &[quillmark_automerge::content::lines::model::Island]| islands.iter().map(|i| (i.island_type.clone(), i.props.clone())).collect::<Vec<_>>();
     assert_eq!(shape(&doc.main().body_lines().islands), shape(&body.islands));
 }
 

@@ -117,7 +117,7 @@ The receipt's `from` is the alignment itself: for each revised composable card, 
 
 ### Content offsets
 
-Storage is scalars, and every host speaks its own: storage and core count Unicode scalar values, and each binding speaks its host's units at every surface that takes or answers an offset, converting inside (`units` module of `quillmark-content`). WASM speaks UTF-16 code units, JavaScript string indices; Python speaks code points, which are storage's own, so it converts nothing.
+Storage is scalars, and every host speaks its own: storage and core count Unicode scalar values, and each binding speaks its host's units at every surface that takes or answers an offset, converting inside (`content::units` module of `quillmark-automerge`). WASM speaks UTF-16 code units, JavaScript string indices; Python speaks code points, which are storage's own, so it converts nothing.
 
 - A `Content` converts on its own text, and a slot on its own.
 - A `Change` converts against the value it applies to, each step on the text the steps before it left, so a step's offsets read as the writer saw them. An offset inside a surrogate pair refuses the change (`edit::content_apply`).

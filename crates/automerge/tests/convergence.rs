@@ -10,10 +10,10 @@ mod common;
 use common::*;
 use proptest::prelude::*;
 use quillmark_automerge::merge3;
-use quillmark_content::change::{Change, SetBlock, Step, apply};
-use quillmark_content::model::Content;
+use quillmark_automerge::content::change::{Change, SetBlock, Step, apply};
+use quillmark_automerge::content::model::Content;
 
-fn block<'a>(c: &'a Content, id: &str) -> Option<&'a quillmark_content::model::Block> {
+fn block<'a>(c: &'a Content, id: &str) -> Option<&'a quillmark_automerge::content::model::Block> {
     c.blocks.iter().find(|b| b.id == id)
 }
 

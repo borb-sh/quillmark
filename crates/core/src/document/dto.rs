@@ -16,7 +16,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::model::Content as ContentModel;
+use quillmark_automerge::content::model::Content as ContentModel;
 
 use super::meta::validate_composable_kind;
 use super::payload::{MetaKey, Payload, PayloadItem, trim_comment_text};
@@ -125,7 +125,7 @@ pub struct CardV0_134_0 {
 }
 
 /// A card body embedded as a content-model value, through its canonical
-/// JSON ([`quillmark_content::wire`]): `Serialize` validates, then writes the
+/// JSON ([`quillmark_automerge::content::wire`]): `Serialize` validates, then writes the
 /// key-sorted object; `Deserialize` reads it as a stored value
 /// ([`ContentModel::from_value_lenient`]), so an invalid body fails the load
 /// and a non-canonical one loads canonical, `rewritten` saying so. Both
@@ -264,8 +264,8 @@ impl From<&Card> for CardV0_134_0 {
 /// value is: one spelled otherwise than its canonical form is rewritten to
 /// it, and one that does not read refuses the load, as a body's does. True
 /// where one was rewritten.
-fn canonicalize_field(value: &mut serde_json::Value) -> Result<bool, quillmark_content::wire::ParseError> {
-    if quillmark_content::units::is_content_value(value) {
+fn canonicalize_field(value: &mut serde_json::Value) -> Result<bool, quillmark_automerge::content::wire::ParseError> {
+    if quillmark_automerge::content::units::is_content_value(value) {
         let read = ContentModel::from_value_lenient(value)?;
         if read.rewritten {
             *value = read.content.to_value();
@@ -660,12 +660,12 @@ This body and the metadata above are an indorsement card.
     /// alone, so an invalid shape reaches the DTO.
     #[test]
     fn an_unreadable_body_is_refused_on_write() {
-        use quillmark_content::lines::model::{Container, Content, Line, LineKind};
+        use quillmark_automerge::content::lines::model::{Container, Content, Line, LineKind};
 
         let mut doc = sample();
         let mut line = Line::new(LineKind::Para);
         line.containers =
-            vec![Container::Quote { instance: 0 }; quillmark_content::MAX_NESTING_DEPTH + 1];
+            vec![Container::Quote { instance: 0 }; quillmark_automerge::content::MAX_NESTING_DEPTH + 1];
         doc.main_card_mut()
             .overwrite_body(Content::new("x".to_string(), vec![line]));
         let err = serde_json::to_string(&doc).expect_err("write refuses what load would reject");
@@ -676,16 +676,16 @@ This body and the metadata above are an indorsement card.
     fn content_field_survives_storage_round_trip_losslessly() {
         // The storage DTO is the lossless carrier: an `underline` with no
         // markdown form survives here where a markdown save would drop it.
-        use quillmark_content::lines::model::{Mark, MarkKind};
+        use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
         let mut doc = sample();
-        let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
+        let mut content = quillmark_automerge::content::lines::import::from_markdown("underlined intro")
             .unwrap()
             .content
             .into_content();
         content.marks.push(Mark::new(0, 10, MarkKind::Underline));
         let content = content.into_lines();
-        let json = quillmark_content::migrate::from_lines(&content).to_value();
+        let json = quillmark_automerge::content::migrate::from_lines(&content).to_value();
         let schema = crate::quill::FieldSchema::new(
             "intro".to_string(),
             crate::quill::FieldType::RichText { multiline: true },

@@ -6,9 +6,9 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use quillmark_content::change::{self, Change};
-use quillmark_content::model::Content;
-use quillmark_content::wire::ParseError;
+use quillmark_automerge::content::change::{self, Change};
+use quillmark_automerge::content::model::Content;
+use quillmark_automerge::content::wire::ParseError;
 use quillmark_core::document::{CardMut, Document, Edit, EditError, LoadError, Receipt, SyncState, Target, WriteOptions, check_change, check_content_value};
 use quillmark_core::path::DocPath;
 
@@ -150,7 +150,7 @@ pub(crate) fn receipt_to_py<'py>(
         })
         .collect();
     let patches: Vec<serde_json::Value> = receipt.patches.iter().map(|p| p.to_value()).collect();
-    let repairs: Vec<serde_json::Value> = receipt.repairs.iter().map(quillmark_content::repair::Repair::to_value).collect();
+    let repairs: Vec<serde_json::Value> = receipt.repairs.iter().map(quillmark_automerge::content::repair::Repair::to_value).collect();
     let out = PyDict::new(py);
     out.set_item("before", receipt.before.encode())?;
     out.set_item("heads", receipt.heads.encode())?;
@@ -167,7 +167,7 @@ pub(crate) fn receipt_to_py<'py>(
 #[pyfunction]
 pub fn diff<'py>(py: Python<'py>, before: &Bound<'_, PyAny>, after: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
     let (before, after) = (content_from_py(before, "diff")?, content_from_py(after, "diff")?);
-    let change = quillmark_content::diff::diff(&before, &after).map_err(|e| change_error(e.into()))?;
+    let change = quillmark_automerge::content::diff::diff(&before, &after).map_err(|e| change_error(e.into()))?;
     json_to_py(py, &change.to_value())
 }
 
@@ -179,12 +179,12 @@ pub fn diff<'py>(py: Python<'py>, before: &Bound<'_, PyAny>, after: &Bound<'_, P
 pub fn repair<'py>(py: Python<'py>, raw: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyDict>> {
     let json = py_to_json(raw)?;
     check_content_value(&json).map_err(|e| convert_edit_error(e, &DocPath::new()))?;
-    let raw = quillmark_content::repair::Raw::from_value(&json)
+    let raw = quillmark_automerge::content::repair::Raw::from_value(&json)
         .map_err(|e| PyValueError::new_err(format!("repair: not shaped as content: {e}")))?;
-    let (content, repairs, change) = quillmark_content::repair::repair(raw);
+    let (content, repairs, change) = quillmark_automerge::content::repair::repair(raw);
     let out = PyDict::new(py);
     out.set_item("content", content_to_py(py, &content)?)?;
-    let repairs: Vec<serde_json::Value> = repairs.iter().map(quillmark_content::repair::Repair::to_value).collect();
+    let repairs: Vec<serde_json::Value> = repairs.iter().map(quillmark_automerge::content::repair::Repair::to_value).collect();
     out.set_item("repairs", json_to_py(py, &serde_json::Value::Array(repairs))?)?;
     out.set_item("change", json_to_py(py, &change.to_value())?)?;
     Ok(out)
@@ -195,9 +195,9 @@ pub fn repair<'py>(py: Python<'py>, raw: &Bound<'_, PyAny>) -> PyResult<Bound<'p
 /// `{id, line}`.
 pub(crate) fn exported<'py>(py: Python<'py>, content: &Content, annotated: bool) -> PyResult<Bound<'py, PyAny>> {
     if !annotated {
-        return Ok(quillmark_content::markdown::to_text(content).into_pyobject(py)?.into_any());
+        return Ok(quillmark_automerge::content::markdown::to_text(content).into_pyobject(py)?.into_any());
     }
-    let read = quillmark_content::markdown::to_text_annotated(content);
+    let read = quillmark_automerge::content::markdown::to_text_annotated(content);
     let anchors: Vec<_> = read.anchors.into_iter().map(|a| serde_json::json!({ "id": a.id, "line": a.line })).collect();
     json_to_py(py, &serde_json::json!({ "markdown": read.markdown, "anchors": anchors }))
 }
@@ -209,7 +209,7 @@ pub(crate) fn exported<'py>(py: Python<'py>, content: &Content, annotated: bool)
 /// 10 MiB.
 #[pyfunction]
 pub fn import_markdown<'py>(py: Python<'py>, markdown: &str) -> PyResult<Bound<'py, PyDict>> {
-    let imported = quillmark_content::markdown::from_markdown(markdown)
+    let imported = quillmark_automerge::content::markdown::from_markdown(markdown)
         .map_err(|e| convert_edit_error(EditError::import(e), &DocPath::new()))?;
     let out = PyDict::new(py);
     out.set_item("content", content_to_py(py, &imported.content)?)?;

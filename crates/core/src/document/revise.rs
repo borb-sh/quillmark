@@ -1,9 +1,9 @@
 //! The whole-document revise: a markdown write that keeps what markdown cannot
 //! spell.
 
-use quillmark_content::lines::delta::rebase_marks;
-use quillmark_content::change::ApplyError;
-use quillmark_content::model::Content;
+use quillmark_automerge::content::lines::delta::rebase_marks;
+use quillmark_automerge::content::change::ApplyError;
+use quillmark_automerge::content::model::Content;
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 
@@ -12,8 +12,8 @@ use super::card_id::{is_card_id, reminted_warning, settle_reporting};
 use super::anchors::AnchorSelector;
 use super::edit::EditError;
 use super::emit::{canonical_content, emit_payload_fields};
-use quillmark_content::anchors::anchor_contexts;
-use quillmark_content::model::Content as ContentModel;
+use quillmark_automerge::content::anchors::anchor_contexts;
+use quillmark_automerge::content::model::Content as ContentModel;
 use super::{Card, Document, Heads, Parsed, Revising, dropped_constructs};
 use crate::error::{Diagnostic, ParseError, Severity};
 use crate::path::DocPath;
@@ -249,7 +249,7 @@ fn revise_card(
         Some(revised) => Ok(revised),
         None => {
             let lines = rebase_marks(stored.body_lines(), incoming.body_lines().clone());
-            let lifted = quillmark_content::diff::lift(stored.body(), &lines);
+            let lifted = quillmark_automerge::content::diff::lift(stored.body(), &lines);
             lifted.validate().map(|()| lifted).map_err(ApplyError::Invalid)
         }
     });
@@ -285,8 +285,8 @@ fn revise_card(
 /// `markdown` revising `stored` as [`Card::revise`] revises a value with no
 /// base. `None` on an over-nested input, and the refusal where the markdown
 /// imports to a value that does not validate.
-fn revised(stored: &Content, markdown: &str) -> Result<Option<quillmark_content::diff::Revision>, ApplyError> {
-    use quillmark_content::diff::ReviseError;
+fn revised(stored: &Content, markdown: &str) -> Result<Option<quillmark_automerge::content::diff::Revision>, ApplyError> {
+    use quillmark_automerge::content::diff::ReviseError;
     match quillmark_automerge::revise(stored, markdown) {
         Ok(revision) => Ok(Some(revision)),
         Err(ReviseError::Refused(e)) => Err(e),

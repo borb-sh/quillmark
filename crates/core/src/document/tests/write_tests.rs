@@ -1,5 +1,5 @@
-use quillmark_content::change::{AnchorStep, Change, Splice, Step};
-use quillmark_content::model::{Anchor, Block, BlockKind};
+use quillmark_automerge::content::change::{AnchorStep, Change, Splice, Step};
+use quillmark_automerge::content::model::{Anchor, Block, BlockKind};
 
 use crate::document::{Card, Document, EditError, Target};
 
@@ -37,7 +37,7 @@ fn apply_lands_a_change_and_undo_takes_it_back() {
     assert_eq!(undone.before, receipt.heads);
 }
 
-fn block_ids(content: &quillmark_content::model::Content) -> Vec<String> {
+fn block_ids(content: &quillmark_automerge::content::model::Content) -> Vec<String> {
     content.blocks.iter().map(|b| b.id.clone()).collect()
 }
 
@@ -197,11 +197,11 @@ fn a_stale_replace_reusing_ids_introduced_since_lands_beside_them() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nAlpha\n\nGamma\n");
     let base = doc.heads();
     doc.main_mut().revise(Target::Body, "Alpha[^a]\n\n- one\n\nGamma\n\n[^a]: first", Some(&base)).unwrap();
-    let mine = quillmark_content::markdown::from_markdown("Alpha\n\nGamma[^b]\n\n- two\n\n[^b]: second").unwrap().content;
+    let mine = quillmark_automerge::content::markdown::from_markdown("Alpha\n\nGamma[^b]\n\n- two\n\n[^b]: second").unwrap().content;
     let _ = doc.main_mut().replace(Target::Body, &mine, Some(&base)).unwrap();
     let body = doc.main().body();
     assert_eq!((body.containers.len(), body.islands.len()), (4, 2));
-    assert_eq!(quillmark_content::markdown::to_markdown(body), "Alpha[^1]\n\n- one\n\nGamma[^2]\n\n- two\n\n[^1]: first\n\n[^2]: second");
+    assert_eq!(quillmark_automerge::content::markdown::to_markdown(body), "Alpha[^1]\n\n- one\n\nGamma[^2]\n\n- two\n\n[^1]: first\n\n[^2]: second");
 }
 
 /// Two writers who rewrote the same text both land, as Automerge merges
@@ -223,7 +223,7 @@ fn overlapping_text_merges_and_the_later_record_wins() {
 }
 
 fn heading(id: &str, level: u8) -> Change {
-    Change::new(vec![Step::SetBlock(quillmark_content::change::SetBlock {
+    Change::new(vec![Step::SetBlock(quillmark_automerge::content::change::SetBlock {
         id: id.into(),
         kind: Some("heading".into()),
         attrs: serde_json::json!({ "level": level }).as_object().cloned(),
@@ -314,7 +314,7 @@ fn replace_carries_the_anchors_it_does_not_name() {
     body.anchors.push(Anchor::new("kept".to_string(), 0, 7));
     body.anchors.push(Anchor::new("gone".to_string(), 23, 25));
     doc.main_mut().replace(Target::Body, &body, None).unwrap();
-    let fresh = quillmark_content::markdown::from_markdown("Revenue grew 12%.\n\nShip").unwrap().content;
+    let fresh = quillmark_automerge::content::markdown::from_markdown("Revenue grew 12%.\n\nShip").unwrap().content;
     let receipt = doc.main_mut().replace(Target::Body, &fresh, None).unwrap();
     let dropped: Vec<&str> = receipt.dropped_anchors.iter().map(|a| a.context.id.as_str()).collect();
     assert_eq!(dropped, ["gone"]);
@@ -348,7 +348,7 @@ fn a_write_lands_on_the_card_its_writer_read() {
         |doc| doc.move_card(2, 1).unwrap(),
         |doc| {
             let mut card = Card::new("note").unwrap();
-            card.overwrite_body(quillmark_content::lines::import::from_markdown("Hello").unwrap().content);
+            card.overwrite_body(quillmark_automerge::content::lines::import::from_markdown("Hello").unwrap().content);
             doc.unchecked().insert_card(Some(1), card, None).unwrap();
         },
     ];
@@ -370,9 +370,9 @@ fn a_write_lands_on_the_card_its_writer_read() {
 /// its own, as undo writes, removes it.
 #[test]
 fn a_revise_or_replace_refuses_to_remove_an_x_island() {
-    use quillmark_content::change::IslandStep;
-    use quillmark_content::lines::island::IslandType;
-    use quillmark_content::model::Island;
+    use quillmark_automerge::content::change::IslandStep;
+    use quillmark_automerge::content::lines::island::IslandType;
+    use quillmark_automerge::content::model::Island;
 
     let mut doc = parse(SOURCE);
     let island = Island::new("isl-x", IslandType::Ext("x-chart".into())).with_props(serde_json::json!({"series": [1]}));
@@ -380,10 +380,10 @@ fn a_revise_or_replace_refuses_to_remove_an_x_island() {
     let inserted = doc.main_mut().apply(Target::Body, &insert, None).unwrap();
     let isl = put_ids(&inserted)[0].clone();
     let held = doc.clone();
-    let plain = quillmark_content::markdown::to_markdown(doc.main().body());
+    let plain = quillmark_automerge::content::markdown::to_markdown(doc.main().body());
     let err = doc.main_mut().revise(Target::Body, &plain, None).unwrap_err();
     assert_eq!(err.code(), "edit::drops_ext_island");
-    let without = quillmark_content::markdown::from_markdown(&plain).unwrap().content;
+    let without = quillmark_automerge::content::markdown::from_markdown(&plain).unwrap().content;
     let err = doc.main_mut().replace(Target::Body, &without, None).unwrap_err();
     assert_eq!((err.code(), err.args()["island"].as_str()), ("edit::drops_ext_island", Some(isl.as_str())));
     assert_eq!(doc, held);
@@ -392,8 +392,8 @@ fn a_revise_or_replace_refuses_to_remove_an_x_island() {
     assert!(doc.main().body().islands.is_empty());
 }
 
-fn content(v: serde_json::Value) -> quillmark_content::model::Content {
-    quillmark_content::model::Content::from_value(&v).unwrap_or_else(|e| panic!("{e}: {v}"))
+fn content(v: serde_json::Value) -> quillmark_automerge::content::model::Content {
+    quillmark_automerge::content::model::Content::from_value(&v).unwrap_or_else(|e| panic!("{e}: {v}"))
 }
 
 fn paras(text: &str) -> serde_json::Value {
@@ -406,7 +406,7 @@ fn paras(text: &str) -> serde_json::Value {
 /// note, between two lists), formatting inside link text, a lone or trailing
 /// hard break, a cell holding two breaks in a row, a strong mark inside
 /// a code mark, a point anchor at either edge.
-fn unspelled() -> Vec<(&'static str, quillmark_content::model::Content)> {
+fn unspelled() -> Vec<(&'static str, quillmark_automerge::content::model::Content)> {
     use serde_json::json;
     let list = |id: &str, item: &str, ordered: bool| {
         [json!({"id": id, "kind": "list", "attrs": {"ordered": ordered, "start": 1}}), json!({"id": item, "kind": "item"})]
@@ -457,7 +457,7 @@ fn a_revise_with_the_annotated_read_keeps_what_markdown_cannot_spell() {
         let mut doc = parse(SOURCE);
         doc.main_mut().replace(Target::Body, &value, None).unwrap();
         let stored = doc.main().body().clone();
-        let read = quillmark_content::markdown::to_markdown_annotated(&stored).markdown;
+        let read = quillmark_automerge::content::markdown::to_markdown_annotated(&stored).markdown;
         let receipt = doc.main_mut().revise(Target::Body, &read, None).unwrap();
         assert_eq!(doc.main().body(), &stored, "{name}: {read:?}");
         assert!(receipt.patches.is_empty(), "{name}: {:?}", receipt.patches);
@@ -469,7 +469,7 @@ fn a_revise_with_the_annotated_read_keeps_what_markdown_cannot_spell() {
         edited.blocks.push(Block::new("tail", BlockKind::Para));
         doc.main_mut().replace(Target::Body, &edited, None).unwrap();
         let stored = doc.main().body().clone();
-        let read = quillmark_content::markdown::to_markdown_annotated(&stored).markdown;
+        let read = quillmark_automerge::content::markdown::to_markdown_annotated(&stored).markdown;
         doc.main_mut().revise(Target::Body, &read.replace("Tail.", "Tail, edited."), None).unwrap();
         assert_eq!(doc.main().body().text, stored.text.replace("Tail.", "Tail, edited."), "{name}");
         assert_eq!(doc.main().body().marks, stored.marks, "{name}");
@@ -488,11 +488,11 @@ fn a_revise_over_what_its_read_could_not_spell_lands_as_written_or_conflicts() {
     doc.main_mut().revise(Target::Body, "see [the unofficial docs](https://x.io) now", None).unwrap();
     let body = doc.main().body();
     assert_eq!(body.text, "see the unofficial docs now");
-    assert!(body.marks.iter().all(|m| m.kind != quillmark_content::model::MarkKind::Emph), "{:?}", body.marks);
+    assert!(body.marks.iter().all(|m| m.kind != quillmark_automerge::content::model::MarkKind::Emph), "{:?}", body.marks);
 
     let mut doc = parse(SOURCE);
     doc.main_mut().replace(Target::Body, &shape("cell: two breaks"), None).unwrap();
-    let read = quillmark_content::markdown::to_markdown_annotated(doc.main().body()).markdown;
+    let read = quillmark_automerge::content::markdown::to_markdown_annotated(doc.main().body()).markdown;
     doc.main_mut().revise(Target::Body, &read.replace("a<br><br>b", "z"), None).unwrap();
     let island = &doc.main().body().islands[0];
     let cell = &island.slots[&island.slot_order()[1]].text;
@@ -529,7 +529,7 @@ fn a_revise_and_a_replace_carry_an_anchor_through_one_word_diff() {
     let mut revised = doc.clone();
     revised.main_mut().revise(Target::Body, md, None).unwrap();
     let mut replaced = doc.clone();
-    replaced.main_mut().replace(Target::Body, &quillmark_content::markdown::from_markdown(md).unwrap().content, None).unwrap();
+    replaced.main_mut().replace(Target::Body, &quillmark_automerge::content::markdown::from_markdown(md).unwrap().content, None).unwrap();
     assert_eq!(quote_of(&revised, "c1").as_deref(), Some("brown "));
     assert_eq!(quote_of(&revised, "c2").as_deref(), Some("dog"));
     assert_eq!(revised.main().body().anchors, replaced.main().body().anchors);
@@ -568,7 +568,7 @@ fn a_receipt_spells_a_dropped_anchor_as_stored() {
 fn a_write_past_an_input_bound_refuses_under_its_code() {
     let mut doc = parse(SOURCE);
     let held = doc.clone();
-    let huge = "a".repeat(quillmark_content::MAX_MARKDOWN_SIZE + 1);
+    let huge = "a".repeat(quillmark_automerge::content::MAX_MARKDOWN_SIZE + 1);
     let err = doc.main_mut().revise(Target::Body, &huge, None).unwrap_err();
     assert_eq!(err.code(), "edit::input_too_large");
     let steps = (0..=crate::document::MAX_CHANGE_STEPS).map(|_| Step::Splice(Splice::new(0, String::new(), "x".to_string())));
@@ -585,7 +585,7 @@ fn a_write_past_an_input_bound_refuses_under_its_code() {
 #[test]
 fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
     use crate::document::WriteOptions;
-    use quillmark_content::structural::Wrap;
+    use quillmark_automerge::content::structural::Wrap;
     let under = |id: &str, actor: &str| id.ends_with(&actor.bytes().map(|b| format!("{b:02x}")).collect::<String>());
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nalpha\n\nbravo\n\ncharlie\n");
     let read = block_ids(doc.main().body());
@@ -610,7 +610,7 @@ fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
 
     let insert = Change::new(vec![
         Step::Splice(Splice { blocks: vec![Block::new("?p".to_string(), BlockKind::Para)], ..Splice::new(19, "", "\nnew") }),
-        Step::SetBlock(quillmark_content::change::SetBlock {
+        Step::SetBlock(quillmark_automerge::content::change::SetBlock {
             id: "?p".into(),
             kind: Some("heading".into()),
             attrs: serde_json::json!({"level": 2}).as_object().cloned(),
@@ -829,8 +829,8 @@ fn a_stale_anchor_on_text_deleted_since_lands_as_automerge_merges() {
 /// start falls inside it.
 #[test]
 fn a_stale_anchor_and_mark_land_over_typing_at_them() {
-    use quillmark_content::change::MarkStep;
-    use quillmark_content::model::{Mark, MarkKind};
+    use quillmark_automerge::content::change::MarkStep;
+    use quillmark_automerge::content::model::{Mark, MarkKind};
     for (typist, writer) in [("a", "z"), ("z", "a")] {
         let mut doc = parse("~~~\n$quill: q\n~~~\n\nHello world\n");
         let base = doc.heads();
@@ -858,7 +858,7 @@ fn a_stale_revise_over_an_anchor_resolved_since_puts_it_back() {
     let place = Change::new(vec![Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-1".to_string(), 10, 15), quote: None })]);
     doc.main_mut().apply(Target::Body, &place, None).unwrap();
     let base = doc.heads();
-    let read = quillmark_content::markdown::to_markdown_annotated(doc.main().body()).markdown;
+    let read = quillmark_automerge::content::markdown::to_markdown_annotated(doc.main().body()).markdown;
     assert!(read.contains("qm-anchor"), "{read}");
     doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Anchor(AnchorStep::Remove { id: "c-1".into() })]), None).unwrap();
     let _ = doc.main_mut().revise(Target::Body, &read.replace("brown", "red"), Some(&base)).unwrap();

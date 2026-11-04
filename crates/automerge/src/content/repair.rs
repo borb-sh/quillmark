@@ -1,0 +1,1286 @@
+//! Merge repair. A single step cannot break the model, but two valid
+//! concurrent edits can merge into a state no step allows. [`repair`] makes any
+//! such state valid by fixed rules: it is total, the same raw value always
+//! repairs to the same content, and every id it mints is derived from the ids
+//! involved, so peers holding one merged state read one value. A rule that
+//! [inserts](Repair::inserts) is written back by no peer.
+
+use crate::content::change::{Change, IslandStep, Removed as Gone, Splice, Step};
+use crate::content::ids::{MAX_ID_LEN, is_id};
+use crate::content::lines::island::IslandType;
+use crate::content::lines::model::json_depth_exceeds;
+use crate::content::lines::normalize::is_bidi_char;
+use crate::content::model::{
+    Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT,
+    Invariant, Island, Mark, NOTE_SLOT, Scalar, is_lang, is_text_char,
+};
+use crate::content::table::{Row, Table};
+use crate::content::units::Units;
+use crate::content::wire::{
+    ParseError, anchor_from_value, array, block_from_value, codec_from_value, container_from_value,
+    mark_from_value, shape, str_key,
+};
+use serde_json::{Map, Value, json};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+/// A content value as a merge left it: shaped as [`Content`], its invariants
+/// unchecked, and its islands matched to their slots by id.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Raw {
+    pub text: String,
+    pub blocks: Vec<Block>,
+    pub containers: Vec<Container>,
+    pub marks: Vec<Mark>,
+    pub anchors: Vec<RawAnchor>,
+    /// The island id each [`ISLAND_SLOT`] of `text` carries, in slot order;
+    /// `None` where a slot carries none.
+    pub slot_ids: Vec<Option<String>>,
+    pub islands: BTreeMap<String, RawIsland>,
+    pub codec: Codec,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RawAnchor {
+    pub anchor: Anchor,
+    /// Placed as a range: at zero width it has collapsed.
+    pub range: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RawIsland {
+    pub island_type: IslandType,
+    pub props: Value,
+    pub slots: BTreeMap<String, Raw>,
+}
+
+/// What [`repair`] changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Repair {
+    /// A path named a container with no record; the id left the path.
+    MissingContainer { block: String, container: String },
+    /// A container sat under two paths; its blocks took its first block's.
+    TwoParents { container: String },
+    /// A container spanned two runs; the later run's is `fresh`.
+    SplitRun { container: String, fresh: String },
+    /// A slot named no island record; its character left the text.
+    OrphanSlot { island: Option<String> },
+    /// An island record no slot named was removed.
+    OrphanIsland { island: String },
+    /// A second slot named an island the first already held; it holds a copy
+    /// under `fresh`.
+    SharedIsland { island: String, fresh: String },
+    /// A block holding a block island and text beside it split at the
+    /// island's edges; `block` is the fresh id of one later piece.
+    SplitBlock { island: String, block: String },
+    /// A table cell named no slot of its own; it holds the empty `slot`.
+    EmptyCell { island: String, slot: String },
+    /// A range anchor collapsed to zero width and was dropped.
+    CollapsedAnchor { id: String },
+    /// Anything else that broke the invariant, fixed by the nearest valid value.
+    Invalid(Invariant),
+    /// A repair inside an island's slot.
+    InSlot {
+        island: String,
+        slot: String,
+        repair: Box<Repair>,
+    },
+}
+
+impl Repair {
+    pub fn to_value(&self) -> Value {
+        let mut v = self.wire();
+        if self.inserts() {
+            v["inserts"] = Value::Bool(true);
+        }
+        v
+    }
+
+    fn wire(&self) -> Value {
+        match self {
+            Repair::MissingContainer { block, container } => {
+                json!({"repair": "missing_container", "block": block, "container": container})
+            }
+            Repair::TwoParents { container } => {
+                json!({"repair": "two_parents", "container": container})
+            }
+            Repair::SplitRun { container, fresh } => {
+                json!({"repair": "split_run", "container": container, "fresh": fresh})
+            }
+            Repair::OrphanSlot { island } => json!({"repair": "orphan_slot", "island": island}),
+            Repair::OrphanIsland { island } => json!({"repair": "orphan_island", "island": island}),
+            Repair::SharedIsland { island, fresh } => {
+                json!({"repair": "shared_island", "island": island, "fresh": fresh})
+            }
+            Repair::SplitBlock { island, block } => {
+                json!({"repair": "split_block", "island": island, "block": block})
+            }
+            Repair::EmptyCell { island, slot } => {
+                json!({"repair": "empty_cell", "island": island, "slot": slot})
+            }
+            Repair::CollapsedAnchor { id } => json!({"repair": "collapsed_anchor", "id": id}),
+            Repair::Invalid(inv) => json!({"repair": "invalid", "reason": inv.to_string()}),
+            Repair::InSlot {
+                island,
+                slot,
+                repair,
+            } => {
+                json!({"repair": "in_slot", "island": island, "slot": slot, "inner": repair.to_value()})
+            }
+        }
+    }
+
+    /// Whether writing this repair back inserts text or a slot. Two peers
+    /// writing one back at once each insert their own: text lands twice and
+    /// stays valid, and a slot minted twice keeps one peer's under its id. So
+    /// no peer writes back a report holding one; any peer may write back a
+    /// report whose repairs only delete or set.
+    pub fn inserts(&self) -> bool {
+        match self {
+            Repair::SplitBlock { .. } | Repair::EmptyCell { .. } => true,
+            Repair::Invalid(Invariant::BreakInHeading { .. } | Invariant::BreakInCell { .. }) => true,
+            Repair::InSlot { repair, .. } => repair.inserts(),
+            _ => false,
+        }
+    }
+
+    /// The anchor this repair dropped, at any depth.
+    pub fn dropped_anchor(&self) -> Option<&str> {
+        match self {
+            Repair::CollapsedAnchor { id } => Some(id),
+            Repair::InSlot { repair, .. } => repair.dropped_anchor(),
+            _ => None,
+        }
+    }
+}
+
+impl From<&Content> for Raw {
+    fn from(c: &Content) -> Self {
+        Raw {
+            text: c.text.clone(),
+            blocks: c.blocks.clone(),
+            containers: c.containers.clone(),
+            marks: c.marks.clone(),
+            anchors: c
+                .anchors
+                .iter()
+                .map(|a| RawAnchor {
+                    anchor: a.clone(),
+                    range: !a.is_point(),
+                })
+                .collect(),
+            codec: c.codec,
+            slot_ids: c.islands.iter().map(|i| Some(i.id.clone())).collect(),
+            islands: c
+                .islands
+                .iter()
+                .map(|i| {
+                    let slots = i
+                        .slots
+                        .iter()
+                        .map(|(k, s)| (k.clone(), Raw::from(s)))
+                        .collect();
+                    (
+                        i.id.clone(),
+                        RawIsland {
+                            island_type: i.island_type.clone(),
+                            props: i.props.clone(),
+                            slots,
+                        },
+                    )
+                })
+                .collect(),
+        }
+    }
+}
+
+impl Raw {
+    /// Decode a raw value: a content value whose `islands` may be an object
+    /// keyed by island id, with `slot_ids` naming the island each slot carries
+    /// (`null` for none), and whose anchors may carry `range: true`. An
+    /// `islands` array pairs with the slots in order. Refused only where the
+    /// value is not shaped as content at all.
+    pub fn from_value(v: &Value) -> Result<Raw, ParseError> {
+        if crate::content::model::json_too_deep(v) {
+            return Err(ParseError::Invalid(Invariant::JsonTooDeep {
+                what: "content",
+                max: crate::content::MAX_JSON_DEPTH,
+            }));
+        }
+        decode(v)
+    }
+}
+
+fn decode(v: &Value) -> Result<Raw, ParseError> {
+    if !v.is_object() {
+        return Err(shape("content is not an object"));
+    }
+    let anchors = array(v, "anchors")?
+        .iter()
+        .map(|a| {
+            Ok(RawAnchor {
+                anchor: anchor_from_value(a)?,
+                range: a.get("range") == Some(&Value::Bool(true)),
+            })
+        })
+        .collect::<Result<_, ParseError>>()?;
+    let mut raw = Raw {
+        text: str_key(v, "text")?,
+        blocks: array(v, "blocks")?
+            .iter()
+            .map(block_from_value)
+            .collect::<Result<_, _>>()?,
+        containers: array(v, "containers")?
+            .iter()
+            .map(container_from_value)
+            .collect::<Result<_, _>>()?,
+        marks: array(v, "marks")?
+            .iter()
+            .map(mark_from_value)
+            .collect::<Result<_, _>>()?,
+        anchors,
+        slot_ids: Vec::new(),
+        islands: BTreeMap::new(),
+        codec: codec_from_value(v)?,
+    };
+    match v.get("islands") {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(list)) => {
+            for i in list {
+                let id = str_key(i, "id")?;
+                raw.slot_ids.push(Some(id.clone()));
+                raw.islands.entry(id).or_insert(island(i)?);
+            }
+        }
+        Some(Value::Object(map)) => {
+            for (id, i) in map {
+                raw.islands.insert(id.clone(), island(i)?);
+            }
+            raw.slot_ids = array(v, "slot_ids")?
+                .iter()
+                .map(|s| match s {
+                    Value::Null => Ok(None),
+                    Value::String(s) => Ok(Some(s.clone())),
+                    _ => Err(shape("a `slot_ids` entry is not a string or null")),
+                })
+                .collect::<Result<_, _>>()?;
+        }
+        Some(_) => return Err(shape("`islands` is not an array or an object")),
+    }
+    Ok(raw)
+}
+
+fn island(v: &Value) -> Result<RawIsland, ParseError> {
+    let ty = str_key(v, "type")?;
+    let island_type = IslandType::parse(&ty).ok_or(ParseError::UnknownName {
+        axis: "island type",
+        name: ty,
+    })?;
+    let props = match v.get("props") {
+        None | Some(Value::Null) => Value::Object(Map::new()),
+        Some(p @ Value::Object(_)) => p.clone(),
+        Some(_) => return Err(shape("`props` is not an object")),
+    };
+    let slots = match v.get("slots") {
+        None | Some(Value::Null) => BTreeMap::new(),
+        Some(Value::Object(m)) => m
+            .iter()
+            .map(|(k, s)| Ok((k.clone(), decode(s)?)))
+            .collect::<Result<_, ParseError>>()?,
+        Some(_) => return Err(shape("`slots` is not an object")),
+    };
+    Ok(RawIsland {
+        island_type,
+        props,
+        slots,
+    })
+}
+
+/// `raw` made valid, what changed, and the change that takes `raw`'s text to
+/// the content's: each character a rule deletes, inserts or rewrites, as
+/// splices in turn, the edits inside each slot as `nested` steps, and a
+/// table's slots a rule removed or added as a props step. A position mapped
+/// through it lands where repair puts an anchor there. A valid value comes
+/// back as it is, normalized, with nothing reported and no change.
+pub fn repair(raw: Raw) -> (Content, Vec<Repair>, Change) {
+    let mut out = Vec::new();
+    let mut steps = Vec::new();
+    let mut c = field(raw, &mut out, &mut steps);
+    dedupe_anchors(&mut c, &mut HashSet::new(), &mut out);
+    cap_anchors(&mut c, &mut out);
+    c.normalize();
+    if let Err(inv) = c.validate() {
+        out.push(Repair::Invalid(inv));
+        let text: Vec<char> = c.text.chars().collect();
+        let slots: BTreeSet<Scalar> = text.iter().enumerate().filter(|(_, ch)| **ch == ISLAND_SLOT).map(|(k, _)| k).collect();
+        let held = c.islands.clone();
+        steps.extend(deletions(&text, &slots, |k| held.get(k).cloned()));
+        c = flatten(c);
+        c.normalize();
+        if c.validate().is_err() {
+            if !c.text.is_empty() {
+                steps.push(Step::Splice(Splice::new(0, c.text.clone(), "")));
+            }
+            c = Content::empty();
+        }
+    }
+    (c, out, Change::new(steps))
+}
+
+/// `change`, the one [`repair`] answered for `raw`, its offsets counting `u`
+/// over the text each step reads.
+pub fn change_in(raw: &Raw, change: &Change, u: impl Units) -> Change {
+    fn level(text: &str, slots: Option<&BTreeMap<String, RawIsland>>, steps: &[Step], u: impl Units) -> Vec<Step> {
+        let mut text: Vec<char> = text.chars().collect();
+        steps
+            .iter()
+            .map(|step| match step {
+                Step::Splice(s) => {
+                    let before: String = text[..s.at.min(text.len())].iter().collect();
+                    let at = u.len(&before);
+                    let end = (s.at + s.delete.chars().count()).min(text.len());
+                    text.splice(s.at.min(text.len())..end, s.insert.chars());
+                    Step::Splice(Splice { at, ..s.clone() })
+                }
+                Step::Nested { island, slot, change } => {
+                    let inner = slots.and_then(|i| i.get(island)).and_then(|i| i.slots.get(slot));
+                    let steps = match inner {
+                        Some(r) => level(&r.text, Some(&r.islands), &change.steps, u),
+                        None => change.steps.clone(),
+                    };
+                    Step::Nested { island: island.clone(), slot: slot.clone(), change: Change::new(steps) }
+                }
+                step => step.clone(),
+            })
+            .collect()
+    }
+    Change::new(level(&raw.text, Some(&raw.islands), &change.steps, u))
+}
+
+/// The splices that delete the characters of `text` at `at`, each run as
+/// one, the last first so each reads the text the one before it left. The
+/// `n`th slot of `text` names `island(n)` in `removed`.
+fn deletions(text: &[char], at: &BTreeSet<Scalar>, island: impl Fn(usize) -> Option<Island>) -> Vec<Step> {
+    let mut runs: Vec<(Scalar, Scalar)> = Vec::new();
+    for &k in at {
+        match runs.last_mut() {
+            Some(run) if run.1 == k => run.1 += 1,
+            _ => runs.push((k, k + 1)),
+        }
+    }
+    let slot_index = |k: Scalar| text[..k].iter().filter(|&&c| c == ISLAND_SLOT).count();
+    runs.into_iter()
+        .rev()
+        .map(|(a, b)| {
+            let delete: String = text[a..b].iter().collect();
+            let first = slot_index(a);
+            let islands: Vec<Island> = (a..b)
+                .filter(|&k| text[k] == ISLAND_SLOT)
+                .enumerate()
+                .map(|(n, _)| island(first + n).unwrap_or_else(|| Island::new("", IslandType::Ext("x-orphan".into()))))
+                .collect();
+            let removed = (!islands.is_empty()).then(|| Gone { islands, ..Gone::default() });
+            Step::Splice(Splice { removed, ..Splice::new(a, delete, "") })
+        })
+        .collect()
+}
+
+/// Mints ids no part of a scope holds.
+struct Ids(HashSet<String>);
+
+impl Ids {
+    fn derive(&mut self, parts: &[&str]) -> String {
+        let base: String = parts
+            .join("-")
+            .chars()
+            .filter(|&c| {
+                !c.is_whitespace() && !c.is_control() && !is_bidi_char(c) && c != ISLAND_SLOT
+            })
+            .take(MAX_ID_LEN - 12)
+            .collect();
+        let base = if base.is_empty() {
+            "x".to_string()
+        } else {
+            base
+        };
+        let mut id = base.clone();
+        let mut n = 2u64;
+        while self.0.contains(&id) {
+            id = format!("{base}-{n}");
+            n += 1;
+        }
+        self.0.insert(id.clone());
+        id
+    }
+}
+
+/// Offsets past characters taken out of the text.
+struct Removed(Vec<Scalar>);
+
+impl Removed {
+    fn map(&self, o: Scalar) -> Scalar {
+        o - self.0.partition_point(|&p| p < o)
+    }
+}
+
+fn remove_chars(
+    text: &mut Vec<char>,
+    at: &BTreeSet<Scalar>,
+    marks: &mut [Mark],
+    anchors: &mut [&mut Anchor],
+) {
+    if at.is_empty() {
+        return;
+    }
+    let removed = Removed(at.iter().copied().collect());
+    let mut k = 0;
+    text.retain(|_| {
+        k += 1;
+        !at.contains(&(k - 1))
+    });
+    for m in marks {
+        (m.start, m.end) = (removed.map(m.start), removed.map(m.end));
+    }
+    for a in anchors {
+        (a.start, a.end) = (removed.map(a.start), removed.map(a.end));
+    }
+}
+
+fn field(raw: Raw, out: &mut Vec<Repair>, steps: &mut Vec<Step>) -> Content {
+    let mut ids = Ids(raw
+        .blocks
+        .iter()
+        .map(|b| b.id.clone())
+        .chain(raw.containers.iter().map(|c| c.id.clone()))
+        .chain(raw.islands.keys().cloned())
+        .collect());
+    let Raw {
+        text,
+        mut blocks,
+        containers,
+        mut marks,
+        mut anchors,
+        slot_ids,
+        islands,
+        codec,
+    } = raw;
+    let mut text: Vec<char> = text.chars().collect();
+    for a in &mut anchors {
+        a.range |= a.anchor.start < a.anchor.end;
+    }
+
+    let mut forbidden = BTreeSet::new();
+    let mut named = BTreeSet::new();
+    for (k, &c) in text.iter().enumerate() {
+        if !is_text_char(c) {
+            forbidden.insert(k);
+            if named.insert(c) {
+                out.push(Repair::Invalid(Invariant::ForbiddenChar(c)));
+            }
+        }
+    }
+    steps.extend(deletions(&text, &forbidden, |_| None));
+    let mut anchor_refs: Vec<&mut Anchor> = anchors.iter_mut().map(|a| &mut a.anchor).collect();
+    remove_chars(&mut text, &forbidden, &mut marks, &mut anchor_refs);
+
+    let slots: Vec<Scalar> = text
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| **c == ISLAND_SLOT)
+        .map(|(k, _)| k)
+        .collect();
+    let mut kept = Vec::new();
+    let mut gone = BTreeSet::new();
+    let mut lost: Vec<Island> = Vec::new();
+    let mut inside: Vec<Step> = Vec::new();
+    let unnamed = |id: Option<String>, raw: Option<&RawIsland>| match raw {
+        Some(r) => Island::new(id.unwrap_or_default(), r.island_type.clone()).with_props(r.props.clone()),
+        None => Island::new(id.unwrap_or_default(), IslandType::Ext("x-orphan".into())),
+    };
+    let mut held: HashSet<String> = HashSet::new();
+    for (k, &at) in slots.iter().enumerate() {
+        let carried = slot_ids.get(k).cloned().flatten();
+        let Some((id, record)) = carried
+            .as_ref()
+            .and_then(|id| Some((id.clone(), islands.get(id)?.clone())))
+        else {
+            lost.push(unnamed(carried.clone(), None));
+            out.push(Repair::OrphanSlot { island: carried });
+            gone.insert(at);
+            continue;
+        };
+        let island_id = if is_id(&id) && !held.contains(&id) {
+            id.clone()
+        } else if is_id(&id) {
+            let fresh = ids.derive(&[&id]);
+            out.push(Repair::SharedIsland {
+                island: id.clone(),
+                fresh: fresh.clone(),
+            });
+            fresh
+        } else {
+            out.push(Repair::Invalid(Invariant::BadId { id: id.clone() }));
+            ids.derive(&["isl"])
+        };
+        held.insert(island_id.clone());
+        let raw_record = record.clone();
+        let edits = if island_id == id { Some(&mut inside) } else { None };
+        match island_of(island_id, record, out, edits) {
+            Some(island) => kept.push(island),
+            None => {
+                lost.push(unnamed(Some(id), Some(&raw_record)));
+                gone.insert(at);
+            }
+        }
+    }
+    let mut lost = lost.into_iter();
+    let removed: BTreeMap<Scalar, Island> = gone.iter().map(|&at| (at, lost.next().expect("a lost island per gone slot"))).collect();
+    let slot_at: Vec<Scalar> = text.iter().enumerate().filter(|(_, c)| **c == ISLAND_SLOT).map(|(k, _)| k).collect();
+    steps.extend(deletions(&text, &gone, |n| removed.get(&slot_at[n]).cloned()));
+    let carried: HashSet<&String> = slot_ids.iter().flatten().collect();
+    for id in islands.keys().filter(|id| !carried.contains(id)) {
+        out.push(Repair::OrphanIsland { island: id.clone() });
+    }
+    let mut anchor_refs: Vec<&mut Anchor> = anchors.iter_mut().map(|a| &mut a.anchor).collect();
+    remove_chars(&mut text, &gone, &mut marks, &mut anchor_refs);
+
+    let segments = text.iter().filter(|&&c| c == '\n').count() + 1;
+    if blocks.len() != segments {
+        out.push(Repair::Invalid(Invariant::BlockCountMismatch {
+            blocks: blocks.len(),
+            segments,
+        }));
+        blocks.truncate(segments);
+        while blocks.len() < segments {
+            let base = blocks.last().map_or("b".to_string(), |b| b.id.clone());
+            blocks.push(Block::new(ids.derive(&[&base]), BlockKind::Para));
+        }
+    }
+
+    let mut taken = HashSet::new();
+    for b in &mut blocks {
+        if !is_id(&b.id) || taken.contains(&b.id) {
+            out.push(Repair::Invalid(if is_id(&b.id) {
+                Invariant::DuplicateId { id: b.id.clone() }
+            } else {
+                Invariant::BadId { id: b.id.clone() }
+            }));
+            b.id = ids.derive(&[if is_id(&b.id) { &b.id } else { "b" }]);
+        }
+        taken.insert(b.id.clone());
+        match &mut b.kind {
+            BlockKind::Heading { level } if !(1..=6).contains(&*level) => {
+                out.push(Repair::Invalid(Invariant::BadHeadingLevel(*level)));
+                *level = (*level).clamp(1, 6);
+            }
+            BlockKind::Code { lang } if lang.as_deref().is_some_and(|l| !is_lang(l)) => {
+                out.push(Repair::Invalid(Invariant::BadLang(
+                    lang.take().unwrap_or_default(),
+                )));
+            }
+            _ => {}
+        }
+    }
+
+    let mut kinds: HashMap<String, ContainerKind> = HashMap::new();
+    let mut records = Vec::new();
+    for c in containers {
+        if !is_id(&c.id) {
+            out.push(Repair::Invalid(Invariant::BadId { id: c.id }));
+        } else if kinds.contains_key(&c.id) {
+            out.push(Repair::Invalid(Invariant::DuplicateId { id: c.id }));
+        } else {
+            kinds.insert(c.id.clone(), c.kind.clone());
+            records.push(c);
+        }
+    }
+    for b in &mut blocks {
+        let block = b.id.clone();
+        b.path.retain(|id| {
+            let known = kinds.contains_key(id);
+            if !known {
+                out.push(Repair::MissingContainer {
+                    block: block.clone(),
+                    container: id.clone(),
+                });
+            }
+            known
+        });
+    }
+    nest_all(&mut blocks, &kinds, out);
+    let bound = blocks.len() * (2 * crate::content::MAX_NESTING_DEPTH + 2) + 8;
+    let mut settled = false;
+    for _ in 0..bound {
+        if !relate(&mut blocks, &mut kinds, &mut records, &mut ids, out) {
+            settled = true;
+            break;
+        }
+        nest_all(&mut blocks, &kinds, out);
+    }
+    if !settled {
+        for b in &mut blocks {
+            b.path.clear();
+        }
+    }
+
+    let mut start = 0;
+    for b in &mut blocks {
+        let end = text[start..]
+            .iter()
+            .position(|&c| c == '\n')
+            .map_or(text.len(), |n| start + n);
+        let seg = &mut text[start..end];
+        match b.kind {
+            BlockKind::Heading { .. } if seg.contains(&HARD_BREAK) => {
+                out.push(Repair::Invalid(Invariant::BreakInHeading {
+                    block: b.id.clone(),
+                }));
+                for (k, c) in seg.iter_mut().enumerate().filter(|(_, c)| **c == HARD_BREAK) {
+                    *c = ' ';
+                    let q = start + k;
+                    steps.push(Step::Splice(Splice::new(q, HARD_BREAK.to_string(), " ")));
+                    for a in anchors.iter_mut().filter(|a| a.range) {
+                        let a = &mut a.anchor;
+                        if a.start == q {
+                            a.start = q + 1;
+                        }
+                        if a.end == q + 1 {
+                            a.end = q;
+                        }
+                    }
+                }
+            }
+            BlockKind::Rule if !seg.is_empty() => {
+                out.push(Repair::Invalid(Invariant::TextInRule {
+                    block: b.id.clone(),
+                }));
+                b.kind = BlockKind::Para;
+            }
+            BlockKind::Code { .. } if seg.contains(&ISLAND_SLOT) => {
+                out.push(Repair::Invalid(Invariant::SlotInCode {
+                    block: b.id.clone(),
+                }));
+                b.kind = BlockKind::Para;
+            }
+            _ => {}
+        }
+        start = end + 1;
+    }
+
+    let (text, blocks) =
+        split_block_islands(text, blocks, &kept, &mut marks, &mut anchors, &mut ids, out, steps);
+    steps.append(&mut inside);
+
+    let len = text.len();
+    marks.retain_mut(|m| {
+        if m.start < m.end && m.end <= len {
+            return true;
+        }
+        out.push(Repair::Invalid(Invariant::BadMark {
+            start: m.start,
+            end: m.end,
+            len,
+        }));
+        m.end = m.end.min(len);
+        m.start < m.end
+    });
+    cap_marks(&text, &mut marks, out);
+    let anchors = anchors
+        .into_iter()
+        .filter_map(|RawAnchor { mut anchor, range }| {
+            if anchor.id.is_empty() {
+                out.push(Repair::Invalid(Invariant::BadAnchor { id: anchor.id }));
+                return None;
+            }
+            anchor.start = anchor.start.min(len);
+            anchor.end = anchor.end.min(len);
+            if anchor.start > anchor.end || (range && anchor.start == anchor.end) {
+                out.push(Repair::CollapsedAnchor { id: anchor.id });
+                return None;
+            }
+            Some(anchor)
+        })
+        .collect();
+
+    Content {
+        text: text.into_iter().collect(),
+        blocks,
+        containers: records,
+        marks,
+        anchors,
+        islands: kept,
+        codec,
+    }
+}
+
+/// The island `raw` holds made valid under `id`, the edits inside its slots
+/// and the slots a rule removed or added pushed to `steps` where given.
+fn island_of(id: String, raw: RawIsland, out: &mut Vec<Repair>, steps: Option<&mut Vec<Step>>) -> Option<Island> {
+    let bad = |reason| {
+        Repair::Invalid(Invariant::BadIsland {
+            id: id.clone(),
+            reason,
+        })
+    };
+    if json_depth_exceeds(&raw.props, crate::content::MAX_JSON_DEPTH) {
+        out.push(Repair::Invalid(Invariant::JsonTooDeep {
+            what: "island props",
+            max: crate::content::MAX_JSON_DEPTH,
+        }));
+        return None;
+    }
+    let mut props = if raw.props.is_object() {
+        raw.props
+    } else {
+        Value::Object(Map::new())
+    };
+    let mut slots: BTreeMap<String, Content> = BTreeMap::new();
+    let mut nested = Vec::new();
+    let held: BTreeSet<String> = raw.slots.keys().cloned().collect();
+    for (key, slot) in raw.slots {
+        if !is_id(&key) {
+            out.push(Repair::Invalid(Invariant::BadId { id: key }));
+            continue;
+        }
+        let mut inner = Vec::new();
+        let mut edits = Vec::new();
+        let mut c = field(slot, &mut inner, &mut edits);
+        if !c.is_slot_shape() {
+            inner.push(Repair::Invalid(Invariant::BadSlot {
+                island: id.clone(),
+                slot: key.clone(),
+            }));
+            let text: Vec<char> = c.text.chars().collect();
+            let at: BTreeSet<Scalar> = text.iter().enumerate().filter(|(_, ch)| **ch == ISLAND_SLOT).map(|(k, _)| k).collect();
+            let held = c.islands.clone();
+            edits.extend(deletions(&text, &at, |k| held.get(k).cloned()));
+            c = flatten(c);
+        }
+        if !edits.is_empty() {
+            nested.push(Step::Nested { island: id.clone(), slot: key.clone(), change: Change::new(edits) });
+        }
+        out.extend(inner.into_iter().map(|r| Repair::InSlot {
+            island: id.clone(),
+            slot: key.clone(),
+            repair: Box::new(r),
+        }));
+        slots.insert(key, c);
+    }
+    let was = props.clone();
+    match &raw.island_type {
+        IslandType::Table => {
+            if !table(&id, &mut props, &mut slots, out) {
+                return None;
+            }
+            slots = join_cells(&id, IslandType::Table, slots, &mut nested, out);
+            let now: BTreeSet<String> = slots.keys().cloned().collect();
+            if props != was || now != held {
+                let gained = slots.iter().filter(|(k, _)| !held.contains(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();
+                nested.push(Step::Island(IslandStep::Props { id: id.clone(), props: props.clone(), slots: gained }));
+            }
+        }
+        IslandType::Footnote => {
+            if slots.len() != 1 || !slots.contains_key(NOTE_SLOT) {
+                out.push(bad("a footnote holds one slot, `note`"));
+                let note = slots.remove(NOTE_SLOT).unwrap_or_default();
+                slots = BTreeMap::from([(NOTE_SLOT.to_string(), note)]);
+            }
+            slots = join_cells(&id, IslandType::Footnote, slots, &mut nested, out);
+        }
+        IslandType::Math | IslandType::Image => {
+            let key = if raw.island_type == IslandType::Math {
+                "tex"
+            } else {
+                "url"
+            };
+            if !props.get(key).is_some_and(Value::is_string) {
+                out.push(bad(if key == "tex" {
+                    "an equation's `tex` is not a string"
+                } else {
+                    "an image's `url` is not a string"
+                }));
+                return None;
+            }
+            if !slots.is_empty() {
+                out.push(bad("an equation or an image holds no slot"));
+                slots.clear();
+            }
+        }
+        IslandType::Ext(_) => {}
+    }
+    if let Some(steps) = steps {
+        steps.append(&mut nested);
+    }
+    Some(Island {
+        id,
+        island_type: raw.island_type,
+        props,
+        slots,
+    })
+}
+
+/// `slots` with each slot of several paragraphs that holds one joined by hard
+/// breaks, the splices that join it onto `nested`.
+fn join_cells(
+    id: &str,
+    island_type: IslandType,
+    slots: BTreeMap<String, Content>,
+    nested: &mut Vec<Step>,
+    out: &mut Vec<Repair>,
+) -> BTreeMap<String, Content> {
+    let mut joined = Island { id: id.to_string(), island_type, props: Value::Null, slots };
+    for slot in joined.join_cells() {
+        let text = &joined.slots[&slot].text;
+        let breaks = text.chars().enumerate().filter(|(_, ch)| *ch == HARD_BREAK).map(|(k, _)| Step::Splice(Splice::new(k, "\n", &HARD_BREAK.to_string())));
+        nested.push(Step::Nested { island: id.to_string(), slot: slot.clone(), change: Change::new(breaks.collect()) });
+        out.push(Repair::Invalid(Invariant::BreakInCell { island: id.to_string(), slot }));
+    }
+    joined.slots
+}
+
+/// A table's grid made whole: columns and rows with valid unique ids, every
+/// cell naming a slot of its own, an empty slot minted for a cell that names
+/// none, and a slot no cell names removed. False where no grid is left.
+fn table(
+    island: &str,
+    props: &mut Value,
+    slots: &mut BTreeMap<String, Content>,
+    out: &mut Vec<Repair>,
+) -> bool {
+    let bad = |reason| {
+        Repair::Invalid(Invariant::BadIsland {
+            id: island.to_string(),
+            reason,
+        })
+    };
+    let Some(obj) = props.as_object_mut() else {
+        return false;
+    };
+    let strings = |v: Option<&Value>| -> Vec<String> {
+        v.and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|s| s.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let raw_columns = strings(obj.get("columns"));
+    let raw_rows: Vec<Value> = obj
+        .get("rows")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut ids = Ids(raw_columns
+        .iter()
+        .cloned()
+        .chain(
+            raw_rows
+                .iter()
+                .filter_map(|r| r.get("id")?.as_str().map(str::to_string)),
+        )
+        .chain(
+            raw_rows
+                .iter()
+                .filter_map(|r| r.get("cells")?.as_object())
+                .flat_map(|c| {
+                    c.values()
+                        .filter_map(|s| s.as_str().map(str::to_string))
+                        .collect::<Vec<_>>()
+                }),
+        )
+        .chain(slots.keys().cloned())
+        .collect());
+    let mut seen = HashSet::new();
+    let columns: Vec<String> = raw_columns
+        .into_iter()
+        .filter(|c| is_id(c) && seen.insert(c.clone()))
+        .collect();
+    let mut row_ids = HashSet::new();
+    let mut named = HashSet::new();
+    let mut rows = Vec::new();
+    let mut minted = Vec::new();
+    for r in &raw_rows {
+        let Some(cells) = r.get("cells").and_then(Value::as_object) else {
+            continue;
+        };
+        let id = match r.get("id").and_then(Value::as_str) {
+            Some(id) if is_id(id) && !row_ids.contains(id) => id.to_string(),
+            Some(id) if is_id(id) => ids.derive(&[id]),
+            _ => ids.derive(&["r"]),
+        };
+        row_ids.insert(id.clone());
+        let cells = columns
+            .iter()
+            .map(|col| match cells.get(col).and_then(Value::as_str) {
+                Some(s) if is_id(s) && slots.contains_key(s) && !named.contains(s) => {
+                    named.insert(s.to_string());
+                    s.to_string()
+                }
+                _ => {
+                    let fresh = ids.derive(&[&id, col]);
+                    minted.push(fresh.clone());
+                    slots.insert(fresh.clone(), Content::empty());
+                    named.insert(fresh.clone());
+                    fresh
+                }
+            })
+            .collect();
+        rows.push(Row { id, cells });
+    }
+    if columns.is_empty() || rows.is_empty() {
+        out.push(bad("a table holds at least one row and one column"));
+        return false;
+    }
+    let cells = columns.len().saturating_mul(rows.len());
+    if cells > crate::content::MAX_TABLE_CELLS {
+        out.push(Repair::Invalid(Invariant::TableTooLarge {
+            cells,
+            max: crate::content::MAX_TABLE_CELLS,
+        }));
+        return false;
+    }
+    out.extend(minted.into_iter().map(|slot| Repair::EmptyCell {
+        island: island.to_string(),
+        slot,
+    }));
+    let before = (
+        obj.get("columns").cloned(),
+        obj.get("rows").cloned(),
+        slots.len(),
+    );
+    slots.retain(|k, _| named.contains(k));
+    let table = Table { columns, rows };
+    table.write_into(obj);
+    if (
+        obj.get("columns").cloned(),
+        obj.get("rows").cloned(),
+        slots.len(),
+    ) != before
+    {
+        out.push(bad("a table's slots are not the ones its rows name"));
+    }
+    true
+}
+
+fn is_list(kinds: &HashMap<String, ContainerKind>, id: &str) -> bool {
+    matches!(kinds.get(id), Some(ContainerKind::List { .. }))
+}
+
+/// A path whose kinds nest: each id once, an item only right after a list, a
+/// list only right before an item, at most [`crate::content::MAX_NESTING_DEPTH`] deep.
+fn nest(path: &[String], kinds: &HashMap<String, ContainerKind>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(path.len());
+    for (k, id) in path.iter().enumerate() {
+        if path[..k].contains(id) {
+            continue;
+        }
+        let after_list = out.last().is_some_and(|l| is_list(kinds, l));
+        let is_item = matches!(kinds.get(id), Some(ContainerKind::Item { .. }));
+        if is_item && !after_list {
+            continue;
+        }
+        if !is_item && after_list {
+            out.pop();
+        }
+        out.push(id.clone());
+    }
+    loop {
+        if out.last().is_some_and(|l| is_list(kinds, l)) {
+            out.pop();
+        }
+        if crate::content::model::depth(&out, |id| kinds.get(id).cloned()) <= crate::content::MAX_NESTING_DEPTH {
+            return out;
+        }
+        out.pop();
+    }
+}
+
+fn nest_all(blocks: &mut [Block], kinds: &HashMap<String, ContainerKind>, out: &mut Vec<Repair>) {
+    for b in blocks {
+        let nested = nest(&b.path, kinds);
+        if nested != b.path {
+            out.push(Repair::Invalid(Invariant::BadPath {
+                block: b.id.clone(),
+            }));
+            b.path = nested;
+        }
+    }
+}
+
+/// Fixes, in first-use order, each container that sits under two paths or
+/// spans several runs, reading every container's blocks in one walk; false
+/// when none does. A container one of whose blocks an earlier fix of the
+/// same pass rewrote waits for the next pass, which reads it afresh.
+fn relate(
+    blocks: &mut [Block],
+    kinds: &mut HashMap<String, ContainerKind>,
+    records: &mut Vec<Container>,
+    ids: &mut Ids,
+    out: &mut Vec<Repair>,
+) -> bool {
+    let mut order: Vec<String> = Vec::new();
+    let mut holders: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
+    for (i, b) in blocks.iter().enumerate() {
+        for (j, id) in b.path.iter().enumerate() {
+            holders
+                .entry(id.clone())
+                .or_insert_with(|| {
+                    order.push(id.clone());
+                    Vec::new()
+                })
+                .push((i, j));
+        }
+    }
+    let mut touched: HashSet<usize> = HashSet::new();
+    let mut fixed = false;
+    for x in order {
+        let held = &holders[&x];
+        if held.iter().any(|(i, _)| touched.contains(i)) {
+            continue;
+        }
+        let (first, j0) = held[0];
+        let prefix = blocks[first].path[..j0].to_vec();
+        let mut moved = false;
+        for &(i, j) in &held[1..] {
+            if blocks[i].path[..j] != prefix[..] {
+                let rest = blocks[i].path[j..].to_vec();
+                blocks[i].path = prefix.iter().cloned().chain(rest).collect();
+                touched.insert(i);
+                moved = true;
+            }
+        }
+        if moved {
+            out.push(Repair::TwoParents { container: x });
+            fixed = true;
+            continue;
+        }
+        let gaps: Vec<usize> = (1..held.len()).filter(|&k| held[k].0 != held[k - 1].0 + 1).collect();
+        for k in gaps {
+            let run_first = blocks[held[k].0].id.clone();
+            let mut renamed: HashMap<String, String> = HashMap::new();
+            let mut i = held[k].0;
+            while i < blocks.len() {
+                let Some(j) = blocks[i].path.iter().position(|p| *p == x) else {
+                    break;
+                };
+                for p in j..blocks[i].path.len() {
+                    let y = blocks[i].path[p].clone();
+                    let fresh = renamed.entry(y.clone()).or_insert_with(|| {
+                        let fresh = ids.derive(&[&y, &run_first]);
+                        let kind = kinds[&y].clone();
+                        kinds.insert(fresh.clone(), kind.clone());
+                        records.push(Container::new(fresh.clone(), kind));
+                        fresh
+                    });
+                    blocks[i].path[p] = fresh.clone();
+                }
+                touched.insert(i);
+                i += 1;
+            }
+            out.push(Repair::SplitRun {
+                container: x.clone(),
+                fresh: renamed[&x].clone(),
+            });
+            fixed = true;
+        }
+    }
+    fixed
+}
+
+/// Every block island alone in a paragraph: a block holding one and text
+/// beside it splits at each edge of the island, the first piece keeping the
+/// record, as a split keeps the left half's, and each later piece a fresh id.
+fn split_block_islands(
+    text: Vec<char>,
+    blocks: Vec<Block>,
+    islands: &[Island],
+    marks: &mut [Mark],
+    anchors: &mut [RawAnchor],
+    ids: &mut Ids,
+    out: &mut Vec<Repair>,
+    steps: &mut Vec<Step>,
+) -> (Vec<char>, Vec<Block>) {
+    let mut new_text = Vec::with_capacity(text.len());
+    let mut new_blocks = Vec::with_capacity(blocks.len());
+    let mut breaks: Vec<Scalar> = Vec::new();
+    let mut slot = 0usize;
+    let mut start = 0usize;
+    for b in blocks {
+        let end = text[start..]
+            .iter()
+            .position(|&c| c == '\n')
+            .map_or(text.len(), |n| start + n);
+        let seg = &text[start..end];
+        let mut pieces: Vec<(Scalar, Scalar, Option<&Island>)> = Vec::new();
+        let mut from = 0;
+        for (k, &c) in seg.iter().enumerate() {
+            if c != ISLAND_SLOT {
+                continue;
+            }
+            let island = &islands[slot];
+            slot += 1;
+            if island.island_type.block_only() {
+                if from < k {
+                    pieces.push((from, k, None));
+                }
+                pieces.push((k, k + 1, Some(island)));
+                from = k + 1;
+            }
+        }
+        if pieces.is_empty() {
+            new_text.extend_from_slice(seg);
+            new_blocks.push(b);
+        } else {
+            if from < seg.len() {
+                pieces.push((from, seg.len(), None));
+            }
+            let mut record = Some(b.clone());
+            if pieces.len() == 1 && !b.kind.reads_as_para() {
+                out.push(Repair::Invalid(Invariant::BlockIslandNotAlone {
+                    island: pieces[0].2.map_or(String::new(), |i| i.id.clone()),
+                }));
+            }
+            for (n, &(s, e, island)) in pieces.iter().enumerate() {
+                if n > 0 {
+                    breaks.push(start + s);
+                    new_text.push('\n');
+                }
+                new_text.extend_from_slice(&seg[s..e]);
+                let near = island
+                    .or_else(|| pieces.get(n + 1).and_then(|p| p.2))
+                    .or_else(|| pieces[..n].iter().rev().find_map(|p| p.2));
+                let near = near.map_or("isl", |i| i.id.as_str());
+                let kind = match island {
+                    Some(_) if !b.kind.reads_as_para() => BlockKind::Para,
+                    _ => b.kind.clone(),
+                };
+                match record.take() {
+                    Some(mut keep) => {
+                        keep.kind = kind;
+                        new_blocks.push(keep);
+                    }
+                    None => {
+                        let fresh = ids.derive(&[&b.id, near]);
+                        out.push(Repair::SplitBlock {
+                            island: near.to_string(),
+                            block: fresh.clone(),
+                        });
+                        let block = Block {
+                            id: fresh,
+                            kind,
+                            path: b.path.clone(),
+                        };
+                        let at = start + s + breaks.len() - 1;
+                        steps.push(Step::Splice(Splice { blocks: vec![block.clone()], ..Splice::new(at, "", "\n") }));
+                        new_blocks.push(block);
+                    }
+                }
+            }
+        }
+        if end < text.len() {
+            new_text.push('\n');
+        }
+        start = end + 1;
+    }
+    if !breaks.is_empty() {
+        let shift = |o: Scalar, edge_moves: bool| {
+            o + breaks.partition_point(|&p| if edge_moves { p <= o } else { p < o })
+        };
+        for m in marks {
+            (m.start, m.end) = (shift(m.start, true), shift(m.end, false));
+        }
+        for a in anchors {
+            let a = &mut a.anchor;
+            let point = a.start == a.end;
+            (a.start, a.end) = (shift(a.start, !point), shift(a.end, false));
+        }
+    }
+    (new_text, new_blocks)
+}
+
+/// The marks within [`max_marks`](crate::content::max_marks) of `text`, each counted
+/// once per block and line it spans, as normalizing can leave them: those in
+/// order up to the bound kept, the rest dropped.
+fn cap_marks(text: &[char], marks: &mut Vec<Mark>, out: &mut Vec<Repair>) {
+    let breaks: Vec<Scalar> = text.iter().enumerate().filter(|(_, c)| matches!(**c, '\n' | HARD_BREAK)).map(|(k, _)| k).collect();
+    let max = crate::content::max_marks(text.len());
+    let spans: Vec<usize> = marks.iter().map(|m| crate::content::model::mark_spans(&breaks, std::iter::once((m.start, m.end)))).collect();
+    let total = spans.iter().fold(0usize, |a, &n| a.saturating_add(n));
+    if total <= max {
+        return;
+    }
+    out.push(Repair::Invalid(Invariant::TooManyMarks { marks: total, max }));
+    let mut used = 0usize;
+    let mut k = 0;
+    marks.retain(|_| {
+        used = used.saturating_add(spans[k]);
+        k += 1;
+        used <= max
+    });
+}
+
+/// The anchors within [`MAX_ANCHORS`](crate::content::MAX_ANCHORS) over the text and
+/// every slot, those in reading order up to it kept and the rest dropped.
+fn cap_anchors(c: &mut Content, out: &mut Vec<Repair>) {
+    fn keep(c: &mut Content, left: &mut usize) {
+        c.anchors.truncate(*left);
+        *left -= c.anchors.len();
+        for island in &mut c.islands {
+            for slot in island.slots.values_mut() {
+                keep(slot, left);
+            }
+        }
+    }
+    let anchors = c.anchor_ids().len();
+    if anchors > crate::content::MAX_ANCHORS {
+        out.push(Repair::Invalid(Invariant::TooManyAnchors { anchors, max: crate::content::MAX_ANCHORS }));
+        keep(c, &mut { crate::content::MAX_ANCHORS });
+    }
+}
+
+/// Each anchor id once over the text and every slot, the first kept.
+fn dedupe_anchors(c: &mut Content, seen: &mut HashSet<String>, out: &mut Vec<Repair>) {
+    c.anchors.retain(|a| {
+        let fresh = seen.insert(a.id.clone());
+        if !fresh {
+            out.push(Repair::Invalid(Invariant::DuplicateId { id: a.id.clone() }));
+        }
+        fresh
+    });
+    for island in &mut c.islands {
+        for (key, slot) in &mut island.slots {
+            let mut inner = Vec::new();
+            dedupe_anchors(slot, seen, &mut inner);
+            out.extend(inner.into_iter().map(|r| Repair::InSlot {
+                island: island.id.clone(),
+                slot: key.clone(),
+                repair: Box::new(r),
+            }));
+        }
+    }
+}
+
+/// Paragraphs in no container, holding no island: what a slot may hold, and
+/// the last resort for a field.
+fn flatten(mut c: Content) -> Content {
+    let mut text: Vec<char> = c.text.chars().collect();
+    let slots: BTreeSet<Scalar> = text
+        .iter()
+        .enumerate()
+        .filter(|(_, ch)| **ch == ISLAND_SLOT)
+        .map(|(k, _)| k)
+        .collect();
+    let mut anchors: Vec<&mut Anchor> = c.anchors.iter_mut().collect();
+    remove_chars(&mut text, &slots, &mut c.marks, &mut anchors);
+    c.anchors.retain(|a| a.start <= a.end);
+    c.text = text.into_iter().collect();
+    c.islands.clear();
+    c.containers.clear();
+    for b in &mut c.blocks {
+        b.kind = BlockKind::Para;
+        b.path.clear();
+    }
+    c.marks.retain(|m| m.start < m.end && c.codec == Codec::Rich);
+    c
+}

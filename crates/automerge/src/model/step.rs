@@ -11,11 +11,11 @@ use super::value::{self, ATTRS, CONTAINERS, PARENTS, SLOTS, TYPE, id_of, obj};
 use automerge::marks::Mark as AmMark;
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjId, ObjType, ReadDoc};
-use quillmark_content::change::{
+use crate::content::change::{
     AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step,
 };
-use quillmark_content::model::{Block, Content, Island};
-use quillmark_content::wire;
+use crate::content::model::{Block, Content, Island};
+use crate::content::wire;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 
@@ -101,9 +101,9 @@ fn check(view: &Content, step: &Step, n: usize) -> Result<(), StepError> {
 
 /// What the value `root` reads as inside the open transaction.
 fn current(doc: &AutoCommit, root: &ObjId) -> Content {
-    let raw = quillmark_content::repair::Raw::from_value(&value::read(doc, root))
+    let raw = crate::content::repair::Raw::from_value(&value::read(doc, root))
         .expect("a value reads as raw content");
-    quillmark_content::repair::repair(raw).0
+    crate::content::repair::repair(raw).0
 }
 
 fn renumber(e: StepError, n: usize) -> StepError {
@@ -197,7 +197,7 @@ impl Formatting {
 fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Content>, out: &mut Lowered, scopes: &mut Scopes) -> Result<(), StepError> {
     let t = value::text(doc, root).ok_or(StepError::Bad { step: 0, reason: "the value holds no text" })?;
     let mut ids: HashMap<String, String> = scopes.get(root).cloned().unwrap_or_default();
-    let whole = read.as_ref().and_then(|r| quillmark_content::change::apply(r, change).ok());
+    let whole = read.as_ref().and_then(|r| crate::content::change::apply(r, change).ok());
     let mut formatting = Formatting::of(&read.clone().unwrap_or_else(|| current(doc, root)));
     let mut next = read;
     for (n, step) in change.steps.iter().enumerate() {
@@ -206,7 +206,7 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Co
             None => {
                 let view = next.take().unwrap_or_else(|| current(doc, root));
                 check(&view, step, n)?;
-                let landed = quillmark_content::change::apply(&view, &Change::new(vec![step.clone()])).ok();
+                let landed = crate::content::change::apply(&view, &Change::new(vec![step.clone()])).ok();
                 (Some(view), landed)
             }
         };
@@ -402,7 +402,7 @@ fn splice(
     let (mut blocks, mut islands) = (mid_blocks.iter(), s.islands.iter());
     for (m, ch) in made.iter().zip(
         mid.chars()
-            .filter(|c| *c == '\n' || *c == quillmark_content::model::ISLAND_SLOT),
+            .filter(|c| *c == '\n' || *c == crate::content::model::ISLAND_SLOT),
     ) {
         let given = match ch {
             '\n' => blocks.next().map(|b| b.id.clone()),

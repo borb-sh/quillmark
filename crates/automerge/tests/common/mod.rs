@@ -1,15 +1,15 @@
-//! The generators `crates/content/tests/change_laws.rs` uses: values with
+//! The generators `crates/automerge/tests/change_laws.rs` uses: values with
 //! headings, lists, quotes, code, tables, footnotes, math, `x-` blocks, marks
 //! and islands, anchors in text and in slots, and changes of every step kind.
 
 #![allow(dead_code)]
 
 use proptest::prelude::*;
-use quillmark_content::change::{AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step, apply};
-use quillmark_content::lines::island::IslandType;
-use quillmark_content::markdown::from_markdown;
-use quillmark_content::model::{Anchor, Block, BlockKind, Container, ContainerKind, Content, ISLAND_SLOT, Island, Mark, MarkKind};
-use quillmark_content::table::{Row, Table};
+use quillmark_automerge::content::change::{AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step, apply};
+use quillmark_automerge::content::lines::island::IslandType;
+use quillmark_automerge::content::markdown::from_markdown;
+use quillmark_automerge::content::model::{Anchor, Block, BlockKind, Container, ContainerKind, Content, ISLAND_SLOT, Island, Mark, MarkKind};
+use quillmark_automerge::content::table::{Row, Table};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
@@ -77,7 +77,7 @@ pub fn with_ext(mut c: Content, seed: u8) -> Content {
     if seed.is_multiple_of(5) {
         let island = Island::new("isl-x", IslandType::Ext("x-chart".into()))
             .with_props(json!({"series": [1, 2], "style": {"tone": "warm"}}))
-            .with_slots([("cap".to_string(), quillmark_content::markdown::from_plaintext("caption"))].into());
+            .with_slots([("cap".to_string(), quillmark_automerge::content::markdown::from_plaintext("caption"))].into());
         let insert = Change::new(vec![Step::Island(IslandStep::Insert { at: 0, island, block: None })]);
         if let Ok(done) = apply(&c, &insert) {
             c = done.content;
@@ -221,7 +221,7 @@ pub fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
                 0 => Island::new(format!("isl-n{k}"), IslandType::Math).with_props(json!({"tex": "y"})),
                 _ => {
                     let mut i = Island::new(format!("isl-n{k}"), IslandType::Footnote);
-                    i.slots.insert("note".into(), quillmark_content::markdown::from_plaintext("n"));
+                    i.slots.insert("note".into(), quillmark_automerge::content::markdown::from_plaintext("n"));
                     i
                 }
             };
@@ -247,7 +247,7 @@ pub fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
                 2 => {
                     let cells: Vec<String> = (0..grid.columns.len()).map(|j| format!("s-n{k}x{j}")).collect();
                     for (j, cell) in cells.iter().enumerate() {
-                        let mut inner = quillmark_content::markdown::from_plaintext("new");
+                        let mut inner = quillmark_automerge::content::markdown::from_plaintext("new");
                         if j == 0 {
                             inner.anchors.push(Anchor::new(format!("ra-{k}"), 0, 2));
                         }
@@ -296,7 +296,7 @@ pub fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
             Step::Nested { island: island.id.clone(), slot: slot.clone(), change: Change::new(vec![step]) }
         }
         12 => {
-            let mut note = quillmark_content::markdown::from_plaintext("nb");
+            let mut note = quillmark_automerge::content::markdown::from_plaintext("nb");
             note.anchors.push(Anchor::new(format!("fa-{k}"), 0, 1));
             let mut island = Island::new(format!("isl-f{k}"), IslandType::Footnote);
             island.slots.insert("note".into(), note);

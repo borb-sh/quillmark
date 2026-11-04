@@ -17,12 +17,12 @@ use automerge::patches::PatchAction;
 use automerge::{
     AutoCommit, ChangeHash, ObjId, ObjType, Prop, ReadDoc, ScalarValue, Value as AmValue, legacy,
 };
-use quillmark_content::model::{
+use crate::content::model::{
     Anchor, Block, Container, Content, ISLAND_SLOT, Island, Mark, MarkKind,
 };
-use quillmark_content::repair::{Raw, repair};
-use quillmark_content::units::Units;
-use quillmark_content::wire;
+use crate::content::repair::{Raw, repair};
+use crate::content::units::Units;
+use crate::content::wire;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -91,7 +91,7 @@ fn island_in(i: &Island, u: impl Units + Copy) -> Value {
 
 impl Patch {
     pub fn to_value(&self) -> Value {
-        self.to_value_in(quillmark_content::units::Scalars)
+        self.to_value_in(crate::content::units::Scalars)
     }
 
     /// The patch as JSON, each value it carries whole, an island's slots
@@ -890,5 +890,5 @@ pub fn inserted_spans(patches: &[Patch], after: &str, u: impl Units) -> Vec<(usi
         }
     }
     spans.sort_unstable();
-    spans.into_iter().filter_map(|(a, b)| Some((quillmark_content::units::to_scalars(u, after, a)?, quillmark_content::units::to_scalars(u, after, b)?))).collect()
+    spans.into_iter().filter_map(|(a, b)| Some((crate::content::units::to_scalars(u, after, a)?, crate::content::units::to_scalars(u, after, b)?))).collect()
 }

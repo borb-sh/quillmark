@@ -15,8 +15,8 @@ use common::*;
 use proptest::prelude::*;
 use quillmark_automerge::automerge::{ActorId, ChangeHash, ObjId};
 use quillmark_automerge::model::Doc;
-use quillmark_content::change::apply;
-use quillmark_content::model::Content;
+use quillmark_automerge::content::change::apply;
+use quillmark_automerge::content::model::Content;
 
 #[derive(Debug, Default)]
 struct Outcome {

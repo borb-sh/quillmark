@@ -4,6 +4,10 @@
 
 Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
 
+- refactor!: **`quillmark-content` folds into `quillmark-automerge`.** The
+  content model, its changes, repair and the markdown codecs are the
+  `content` module of `quillmark-automerge`, beside the Automerge document
+  that holds them, and the `quillmark-content` crate is no longer published.
 - feat(core)!: **a receipt carries Automerge's patches, and `undo` takes a
   write back.** Every content write answers `{ before, heads, patches,
   droppedAnchors, repairs, warnings }`: `patches` are the value's Automerge

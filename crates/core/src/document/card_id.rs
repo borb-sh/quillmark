@@ -66,7 +66,7 @@ fn token(n: usize) -> String {
 /// holds. A positional id holds none, so no actor's id is a positional one.
 pub const CARD_ACTOR_SEP: char = '-';
 
-const _: () = assert!(quillmark_content::ids::MAX_ACTOR_LEN + "-c23456".len() <= MAX_CARD_ID_LEN);
+const _: () = assert!(quillmark_automerge::content::ids::MAX_ACTOR_LEN + "-c23456".len() <= MAX_CARD_ID_LEN);
 
 /// The mint over one document: each call takes the next token of the
 /// sequence that `taken` does not hold, and holds it.
@@ -216,9 +216,9 @@ mod tests {
         let (x, y) = (a.mint_as(Some("7")), b.mint_as(Some("8")));
         assert_eq!((x.as_str(), y.as_str()), (format!("7-{}", token(0)).as_str(), format!("8-{}", token(0)).as_str()));
         assert!(is_card_id(&x) && x != token(0));
-        assert!(quillmark_content::ids::is_actor("client-42") && quillmark_content::ids::is_actor(&"a".repeat(57)));
+        assert!(quillmark_automerge::content::ids::is_actor("client-42") && quillmark_automerge::content::ids::is_actor(&"a".repeat(57)));
         for bad in ["", "a:b", "-a", "é", &"a".repeat(58)] {
-            assert!(!quillmark_content::ids::is_actor(bad), "{bad}");
+            assert!(!quillmark_automerge::content::ids::is_actor(bad), "{bad}");
         }
     }
 

@@ -1237,7 +1237,7 @@ impl QuillConfig {
         if declined.is_empty() {
             return diags;
         }
-        self.each_plate_content(data, &mut |at: &DocPath, content: &quillmark_content::lines::model::Content| {
+        self.each_plate_content(data, &mut |at: &DocPath, content: &quillmark_automerge::content::lines::model::Content| {
             let counts = super::BlockConstruct::tally(content);
             for &construct in declined {
                 let count = counts[construct as usize];
@@ -1256,14 +1256,14 @@ impl QuillConfig {
     pub fn each_plate_content(
         &self,
         data: &serde_json::Value,
-        each: &mut dyn FnMut(&DocPath, &quillmark_content::lines::model::Content),
+        each: &mut dyn FnMut(&DocPath, &quillmark_automerge::content::lines::model::Content),
     ) {
         let mut card = |schema: &CardSchema,
                         obj: &serde_json::Map<String, serde_json::Value>,
                         path: DocPath| {
             for (key, value) in obj {
                 if key == "$body" {
-                    if let Ok(content) = quillmark_content::migrate::lines_from_value(value) {
+                    if let Ok(content) = quillmark_automerge::content::migrate::lines_from_value(value) {
                         each(&path.body(), &content);
                     }
                 } else if let Some(field) = schema.fields.get(key.as_str()) {

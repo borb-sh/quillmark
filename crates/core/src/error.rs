@@ -26,19 +26,19 @@ macro_rules! diag_args {
 pub(crate) use diag_args;
 
 /// Maximum markdown input size.
-pub const MAX_INPUT_SIZE: usize = quillmark_content::MAX_MARKDOWN_SIZE;
+pub const MAX_INPUT_SIZE: usize = quillmark_automerge::content::MAX_MARKDOWN_SIZE;
 
 /// Maximum bytes in one card-yaml block.
 pub const MAX_YAML_SIZE: usize = 1024 * 1024;
 
 /// Maximum nesting depth for markdown structures (12 levels). Owned by the
-/// markdown codecs in `quillmark-content` (the import guard) and re-exported
+/// markdown codecs in `quillmark_automerge::content` (the import guard) and re-exported
 /// here so the typst backend's markup converter shares one limit: a document
 /// that imports also renders, and vice versa.
-pub use quillmark_content::MAX_NESTING_DEPTH;
+pub use quillmark_automerge::content::MAX_NESTING_DEPTH;
 
 /// Maximum nesting depth storage accepts for an opaque JSON payload (128 levels).
-pub use quillmark_content::MAX_JSON_DEPTH;
+pub use quillmark_automerge::content::MAX_JSON_DEPTH;
 
 /// Maximum card blocks per document.
 pub const MAX_CARD_COUNT: usize = 1000;
@@ -783,7 +783,7 @@ mod args_canon {
             EditError::UnknownCardId("gone".into()),
             EditError::TooManyCards { max: 1 },
             EditError::ValueTooDeep { max: 8 },
-            EditError::Import(quillmark_content::lines::import::ImportError::NestingTooDeep {
+            EditError::Import(quillmark_automerge::content::lines::import::ImportError::NestingTooDeep {
                 depth: 9,
                 max: 8,
             }),
@@ -807,7 +807,7 @@ mod args_canon {
                 target: "integer".into(),
                 message: "x".into(),
             },
-            EditError::Change(quillmark_content::change::ApplyError::Stale { step: 0 }),
+            EditError::Change(quillmark_automerge::content::change::ApplyError::Stale { step: 0 }),
             EditError::InputTooLarge { size: 11, max: 10 },
             EditError::TooManySteps { count: 11, max: 10 },
             EditError::TooManyMarks { count: 11, max: 10 },
@@ -995,12 +995,12 @@ card_kinds:
             crate::document::card_id::CARD_ID_REMINTED,
             sample.args.clone(),
         );
-        let mut wide = quillmark_content::lines::import::from_markdown("a **b** c")
+        let mut wide = quillmark_automerge::content::lines::import::from_markdown("a **b** c")
             .unwrap()
             .content
             .into_content();
         wide.marks[0].end += 1;
-        let lost = quillmark_content::lines::export::to_markdown_checked(&wide.into_lines());
+        let lost = quillmark_automerge::content::lines::export::to_markdown_checked(&wide.into_lines());
         add(
             crate::document::LOST_CONSTRUCT,
             crate::document::lost_construct(lost.losses.into_iter().next().expect("a loss")).args,

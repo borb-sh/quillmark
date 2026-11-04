@@ -12,13 +12,13 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use quillmark_automerge::model::patch::{self, Patch, SlotStep};
-use quillmark_content::change::{self, Change, Dropped, Step};
-use quillmark_content::structural::StructuralEdit;
-use quillmark_content::lines::import::ImportWarning;
-use quillmark_content::lines::island::IslandType;
-use quillmark_content::model::Content;
-use quillmark_content::repair::Repair;
-use quillmark_content::units::Units;
+use quillmark_automerge::content::change::{self, Change, Dropped, Step};
+use quillmark_automerge::content::structural::StructuralEdit;
+use quillmark_automerge::content::lines::import::ImportWarning;
+use quillmark_automerge::content::lines::island::IslandType;
+use quillmark_automerge::content::model::Content;
+use quillmark_automerge::content::repair::Repair;
+use quillmark_automerge::content::units::Units;
 
 use super::edit::EditError;
 use super::{Card, Heads};
@@ -83,7 +83,7 @@ pub struct WriteOptions<'a> {
     /// the scope of each id it mints, `{actor}:{prefix}{n}`. A live client
     /// passes one unique to its session, so two clients writing from one
     /// value never mint one id. One that is not an
-    /// [actor](quillmark_content::ids::is_actor) is refused with
+    /// [actor](quillmark_automerge::content::ids::is_actor) is refused with
     /// `edit::invalid_actor`.
     pub actor: Option<&'a str>,
 }
@@ -106,7 +106,7 @@ impl<'a> From<&'a Heads> for WriteOptions<'a> {
 #[derive(Debug, Clone)]
 pub enum Edit<'a> {
     /// A change, its offsets into the value the heads name. A record it puts
-    /// may carry a [placeholder](quillmark_content::ids::is_placeholder),
+    /// may carry a [placeholder](quillmark_automerge::content::ids::is_placeholder),
     /// which the write fills; the receipt's patches carry the record's id.
     Apply(Change),
     /// A structural edit's change on the value the heads name, its offsets into it;
@@ -174,17 +174,17 @@ impl Card {
     /// The body's annotated read ([`to_markdown_annotated`]): the scoped read
     /// a body revise reads back. Its anchors carry no path; the body is theirs.
     ///
-    /// [`to_markdown_annotated`]: quillmark_content::markdown::to_markdown_annotated
-    pub(crate) fn body_annotated(&self) -> quillmark_content::lines::export::Annotated {
-        quillmark_content::markdown::to_markdown_annotated(self.body())
+    /// [`to_markdown_annotated`]: quillmark_automerge::content::markdown::to_markdown_annotated
+    pub(crate) fn body_annotated(&self) -> quillmark_automerge::content::lines::export::Annotated {
+        quillmark_automerge::content::markdown::to_markdown_annotated(self.body())
     }
 
     /// The field's annotated read, decoded as a schema-blind revise decodes
     /// it, an absent field the empty content's: the scoped read a field
     /// revise reads back. A field stored under `codec: "plain"` reads as its
     /// literal text, its anchors listed and no tag spelled.
-    pub(crate) fn field_annotated(&self, name: &str) -> Result<quillmark_content::lines::export::Annotated, EditError> {
-        Ok(quillmark_content::markdown::to_text_annotated(&self.richtext_value(name)?))
+    pub(crate) fn field_annotated(&self, name: &str) -> Result<quillmark_automerge::content::lines::export::Annotated, EditError> {
+        Ok(quillmark_automerge::content::markdown::to_text_annotated(&self.richtext_value(name)?))
     }
 
     /// The value at `target`.
@@ -198,7 +198,7 @@ impl Card {
     /// The annotated read of the value at `target`: the scoped read a revise
     /// of it reads back. A field stored under `codec: "plain"` reads as its literal
     /// text, its anchors listed and no tag spelled.
-    pub fn annotated<'t>(&self, target: impl Into<Target<'t>>) -> Result<quillmark_content::lines::export::Annotated, EditError> {
+    pub fn annotated<'t>(&self, target: impl Into<Target<'t>>) -> Result<quillmark_automerge::content::lines::export::Annotated, EditError> {
         match target.into() {
             Target::Body => Ok(self.body_annotated()),
             Target::Field(name) => self.field_annotated(name),
@@ -271,7 +271,7 @@ pub fn check_change(change: &Change) -> Result<(), EditError> {
 
 /// Refuses a content value, as the JSON a host sent, whose text and its
 /// slots' texts together pass
-/// [`MAX_MARKDOWN_SIZE`](quillmark_content::MAX_MARKDOWN_SIZE) bytes, as
+/// [`MAX_MARKDOWN_SIZE`](quillmark_automerge::content::MAX_MARKDOWN_SIZE) bytes, as
 /// [`EditError::InputTooLarge`]: the bound a markdown door holds, before the
 /// value is decoded. The bindings run it on each content value they take.
 pub fn check_content_value(v: &serde_json::Value) -> Result<(), EditError> {
@@ -288,7 +288,7 @@ pub fn check_content_value(v: &serde_json::Value) -> Result<(), EditError> {
             .map(text_bytes)
             .fold(own, usize::saturating_add)
     }
-    let max = quillmark_content::MAX_MARKDOWN_SIZE;
+    let max = quillmark_automerge::content::MAX_MARKDOWN_SIZE;
     match text_bytes(v) {
         size if size > max => Err(EditError::InputTooLarge { size, max }),
         _ => Ok(()),

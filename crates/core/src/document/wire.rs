@@ -72,7 +72,7 @@ pub struct CardWire {
     #[serde(default, alias = "payload_items")]
     pub payload_items: Vec<PayloadItemWire>,
     /// The card body as its canonical content value
-    /// ([`Content::to_value`](quillmark_content::model::Content::to_value)). The
+    /// ([`Content::to_value`](quillmark_automerge::content::model::Content::to_value)). The
     /// empty content when absent. A markdown string is also accepted on input
     /// (imported), so an LLM/markdown writer can hand a string here.
     ///
@@ -234,10 +234,10 @@ impl TryFrom<CardWire> for Card {
     }
 }
 
-/// Read a [`CardWire::body`] into a [`Content`](quillmark_content::lines::model::Content) content. The body is the source
+/// Read a [`CardWire::body`] into a [`Content`](quillmark_automerge::content::lines::model::Content) content. The body is the source
 /// of truth and reads through the richtext codec whatever the schema declares,
 /// so its accepted encodings are [`super::Codec::decode_field`]'s.
-fn body_from_wire(body: &JsonValue) -> Result<quillmark_content::model::Content, WireError> {
+fn body_from_wire(body: &JsonValue) -> Result<quillmark_automerge::content::model::Content, WireError> {
     super::Codec::Richtext.decode_content(body).map_err(|e| {
         WireError::Edit(super::edit::field_decode(
             "$body",
@@ -258,16 +258,16 @@ mod tests {
     /// `underline` with no markdown projection survives Card → wire → Card.
     #[test]
     fn card_wire_round_trips_content_field_losslessly() {
-        use quillmark_content::lines::model::{Mark, MarkKind};
+        use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
         let mut card = Card::new("note").unwrap();
-        let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
+        let mut content = quillmark_automerge::content::lines::import::from_markdown("underlined intro")
             .unwrap()
             .content
             .into_content();
         content.marks.push(Mark::new(0, 10, MarkKind::Underline));
         let content = content.into_lines();
-        let json = quillmark_content::migrate::from_lines(&content).to_value();
+        let json = quillmark_automerge::content::migrate::from_lines(&content).to_value();
         let schema = crate::quill::FieldSchema::new(
             "intro".to_string(),
             crate::quill::FieldType::RichText { multiline: true },
@@ -316,7 +316,7 @@ mod tests {
         let mut payload = Payload::from_index_map(Default::default());
         payload.set_quill("memo@1.2.3".parse().unwrap());
         payload.set_kind("main");
-        let card = Card::from_parts(payload, quillmark_content::lines::model::Lines::empty());
+        let card = Card::from_parts(payload, quillmark_automerge::content::lines::model::Lines::empty());
 
         let wire = CardWire::from(&card);
         assert_eq!(wire.quill.as_deref(), Some("memo@1.2.3"));
@@ -391,7 +391,7 @@ mod tests {
             Card::try_from(wire).expect_err("the wire refuses it")
         };
         let mut card = Card::new("note").unwrap();
-        let deep = (0..=quillmark_content::MAX_JSON_DEPTH).fold(json!(1), |v, _| json!({ "a": v }));
+        let deep = (0..=quillmark_automerge::content::MAX_JSON_DEPTH).fold(json!(1), |v, _| json!({ "a": v }));
 
         for (wire_err, mutator_err) in [
             (
@@ -420,7 +420,7 @@ mod tests {
 
         assert_eq!(
             with_body(JsonValue::Null).unwrap().body_lines(),
-            &quillmark_content::lines::model::Lines::empty()
+            &quillmark_automerge::content::lines::model::Lines::empty()
         );
         assert_eq!(
             Codec::Richtext.project(with_body(json!("hi *there*")).unwrap().body_lines()),

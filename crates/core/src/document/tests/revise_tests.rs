@@ -1,4 +1,4 @@
-use quillmark_content::lines::model::{Mark, MarkKind, Lines};
+use quillmark_automerge::content::lines::model::{Mark, MarkKind, Lines};
 
 use crate::document::{Codec, Document};
 use crate::value::QuillValue;
@@ -59,8 +59,8 @@ fn stored_with_items() -> Document {
     let mut doc = stored();
     let item = crate::document::import_body("an item to flag").unwrap();
     let items = serde_json::json!([
-        quillmark_content::migrate::from_lines(&crate::document::import_body("a plain item").unwrap()).to_value(),
-        quillmark_content::migrate::from_lines(&anchored(&item, "flag", "i1")).to_value(),
+        quillmark_automerge::content::migrate::from_lines(&crate::document::import_body("a plain item").unwrap()).to_value(),
+        quillmark_automerge::content::migrate::from_lines(&anchored(&item, "flag", "i1")).to_value(),
     ]);
     doc.unchecked().store_field(Some(0), "items", QuillValue::from_json(items))
         .unwrap();
@@ -247,7 +247,7 @@ fn an_anchor_in_a_fields_list_item_survives_an_edit_to_its_item() {
         .unwrap()
         .as_json()
         .clone();
-    let item = quillmark_content::migrate::lines_from_value(&items[1]).unwrap();
+    let item = quillmark_automerge::content::migrate::lines_from_value(&items[1]).unwrap();
     assert_eq!(item.text, "an edited item to flag");
     assert_eq!(anchor_ids(&item), ["i1"]);
     assert!(
@@ -335,7 +335,7 @@ fn revising_with_the_annotated_read_keeps_every_anchor() {
 fn a_revised_fields_nested_comments_stay() {
     let mut doc = stored();
     let sections = serde_json::json!([{
-        "body": quillmark_content::migrate::from_lines(&crate::document::import_body("hello world").unwrap()).to_value(),
+        "body": quillmark_automerge::content::migrate::from_lines(&crate::document::import_body("hello world").unwrap()).to_value(),
         "note": "x",
     }]);
     doc.unchecked().store_field(None, "sections", QuillValue::from_json(sections))
@@ -464,7 +464,7 @@ fn an_item_inserted_ahead_keeps_each_anchor_on_its_own_item() {
         .as_json()
         .clone();
     assert_eq!(items[0], "a new first item");
-    let item = quillmark_content::migrate::lines_from_value(&items[2]).unwrap();
+    let item = quillmark_automerge::content::migrate::lines_from_value(&items[2]).unwrap();
     assert_eq!(item.text, "an item to flag");
     assert_eq!(anchor_ids(&item), ["i1"]);
 
@@ -506,7 +506,7 @@ fn an_annotated_read_revises_back_through_its_tags_and_tokens() {
     );
     let revised = doc.main().body_lines();
     assert_eq!(revised.text, "Now the plan, beside \u{FFFC}.");
-    let shape = |islands: &[quillmark_content::lines::model::Island]| islands.iter().map(|i| (i.island_type.clone(), i.props.clone())).collect::<Vec<_>>();
+    let shape = |islands: &[quillmark_automerge::content::lines::model::Island]| islands.iter().map(|i| (i.island_type.clone(), i.props.clone())).collect::<Vec<_>>();
     assert_eq!(shape(&revised.islands), shape(&body.islands));
     let p1 = revised
         .marks

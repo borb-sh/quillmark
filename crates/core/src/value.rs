@@ -28,14 +28,14 @@ pub enum PathSegment {
 /// model reject the identical shape.
 ///
 /// Every path that stores a value into a `Document` bounds nesting at
-/// [`MAX_JSON_DEPTH`](quillmark_content::MAX_JSON_DEPTH), so the recursive consumers
+/// [`MAX_JSON_DEPTH`](quillmark_automerge::content::MAX_JSON_DEPTH), so the recursive consumers
 /// (emit, plate-JSON serialization, DTO conversion) are bounded by
 /// construction. The Python binding's `py_to_json_at` charges levels the same
 /// way.
-pub use quillmark_content::json_depth_exceeds;
+pub use quillmark_automerge::content::json_depth_exceeds;
 
 /// Depth-bound an owned `$ext` / `$seed` map against
-/// [`MAX_JSON_DEPTH`](quillmark_content::MAX_JSON_DEPTH), returning it
+/// [`MAX_JSON_DEPTH`](quillmark_automerge::content::MAX_JSON_DEPTH), returning it
 /// unchanged when within bounds. On overflow, `on_too_deep` builds the caller's
 /// boundary error from the limit, so each write surface keeps its own error
 /// type while the wrap-check-rebuild lives here once.
@@ -43,7 +43,7 @@ pub(crate) fn depth_check_meta_map<E>(
     map: serde_json::Map<String, serde_json::Value>,
     on_too_deep: impl FnOnce(usize) -> E,
 ) -> Result<serde_json::Map<String, serde_json::Value>, E> {
-    let max = quillmark_content::MAX_JSON_DEPTH;
+    let max = quillmark_automerge::content::MAX_JSON_DEPTH;
     let as_value = serde_json::Value::Object(map);
     if json_depth_exceeds(&as_value, max) {
         return Err(on_too_deep(max));

@@ -124,11 +124,11 @@ fn a_text_value_refuses_formatting_at_the_content_level() {
     let (mut doc, _) = parse_bound(&quill(), MD);
     let mut value = doc.main().payload().get("note").unwrap().as_json().clone();
     value["marks"] = json!([{ "start": 0, "end": 1, "type": "strong" }]);
-    let refused = quillmark_content::model::Content::from_value(&value);
+    let refused = quillmark_automerge::content::model::Content::from_value(&value);
     assert_eq!(
         refused,
-        Err(quillmark_content::wire::ParseError::Invalid(
-            quillmark_content::model::Invariant::NotPlain
+        Err(quillmark_automerge::content::wire::ParseError::Invalid(
+            quillmark_automerge::content::model::Invariant::NotPlain
         ))
     );
     let quill = quill();

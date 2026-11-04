@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use quillmark_content::lines::model::{MarkKind, Lines};
+use quillmark_automerge::content::lines::model::{MarkKind, Lines};
 use serde_json::{Value as JsonValue, json};
 
 use crate::document::{AnchorSelector, Card, Codec, Document};
@@ -264,11 +264,11 @@ fn every_field_revise_names_the_anchor_it_drops() {
             c.revise(crate::document::Target::from("f"), "Keep this line.", None).unwrap()
         }),
         ("replace body", |c, n, _| {
-            let n = quillmark_content::migrate::from_lines(n);
+            let n = quillmark_automerge::content::migrate::from_lines(n);
             c.replace(crate::document::Target::Body, &n, None).unwrap()
         }),
         ("replace field", |c, n, _| {
-            let n = quillmark_content::migrate::from_lines(n);
+            let n = quillmark_automerge::content::migrate::from_lines(n);
             c.replace(crate::document::Target::Field("f"), &n, None).unwrap()
         }),
         ("revise_field_checked", |c, _, s| {

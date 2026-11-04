@@ -1,6 +1,6 @@
 # The Content Model
 
-> **Implementation**: `crates/content/`
+> **Implementation**: `crates/automerge/src/content/`
 > **Related**: [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) (how a value is stored), [COMMENTS.md](COMMENTS.md) (what anchors serve), [BINDINGS.md](BINDINGS.md) (the write surface)
 
 ## TL;DR
@@ -309,7 +309,7 @@ Each write answers a `Receipt` (§ "Live state and merge"): `before` and `heads`
 - It refuses an `after` that is not a valid value, and reaches every valid one step-wise.
 - `revise(c, annotated(c))` changes nothing, for every valid `c` the model reaches, markdown-born or not (`tests/change_laws.rs`).
 
-The interactive target is a field of 20000 blocks or 500000 characters: a keystroke's `apply`, lowered into the document at 100000 characters, lands within `BUDGET` (`crates/core/tests/speed.rs`); a one-word revise, a replace of a 20000-item list and a repair of a valid 10000-item list each within its `TARGET` entry (`crates/content/tests/speed.rs`); and import and decode grow linearly.
+The interactive target is a field of 20000 blocks or 500000 characters: a keystroke's `apply`, lowered into the document at 100000 characters, lands within `BUDGET` (`crates/core/tests/speed.rs`); a one-word revise, a replace of a 20000-item list and a repair of a valid 10000-item list each within its `TARGET` entry (`crates/automerge/tests/speed.rs`); and import and decode grow linearly.
 
 ## Merge repair
 

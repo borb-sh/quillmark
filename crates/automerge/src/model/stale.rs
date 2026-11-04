@@ -7,8 +7,8 @@
 
 use automerge::legacy::{ElementId, Key, ObjectId, OpId, OpType};
 use automerge::{ActorId, AutoCommit, ChangeHash, ExpandedChange, ObjId, ScalarValue};
-use quillmark_content::change::Change;
-use quillmark_content::model::Content;
+use crate::content::change::Change;
+use crate::content::model::Content;
 
 use super::step::{self, Lowered, StepError};
 

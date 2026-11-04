@@ -371,8 +371,8 @@ fn the_plate_shape_for_text_is_unchanged() {
     };
 
     let from_string = plate_note(json!("a *literal* line"));
-    let from_object = plate_note(json!(quillmark_content::migrate::from_lines(
-        &quillmark_content::lines::import::from_plaintext("a *literal* line")
+    let from_object = plate_note(json!(quillmark_automerge::content::migrate::from_lines(
+        &quillmark_automerge::content::lines::import::from_plaintext("a *literal* line")
     ).to_value()));
     assert!(from_string.is_object(), "plate keeps the content object");
     assert_eq!(from_string, from_object, "both commit inputs, one plate");
@@ -425,7 +425,7 @@ Body.
 fn a_0_134_0_row_converges() {
     let quill = quill();
     let body = |md: &str| {
-        quillmark_content::migrate::from_lines(&crate::document::import_body(md).unwrap()).to_value()
+        quillmark_automerge::content::migrate::from_lines(&crate::document::import_body(md).unwrap()).to_value()
     };
     let legacy = json!({
         "schema": "quillmark/document@0.134.0",
@@ -435,8 +435,8 @@ fn a_0_134_0_row_converges() {
                 { "type": "kind", "value": "main" },
                 { "type": "field", "key": "subject", "value": "Q3 **results**" },
                 { "type": "field", "key": "note", "value":
-                    quillmark_content::migrate::from_lines(
-                        &quillmark_content::lines::import::from_plaintext("a *literal* line")).to_value() },
+                    quillmark_automerge::content::migrate::from_lines(
+                        &quillmark_automerge::content::lines::import::from_plaintext("a *literal* line")).to_value() },
                 { "type": "field", "key": "qty", "value": 3 },
             ]},
             "body": body("Main **body**.")
@@ -494,7 +494,7 @@ Entry body.
 
 #[test]
 fn revise_document_revises_then_conforms() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
     let quill = quill();
     let (mut doc, _) = parse_bound(&quill, MD);

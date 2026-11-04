@@ -135,7 +135,7 @@ jobs:
   # A long change applied, inverted, diffed, rebased and crossed to UTF-16,
   # and a long value spliced, revised, replaced, repaired, imported and
   # decoded, in a release build, each failing past its budget
-  # (crates/content/tests/speed.rs), and one keystroke through Card::write on
+  # (crates/automerge/tests/speed.rs), and one keystroke through Card::write on
   # a long body (crates/core/tests/speed.rs). Its own job so the timing runs on
   # a runner no other build shares.
   speed:
@@ -152,7 +152,7 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Speed gate
-        run: cargo test --release -p quillmark-content -p quillmark-core --test speed --locked -- --ignored --nocapture
+        run: cargo test --release -p quillmark-automerge -p quillmark-core --test speed --locked -- --ignored --nocapture
 
   wasm:
     runs-on: ubuntu-latest

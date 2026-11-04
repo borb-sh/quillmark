@@ -965,7 +965,7 @@ main:
         let mut p = Payload::from_index_map(payload);
         p.set_quill("test_quill".parse().unwrap());
         p.set_kind("main");
-        let main = Card::from_parts(p, quillmark_content::lines::model::Lines::empty());
+        let main = Card::from_parts(p, quillmark_automerge::content::lines::model::Lines::empty());
         Document::from_main_and_cards(main, cards)
     }
 
@@ -1143,7 +1143,7 @@ main:
     #[test]
     fn rejects_single_line_richtext_with_multi_block_content() {
         let config = config_with("    tag:\n      type: richtext\n      multiline: false", "");
-        let rt = quillmark_content::lines::import::from_markdown("one\n\ntwo")
+        let rt = quillmark_automerge::content::lines::import::from_markdown("one\n\ntwo")
             .unwrap()
             .content;
         let content = crate::document::stored_over(None, &rt);
@@ -1183,7 +1183,7 @@ main:
     #[test]
     fn accepts_single_line_richtext_single_para_content() {
         let config = config_with("    tag:\n      type: richtext\n      multiline: false", "");
-        let rt = quillmark_content::lines::import::from_markdown("one line only")
+        let rt = quillmark_automerge::content::lines::import::from_markdown("one line only")
             .unwrap()
             .content;
         let content = crate::document::stored_over(None, &rt);

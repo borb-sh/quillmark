@@ -5,10 +5,10 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 
-use quillmark_content::anchors::{AnchorContext, Reattached, anchor_context, anchor_contexts};
+use quillmark_automerge::content::anchors::{AnchorContext, Reattached, anchor_context, anchor_contexts};
 use quillmark_automerge::model::patch::{self, Patch};
-use quillmark_content::model::Content;
-use quillmark_content::units::{Scalars, Units};
+use quillmark_automerge::content::model::Content;
+use quillmark_automerge::content::units::{Scalars, Units};
 use serde_json::Value as JsonValue;
 
 use super::{Card, Document};
@@ -29,10 +29,10 @@ pub struct AnchorSelector {
     /// The anchored text as stored, island slots and line breaks included;
     /// empty for a point.
     pub quote: String,
-    /// Up to [`ANCHOR_CONTEXT_SCALARS`](quillmark_content::lines::anchor::ANCHOR_CONTEXT_SCALARS)
+    /// Up to [`ANCHOR_CONTEXT_SCALARS`](quillmark_automerge::content::lines::anchor::ANCHOR_CONTEXT_SCALARS)
     /// scalar values before the anchor, cut at the value's start.
     pub prefix: String,
-    /// Up to [`ANCHOR_CONTEXT_SCALARS`](quillmark_content::lines::anchor::ANCHOR_CONTEXT_SCALARS)
+    /// Up to [`ANCHOR_CONTEXT_SCALARS`](quillmark_automerge::content::lines::anchor::ANCHOR_CONTEXT_SCALARS)
     /// scalar values after the anchor, cut at the value's end.
     pub suffix: String,
 }
@@ -115,7 +115,7 @@ impl Document {
 
     /// Re-add dropped anchors, each at the path its selector names, where the
     /// quote is found under the exact rule of
-    /// [`locate_site`](quillmark_content::lines::anchor::locate_site): in the value's
+    /// [`locate_site`](quillmark_automerge::content::lines::anchor::locate_site): in the value's
     /// prose or one of its cells. Answers each selector in
     /// the order given, reattached with its selector as read after the write,
     /// or orphaned as given. Each value a selector names is read and written
@@ -280,7 +280,7 @@ impl Document {
     /// Run `f` on the body or content value `path` names, writing the value
     /// back where `f` changed it, or `None` where `path` names neither. A field
     /// value counts where it is an object
-    /// [`Content::from_value_lenient`](quillmark_content::model::Content::from_value_lenient) reads, the test the revise's drop report
+    /// [`Content::from_value_lenient`](quillmark_automerge::content::model::Content::from_value_lenient) reads, the test the revise's drop report
     /// applies, and lands back in canonical form in place, so the comments
     /// around it stay.
     pub(crate) fn edit_content_at<R>(
