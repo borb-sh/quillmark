@@ -920,12 +920,12 @@ impl<'a> CardMut<'a> {
     /// has moved on from builds at the heads a write left it at, and the
     /// write merges with every change since as Automerge merges.
     pub fn write<'o>(&mut self, target: super::Target<'_>, edit: super::Edit<'_>, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.doc.write_at(self.at, target, edit, opts.into(), None::<quillmark_automerge::content::units::Scalars>)
+        self.doc.write_at(self.at, target, edit, opts.into(), None, quillmark_automerge::content::units::Scalars, None)
     }
 
     /// [`write`](Self::write) for a host counting offsets in `u`.
     pub fn write_in<'o>(&mut self, target: super::Target<'_>, edit: super::Edit<'_>, opts: impl Into<super::WriteOptions<'o>>, u: impl quillmark_automerge::content::units::Units) -> Result<super::Receipt, EditError> {
-        self.doc.write_at(self.at, target, edit, opts.into(), Some(u))
+        self.doc.write_at(self.at, target, edit, opts.into(), Some(u), u, None)
     }
 
     /// [`Card::overwrite_field`].
@@ -988,8 +988,7 @@ impl<'a> CardMut<'a> {
         let was = self.doc.read_under(self.at, target, Some(before))?;
         let then = self.doc.read_under(self.at, target, Some(heads))?;
         let change = quillmark_automerge::content::diff::replace(&then, &was).map_err(|e| EditError::change(e.into()))?;
-        let change = quillmark_automerge::content::units::change_from_scalars(&change, &then, u).map_err(EditError::change)?;
-        self.write_in(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) }, u)
+        self.doc.write_at(self.at, target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) }, None, u, Some(then))
     }
 }
 

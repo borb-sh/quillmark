@@ -34,7 +34,7 @@ impl std::ops::Deref for ValueId {
         &self.0
     }
 }
-pub use step::{Lowered, StepError};
+pub use step::StepError;
 
 use automerge::sync::SyncDoc;
 use automerge::transaction::{CommitOptions, Transactable};
@@ -379,19 +379,20 @@ impl Doc {
         root: &ObjId,
         change: &Change,
         heads: Option<&[ChangeHash]>,
-    ) -> Result<Lowered, StepError> {
-        self.apply_from(root, change, heads, None)
+    ) -> Result<(), StepError> {
+        self.apply_from(root, change, heads, None).map(drop)
     }
 
     /// [`apply`](Self::apply), with `read` the value `root` reads as at
-    /// `heads`, so the lowering reads no view of its own.
+    /// `heads`, so the lowering reads no view of its own; answers what the
+    /// change makes of `read`.
     pub fn apply_from(
         &mut self,
         root: &ObjId,
         change: &Change,
         heads: Option<&[ChangeHash]>,
         read: Option<&Content>,
-    ) -> Result<Lowered, StepError> {
+    ) -> Result<Option<Content>, StepError> {
         self.doc.commit();
         let before = self.doc.get_heads();
         let isolated = heads.filter(|h| *h != before.as_slice());

@@ -89,23 +89,23 @@ impl Document {
     fn value_obj(&mut self, at: Option<usize>, target: Target<'_>) -> Result<(ValueId, bool), EditError> {
         self.bind();
         let mut put = false;
-        let mut content = None;
-        if let Target::Field(name) = target {
-            let read = content.insert(self.card_at(at).read(target)?).to_value();
-            if self.card_at(at).payload().get(name).is_none() {
-                self.edit_card(at, |c| c.payload_mut().insert(name.to_string(), QuillValue::from_json(read))).map_err(EditError::InvalidPayload)?;
-                put = true;
-            }
+        if let Target::Field(name) = target
+            && self.card_at(at).payload().get(name).is_none()
+        {
+            let empty = self.card_at(at).read(target)?.to_value();
+            self.edit_card(at, |c| c.payload_mut().insert(name.to_string(), QuillValue::from_json(empty))).map_err(EditError::InvalidPayload)?;
+            put = true;
         }
         let id = self.card_at(at).id().map(str::to_string);
         if let (Some(i), None) = (at, &id) {
             return Err(EditError::IndexOutOfRange { index: i, len: 0 });
         }
-        let field = match target {
-            Target::Field(name) => Some(name),
-            _ => None,
+        let card = match at {
+            None => &self.main,
+            Some(i) => &self.cards[i],
         };
-        let (v, written) = cards::value_at(self.doc(), at.and(id.as_deref()), field, || content.expect("a field target reads its value"))
+        let doc = self.held.0.as_mut().expect("bound");
+        let (v, written) = cards::value_at(&mut doc.doc, at.and(id.as_deref()), target.field(), || card.read(target))?
             .expect("a flushed card is held");
         if written {
             self.reread_at(at);
@@ -129,19 +129,20 @@ impl Document {
     }
 
     /// Takes `after`, what the value at `target` of the card at `at` reads as
-    /// once a write landed, into the cards: a body in place, a field by
-    /// reading its card again.
+    /// once a write landed, into the card in place.
     fn set_read(&mut self, at: Option<usize>, target: Target<'_>, after: &Content) {
-        let Target::Body = target else { return self.reread_at(at) };
-        match at {
-            None => self.main.set_body(after.clone()),
-            Some(i) => self.cards[i].set_body(after.clone()),
+        let card = self.card_raw_mut(at);
+        match target {
+            Target::Body => card.set_body(after.clone()),
+            Target::Field(name) => {
+                card.payload_mut().insert(name.to_string(), QuillValue::from_json(after.to_value())).expect("a held field takes its value");
+            }
         }
         #[cfg(debug_assertions)]
         {
             let card = self.card_at(at).clone();
             self.reread_at(at);
-            debug_assert!(self.card_at(at) == &card, "a body write reads as the document does");
+            debug_assert!(self.card_at(at) == &card, "a write reads as the document does");
         }
     }
 
@@ -162,30 +163,36 @@ impl Document {
     }
 
     /// Lands `edit` on the value at `target` of the card at `at`, the main
-    /// card where `None`, built against the value its heads name.
-    pub(crate) fn write_at<U: Units>(&mut self, at: Option<usize>, target: Target<'_>, edit: Edit<'_>, opts: WriteOptions<'_>, u: Option<U>) -> Result<Receipt, EditError> {
+    /// card where `None`, built against the value its heads name, or `read`
+    /// where the caller read it already. An `Edit::Apply` or structural edit
+    /// counts its offsets in `edit_units` (scalars where none), and the
+    /// receipt's patches count theirs in `units`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn write_at<U: Units>(&mut self, at: Option<usize>, target: Target<'_>, edit: Edit<'_>, opts: WriteOptions<'_>, edit_units: Option<U>, units: U, read: Option<Content>) -> Result<Receipt, EditError> {
         if let Edit::Apply(change) = &edit {
             check_change(change)?;
         }
         let (root, put) = self.value_obj(at, target)?;
-        let landed = self.write_on(at, target, &root, edit, opts, u);
+        let landed = self.write_on(at, target, &root, edit, opts, edit_units, units, read);
         if let (Err(_), true, Target::Field(name)) = (&landed, put, target) {
             self.edit_card(at, |c| c.remove_field(name))?;
         }
         landed
     }
 
-    fn write_on<U: Units>(&mut self, at: Option<usize>, target: Target<'_>, root: &ValueId, edit: Edit<'_>, opts: WriteOptions<'_>, u: Option<U>) -> Result<Receipt, EditError> {
+    #[allow(clippy::too_many_arguments)]
+    fn write_on<U: Units>(&mut self, at: Option<usize>, target: Target<'_>, root: &ValueId, edit: Edit<'_>, opts: WriteOptions<'_>, edit_units: Option<U>, units: U, read: Option<Content>) -> Result<Receipt, EditError> {
         let root = root.clone();
         let heads = self.heads_for(target, opts.heads)?;
         let now = self.card_at(at).read(target)?;
         debug_assert_eq!(now, self.held().doc.view(&root).content);
-        let read = match &heads {
-            Some(h) => self.held().doc.view_at(&root, h.hashes()).content,
-            None => now.clone(),
+        let read = match (read, &heads) {
+            (Some(read), _) => read,
+            (None, Some(h)) => self.held().doc.view_at(&root, h.hashes()).content,
+            (None, None) => now.clone(),
         };
         let (change, warnings, diffed) = match edit {
-            Edit::Apply(change) => match u {
+            Edit::Apply(change) => match edit_units {
                 Some(u) => {
                     let filled = quillmark_automerge::content::mint::fill(&change, &[&read], None).map_err(EditError::change)?;
                     let scalars = units::change_to_scalars(&filled.change, &read, u).map_err(EditError::change)?;
@@ -195,7 +202,7 @@ impl Document {
                 None => (change, Vec::new(), false),
             },
             Edit::Structural(edit) => {
-                let edit = match u {
+                let edit = match edit_units {
                     Some(u) => edit.to_scalars(&read, u).map_err(EditError::change)?,
                     None => edit,
                 };
@@ -220,19 +227,17 @@ impl Document {
             doc.track();
         }
         let before = Heads::from(doc.heads());
-        let lowered = doc.apply_from(&root, &change, heads.as_ref().map(Heads::hashes), Some(&read));
-        lowered.map_err(step_error)?;
-        let (patches, view) = match u {
-            Some(u) => doc.landed(&root, before.hashes(), &now, u),
-            None => doc.landed(&root, before.hashes(), &now, units::Scalars),
-        };
+        let wrote = doc.apply_from(&root, &change, heads.as_ref().map(Heads::hashes), Some(&read)).map_err(step_error)?;
+        let (patches, view) = doc.landed(&root, before.hashes(), &now, units);
         let landed = Heads::from(doc.heads());
         let mut removed = Vec::new();
         removed_by(&change, &mut removed);
         let mut dropped = change::lost_anchors(&now, &view.content, |id| diffed || !removed.iter().any(|r| r == id));
         if heads.is_some() {
-            let mine: Vec<_> = landed.hashes().iter().filter(|h| !before.hashes().contains(h)).copied().collect();
-            let wrote = doc.view_at(&root, &mine).content;
+            let wrote = wrote.unwrap_or_else(|| {
+                let mine: Vec<_> = landed.hashes().iter().filter(|h| !before.hashes().contains(h)).copied().collect();
+                doc.view_at(&root, &mine).content
+            });
             let held: std::collections::HashSet<String> = now.anchor_ids().into_iter().collect();
             dropped.extend(change::lost_anchors(&wrote, &view.content, |id| !held.contains(id)));
         }

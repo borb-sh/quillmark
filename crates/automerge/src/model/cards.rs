@@ -347,29 +347,30 @@ fn nth_slot(d: &Doc, order: &ObjId, index: usize) -> usize {
 /// The value at the body of the card `card` names, or the main card's, or
 /// at its field `field`, and whether it is put now: a field holding its
 /// content as JSON or holding nothing is put as a text value of `content`,
-/// and committed. None where no card holds that id.
-pub fn value_at(d: &mut Doc, card: Option<&str>, field: Option<&str>, content: impl FnOnce() -> Content) -> Option<(super::ValueId, bool)> {
-    value_obj_at(d, card, field, content).map(|(v, put)| (super::ValueId(v), put))
-}
-
-fn value_obj_at(d: &mut Doc, card: Option<&str>, field: Option<&str>, content: impl FnOnce() -> Content) -> Option<(ObjId, bool)> {
+/// and committed. None where no card holds that id; an error `content`
+/// answers, with nothing put.
+pub fn value_at<E>(d: &mut Doc, card: Option<&str>, field: Option<&str>, content: impl FnOnce() -> Result<Content, E>) -> Result<Option<(super::ValueId, bool)>, E> {
     let c = match card {
         None => d.main(),
-        Some(id) => value::obj(&d.doc, &d.cards(), id)?,
+        Some(id) => match value::obj(&d.doc, &d.cards(), id) {
+            Some(c) => c,
+            None => return Ok(None),
+        },
     };
     let Some(name) = field else {
-        return Some((d.value(&c, BODY).expect("a card holds its body"), false));
+        return Ok(Some((super::ValueId(d.value(&c, BODY).expect("a card holds its body")), false)));
     };
     let fields = value::obj(&d.doc, &c, FIELDS).expect("a card holds its fields");
     if let Some(v) = d.value(&fields, name) {
-        return Some((v, false));
+        return Ok(Some((super::ValueId(v), false)));
     }
+    let content = content()?;
     if d.doc.get(&fields, name).unwrap().is_some() {
         d.doc.delete(&fields, name).unwrap();
     }
-    let v = d.put_value(&fields, name, &content());
+    let v = d.put_value(&fields, name, &content);
     d.doc.commit();
-    Some((v, true))
+    Ok(Some((super::ValueId(v), true)))
 }
 
 fn order_obj(d: &Doc) -> ObjId {

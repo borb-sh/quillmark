@@ -1118,6 +1118,12 @@ impl Document {
         }
     }
 
+    /// This document's cards alone, held in no Automerge document: a copy
+    /// to read, render or store that carries no history.
+    pub fn snapshot(&self) -> Document {
+        Self::assembled(self.main.clone(), self.cards.clone(), self.mints.clone())
+    }
+
     /// Holds the document in an Automerge document where it is not yet,
     /// each part then read back carrying the id that document gives it.
     pub(crate) fn bind(&mut self) {
@@ -1311,25 +1317,36 @@ impl Document {
     /// Takes a peer's sync message and answers what it changed; one that
     /// leaves the document outside its schema is refused and undone.
     pub fn receive_sync_message(&mut self, state: &mut SyncState, message: SyncMessage) -> Result<Receipt, EditError> {
+        self.receive_sync_message_in(state, message, quillmark_automerge::content::units::Scalars)
+    }
+
+    /// [`receive_sync_message`](Document::receive_sync_message) for a host
+    /// counting offsets in `u`.
+    pub fn receive_sync_message_in(&mut self, state: &mut SyncState, message: SyncMessage, u: impl quillmark_automerge::content::units::Units) -> Result<Receipt, EditError> {
         let before = self.heads();
         self.doc().receive_sync_message(state, message).map_err(EditError::bad_live_bytes)?;
-        Ok(self.took(before))
+        Ok(self.took(before, u))
     }
 
     /// Takes the changes `bytes` hold, another peer's save or
     /// [`save_since`](Document::save_since), and answers what they changed.
     pub fn merge(&mut self, bytes: &[u8]) -> Result<Receipt, EditError> {
-        let before = self.heads();
-        self.doc().merge(bytes).map_err(EditError::bad_live_bytes)?;
-        Ok(self.took(before))
+        self.merge_in(bytes, quillmark_automerge::content::units::Scalars)
     }
 
-    /// The receipt of the changes taken since `before`, each card they
-    /// reached read again.
-    fn took(&mut self, before: Heads) -> Receipt {
+    /// [`merge`](Document::merge) for a host counting offsets in `u`.
+    pub fn merge_in(&mut self, bytes: &[u8], u: impl quillmark_automerge::content::units::Units) -> Result<Receipt, EditError> {
+        let before = self.heads();
+        self.doc().merge(bytes).map_err(EditError::bad_live_bytes)?;
+        Ok(self.took(before, u))
+    }
+
+    /// The receipt of the changes taken since `before`, its patches counted
+    /// in `u`, each card they reached read again.
+    fn took(&mut self, before: Heads, u: impl quillmark_automerge::content::units::Units) -> Receipt {
         let held = self.held.0.as_mut().expect("bound");
-        let patches = held.doc.patches(before.hashes(), quillmark_automerge::content::units::Scalars);
         let heads = Heads::from(held.doc.heads());
+        let patches = held.doc.patches_between(before.hashes(), heads.hashes(), u);
         held::reread(&held.doc, &patches, &mut self.main, &mut self.cards);
         Receipt { before, heads, patches, dropped_anchors: Vec::new(), repairs: Vec::new(), warnings: Vec::new() }
     }

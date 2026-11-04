@@ -112,9 +112,9 @@ impl PyEngine {
         opts.pages = pages.map(page_indices).transpose()?;
         opts.regions = regions;
         opts.title = title;
-        // A clone, so the `Document` stays editable from other threads while
-        // the GIL is released.
-        let document = doc.inner.clone();
+        // A snapshot, so the `Document` stays editable from other threads
+        // while the GIL is released.
+        let document = doc.inner.snapshot();
         drop(doc);
         let (engine, quill) = (&self.inner, &quill.inner);
         let mut result = py
