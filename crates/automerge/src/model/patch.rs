@@ -6,7 +6,10 @@
 //! island as one character, so value offset `n` is text index `n + 1`.
 
 use super::json::json_scalar;
+use crate::content::change::{self, Change, Splice, Step};
+use crate::content::model::{Content, ISLAND_SLOT};
 use crate::content::units::Units;
+use crate::content::wire;
 use automerge::patches::PatchAction;
 use automerge::{AutoCommit, ChangeHash, ObjId, ObjType, Prop, ReadDoc, Value as AmValue};
 use serde_json::{Map, Value, json};
@@ -17,6 +20,85 @@ pub fn between(doc: &mut AutoCommit, before: &[ChangeHash], after: &[ChangeHash]
     let patches = doc.diff(before, after);
     let mut texts = Texts { held: HashMap::new(), before: before.to_vec() };
     patches.into_iter().map(|p| texts.spell(doc, p, u)).collect()
+}
+
+/// [`between`], with the value `value`, which read as `was` at `before`,
+/// as the patches leave it where they only splice its own text: a
+/// keystroke's view without reading the value again.
+pub fn landed(doc: &mut AutoCommit, before: &[ChangeHash], after: &[ChangeHash], u: impl Units, value: &ObjId, was: &Content) -> (Vec<Value>, Option<Content>) {
+    let patches = doc.diff(before, after);
+    let mut texts = Texts { held: HashMap::new(), before: before.to_vec() };
+    let text = super::value::text(doc, value);
+    if let Some(t) = &text {
+        texts.held.insert(t.clone(), std::iter::once('\u{fffc}').chain(was.text.chars()).collect());
+    }
+    let mut work = text.as_ref().map(|_| was.clone());
+    let spelled = patches
+        .into_iter()
+        .map(|p| {
+            if let (Some(t), Some(c)) = (&text, work.as_mut()) {
+                if !follow(c, value, t, &p) {
+                    work = None;
+                }
+            }
+            texts.spell(doc, p, u)
+        })
+        .collect();
+    (spelled, work)
+}
+
+/// Takes `p` into `c`, the value `value` with the text `text`: `false`
+/// where `p` does more to the value than splice plain text outside every
+/// point anchor.
+fn follow(c: &mut Content, value: &ObjId, text: &ObjId, p: &automerge::Patch) -> bool {
+    if &p.obj != text {
+        return &p.obj != value && !p.path.iter().any(|(o, _)| o == value || o == text);
+    }
+    let near_point = |lo: usize, hi: usize| c.anchors.iter().any(|a| a.is_point() && lo <= a.start && a.start <= hi);
+    let splice = match &p.action {
+        PatchAction::SpliceText { index, value, marks } if *index > 0 => {
+            let at = index - 1;
+            let insert = value.make_string();
+            let n = insert.chars().count();
+            if near_point(at, at) || insert.contains(['\n', ISLAND_SLOT]) {
+                return false;
+            }
+            let mut kinds = Vec::new();
+            let mut anchored = std::collections::BTreeSet::new();
+            for (name, v) in marks.iter().flat_map(|m| m.iter()) {
+                match name.strip_prefix(super::value::ANCHOR) {
+                    Some(id) => {
+                        anchored.insert(id.to_string());
+                    }
+                    None => match super::value::mark_json(name, v, 0, n).and_then(|j| wire::mark_from_value(&j).ok()) {
+                        Some(m) => kinds.push(m),
+                        None => return false,
+                    },
+                }
+            }
+            let inside: std::collections::BTreeSet<String> = c.anchors.iter().filter(|a| !a.is_point() && a.start < at && at < a.end).map(|a| a.id.clone()).collect();
+            if inside != anchored {
+                return false;
+            }
+            Splice { marks: kinds, ..Splice::new(at, "", insert) }
+        }
+        PatchAction::DeleteSeq { index, length } if *index > 0 => {
+            let at = index - 1;
+            let deleted: String = c.text.chars().skip(at).take(*length).collect();
+            if deleted.chars().count() != *length || deleted.contains(['\n', ISLAND_SLOT]) || near_point(at, at + length) {
+                return false;
+            }
+            Splice::new(at, deleted, "")
+        }
+        _ => return false,
+    };
+    match change::apply(c, &Change::new(vec![Step::Splice(splice)])) {
+        Ok(applied) => {
+            *c = applied.content;
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 /// Each text a patch reaches, as the patches before it left it, one

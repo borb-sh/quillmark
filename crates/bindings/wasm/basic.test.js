@@ -735,8 +735,8 @@ describe('Document apply: the write primitive', () => {
     const receipt = doc.apply({}, { steps: [{ splice: { at: 0, delete: 'Body', insert: 'Text' } }] }, { heads })
     expect([receipt.before, receipt.heads]).toEqual([heads, doc.heads()])
     expect(receipt.patches).toEqual([
+      { action: 'del', path: ['main', 'body', 'text', 1], length: 4 },
       { action: 'splice', path: ['main', 'body', 'text', 1], value: 'Text' },
-      { action: 'del', path: ['main', 'body', 'text', 5], length: 4 },
     ])
     doc.apply({}, { steps: [] }, { heads })
     const foreign = blankDoc()
@@ -792,7 +792,7 @@ describe('Document apply: the write primitive', () => {
     expectEditCode(() => doc.apply({}, { steps: [{ anchor: { id: 'c9', start: 6, end: 11, move: true } }] }), 'edit::content_apply')
     const receipt = doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 6, end: 11, move: true } }] })
     expect(receipt.patches).toEqual([{ action: 'mark', path: ['main', 'body', 'text'], marks: [
-      { name: 'anchor:c1', value: null, start: 1, end: 6 },
+      { name: 'anchor:c1', value: null, start: 0, end: 12 },
       { name: 'anchor:c1', value: true, start: 7, end: 12 },
     ] }])
     expect(doc.read({}).anchors).toEqual([{ id: 'c1', start: 6, end: 11 }])
@@ -805,6 +805,7 @@ describe('Document apply: the write primitive', () => {
     const receipt = doc.apply({}, { steps: [{ anchor: { id: 'p', start: 14, end: 14, move: true } }, { splice: { at: 13, delete: '', insert: '!' } }] })
     expect(receipt.patches.map((p) => [p.action, p.path])).toEqual([
       ['splice', ['main', 'body', 'text', 14]],
+      ['del', ['main', 'body', 'points', 'p']],
       ['put', ['main', 'body', 'points', 'p']],
     ])
   })

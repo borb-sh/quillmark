@@ -419,6 +419,28 @@ impl Doc {
         patch::between(&mut self.doc, before, &after, u)
     }
 
+    /// Starts recording the changes past the document's heads now, so
+    /// [`landed`](Self::landed) from them reads no history.
+    pub fn track(&mut self) {
+        self.doc.update_diff_cursor();
+    }
+
+    /// [`patches`](Self::patches) from `before`, and the view of `root`, which
+    /// read as `was` at `before`, they leave.
+    pub fn landed(&mut self, root: &ObjId, before: &[ChangeHash], was: &Content, u: impl crate::content::units::Units) -> (Vec<Value>, View) {
+        self.doc.commit();
+        let after = self.doc.get_heads();
+        let (patches, followed) = patch::landed(&mut self.doc, before, &after, u, root, was);
+        let view = match followed {
+            Some(content) => {
+                debug_assert_eq!(content, self.view(root).content, "the patches leave the value the document reads");
+                View { content, repairs: Vec::new() }
+            }
+            None => self.view(root),
+        };
+        (patches, view)
+    }
+
     /// Automerge's patches taking the document from `before` to `after`.
     pub fn patches_between(&mut self, before: &[ChangeHash], after: &[ChangeHash], u: impl crate::content::units::Units) -> Vec<Value> {
         self.doc.commit();

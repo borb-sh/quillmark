@@ -216,14 +216,16 @@ impl Document {
             }
         };
         let doc = &mut self.held().doc;
+        if heads.is_none() {
+            doc.track();
+        }
         let before = Heads::from(doc.heads());
         let lowered = doc.apply_from(&root, &change, heads.as_ref().map(Heads::hashes), Some(&read));
         lowered.map_err(step_error)?;
-        let patches = match u {
-            Some(u) => doc.patches(before.hashes(), u),
-            None => doc.patches(before.hashes(), units::Scalars),
+        let (patches, view) = match u {
+            Some(u) => doc.landed(&root, before.hashes(), &now, u),
+            None => doc.landed(&root, before.hashes(), &now, units::Scalars),
         };
-        let view = doc.view(&root);
         let landed = Heads::from(doc.heads());
         let mut removed = Vec::new();
         removed_by(&change, &mut removed);
@@ -242,6 +244,7 @@ impl Document {
     /// on the card, lands it in the document, and answers its receipt.
     pub(crate) fn landing(&mut self, at: Option<usize>, target: Target<'_>, write: impl FnOnce(&mut Card) -> Result<Vec<ImportWarning>, EditError>) -> Result<Receipt, EditError> {
         let (root, put) = self.value_obj(at, target)?;
+        self.doc().track();
         let before = Heads::from(self.doc().heads());
         let was = self.card_at(at).read(target)?;
         let warnings = self.edit_card(at, |card| {
@@ -252,8 +255,7 @@ impl Document {
             })
         })?;
         let doc = &mut self.held().doc;
-        let patches = doc.patches(before.hashes(), units::Scalars);
-        let view = doc.view(&root);
+        let (patches, view) = doc.landed(&root, before.hashes(), &was, units::Scalars);
         let landed = Heads::from(doc.heads());
         let dropped = change::lost_anchors(&was, &view.content, |_| true);
         Ok(Receipt { before, heads: landed, patches, dropped_anchors: dropped, repairs: view.repairs, warnings })

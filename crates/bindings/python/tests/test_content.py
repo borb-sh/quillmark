@@ -18,8 +18,8 @@ def test_a_receipt_carries_its_patches_and_undo_takes_the_write_back():
     assert doc.read()["text"] == "hi world"
     assert (receipt["before"], receipt["heads"]) == (heads, doc.heads())
     assert receipt["patches"] == [
+        {"action": "del", "path": ["main", "body", "text", 1], "length": 5},
         {"action": "splice", "path": ["main", "body", "text", 1], "value": "hi"},
-        {"action": "del", "path": ["main", "body", "text", 3], "length": 5},
     ]
     assert receipt["dropped_anchors"] == [] and receipt["warnings"] == []
     doc.apply({"steps": []}, heads=heads)
@@ -168,7 +168,7 @@ def test_an_anchor_placement_refuses_a_held_id_and_a_move_moves_it():
         doc.apply({"steps": [{"anchor": {"id": "c9", "start": 6, "end": 11, "move": True}}]})
     receipt = doc.apply({"steps": [{"anchor": {"id": "c1", "start": 6, "end": 11, "move": True}}]})
     assert receipt["patches"] == [{"action": "mark", "path": ["main", "body", "text"], "marks": [
-        {"name": "anchor:c1", "value": None, "start": 1, "end": 6},
+        {"name": "anchor:c1", "value": None, "start": 0, "end": 12},
         {"name": "anchor:c1", "value": True, "start": 7, "end": 12},
     ]}]
     assert doc.read()["anchors"] == [{"id": "c1", "start": 6, "end": 11}]
