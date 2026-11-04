@@ -2,22 +2,19 @@
 //!
 //! A card map holds its `layout`, each payload item in source order with a
 //! field named by key, its `fields`, each value by key, its `ext` and `seed`
-//! maps, its `nestedComments` and its `body`. A field holding a content value
-//! holds it as a text value, so it merges as text does; every other value is
-//! plain data, a map key by key and a list by element, and a scalar last
-//! writer wins; a content value nested in such a value is plain data too,
-//! and reads through repair. [`Card`] is that shape as plain data, the one a
-//! host reads its cards from and writes each card edit into.
+//! maps, its `nestedComments` and its `body`. Each content value in a field,
+//! the field's value or one at any depth in it, is a text value, so it merges
+//! as text does; every other value is plain data, a map key by key and a list
+//! by element, and a scalar last writer wins. [`Card`] is that shape as plain
+//! data, the one a host reads its cards from and writes each card edit into.
 
 use automerge::transaction::Transactable;
 use automerge::{ObjId, ObjType, ROOT, ReadDoc, Value as AmValue};
 use crate::content::model::Content;
-use crate::content::repair::{Raw, repair};
-use crate::content::units::is_content_value;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::json::{hydrate, json_scalar, write_json_at};
+use super::json::{hydrate, hydrate_field, json_scalar, write_field_at, write_json_at};
 use super::{BODY, Doc, EXT, FIELDS, LAYOUT, NESTED, ORDER, SEED, value};
 
 /// One entry of a card's `layout`: a payload item in source order, a field
@@ -86,11 +83,10 @@ impl Card {
     }
 }
 
-/// Whether a field's value is a content value.
+/// Whether a field's value, or a value at any depth in it, is a content
+/// value: the document holds it as a text value.
 pub fn is_content(v: &Value) -> bool {
-    v.get("text").is_some_and(Value::is_string)
-        && v.get("blocks").is_some_and(Value::is_array)
-        && Content::from_value(v).is_ok()
+    value::content_of(v).is_some()
 }
 
 /// A new document holding `main` and each of `cards` that holds an id,
@@ -176,13 +172,10 @@ pub fn read_card(d: &Doc, c: &ObjId) -> Result<Card, String> {
     let mut fields = Vec::new();
     if let Some(f) = value::obj(&d.doc, c, FIELDS) {
         for key in d.doc.keys(&f).collect::<Vec<_>>() {
-            let v = match d.value(&f, &key) {
-                Some(root) => d.view(&root).content.to_value(),
-                None => match d.doc.get(&f, key.as_str()).ok().flatten() {
-                    Some((AmValue::Object(_), o)) => repaired(hydrate(&d.doc, &o)),
-                    Some((AmValue::Scalar(s), _)) => json_scalar(&s),
-                    None => continue,
-                },
+            let v = match d.doc.get(&f, key.as_str()).ok().flatten() {
+                Some((AmValue::Object(_), o)) => hydrate_field(&d.doc, &o),
+                Some((AmValue::Scalar(s), _)) => json_scalar(&s),
+                None => continue,
             };
             fields.push((key, v));
         }
@@ -196,19 +189,6 @@ pub fn read_card(d: &Doc, c: &ObjId) -> Result<Card, String> {
         nested,
         body: d.value(c, BODY).map(|b| d.view(&b).content).unwrap_or_else(Content::empty),
     })
-}
-
-/// `v` with each content value it holds, at any depth, read through repair.
-fn repaired(v: Value) -> Value {
-    match v {
-        v if is_content_value(&v) => match Raw::from_value(&v) {
-            Ok(raw) => repair(raw).0.to_value(),
-            Err(_) => v,
-        },
-        Value::Array(a) => Value::Array(a.into_iter().map(repaired).collect()),
-        Value::Object(o) => Value::Object(o.into_iter().map(|(k, x)| (k, repaired(x))).collect()),
-        v => v,
-    }
 }
 
 /// Writes what differs between `was` and `now` into the document, each
@@ -380,25 +360,11 @@ fn write_card(d: &mut Doc, c: &ObjId, was: Option<&Card>, now: &Card) {
     }
     if fresh || was.body != now.body {
         match d.value(c, BODY) {
-            Some(root) => rewrite(d, &root, &now.body),
+            Some(root) => value::rewrite(&mut d.doc, &root, &now.body),
             None => {
                 d.put_value(c, BODY, &now.body);
             }
         }
-    }
-}
-
-/// Writes `want` over the value `root` in place, so an edit concurrent with
-/// it merges: by the change between them, made against what the value reads
-/// as, and where that does not lower, by Automerge's own diff of the text.
-fn rewrite(d: &mut Doc, root: &ObjId, want: &Content) {
-    let now = d.view(root).content;
-    if now == *want {
-        return;
-    }
-    let lowered = crate::content::diff::diff(&now, want).is_ok_and(|change| d.apply_from(root, &change, None, Some(&now)).is_ok());
-    if !lowered {
-        d.update_value(root, want);
     }
 }
 
@@ -417,33 +383,13 @@ fn write_payload(d: &mut Doc, c: &ObjId, was: &Card, now: &Card) {
         }
     }
     for (key, want) in &now.fields {
-        let had = was.field(key);
-        if had == Some(want) && d.doc.get(&fields, key.as_str()).unwrap().is_some() {
+        if was.field(key) == Some(want) && d.doc.get(&fields, key.as_str()).unwrap().is_some() {
             continue;
         }
-        put_field(d, &fields, key, want);
+        write_field_at(&mut d.doc, &fields, key, want);
     }
     write_json_at(&mut d.doc, c, EXT, &Value::Object(now.ext.clone()));
     write_json_at(&mut d.doc, c, SEED, &Value::Object(now.seed.clone()));
     let nested = serde_json::to_value(&now.nested).expect("nested comments serialize");
     write_json_at(&mut d.doc, c, NESTED, &nested);
-}
-
-/// Puts field `key` of `fields` to `want`: a content value over a text
-/// value in place, and anything else as data.
-fn put_field(d: &mut Doc, fields: &ObjId, key: &str, want: &Value) {
-    if is_content(want) {
-        let content = Content::from_value(want).expect("a content field reads");
-        match d.value(fields, key) {
-            Some(root) => rewrite(d, &root, &content),
-            None => {
-                d.put_value(fields, key, &content);
-            }
-        }
-        return;
-    }
-    if d.value(fields, key).is_some() {
-        d.doc.delete(fields, key).unwrap();
-    }
-    write_json_at(&mut d.doc, fields, key, want);
 }

@@ -737,7 +737,7 @@ card_kinds:
                 .unwrap()
                 .unwrap();
             assert_eq!(authored.text, text, "{field} decodes at its declared codec");
-            assert_eq!(authored, rested, "{field} reads the same from either rest");
+            assert_eq!(authored.by_place(), rested.by_place(), "{field} reads the same from either rest");
         }
     }
 

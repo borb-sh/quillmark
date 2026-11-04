@@ -114,6 +114,32 @@ pub(crate) fn fill(doc: &mut AutoCommit, root: &ObjId, content: &Content) {
     }
 }
 
+/// The content `v` holds, where it is a content value.
+pub(crate) fn content_of(v: &Value) -> Option<Content> {
+    let shaped = v.get("text").is_some_and(Value::is_string) && v.get("blocks").is_some_and(Value::is_array);
+    shaped.then(|| Content::from_value(v).ok()).flatten()
+}
+
+/// What the value `root` reads as: its raw value read through repair.
+pub(crate) fn view(doc: &AutoCommit, root: &ObjId) -> Content {
+    let raw = crate::content::repair::Raw::from_value(&read(doc, root)).expect("a value reads as raw content");
+    crate::content::repair::repair(raw).0
+}
+
+/// Writes `want` over the value `root` in place, so an edit concurrent with
+/// it merges: by the change between them, made against what the value reads
+/// as, and where that does not lower, by Automerge's own diff of the text.
+pub(crate) fn rewrite(doc: &mut AutoCommit, root: &ObjId, want: &Content) {
+    let now = view(doc, root);
+    if now == *want {
+        return;
+    }
+    let lowered = crate::content::diff::diff(&now, want).is_ok_and(|change| super::step::lower(doc, root, &change, Some(&now)).is_ok());
+    if !lowered {
+        update(doc, root, want);
+    }
+}
+
 /// Writes `content` over the value `root` in place by Automerge's own diff
 /// of its text, so an edit concurrent with it merges as text does: each
 /// block, container and island `content` names by its object id stays that

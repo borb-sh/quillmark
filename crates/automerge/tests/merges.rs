@@ -225,10 +225,10 @@ fn a_reword_merges_with_typing_elsewhere() {
 }
 
 /// Two peers rewriting one rich text value nested in a field, an
-/// `array<richtext>` element, merge into a value that reads as valid
-/// content, in either merge order.
+/// `array<richtext>` element, merge as a body does: the element is a text
+/// object, so what each typed lands in the one value, in either merge order.
 #[test]
-fn nested_rich_text_both_sides_rewrote_reads_valid() {
+fn nested_rich_text_both_sides_rewrote_merges_as_text() {
     use quillmark_automerge::model::{Doc, cards};
     let c = |md: &str| from_markdown(md).unwrap().content.to_value();
     let main = cards::Card { fields: vec![("refs".into(), json!([c("*first* ref"), c("second")]))], ..Default::default() };
@@ -237,19 +237,24 @@ fn nested_rich_text_both_sides_rewrote_reads_valid() {
         let mut d = Doc::load(&origin).unwrap();
         let (was, _) = cards::read(&d).unwrap();
         let mut now = was.clone();
-        now.fields[0].1[0] = c(md);
+        let mut element = Content::from_value(&was.fields[0].1[0]).unwrap();
+        let typed = from_markdown(md).unwrap().content;
+        element.text = typed.text;
+        element.marks = typed.marks;
+        now.fields[0].1[0] = element.to_value();
         cards::write_one(&mut d, true, &was, &now);
         d
     };
-    let (mut a, mut b) = (wrote("*a*\n\nb\n\nc\n\nd"), wrote("*first* ref and *more words here*"));
+    let (mut a, mut b) = (wrote("A *first* ref"), wrote("*first* ref and *more*"));
     let (sa, sb) = (a.save(), b.save());
     for (d, other) in [(&mut a, &sb), (&mut b, &sa)] {
         d.merge(other).unwrap();
         let (read, _) = cards::read(d).unwrap();
         let refs = read.fields[0].1.as_array().unwrap();
-        for r in refs {
-            Content::from_value(r).unwrap();
-        }
+        let first = Content::from_value(&refs[0]).unwrap();
+        assert_eq!(first.text, "A first ref and more");
+        assert_eq!(marked(&first, "emph"), "first");
+        assert_eq!(Content::from_value(&refs[1]).unwrap().text, "second");
     }
 }
 

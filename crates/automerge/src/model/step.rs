@@ -110,13 +110,6 @@ fn check(view: &Content, step: &Step, n: usize) -> Result<(), StepError> {
     Ok(())
 }
 
-/// What the value `root` reads as inside the open transaction.
-fn current(doc: &AutoCommit, root: &ObjId) -> Content {
-    let raw = crate::content::repair::Raw::from_value(&value::read(doc, root))
-        .expect("a value reads as raw content");
-    crate::content::repair::repair(raw).0
-}
-
 fn renumber(e: StepError, n: usize) -> StepError {
     match e {
         StepError::Stale { at, .. } => StepError::Stale { step: n, at },
@@ -153,7 +146,7 @@ fn note_slots(doc: &AutoCommit, m: &ObjId, island: &Island, scopes: &mut Scopes)
 }
 
 fn note_scope(doc: &AutoCommit, root: &ObjId, given: &Content, scopes: &mut Scopes) {
-    let made = current(doc, root);
+    let made = value::view(doc, root);
     let mut map = HashMap::new();
     for (a, b) in given.blocks.iter().zip(&made.blocks) {
         map.insert(a.id.clone(), b.id.clone());
@@ -207,13 +200,13 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Co
     let t = value::text(doc, root).ok_or(StepError::Bad { step: 0, reason: "the value holds no text" })?;
     let mut ids: HashMap<String, String> = scopes.get(root).cloned().unwrap_or_default();
     let whole = read.as_ref().and_then(|r| crate::content::change::apply(r, change).ok());
-    let mut formatting = Formatting::of(&read.clone().unwrap_or_else(|| current(doc, root)));
+    let mut formatting = Formatting::of(&read.clone().unwrap_or_else(|| value::view(doc, root)));
     let mut next = read;
     for (n, step) in change.steps.iter().enumerate() {
         let (view, landed) = match &whole {
             Some(_) => (None, None),
             None => {
-                let view = next.take().unwrap_or_else(|| current(doc, root));
+                let view = next.take().unwrap_or_else(|| value::view(doc, root));
                 check(&view, step, n)?;
                 let landed = crate::content::change::apply(&view, &Change::new(vec![step.clone()])).ok();
                 (Some(view), landed)
@@ -301,7 +294,7 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Co
                 }
                 write_json_at(doc, &m, value::PROPS, props);
                 let ty = view
-                    .unwrap_or_else(|| current(doc, root))
+                    .unwrap_or_else(|| value::view(doc, root))
                     .islands
                     .iter()
                     .find(|i| i.id == id_of(&m) || i.id == *id)

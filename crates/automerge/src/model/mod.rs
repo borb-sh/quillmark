@@ -10,8 +10,8 @@
 //! `order` (the `$id`s in document order). A card holds `layout` (the
 //! payload's items in source order, its quill, kind and id among them, each
 //! field by key and each comment whole), `fields`, `nestedComments`, `ext`,
-//! `seed` and `body`; a body or content field is a value in the shape
-//! `value` states.
+//! `seed` and `body`; a body, and each content value in a field at any
+//! depth, is a value in the shape `value` states.
 
 pub mod cards;
 pub mod ids;

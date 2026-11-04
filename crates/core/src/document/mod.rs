@@ -804,15 +804,24 @@ impl PartialEq for Card {
     }
 }
 
+/// `v` with each content value in it, at any depth, by place.
+fn value_by_place(v: &serde_json::Value) -> serde_json::Value {
+    if quillmark_automerge::model::cards::is_content(v) {
+        return Content::from_value(v).expect("a content value reads").by_place().to_value();
+    }
+    match v {
+        serde_json::Value::Array(a) => a.iter().map(value_by_place).collect(),
+        serde_json::Value::Object(o) => serde_json::Value::Object(o.iter().map(|(k, x)| (k.clone(), value_by_place(x))).collect()),
+        v => v.clone(),
+    }
+}
+
 pub(super) fn payload_by_place(p: &Payload) -> Payload {
     let items = p
         .items()
         .iter()
         .map(|item| match item {
-            PayloadItem::Field { key, value } if quillmark_automerge::model::cards::is_content(value.as_json()) => {
-                let c = Content::from_value(value.as_json()).expect("a content field reads").by_place();
-                PayloadItem::Field { key: key.clone(), value: crate::value::QuillValue::from_json(c.to_value()) }
-            }
+            PayloadItem::Field { key, value } => PayloadItem::Field { key: key.clone(), value: crate::value::QuillValue::from_json(value_by_place(value.as_json())) },
             other => other.clone(),
         })
         .collect();
