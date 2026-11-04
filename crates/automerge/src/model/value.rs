@@ -19,7 +19,8 @@ use automerge::transaction::Transactable;
 use automerge::{
     AutoCommit, Cursor, CursorPosition, ObjId, ObjType, ReadDoc, ScalarValue, Value as AmValue,
 };
-use quillmark_content::model::{Block, Content, ISLAND_SLOT, Island, MarkKind};
+use quillmark_content::lines::island::IslandType;
+use quillmark_content::model::{Block, Codec, Content, ISLAND_SLOT, Island, MarkKind};
 use quillmark_content::wire;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -221,7 +222,9 @@ pub(crate) fn mark_key(kind: &MarkKind) -> (String, ScalarValue) {
     }
 }
 
-fn mark_json(name: &str, value: &ScalarValue, start: usize, end: usize) -> Value {
+/// The mark `name` holds `value` over `[start, end)`, `None` where its type
+/// and attrs are not a mark's.
+fn mark_json(name: &str, value: &ScalarValue, start: usize, end: usize) -> Option<Value> {
     let (ty, attrs) = match (name, value) {
         ("link", ScalarValue::Str(s)) => ("link".to_string(), Some(json!({ "url": s.as_str() }))),
         ("font_family", ScalarValue::Str(s)) => (
@@ -233,11 +236,16 @@ fn mark_json(name: &str, value: &ScalarValue, start: usize, end: usize) -> Value
             None => (n.to_string(), None),
         },
     };
+    let attrs = attrs.and_then(|a| match a {
+        Value::Object(o) => Some(o),
+        _ => None,
+    });
+    wire::mark_kind_from(&ty, attrs.as_ref().unwrap_or(&Map::new())).ok()?;
     let mut v = json!({ "start": start, "end": end, "type": ty });
     if let Some(a) = attrs {
-        v["attrs"] = a;
+        v["attrs"] = Value::Object(a);
     }
-    v
+    Some(v)
 }
 
 /// Puts the anchor `id` over value offsets `[start, end)` of the text `t` of
@@ -315,7 +323,10 @@ fn is_embed(doc: &AutoCommit, m: &ObjId) -> bool {
 
 /// The raw value `root` holds, as [`Raw::from_value`] reads it: text,
 /// records, marks and anchors as the merge left them, islands keyed by id
-/// with the id each island character carries.
+/// with the id each island character carries. A record, mark or island a
+/// peer left in a shape no content holds, such as a kind no build names or
+/// a path entry that is not a string, reads as the nearest one the decoder
+/// takes, so every document reads.
 ///
 /// [`Raw::from_value`]: quillmark_content::repair::Raw::from_value
 pub(crate) fn read(doc: &AutoCommit, root: &ObjId) -> Value {
@@ -339,9 +350,14 @@ pub(crate) fn read(doc: &AutoCommit, root: &ObjId) -> Value {
                     blocks.push(json!({ "id": id_of(root), "kind": "para" }));
                 }
                 text.push(ISLAND_SLOT);
-                let id = id_of(&m);
-                slot_ids.push(Value::String(id.clone()));
-                islands.insert(id, island_json(doc, &m));
+                match island_json(doc, &m) {
+                    Some(island) => {
+                        let id = id_of(&m);
+                        slot_ids.push(Value::String(id.clone()));
+                        islands.insert(id, island);
+                    }
+                    None => slot_ids.push(Value::Null),
+                }
             }
             Element::Char(c) => {
                 if i == 0 {
@@ -358,7 +374,7 @@ pub(crate) fn read(doc: &AutoCommit, root: &ObjId) -> Value {
         .map(|cs| {
             doc.values(&cs)
                 .filter_map(|(v, id)| match v {
-                    AmValue::Object(ObjType::Map) => Some(container_json(doc, &id)),
+                    AmValue::Object(ObjType::Map) => container_json(doc, &id),
                     _ => None,
                 })
                 .collect()
@@ -368,7 +384,7 @@ pub(crate) fn read(doc: &AutoCommit, root: &ObjId) -> Value {
     let marks: Vec<Value> = all
         .iter()
         .filter(|m| !m.name().starts_with(ANCHOR) && m.end > 1)
-        .map(|m| mark_json(m.name(), m.value(), m.start.saturating_sub(1), m.end - 1))
+        .filter_map(|m| mark_json(m.name(), m.value(), m.start.saturating_sub(1), m.end - 1))
         .collect();
     let mut anchors: BTreeMap<String, Value> = BTreeMap::new();
     for m in all.iter() {
@@ -405,10 +421,21 @@ pub(crate) fn read(doc: &AutoCommit, root: &ObjId) -> Value {
         "islands": islands,
         "slot_ids": slot_ids,
     });
-    if let Some(c) = get_str(doc, root, CODEC) {
+    if let Some(c) = get_str(doc, root, CODEC).filter(|c| Codec::parse(c).is_some()) {
         v["codec"] = Value::String(c);
     }
     v
+}
+
+/// The object `key` of `m` holds, hydrated, where it is a non-empty object.
+fn attrs_json(doc: &AutoCommit, m: &ObjId) -> Map<String, Value> {
+    obj(doc, m, ATTRS)
+        .map(|a| hydrate(doc, &a))
+        .and_then(|a| match a {
+            Value::Object(o) => Some(o),
+            _ => None,
+        })
+        .unwrap_or_default()
 }
 
 /// The value offset the point `id` of `points` reads at.
@@ -418,42 +445,50 @@ pub(crate) fn point_at(doc: &AutoCommit, points: &ObjId, t: &ObjId, id: &str) ->
     Some(at.saturating_sub(1).min(doc.length(t).saturating_sub(1)))
 }
 
+/// The block record `m`: a kind and attrs the decoder takes, a paragraph
+/// where they are not, and the string entries of its path.
 fn block_json(doc: &AutoCommit, m: &ObjId) -> Value {
     let mut b = Map::new();
     b.insert("id".into(), Value::String(id_of(m)));
-    b.insert(
-        "kind".into(),
-        Value::String(get_str(doc, m, TYPE).unwrap_or_else(|| "para".into())),
-    );
-    if let Some(a) = obj(doc, m, ATTRS)
-        .map(|a| hydrate(doc, &a))
-        .filter(|a| a.as_object().is_some_and(|o| !o.is_empty()))
-    {
-        b.insert("attrs".into(), a);
+    let (mut kind, mut attrs) = (get_str(doc, m, TYPE).unwrap_or_else(|| "para".into()), attrs_json(doc, m));
+    if wire::block_kind_from(&kind, &attrs).is_err() {
+        (kind, attrs) = ("para".into(), Map::new());
     }
-    if let Some(p) = obj(doc, m, PARENTS)
+    b.insert("kind".into(), Value::String(kind));
+    if !attrs.is_empty() {
+        b.insert("attrs".into(), Value::Object(attrs));
+    }
+    let path: Vec<Value> = obj(doc, m, PARENTS)
         .map(|p| hydrate(doc, &p))
-        .filter(|p| p.as_array().is_some_and(|a| !a.is_empty()))
-    {
-        b.insert("path".into(), p);
+        .and_then(|p| p.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|p| p.is_string())
+        .collect();
+    if !path.is_empty() {
+        b.insert("path".into(), Value::Array(path));
     }
     Value::Object(b)
 }
 
-fn container_json(doc: &AutoCommit, m: &ObjId) -> Value {
-    let mut c = json!({ "id": id_of(m), "kind": get_str(doc, m, TYPE).unwrap_or_default() });
-    if let Some(a) = obj(doc, m, ATTRS)
-        .map(|a| hydrate(doc, &a))
-        .filter(|a| a.as_object().is_some_and(|o| !o.is_empty()))
-    {
-        c["attrs"] = a;
+/// The container record `m`, `None` where its kind and attrs are not a
+/// container's.
+fn container_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
+    let (kind, attrs) = (get_str(doc, m, TYPE)?, attrs_json(doc, m));
+    wire::container_kind_from(&kind, &attrs).ok()?;
+    let mut c = json!({ "id": id_of(m), "kind": kind });
+    if !attrs.is_empty() {
+        c["attrs"] = Value::Object(attrs);
     }
-    c
+    Some(c)
 }
 
-fn island_json(doc: &AutoCommit, m: &ObjId) -> Value {
+/// The island `m`, `None` where its type is not one a build reads.
+fn island_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
+    let ty = get_str(doc, m, TYPE).filter(|t| IslandType::parse(t).is_some())?;
     let props = obj(doc, m, PROPS)
         .map(|p| hydrate(doc, &p))
+        .filter(Value::is_object)
         .unwrap_or_else(|| json!({}));
     let slots: Map<String, Value> = obj(doc, m, SLOTS)
         .map(|s| {
@@ -462,5 +497,5 @@ fn island_json(doc: &AutoCommit, m: &ObjId) -> Value {
                 .collect()
         })
         .unwrap_or_default();
-    json!({ "type": get_str(doc, m, TYPE).unwrap_or_default(), "props": props, "slots": slots })
+    Some(json!({ "type": ty, "props": props, "slots": slots }))
 }

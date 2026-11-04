@@ -105,15 +105,6 @@ impl Draft {
         self.starts.partition_point(|&s| s <= p).saturating_sub(1)
     }
 
-    pub(crate) fn block_start(&self, k: usize) -> Scalar {
-        self.starts[k]
-    }
-
-    /// The offset of island `k`'s character.
-    pub(crate) fn island_at(&self, k: usize) -> Scalar {
-        self.slots[k]
-    }
-
     pub(crate) fn block_end(&self, k: usize) -> Scalar {
         self.starts[k] + self.segs[k].len
     }

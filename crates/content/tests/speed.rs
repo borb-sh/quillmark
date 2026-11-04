@@ -8,8 +8,8 @@
 //! field of 20000 blocks or 500000 characters, holds [`TARGET`]: a plain
 //! list's revise, replace and repair in time, and import and decode linear.
 
-use quillmark_automerge::{Held, revise};
-use quillmark_content::change::{AnchorStep, Change, MarkStep, Splice, Step, apply, apply_traced, invert};
+use quillmark_automerge::{merge3, revise};
+use quillmark_content::change::{AnchorStep, Change, MarkStep, Splice, Step, apply, invert};
 use quillmark_content::diff::{diff, replace};
 use quillmark_content::markdown::{from_markdown, to_markdown};
 use quillmark_content::model::{Anchor, Block, BlockKind, Content, Mark, MarkKind};
@@ -85,9 +85,9 @@ fn time<T>(f: impl Fn() -> T) -> Duration {
 /// The 288k-character case's limits in milliseconds: five times the targets
 /// of 100 to apply and 200 to invert, and about ten times what a laptop takes
 /// for the diff and the UTF-16 round trip, which a pass that walks the whole
-/// text per step overruns. The merge is a stale write on a live document that
-/// has taken another change since, and its limit is about 1.3 times what it
-/// takes.
+/// text per step overruns. The merge is `merge3` of the two changes, a stale
+/// write merged with a change since in a document built for it, and its
+/// limit is about 1.3 times what it takes.
 const BUDGET: [(&str, f64); 5] = [("apply", 500.0), ("invert", 1000.0), ("diff", 1500.0), ("merge", 2500.0), ("utf16", 500.0)];
 
 fn measure(n: usize) -> (usize, usize, [f64; 5]) {
@@ -95,25 +95,11 @@ fn measure(n: usize) -> (usize, usize, [f64; 5]) {
     let mine = change(&d, "holds", "carries", "m");
     let theirs = change(&d, "end", "close", "t");
     let after = apply(&d, &mine).unwrap().content;
-    let (ours, ours_trace) = apply_traced(&d, &mine).unwrap();
-    let (since, since_trace) = apply_traced(&d, &theirs).unwrap();
-    let mut live = Held::new(&d, "");
-    let heads = live.heads();
-    live.write(&since_trace, &since.content);
     let times = [
         time(|| apply(&d, &mine).unwrap()),
         time(|| invert(&mine, &d).unwrap()),
         time(|| apply(&d, &diff(&d, &after).unwrap()).unwrap()),
-        time(|| {
-            let mut live = live.clone();
-            let at_base = live.fork_at(&heads, None).unwrap();
-            let mut fork = at_base.clone();
-            fork.write(&ours_trace, &ours.content);
-            let (at_ours, at_theirs) = (fork.heads(), live.heads());
-            live.merge(&mut fork).unwrap();
-            live.clip(&at_ours, &at_theirs, &ours_trace);
-            live.read()
-        }),
+        time(|| merge3(&d, &mine, &theirs).unwrap()),
         time(|| change_to_scalars(&change_from_scalars(&mine, &d, Utf16).unwrap(), &d, Utf16).unwrap()),
     ];
     (d.text.chars().count(), mine.steps.len(), times.map(|t| t.as_secs_f64() * 1000.0))
