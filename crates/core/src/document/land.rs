@@ -9,12 +9,11 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_automerge::automerge::{ActorId, ObjId};
+use quillmark_automerge::automerge::ObjId;
 use quillmark_automerge::model::{StepError, cards};
 use quillmark_automerge::content::change::{self, AnchorStep, ApplyError, Change, Step};
 use quillmark_automerge::content::lines::import::ImportWarning;
 use quillmark_automerge::content::diff;
-use quillmark_automerge::content::ids::is_actor;
 use quillmark_automerge::content::model::Content;
 use quillmark_automerge::content::units::{self, Units};
 
@@ -176,9 +175,6 @@ impl Document {
         if let Edit::Apply(change) = &edit {
             check_change(change)?;
         }
-        if let Some(actor) = opts.actor.filter(|a| !is_actor(a)) {
-            return Err(EditError::InvalidActor(actor.to_string()));
-        }
         let (root, put) = self.value_obj(at, target)?;
         let landed = self.write_on(at, target, &root, edit, opts, u);
         if let (Err(_), true, Target::Field(name)) = (&landed, put, target) {
@@ -233,14 +229,7 @@ impl Document {
             doc.track();
         }
         let before = Heads::from(doc.heads());
-        let actor = doc.am().get_actor().clone();
-        if let Some(a) = opts.actor {
-            doc.set_actor(ActorId::from(a.as_bytes()));
-        }
         let lowered = doc.apply_from(&root, &change, heads.as_ref().map(Heads::hashes), Some(&read));
-        if opts.actor.is_some() {
-            doc.set_actor(actor);
-        }
         lowered.map_err(step_error)?;
         let (patches, view) = doc.patches_on(&root, before.hashes(), &now);
         let landed = Heads::from(doc.heads());

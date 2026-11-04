@@ -230,18 +230,6 @@ export interface Card {
 }
 
 /**
- * How a card is placed (`doc.unchecked.insertCard`, `writer.addCard`).
- * `actor` names the writer, one per live session: a card spelling no `id`
- * mints `{actor}-{token}`, so two clients placing cards from one document
- * never mint one id; without it the id mints positionally. A card's actor is
- * 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit; another throws
- * `edit::invalid_actor`.
- */
-export interface PlaceOptions {
-    actor?: string;
-}
-
-/**
  * What `writer.addCard` answers: the placed card's `$id`, and the fields'
  * `parse::dropped_construct` warnings then the body import's, anchored under
  * the placed card.
@@ -1690,7 +1678,7 @@ impl Document {
     /// bundle as [`commitFields`](Self::commit_fields); an invalid kind or body,
     /// or a bad position, throws a single-entry bundle keyed `$kind` / `$body`.
     /// The card's `$id` mints as `unchecked.insertCard` mints one, under
-    /// `opts.actor` where one is given. Returns a `CardAdded`: that id, and
+    /// the document's `actor` where one is set. Returns a `CardAdded`: that id, and
     /// the fields' `parse::dropped_construct` warnings, then the body
     /// import's, anchored under the placed card.
     #[wasm_bindgen(js_name = _addCard, skip_typescript, unchecked_return_type = "CardAdded")]
@@ -1703,9 +1691,7 @@ impl Document {
         >,
         #[wasm_bindgen(unchecked_optional_param_type = "string")] body: Option<String>,
         #[wasm_bindgen(unchecked_optional_param_type = "number")] at: Option<usize>,
-        #[wasm_bindgen(unchecked_optional_param_type = "PlaceOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let actor = place_actor(&opts, "addCard")?;
         let batch = match fields {
             Some(f) => js_value_to_field_batch(&f, "addCard")?,
             None => Vec::new(),
@@ -1715,7 +1701,7 @@ impl Document {
         let added = quill
             .inner
             .writer(&mut self.inner)
-            .add_card(kind, batch, body.as_deref(), at, actor.as_deref())
+            .add_card(kind, batch, body.as_deref(), at)
             .map_err(|errs| edit_errors_to_js(errs, &quillmark_core::path::DocPath::new()))?;
         serialize_or_throw(&CardAddedJs { id: added.id, warnings: diags(added.warnings) }, "addCard")
     }
@@ -1725,18 +1711,15 @@ impl Document {
     /// `0..=cards.length`), and answer its `$id`. Accepts any `CardInput`,
     /// including a card read back out of a document; its fields' content
     /// values decode as its body does. A card spelling no `id` mints one,
-    /// under `opts.actor` where one is given. Throws if `card.kind` is not a
-    /// valid kind name, if `at` is out of range, `edit::invalid_actor` for an
-    /// actor that cannot open a card id, or `edit::too_many_cards` if the
-    /// document holds 1,000 cards.
+    /// under the document's `actor` where one is set. Throws if `card.kind` is
+    /// not a valid kind name, if `at` is out of range, or
+    /// `edit::too_many_cards` if the document holds 1,000 cards.
     #[wasm_bindgen(js_name = _uncheckedInsertCard, skip_typescript)]
     pub fn insert_card(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "CardInput")] card: JsValue,
         #[wasm_bindgen(unchecked_optional_param_type = "number")] at: Option<usize>,
-        #[wasm_bindgen(unchecked_optional_param_type = "PlaceOptions")] opts: JsValue,
     ) -> Result<String, JsValue> {
-        let actor = place_actor(&opts, "insertCard")?;
         let core_card = js_to_card(&card)?;
         // A kind error anchors at the target slot; an append has no slot yet, so
         // its kind error carries no anchor.
@@ -1745,7 +1728,7 @@ impl Document {
         });
         self.inner
             .unchecked()
-            .insert_card(at, core_card, actor.as_deref())
+            .insert_card(at, core_card)
             .map_err(|e| edit_error_to_js(&e, &base))
     }
 
@@ -2625,23 +2608,6 @@ fn card_to_js(card: &quillmark_core::document::Card) -> Result<JsValue, JsValue>
         }
     }
     serialize_or_throw(&wire, "card")
-}
-
-/// The `actor` a card placement's `PlaceOptions` name, if any.
-fn place_actor(opts: &JsValue, verb: &str) -> Result<Option<String>, JsValue> {
-    if opts.is_undefined() || opts.is_null() {
-        return Ok(None);
-    }
-    reject_unknown_keys(opts, &["actor"], "options", |k| {
-        format!("{verb}: options have unknown key `{k}`; a card placement takes `actor`")
-    })?;
-    let v = js_sys::Reflect::get(opts, &"actor".into()).unwrap_or(JsValue::UNDEFINED);
-    if v.is_undefined() {
-        return Ok(None);
-    }
-    v.as_string()
-        .map(Some)
-        .ok_or_else(|| WasmError::from(format!("{verb}: actor must be a string when given")).to_js_value())
 }
 
 fn js_to_card(value: &JsValue) -> Result<quillmark_core::document::Card, JsValue> {

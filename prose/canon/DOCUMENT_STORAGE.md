@@ -530,8 +530,8 @@ is written, and never rewritten while its card lives.**
   letters of SHA-256 over `quillmark/card-id\n{n}`, the first `n` whose id no
   card holds (`card_id::Mint`). A parse, a load and a seed mint the token
   alone, positionally, so equal markdown parses to equal ids. A placement
-  under a writer's actor (`Unchecked::insert_card`, the writer's `add_card`)
-  mints `{actor}-{token}`: an actor ([CONTENT.md](CONTENT.md) § Ids) is short
+  through a handle with an actor set (`Document::set_actor`), by
+  `Unchecked::insert_card` or the writer's `add_card`, mints `{actor}-{token}`: an actor ([CONTENT.md](CONTENT.md) § Ids) is short
   enough that the id is a card id, no actor's id is a positional one
   and two actors never mint one id. A live client places each card it inserts
   under its actor and carries the `$id` the placement answers to its peers, so
@@ -540,8 +540,9 @@ is written, and never rewritten while its card lives.**
   determinism holds, narrowed as it is there: a document's ids depend on
   which actors placed its cards. An actor's mint never reissues an id: each
   `Document` value holds, beside its cards and outside its equality and its
-  stored row, the index past the last token it minted under each actor since
-  its parse, load or seed, and that actor's next mint starts there, so an id
+  stored row, the index past the last token it minted under its actor since
+  its parse, load or seed or since its actor last changed, and its next mint
+  starts there, so an id
   an actor minted is never minted under it again in that value's life, though
   the card holding it is removed. A positional mint keeps no such record.
 - **Every input path normalizes the id.** A parse, a load and a placing edit each leave every

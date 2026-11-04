@@ -78,12 +78,15 @@ def test_a_write_at_stale_heads_merges_with_the_change_since():
 def test_a_placeholder_is_minted_under_the_writers_actor():
     doc = Document.parse(MD)
     change = {"steps": [{"splice": {"at": 5, "insert": "\nnew", "blocks": [{"id": "?n", "kind": "para"}]}}]}
-    receipt = doc.apply(change, actor="ann")
+    doc.set_actor("ann")
+    assert doc.actor == "ann"
+    receipt = doc.apply(change)
     (minted,) = [b["id"] for p in receipt["patches"] if "insert" in p for b in p["insert"]["blocks"]]
     assert minted.endswith("@" + "ann".encode().hex())
     assert doc.read()["blocks"][1]["id"] == minted
     with raises_edit_code("edit::invalid_actor"):
-        doc.apply({"steps": []}, actor="a:b")
+        doc.set_actor("a:b")
+    assert doc.actor == "ann"
 
 
 def test_a_reserved_x_name_rides_as_written():

@@ -8,7 +8,7 @@ use super::{
 };
 use crate::error::WasmError;
 use crate::types::Diagnostic;
-use quillmark_automerge::content::change::{self, Assoc, Change};
+use quillmark_automerge::content::change::{self, Change};
 use quillmark_automerge::content::structural::{self, StructuralEdit, Wrap};
 use quillmark_automerge::content::model::Content;
 use quillmark_automerge::content::units::{self, Utf16};
@@ -228,15 +228,9 @@ export interface DroppedAnchor extends AnchorContext {
  *  throw `edit::stale_base`. Pass it: a write without one lands over
  *  whatever the value now holds.
  *
- *  `actor` names the writer, one per live session: the write writes under
- *  that Automerge actor, so each id it mints is an object id under it and two
- *  clients never mint one id. Without one a write writes under the
- *  document's own actor. An
- *  actor is 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, as a
- *  card placement's is; another throws `edit::invalid_actor`. */
+ *  The write writes under the document's `actor`. */
 export interface WriteOptions {
     heads?: string[];
-    actor?: string;
 }
 
 /** `splitBlock`'s options: a write's, and `id`, the new block's id, which
@@ -263,19 +257,6 @@ export interface Located {
 /** A position in a value: an offset into its text, or one inside a
  *  slot of an island. */
 export type Pos = number | { island: string; slot: string; at: Pos };
-
-/**
- * Where `mapPos` carried a position, and what around it the change deleted:
- * the character on its `assoc` side (`deleted`), the one before, the one
- * after, or both in one deletion (`deletedAcross`).
- */
-export interface MapResult {
-    pos: Pos;
-    deleted: boolean;
-    deletedBefore: boolean;
-    deletedAfter: boolean;
-    deletedAcross: boolean;
-}
 
 /** What `wrap` opens around the blocks it wraps: a quote, or a list with an
  *  item per wrapped child, each `checked` as given. */
@@ -322,9 +303,8 @@ export type Repair = { inserts?: true } & (
 );
 
 /** What `repair` read a merged value as: the valid `content`, each mend,
- *  and `change`, the change from the merged text to the content's, which
- *  `mapPos` carries a position through to where repair puts an anchor
- *  there; no mend and no step for a value already valid. */
+ *  and `change`, the change from the merged text to the content's; no mend
+ *  and no step for a value already valid. */
 export interface Repaired {
     content: Content;
     repairs: Repair[];
@@ -357,30 +337,28 @@ struct DroppedAnchorJs {
 }
 
 
-/// A `WriteOptions` from JS: the `heads` the writer read and its `actor`.
+/// A `WriteOptions` from JS: the `heads` the writer read.
 struct WriteOpts {
     heads: Option<Heads>,
-    actor: Option<String>,
 }
 
 impl WriteOpts {
     /// The options of `verb`, which also reads the keys `extra` names.
     fn from_js(opts: &JsValue, verb: &str, extra: &[&str]) -> Result<WriteOpts, JsValue> {
-        let mut out = WriteOpts { heads: None, actor: None };
+        let mut out = WriteOpts { heads: None };
         if opts.is_undefined() || opts.is_null() {
             return Ok(out);
         }
-        let keys: Vec<&str> = ["heads", "actor"].into_iter().chain(extra.iter().copied()).collect();
+        let keys: Vec<&str> = ["heads"].into_iter().chain(extra.iter().copied()).collect();
         reject_unknown_keys(opts, &keys, "options", |k| {
             format!("{verb}: options have unknown key `{k}`; a write takes {}", keys.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "))
         })?;
         out.heads = heads_opt(opts, verb)?;
-        out.actor = string_opt(opts, "actor", verb)?;
         Ok(out)
     }
 
     fn as_ref(&self) -> WriteOptions<'_> {
-        WriteOptions { heads: self.heads.as_ref(), actor: self.actor.as_deref() }
+        WriteOptions { heads: self.heads.as_ref() }
     }
 }
 
@@ -913,33 +891,3 @@ pub fn inherited_marks(
     serialize_or_throw(&out, "inheritedMarks")
 }
 
-/// Where `pos` lands after `change`, and what around it the change deleted;
-/// `assoc` (`"after"` by default) picks the side of text inserted at it.
-/// Throws `edit::content_apply` where a splice deletes an island and names
-/// none in `removed`.
-#[wasm_bindgen(js_name = mapPos, unchecked_return_type = "MapResult")]
-pub fn map_pos(
-    #[wasm_bindgen(unchecked_param_type = "Change")] change: JsValue,
-    #[wasm_bindgen(unchecked_param_type = "Pos")] pos: JsValue,
-    #[wasm_bindgen(unchecked_optional_param_type = "\"before\" | \"after\"")] assoc: JsValue,
-) -> Result<JsValue, JsValue> {
-    let change = change_in(change, "mapPos")?;
-    let pos = quillmark_automerge::content::wire::pos_from_value(&js_value_to_json(pos, "mapPos")?)
-        .map_err(|e| WasmError::from(format!("mapPos: not a position: {e}")).to_js_value())?;
-    let assoc = match assoc.as_string().as_deref() {
-        None | Some("after") => Assoc::After,
-        Some("before") => Assoc::Before,
-        Some(other) => {
-            return Err(WasmError::from(format!("mapPos: assoc is \"before\" or \"after\", not {other:?}")).to_js_value());
-        }
-    };
-    let r = change::map_pos_in(&change, &pos, assoc, Utf16).map_err(apply_error)?;
-    let out = serde_json::json!({
-        "pos": quillmark_automerge::content::wire::pos_value(&r.pos),
-        "deleted": r.deleted,
-        "deletedBefore": r.deleted_before,
-        "deletedAfter": r.deleted_after,
-        "deletedAcross": r.deleted_across,
-    });
-    serialize_or_throw(&out, "mapPos")
-}

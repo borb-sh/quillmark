@@ -78,27 +78,19 @@ pub struct WriteOptions<'a> {
     /// change since; heads the document's history does not hold refuse with
     /// `edit::stale_base`. None writes on the value now.
     pub heads: Option<&'a Heads>,
-    /// Who writes: in a document, the Automerge actor the write writes
-    /// under, each id it mints an object id under it; on a card outside one,
-    /// the scope of each id it mints, `{actor}:{prefix}{n}`. A live client
-    /// passes one unique to its session, so two clients writing from one
-    /// value never mint one id. One that is not an
-    /// [actor](quillmark_automerge::content::ids::is_actor) is refused with
-    /// `edit::invalid_actor`.
-    pub actor: Option<&'a str>,
 }
 
 impl<'a> From<Option<&'a Heads>> for WriteOptions<'a> {
-    /// The options of a write at these heads and no actor.
+    /// The options of a write at these heads.
     fn from(heads: Option<&'a Heads>) -> Self {
-        WriteOptions { heads, actor: None }
+        WriteOptions { heads }
     }
 }
 
 impl<'a> From<&'a Heads> for WriteOptions<'a> {
-    /// The options of a write at these heads and no actor.
+    /// The options of a write at these heads.
     fn from(heads: &'a Heads) -> Self {
-        WriteOptions { heads: Some(heads), actor: None }
+        WriteOptions { heads: Some(heads) }
     }
 }
 

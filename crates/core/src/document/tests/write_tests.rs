@@ -349,7 +349,7 @@ fn a_write_lands_on_the_card_its_writer_read() {
         |doc| {
             let mut card = Card::new("note").unwrap();
             card.overwrite_body(quillmark_automerge::content::lines::import::from_markdown("Hello").unwrap().content);
-            doc.unchecked().insert_card(Some(1), card, None).unwrap();
+            doc.unchecked().insert_card(Some(1), card).unwrap();
         },
     ];
     for shuffle in shuffles {
@@ -579,9 +579,9 @@ fn a_write_past_an_input_bound_refuses_under_its_code() {
 
 /// Two live writers make structural edits from one read under their own
 /// actors: each verb answers its receipt, the second merged, and each id a
-/// write mints is minted under its writer's actor. A placeholder is filled
-/// and its record's id rides the receipt's patches, and a bad actor writes
-/// nothing.
+/// write mints is minted under its handle's actor. A placeholder is filled
+/// and its record's id rides the receipt's patches, and a bad actor is
+/// refused before anything is written.
 #[test]
 fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
     use crate::document::WriteOptions;
@@ -590,17 +590,18 @@ fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nalpha\n\nbravo\n\ncharlie\n");
     let read = block_ids(doc.main().body());
     let base = doc.heads();
-    let ann = WriteOptions { heads: Some(&base), actor: Some("ann") };
-    let bo = WriteOptions { heads: Some(&base), actor: Some("bo") };
+    let at_base = WriteOptions { heads: Some(&base) };
     let start = doc.main().body().clone();
-    let quoted = doc.main_mut().wrap(Target::Body, &read[0], &read[1], Wrap::Quote, ann).unwrap();
+    doc.set_actor("ann").unwrap();
+    let quoted = doc.main_mut().wrap(Target::Body, &read[0], &read[1], Wrap::Quote, at_base).unwrap();
     let quote = new_containers(&quoted, &start)[0].clone();
     assert!(under(&quote, "ann"), "{quote}");
-    let split = doc.main_mut().split_block(Target::Body, 14, None, bo).unwrap();
+    doc.set_actor("bo").unwrap();
+    let split = doc.main_mut().split_block(Target::Body, 14, None, at_base).unwrap();
     let right = put_ids(&split)[0].clone();
     assert!(under(&right, "bo"));
     let held = doc.main().body().clone();
-    let listed = doc.main_mut().wrap(Target::Body, &read[2], &read[2], Wrap::List { ordered: true, checked: None }, bo).unwrap();
+    let listed = doc.main_mut().wrap(Target::Body, &read[2], &read[2], Wrap::List { ordered: true, checked: None }, at_base).unwrap();
     let made = new_containers(&listed, &held);
     assert!(made.iter().all(|id| under(id, "bo")) && made.len() == 2, "{made:?}");
     let body = doc.main().body();
@@ -623,13 +624,13 @@ fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
 
     let now = doc.heads();
     let more = format!("{}\n\nend\n", doc.main().body_annotated().markdown.trim_end());
-    doc.main_mut().revise(Target::Body, &more, WriteOptions { heads: Some(&now), actor: Some("cy") }).unwrap();
+    doc.set_actor("cy").unwrap();
+    doc.main_mut().revise(Target::Body, &more, WriteOptions { heads: Some(&now) }).unwrap();
     assert!(under(&doc.main().body().blocks.last().unwrap().id, "cy"));
 
-    let held = doc.clone();
-    let err = doc.main_mut().join_blocks(Target::Body, &read[1], WriteOptions { heads: None, actor: Some("a:b") }).unwrap_err();
+    let err = doc.set_actor("a:b").unwrap_err();
     assert_eq!(err.code(), "edit::invalid_actor");
-    assert_eq!(doc, held);
+    assert_eq!(doc.actor(), Some("cy"));
 }
 
 
@@ -835,13 +836,14 @@ fn a_stale_anchor_and_mark_land_over_typing_at_them() {
         let mut doc = parse("~~~\n$quill: q\n~~~\n\nHello world\n");
         let base = doc.heads();
         let typed = Change::new(vec![Step::Splice(Splice::new(0, "", "XX ")), Step::Splice(Splice::new(9, "", "YY"))]);
-        doc.main_mut().apply(Target::Body, &typed, crate::document::WriteOptions { heads: None, actor: Some(typist) }).unwrap();
+        doc.set_actor(typist).unwrap();
+        doc.main_mut().apply(Target::Body, &typed, None).unwrap();
         let put = Change::new(vec![
             Step::Anchor(AnchorStep::Place { anchor: Anchor::new("c-1".to_string(), 6, 11), quote: Some("world".into()) }),
             Step::Mark(MarkStep::Add { mark: Mark::new(0, 5, MarkKind::Strong), quote: Some("Hello".into()) }),
         ]);
-        let opts = crate::document::WriteOptions { heads: Some(&base), actor: Some(writer) };
-        doc.main_mut().apply(Target::Body, &put, opts).unwrap();
+        doc.set_actor(writer).unwrap();
+        doc.main_mut().apply(Target::Body, &put, Some(&base)).unwrap();
         let body = doc.main().body();
         assert_eq!(body.text, "XX Hello YYworld", "{typist}");
         assert_eq!(body.anchors, [Anchor::new("c-1".to_string(), 9, 16)], "{typist}");
