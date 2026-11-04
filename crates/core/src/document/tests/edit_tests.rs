@@ -1133,7 +1133,8 @@ fn a_field_write_holds_its_content_as_a_body_write_does() {
 
     let mut nested = make_doc();
     nested.unchecked().store_field(None, "rows", QuillValue::from_json(serde_json::json!([{ "f": shuffled }]))).unwrap();
-    assert_eq!(nested.main().payload().get("rows").unwrap().as_json(), &serde_json::json!([{ "f": canonical }]));
+    let by_place = quillmark_automerge::content::model::Content::from_value(&canonical).unwrap().by_place().to_value();
+    assert_eq!(nested.by_place().main().payload().get("rows").unwrap().as_json(), &serde_json::json!([{ "f": by_place }]));
 
     let mut bad = canonical.clone();
     bad["anchors"][0]["end"] = 99.into();

@@ -14,7 +14,8 @@
 //! in `points`.
 
 use super::json::{hydrate, write_json_at};
-use automerge::marks::{ExpandMark, Mark as AmMark};
+use automerge::iter::Span;
+use automerge::marks::{ExpandMark, Mark as AmMark, UpdateSpansConfig};
 use automerge::transaction::Transactable;
 use automerge::{
     AutoCommit, Cursor, CursorPosition, ObjId, ObjType, ReadDoc, ScalarValue, Value as AmValue,
@@ -107,6 +108,146 @@ pub(crate) fn fill(doc: &mut AutoCommit, root: &ObjId, content: &Content) {
             expand(&m.kind),
         )
         .unwrap();
+    }
+    for a in &content.anchors {
+        place(doc, root, &t, &a.id, a.start, a.end);
+    }
+}
+
+/// The content `v` holds, where it is a content value
+/// ([`is_content_value`](crate::content::units::is_content_value)) that
+/// decodes: a write refuses one that does not before it reaches the
+/// document.
+pub(crate) fn content_of(v: &Value) -> Option<Content> {
+    crate::content::units::is_content_value(v).then(|| Content::from_value(v).ok()).flatten()
+}
+
+/// What the value `root` reads as: its raw value read through repair.
+pub(crate) fn view(doc: &AutoCommit, root: &ObjId) -> Content {
+    let raw = crate::content::repair::Raw::from_value(&read(doc, root)).expect("a value reads as raw content");
+    crate::content::repair::repair(raw).0
+}
+
+/// Writes `want` over the value `root` in place, so an edit concurrent with
+/// it merges: by the change between them, made against what the value reads
+/// as, and where that does not lower, by Automerge's own diff of the text.
+pub(crate) fn rewrite(doc: &mut AutoCommit, root: &ObjId, want: &Content) {
+    let now = view(doc, root);
+    if now == *want {
+        return;
+    }
+    let lowered = crate::content::diff::diff(&now, want).is_ok_and(|change| super::step::lower(doc, root, &change, Some(&now)).is_ok());
+    match lowered {
+        true => put_codec(doc, root, want.codec),
+        false => update(doc, root, want),
+    }
+}
+
+fn put_codec(doc: &mut AutoCommit, root: &ObjId, codec: Codec) {
+    match codec.name() {
+        Some(c) => doc.put(root, CODEC, c).unwrap(),
+        None if doc.get(root, CODEC).unwrap().is_some() => doc.delete(root, CODEC).unwrap(),
+        None => {}
+    }
+}
+
+/// Writes `content` over the value `root` in place by Automerge's own diff
+/// of its text, so an edit concurrent with it merges as text does: each
+/// block, container and island `content` names by its object id stays that
+/// object, its record put over where it differs.
+pub(crate) fn update(doc: &mut AutoCommit, root: &ObjId, content: &Content) {
+    let Some(t) = text(doc, root) else {
+        for k in doc.keys(root).collect::<Vec<_>>() {
+            doc.delete(root, k.as_str()).unwrap();
+        }
+        fill(doc, root, content);
+        return;
+    };
+    put_codec(doc, root, content.codec);
+    let cs = match obj(doc, root, CONTAINERS) {
+        Some(cs) => cs,
+        None => doc.put_object(root, CONTAINERS, ObjType::List).unwrap(),
+    };
+    let wanted: std::collections::HashSet<&str> = content.containers.iter().map(|c| c.id.as_str()).collect();
+    for i in (0..doc.length(&cs)).rev() {
+        if let Ok(Some((_, m))) = doc.get(&cs, i)
+            && !wanted.contains(id_of(&m).as_str())
+        {
+            doc.delete(&cs, i).unwrap();
+        }
+    }
+    let held: HashMap<String, ObjId> = doc.values(&cs).map(|(_, m)| (id_of(&m), m)).collect();
+    let mut ids = HashMap::new();
+    for c in &content.containers {
+        let m = match held.get(&c.id) {
+            Some(m) => m.clone(),
+            None => doc.insert_object(&cs, doc.length(&cs), ObjType::Map).unwrap(),
+        };
+        let v = wire::container_value(c);
+        doc.put(&m, TYPE, v["kind"].as_str().unwrap()).unwrap();
+        write_json_at(doc, &m, ATTRS, v.get("attrs").unwrap_or(&json!({})));
+        ids.insert(c.id.clone(), id_of(&m));
+    }
+    let held: HashMap<String, ObjId> = elements(doc, &t)
+        .into_iter()
+        .filter_map(|e| match e {
+            Element::Block(m) | Element::Island(m) => Some((id_of(&m), m)),
+            Element::Char(_) => None,
+        })
+        .collect();
+    let marker = |id: &str, fresh: &[(&str, ScalarValue)]| match held.get(id).and_then(|m| doc.hydrate(m, None).ok()) {
+        Some(automerge::hydrate::Value::Map(m)) => m,
+        _ => fresh.iter().map(|(k, v)| (k.to_string(), automerge::hydrate::Value::Scalar(v.clone()))).collect::<HashMap<String, _>>().into(),
+    };
+    let mut spans = vec![Span::Block(marker(&content.blocks[0].id, &[(TYPE, "para".into())]))];
+    let (mut blocks, mut islands) = (content.blocks[1..].iter(), content.islands.iter());
+    let mut run = String::new();
+    for ch in content.text.chars() {
+        let next = match ch {
+            '\n' => blocks.next().map(|b| marker(&b.id, &[(TYPE, "para".into())])),
+            ISLAND_SLOT => islands.next().map(|i| marker(&i.id, &[(EMBED, true.into())])),
+            _ => {
+                run.push(ch);
+                continue;
+            }
+        };
+        if !run.is_empty() {
+            spans.push(Span::Text { text: std::mem::take(&mut run), marks: None });
+        }
+        spans.push(Span::Block(next.unwrap_or_else(|| marker("", &[(TYPE, "para".into())]))));
+    }
+    if !run.is_empty() {
+        spans.push(Span::Text { text: run, marks: None });
+    }
+    doc.update_spans(&t, UpdateSpansConfig::default(), spans).unwrap();
+    let (mut blocks, mut islands) = (content.blocks.iter(), content.islands.iter());
+    for e in elements(doc, &t) {
+        match e {
+            Element::Block(m) => {
+                if let Some(b) = blocks.next() {
+                    put_block(doc, &m, b, &ids);
+                }
+            }
+            Element::Island(m) => {
+                if let Some(i) = islands.next() {
+                    put_island(doc, &m, i);
+                    let slots = obj(doc, &m, SLOTS).expect("an island holds its slots");
+                    for (k, c) in &i.slots {
+                        update(doc, &obj(doc, &slots, k).expect("each slot is held"), c);
+                    }
+                }
+            }
+            Element::Char(_) => {}
+        }
+    }
+    for m in &content.marks {
+        let (name, value) = mark_key(&m.kind);
+        doc.mark(&t, AmMark::new(name, value, m.start + 1, m.end + 1), expand(&m.kind)).unwrap();
+    }
+    if let Some(points) = obj(doc, root, POINTS) {
+        for id in doc.keys(&points).collect::<Vec<_>>() {
+            doc.delete(&points, id.as_str()).unwrap();
+        }
     }
     for a in &content.anchors {
         place(doc, root, &t, &a.id, a.start, a.end);

@@ -915,3 +915,24 @@ fn a_stale_revise_lands_beside_text_typed_since() {
     doc.main_mut().revise(Target::Body, "Hello World, again", Some(&base)).unwrap();
     assert_eq!(doc.main().body().text, "Oh, Hello World, again");
 }
+
+/// A handle set to UTF-16 takes a write's offsets in UTF-16, and spells its
+/// receipt's patches, and a merge's, in UTF-16, past a character two units
+/// wide.
+#[test]
+fn a_handle_counts_offsets_in_its_hosts_units() {
+    use quillmark_automerge::content::units::HostUnits;
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\n🎉 grew\n");
+    doc.set_units(HostUnits::Utf16);
+    let mut peer = doc.fork();
+    let key = Change::new(vec![Step::Splice(Splice::new(3, "", "x"))]);
+    let receipt = doc.main_mut().apply(Target::Body, &key, None).unwrap();
+    assert_eq!(doc.main().body().text, "🎉 xgrew");
+    assert_eq!(receipt.patches[0]["path"].as_array().unwrap().last().unwrap(), 4);
+
+    let heads = peer.heads();
+    peer.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(7, "", "!"))]), None).unwrap();
+    let merged = doc.merge(&peer.save_since(&heads)).unwrap();
+    assert_eq!(doc.main().body().text, "🎉 xgrew!");
+    assert_eq!(merged.patches[0]["path"].as_array().unwrap().last().unwrap(), 9);
+}

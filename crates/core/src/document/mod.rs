@@ -10,6 +10,7 @@ use quillmark_automerge::content::lines::export::ExportLoss;
 use quillmark_automerge::content::lines::import::{Imported, from_markdown as import_markdown};
 use quillmark_automerge::content::lines::model::Lines;
 use quillmark_automerge::content::model::Content;
+use quillmark_automerge::content::units::HostUnits;
 
 use crate::error::ParseError;
 use crate::error::{Diagnostic, Severity};
@@ -804,15 +805,24 @@ impl PartialEq for Card {
     }
 }
 
+/// `v` with each content value in it, at any depth, by place.
+fn value_by_place(v: &serde_json::Value) -> serde_json::Value {
+    if quillmark_automerge::content::units::is_content_value(v) {
+        return Content::from_value(v).expect("a content value reads").by_place().to_value();
+    }
+    match v {
+        serde_json::Value::Array(a) => a.iter().map(value_by_place).collect(),
+        serde_json::Value::Object(o) => serde_json::Value::Object(o.iter().map(|(k, x)| (k.clone(), value_by_place(x))).collect()),
+        v => v.clone(),
+    }
+}
+
 pub(super) fn payload_by_place(p: &Payload) -> Payload {
     let items = p
         .items()
         .iter()
         .map(|item| match item {
-            PayloadItem::Field { key, value } if quillmark_automerge::model::cards::is_content(value.as_json()) => {
-                let c = Content::from_value(value.as_json()).expect("a content field reads").by_place();
-                PayloadItem::Field { key: key.clone(), value: crate::value::QuillValue::from_json(c.to_value()) }
-            }
+            PayloadItem::Field { key, value } => PayloadItem::Field { key: key.clone(), value: crate::value::QuillValue::from_json(value_by_place(value.as_json())) },
             other => other.clone(),
         })
         .collect();
@@ -880,6 +890,13 @@ impl Card {
     pub(crate) fn set_body(&mut self, body: Content) {
         self.lines = Lowered::default();
         self.body = body;
+        self.payload.touched_mut().body = true;
+    }
+
+    /// The parts its edits changed since this was last called: what a card
+    /// edit writes into the document.
+    pub(crate) fn take_touched(&mut self) -> payload::Touched {
+        self.payload.take_touched()
     }
 
     /// Read a content-valued user field back through `codec`: the field-level
@@ -991,6 +1008,24 @@ pub struct Document {
     cards: Vec<Card>,
     mints: card_id::ActorMints,
     held: Bound,
+    units: Units,
+}
+
+/// The units the handle's host counts text offsets in. No part of what the
+/// document equals.
+#[derive(Clone, Copy, Default)]
+struct Units(HostUnits);
+
+impl PartialEq for Units {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl std::fmt::Debug for Units {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 /// The Automerge document a [`Document`] is held in, once it is; the cards
@@ -1011,18 +1046,18 @@ impl std::fmt::Debug for Bound {
     }
 }
 
-/// One card of a [`Document`] under edit: a `&mut Card` whose changes are
+/// One card of a [`Document`] under edit: a `&mut Card` whose edits are
 /// written into the document's Automerge document when it drops.
 pub(crate) struct CardEdit<'a> {
     doc: &'a mut Document,
     at: Option<usize>,
-    was: Option<Card>,
+    id: Option<String>,
 }
 
 impl<'a> CardEdit<'a> {
     fn new(doc: &'a mut Document, at: Option<usize>) -> Self {
-        let was = doc.held.0.is_some().then(|| doc.card_at(at).clone());
-        CardEdit { doc, at, was }
+        let id = doc.begin_edit(at);
+        CardEdit { doc, at, id }
     }
 }
 
@@ -1042,9 +1077,7 @@ impl std::ops::DerefMut for CardEdit<'_> {
 
 impl Drop for CardEdit<'_> {
     fn drop(&mut self) {
-        if let Some(was) = self.was.take() {
-            self.doc.write_card(self.at, &was);
-        }
+        self.doc.end_edit(self.at, self.id.take());
     }
 }
 
@@ -1052,7 +1085,7 @@ impl Document {
     /// A document holding `main` and `cards`, held in an Automerge
     /// document from its first write, save or [`bind`](Self::bind) on.
     pub(crate) fn assembled(main: Card, cards: Vec<Card>, mints: card_id::ActorMints) -> Self {
-        Self { main, cards, mints, held: Bound(None) }
+        Self { main, cards, mints, held: Bound(None), units: Units::default() }
     }
 
     /// The document `doc` holds, its cards read from it.
@@ -1061,7 +1094,7 @@ impl Document {
         if let Some(actor) = mints.actor() {
             doc.set_actor(actor);
         }
-        Ok(Self { main, cards, mints, held: Bound(Some(doc)) })
+        Ok(Self { main, cards, mints, held: Bound(Some(doc)), units: Units::default() })
     }
 
     /// The actor this handle writes under, where one was set: each write's
@@ -1097,13 +1130,30 @@ impl Document {
             cards: self.cards.clone(),
             mints: card_id::ActorMints::default(),
             held: Bound(self.held.0.as_ref().map(quillmark_automerge::model::Doc::fork)),
+            units: self.units,
         }
     }
 
     /// This document's cards alone, held in no Automerge document: a copy
     /// to read, render or store that carries no history.
     pub fn snapshot(&self) -> Document {
-        Self::assembled(self.main.clone(), self.cards.clone(), self.mints.clone())
+        let mut doc = Self::assembled(self.main.clone(), self.cards.clone(), self.mints.clone());
+        doc.units = self.units;
+        doc
+    }
+
+    /// The units this handle's host counts text offsets in: each write's
+    /// edit counts its offsets in them, and each receipt's patches, a
+    /// merge's included, count theirs. Scalars until
+    /// [`set_units`](Self::set_units).
+    pub fn units(&self) -> HostUnits {
+        self.units.0
+    }
+
+    /// Counts text offsets in `units` from now on, as the host does: the
+    /// WASM binding sets UTF-16 on every handle it makes.
+    pub fn set_units(&mut self, units: HostUnits) {
+        self.units = Units(units);
     }
 
     /// Holds the document in an Automerge document where it is not yet,
@@ -1129,14 +1179,6 @@ impl Document {
         self.held.0.as_mut().expect("bound")
     }
 
-    /// Reads the cards again from the Automerge document, after a change
-    /// that landed in it.
-    pub(crate) fn reread(&mut self) {
-        let (main, cards) = held::read(self.doc()).expect("a held document reads as cards");
-        self.main = main;
-        self.cards = cards;
-    }
-
     /// Reads the card at `at`, the main card where `None`, again from the
     /// Automerge document.
     pub(crate) fn reread_at(&mut self, at: Option<usize>) {
@@ -1158,30 +1200,46 @@ impl Document {
     }
 
     /// Runs `f` on the card at `at`, the main card where `None`, and writes
-    /// what it changed into the Automerge document as one change.
+    /// the parts it changed into the Automerge document as one change.
     pub(crate) fn edit_card<R>(&mut self, at: Option<usize>, f: impl FnOnce(&mut Card) -> R) -> R {
-        let was = self.held.0.is_some().then(|| self.card_at(at).clone());
+        let id = self.begin_edit(at);
         let out = f(self.card_raw_mut(at));
-        if let Some(was) = was {
-            self.write_card(at, &was);
-        }
+        self.end_edit(at, id);
         out
     }
 
-    /// Writes what the card at `at` changed since it read as `was` into the
-    /// Automerge document, and reads it back, each part it put carrying the
-    /// id the document gave it.
-    pub(crate) fn write_card(&mut self, at: Option<usize>, was: &Card) {
+    /// Starts an edit of the card at `at`: what touched it before is
+    /// forgotten. Answers the `$id` it is held under.
+    fn begin_edit(&mut self, at: Option<usize>) -> Option<String> {
+        let card = self.card_raw_mut(at);
+        card.take_touched();
+        card.id().map(str::to_string)
+    }
+
+    /// Writes the parts an edit touched of the card at `at`, held under
+    /// `id`, into the Automerge document as one change, and takes what the
+    /// document reads after into the cards: a part that took ids from the
+    /// document carries them.
+    fn end_edit(&mut self, at: Option<usize>, id: Option<String>) {
+        let touched = self.card_raw_mut(at).take_touched();
         let Some(doc) = self.held.0.as_mut() else { return };
-        let now = match at {
+        if touched.is_empty() {
+            return;
+        }
+        doc.track();
+        let before = Heads::from(doc.heads());
+        let card = match at {
             None => &self.main,
             Some(i) => &self.cards[i],
         };
-        let read = held::write_card(doc, at.is_none(), was, now);
-        match at {
-            None => self.main = read,
-            Some(i) => self.cards[i] = read,
+        match (at, id.as_deref()) {
+            (None, _) => held::write_parts(doc, None, card, &touched),
+            (Some(_), Some(id)) if card.id() != Some(id) => held::rename_card(doc, id, card),
+            (Some(_), Some(id)) => held::write_parts(doc, Some(id), card, &touched),
+            (Some(_), None) => return,
         }
+        doc.commit();
+        held::refresh(doc, &before, &mut self.main, &mut self.cards, false, self.units.0);
     }
 
     /// Places `card` at `index` among the composable cards.
@@ -1212,16 +1270,17 @@ impl Document {
     }
 
     /// Writes `main` and `cards` over the document's cards as one change,
-    /// each card by what it changed.
+    /// value by value.
     pub(crate) fn replace_cards(&mut self, main: Card, cards: Vec<Card>) {
-        if self.held.0.is_none() {
+        let Some(doc) = self.held.0.as_mut() else {
             self.main = main;
             self.cards = cards;
             return;
-        }
-        let doc = self.held.0.as_mut().expect("bound");
-        held::write_all(doc, (&self.main, &self.cards), (&main, &cards));
-        self.reread();
+        };
+        doc.track();
+        let before = Heads::from(doc.heads());
+        held::write_over(doc, (&self.main, &self.cards), (&main, &cards));
+        held::refresh(doc, &before, &mut self.main, &mut self.cards, true, self.units.0);
     }
 
     /// This document with each id its Automerge document gave a content part
@@ -1250,15 +1309,15 @@ impl Document {
         Some(Self::assembled(main, cards, mints))
     }
 
-    /// Lands the cards of `wanted`, made from this document as it was at
-    /// `heads`, as one change at those heads: concurrent with every change
-    /// since, and merged with them.
-    pub(crate) fn land_at(&mut self, heads: &Heads, wanted: &Document) {
-        self.doc().isolated(heads.hashes(), |d| {
-            let (main, cards) = held::read(d).expect("a held document reads as cards");
-            held::write_all(d, (&main, &cards), (&wanted.main, &wanted.cards));
-        });
-        self.reread();
+    /// Lands the cards of `wanted`, made from `then`, this document as it was
+    /// at `heads`, as one change at those heads, value by value: concurrent
+    /// with every change since, and merged with them.
+    pub(crate) fn land_at(&mut self, heads: &Heads, then: &Document, wanted: &Document) {
+        let doc = self.doc();
+        let before = Heads::from(doc.heads());
+        doc.isolated(heads.hashes(), |d| held::write_over(d, (&then.main, &then.cards), (&wanted.main, &wanted.cards)));
+        let doc = self.held.0.as_mut().expect("bound");
+        held::refresh(doc, &before, &mut self.main, &mut self.cards, true, self.units.0);
     }
 
     /// The document as Automerge bytes, its whole history: what a peer
@@ -1295,44 +1354,28 @@ impl Document {
     /// Takes a peer's sync message and answers what it changed; one that
     /// leaves the document outside its schema is refused and undone.
     pub fn receive_sync_message(&mut self, state: &mut SyncState, message: SyncMessage) -> Result<Receipt, EditError> {
-        self.receive_sync_message_in(state, message, quillmark_automerge::content::units::Scalars)
-    }
-
-    /// [`receive_sync_message`](Document::receive_sync_message) for a host
-    /// counting offsets in `u`.
-    pub fn receive_sync_message_in(&mut self, state: &mut SyncState, message: SyncMessage, u: impl quillmark_automerge::content::units::Units) -> Result<Receipt, EditError> {
         let before = self.heads();
+        self.doc().track();
         self.doc().receive_sync_message(state, message).map_err(EditError::bad_live_bytes)?;
-        Ok(self.took(before, u))
+        Ok(self.took(before))
     }
 
     /// Takes the changes `bytes` hold, another peer's save or
     /// [`save_since`](Document::save_since), and answers what they changed.
     pub fn merge(&mut self, bytes: &[u8]) -> Result<Receipt, EditError> {
-        self.merge_in(bytes, quillmark_automerge::content::units::Scalars)
-    }
-
-    /// [`merge`](Document::merge) for a host counting offsets in `u`.
-    pub fn merge_in(&mut self, bytes: &[u8], u: impl quillmark_automerge::content::units::Units) -> Result<Receipt, EditError> {
         let before = self.heads();
+        self.doc().track();
         self.doc().merge(bytes).map_err(EditError::bad_live_bytes)?;
-        Ok(self.took(before, u))
+        Ok(self.took(before))
     }
 
-    /// The receipt of the changes taken since `before`, its patches counted
-    /// in `u`, each card they reached read again.
-    fn took(&mut self, before: Heads, u: impl quillmark_automerge::content::units::Units) -> Receipt {
+    /// The receipt of the changes taken since `before`, each card part they
+    /// reached followed or read again.
+    fn took(&mut self, before: Heads) -> Receipt {
         let doc = self.held.0.as_mut().expect("bound");
+        let patches = held::refresh(doc, &before, &mut self.main, &mut self.cards, true, self.units.0);
         let heads = Heads::from(doc.heads());
-        let patches = doc.patches_between(before.hashes(), heads.hashes(), u);
-        held::reread(doc, &patches, &mut self.main, &mut self.cards);
         Receipt { before, heads, patches, dropped_anchors: Vec::new(), repairs: Vec::new(), warnings: Vec::new() }
-    }
-
-    /// Automerge's patches taking the document from `before` to `heads`, as
-    /// a [`Receipt`] spells them, text indexes counted in `u`.
-    pub fn patches(&mut self, before: &Heads, heads: &Heads, u: impl quillmark_automerge::content::units::Units) -> Vec<serde_json::Value> {
-        self.doc().patches_between(before.hashes(), heads.hashes(), u)
     }
 
     /// Create a blank document: a main card carrying only `$quill`, an empty

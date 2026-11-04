@@ -12,7 +12,7 @@ use quillmark_automerge::content::change::{self, AnchorStep, Change, Step};
 use quillmark_automerge::content::lines::import::ImportWarning;
 use quillmark_automerge::content::diff;
 use quillmark_automerge::content::model::Content;
-use quillmark_automerge::content::units::{self, Units};
+use quillmark_automerge::content::units::{self, HostUnits, Units};
 
 use super::edit::EditError;
 use super::write::{Edit, Receipt, Target, WriteOptions, check_change, keeps_ext_islands};
@@ -59,10 +59,11 @@ impl Document {
             Some(i) => &self.cards[i],
         };
         let doc = self.held.0.as_mut().expect("bound");
+        let before = Heads::from(doc.heads());
         let (v, written) = cards::value_at(doc, at.and(id.as_deref()), target.field(), || card.read(target))?
             .expect("a bound card is held");
         if written {
-            self.reread_at(at);
+            super::held::refresh(doc, &before, &mut self.main, &mut self.cards, false, self.units.0);
         }
         Ok((v, put))
     }
@@ -119,13 +120,14 @@ impl Document {
     /// Lands `edit` on the value at `target` of the card at `at`, the main
     /// card where `None`, built against the value its heads name, or `read`
     /// where the caller read it already. An `Edit::Apply` or structural edit
-    /// counts its offsets in `edit_units` (scalars where none), and the
-    /// receipt's patches count theirs in `units`.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn write_at<U: Units>(&mut self, at: Option<usize>, target: Target<'_>, edit: Edit<'_>, opts: WriteOptions<'_>, edit_units: Option<U>, units: U, read: Option<Content>) -> Result<Receipt, EditError> {
+    /// counts its offsets in the handle's units where `host`, and in scalars
+    /// otherwise; the receipt's patches count theirs in the handle's units.
+    pub(crate) fn write_at(&mut self, at: Option<usize>, target: Target<'_>, edit: Edit<'_>, opts: WriteOptions<'_>, host: bool, read: Option<Content>) -> Result<Receipt, EditError> {
         if let Edit::Apply(change) = &edit {
             check_change(change)?;
         }
+        let units = self.units();
+        let edit_units = (host && units != HostUnits::Scalars).then_some(units);
         let (root, put) = self.value_obj(at, target)?;
         let landed = self.write_on(at, target, &root, edit, opts, edit_units, units, read);
         if let (Err(_), true, Target::Field(name)) = (&landed, put, target) {
@@ -213,8 +215,9 @@ impl Document {
                 }
             })
         })?;
+        let units = self.units();
         let doc = self.doc();
-        let (patches, view) = doc.landed(&root, before.hashes(), &was, units::Scalars);
+        let (patches, view) = doc.landed(&root, before.hashes(), &was, units);
         let landed = Heads::from(doc.heads());
         let dropped = change::lost_anchors(&was, &view.content, |_| true);
         Ok(Receipt { before, heads: landed, patches, dropped_anchors: dropped, repairs: view.repairs, warnings })

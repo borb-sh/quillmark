@@ -203,7 +203,9 @@ Text deleted under a range anchor shrinks it to what survives. An anchor whose t
 
 A document holds its cards in one Automerge document (`quillmark-automerge`, `model::Doc`), and the cards a reader sees are a view of it. `Document::load` holds one from the start; a parse, `Document::new` or a stored row holds one from its first write, save or sync, and until then its cards are its state, so a document read only to render builds none.
 
-Once held, every card edit, a typed writer's `set` included, is written into it as it is made, a payload edit as the diff of the card it changed and a whole-document revise as the diff of every card, and the card is read back. How the document lays out cards, fields and values is [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)'s; how a value is held, a change lowered and a write isolated at earlier heads is the `quillmark-automerge` rustdoc's.
+Once held, every card edit, a typed writer's `set` included, is an Automerge write of the parts it changed, the layout, a field, `$ext`/`$seed`, the nested comments or the body, each value written in place, and a whole-document revise writes each value that differs.
+
+The view then takes Automerge's patches since the edit, as it does a peer's from `merge` and `receiveSyncMessage`: a body or content field the patches only splice is followed over the value the view held, and every other part they reach is read again, nothing else. How the document lays out cards, fields and values is [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)'s; how a value is held, a change lowered and a write isolated at earlier heads is the `quillmark-automerge` rustdoc's.
 
 A block, container or island id inside a document is the Automerge object id of the record that holds it, `{counter}@{actor}`: the change that puts the record mints it, and it names that record for the document's life. A block or island a write moves is deleted and put again, so it takes a new id. A value outside a document, an import or a `Content` a host builds, keeps the ids § Ids mints, and a write into a document mints its own in their place, which the receipt's patches carry.
 

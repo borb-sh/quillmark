@@ -2,22 +2,19 @@
 //!
 //! A card map holds its `layout`, each payload item in source order with a
 //! field named by key, its `fields`, each value by key, its `ext` and `seed`
-//! maps, its `nestedComments` and its `body`. A field holding a content value
-//! holds it as a text value, so it merges as text does; every other value is
-//! plain data, a map key by key and a list by element, and a scalar last
-//! writer wins; a content value nested in such a value is plain data too,
-//! and reads through repair. [`Card`] is that shape as plain data, the one a
-//! host reads its cards from and writes each card edit into.
+//! maps, its `nestedComments` and its `body`. Each content value in a field,
+//! the field's value or one at any depth in it, is a text value, so it merges
+//! as text does; every other value is plain data, a map key by key and a list
+//! by element, and a scalar last writer wins. [`Card`] is that shape as plain
+//! data, the one a host reads its cards from and writes each card edit into.
 
 use automerge::transaction::Transactable;
 use automerge::{ObjId, ObjType, ROOT, ReadDoc, Value as AmValue};
 use crate::content::model::Content;
-use crate::content::repair::{Raw, repair};
-use crate::content::units::is_content_value;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::json::{hydrate, json_scalar, write_json_at};
+use super::json::{hydrate, hydrate_field, json_scalar, write_field_at, write_json_at};
 use super::{BODY, Doc, EXT, FIELDS, LAYOUT, NESTED, ORDER, SEED, value};
 
 /// One entry of a card's `layout`: a payload item in source order, a field
@@ -56,7 +53,7 @@ pub enum PathStep {
 }
 
 /// A card as its map holds it. `fields` holds each field's value by key, a
-/// content value as its JSON.
+/// content value as its JSON: the shape a card is placed in and read as.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Card {
     pub layout: Vec<LayoutItem>,
@@ -75,22 +72,6 @@ impl Card {
             _ => None,
         })
     }
-
-    fn field(&self, key: &str) -> Option<&Value> {
-        self.fields.iter().find(|(k, _)| k == key).map(|(_, v)| v)
-    }
-
-    fn payload_eq(&self, other: &Card) -> bool {
-        (&self.layout, &self.fields, &self.ext, &self.seed, &self.nested)
-            == (&other.layout, &other.fields, &other.ext, &other.seed, &other.nested)
-    }
-}
-
-/// Whether a field's value is a content value.
-pub fn is_content(v: &Value) -> bool {
-    v.get("text").is_some_and(Value::is_string)
-        && v.get("blocks").is_some_and(Value::is_array)
-        && Content::from_value(v).is_ok()
 }
 
 /// A new document holding `main` and each of `cards` that holds an id,
@@ -99,13 +80,11 @@ pub fn is_content(v: &Value) -> bool {
 pub fn build(main: &Card, cards: &[Card]) -> Doc {
     Doc::building(|d| {
         let m = d.main();
-        write_card(d, &m, None, main);
-        let (all, order) = (d.cards(), order_obj(d));
+        fill(d, &m, main);
+        let order = order_obj(d);
         for card in cards {
             let Some(id) = card.id() else { continue };
-            let c = d.doc.put_object(&all, id, ObjType::Map).unwrap();
-            d.card_skeleton(&c);
-            write_card(d, &c, None, card);
+            put(d, id, card);
             let at = d.doc.length(&order);
             d.doc.insert(&order, at, id).unwrap();
         }
@@ -124,37 +103,6 @@ pub fn read(d: &Doc) -> Result<(Card, Vec<Card>), String> {
     Ok((main, cards))
 }
 
-/// What a stretch of patches reached among the cards.
-#[derive(Debug, Default)]
-pub struct Touched {
-    /// A patch outside the cards: the whole document reads again.
-    pub whole: bool,
-    pub main: bool,
-    /// The list of cards changed: it reads again from `order`.
-    pub moved: bool,
-    /// The `$id` of each card a patch reached.
-    pub cards: std::collections::BTreeSet<String>,
-}
-
-/// What `patches`, as [`patch::between`](super::patch::between) spells
-/// them, reached among the cards.
-pub fn touched(patches: &[Value]) -> Touched {
-    let mut t = Touched::default();
-    for p in patches {
-        let path = p["path"].as_array().map(Vec::as_slice).unwrap_or_default();
-        match (path.first().and_then(Value::as_str), path.get(1).and_then(Value::as_str)) {
-            (Some(super::MAIN), _) => t.main = true,
-            (Some(super::CARDS), Some(id)) => {
-                t.moved |= path.len() == 2;
-                t.cards.insert(id.to_string());
-            }
-            (Some(ORDER), _) => t.moved = true,
-            _ => t.whole = true,
-        }
-    }
-    t
-}
-
 /// The card held under `id`.
 pub fn read_id(d: &Doc, id: &str) -> Result<Card, String> {
     read_card(d, &value::obj(&d.doc, &d.cards(), id).ok_or_else(|| format!("no card holds `{id}`"))?)
@@ -163,6 +111,12 @@ pub fn read_id(d: &Doc, id: &str) -> Result<Card, String> {
 /// The card the card map `c` holds: each layout entry a merge left
 /// readable, and each field by key.
 pub fn read_card(d: &Doc, c: &ObjId) -> Result<Card, String> {
+    read_card_with(d, c, true)
+}
+
+/// [`read_card`], its fields and body read where `whole` and left empty
+/// otherwise.
+fn read_card_with(d: &Doc, c: &ObjId, whole: bool) -> Result<Card, String> {
     let list = |key: &str| {
         value::obj(&d.doc, c, key)
             .map(|o| hydrate(&d.doc, &o))
@@ -174,17 +128,11 @@ pub fn read_card(d: &Doc, c: &ObjId) -> Result<Card, String> {
         _ => Map::new(),
     };
     let mut fields = Vec::new();
-    if let Some(f) = value::obj(&d.doc, c, FIELDS) {
+    if let Some(f) = value::obj(&d.doc, c, FIELDS).filter(|_| whole) {
         for key in d.doc.keys(&f).collect::<Vec<_>>() {
-            let v = match d.value(&f, &key) {
-                Some(root) => d.view(&root).content.to_value(),
-                None => match d.doc.get(&f, key.as_str()).ok().flatten() {
-                    Some((AmValue::Object(_), o)) => repaired(hydrate(&d.doc, &o)),
-                    Some((AmValue::Scalar(s), _)) => json_scalar(&s),
-                    None => continue,
-                },
-            };
-            fields.push((key, v));
+            if let Some(v) = read_field(d, c, &key) {
+                fields.push((key, v));
+            }
         }
     }
     let nested = serde_json::from_value(Value::Array(list(NESTED))).map_err(|e| e.to_string())?;
@@ -194,104 +142,15 @@ pub fn read_card(d: &Doc, c: &ObjId) -> Result<Card, String> {
         ext: map(EXT),
         seed: map(SEED),
         nested,
-        body: d.value(c, BODY).map(|b| d.view(&b).content).unwrap_or_else(Content::empty),
+        body: d.value(c, BODY).filter(|_| whole).map(|b| d.view(&b).content).unwrap_or_else(Content::empty),
     })
-}
-
-/// `v` with each content value it holds, at any depth, read through repair.
-fn repaired(v: Value) -> Value {
-    match v {
-        v if is_content_value(&v) => match Raw::from_value(&v) {
-            Ok(raw) => repair(raw).0.to_value(),
-            Err(_) => v,
-        },
-        Value::Array(a) => Value::Array(a.into_iter().map(repaired).collect()),
-        Value::Object(o) => Value::Object(o.into_iter().map(|(k, x)| (k, repaired(x))).collect()),
-        v => v,
-    }
-}
-
-/// Writes what differs between `was` and `now` into the document, each
-/// card's payload and body and the cards added, removed and moved, and
-/// commits.
-pub fn write_all(d: &mut Doc, was: (&Card, &[Card]), now: (&Card, &[Card])) {
-    let m = d.main();
-    write_card(d, &m, Some(was.0), now.0);
-    let all = d.cards();
-    let held: std::collections::HashMap<&str, &Card> = was.1.iter().filter_map(|c| Some((c.id()?, c))).collect();
-    let wanted: Vec<&str> = now.1.iter().filter_map(Card::id).collect();
-    for card in now.1 {
-        let Some(id) = card.id() else { continue };
-        match (held.get(id), value::obj(&d.doc, &all, id)) {
-            (Some(w), Some(c)) => write_card(d, &c, Some(w), card),
-            _ => {
-                let c = d.doc.put_object(&all, id, ObjType::Map).unwrap();
-                d.card_skeleton(&c);
-                write_card(d, &c, None, card);
-            }
-        }
-    }
-    for id in held.keys() {
-        if !wanted.contains(id) {
-            d.doc.delete(&all, *id).unwrap();
-        }
-    }
-    let order = order_obj(d);
-    let have: Vec<String> = d
-        .doc
-        .values(&order)
-        .filter_map(|(v, _)| match v {
-            AmValue::Scalar(s) => s.as_str().map(str::to_string),
-            _ => None,
-        })
-        .collect();
-    if have != wanted {
-        let want: Vec<Value> = wanted.iter().map(|s| Value::String(s.to_string())).collect();
-        write_json_at(&mut d.doc, &ROOT, ORDER, &Value::Array(want));
-    }
-    d.doc.commit();
-}
-
-/// Writes what the card changed since it read as `was` into the document as
-/// one change, the main card where `main` and otherwise the card `was`'s
-/// `$id` names, and answers it as it reads after. A card whose `$id`
-/// changed is put under the new one at the old one's place in `order`.
-pub fn write_one(d: &mut Doc, main: bool, was: &Card, now: &Card) -> Card {
-    let c = if main {
-        let m = d.main();
-        write_card(d, &m, Some(was), now);
-        m
-    } else {
-        let all = d.cards();
-        let (old, new) = (was.id().expect("a held card has an id"), now.id().expect("a held card has an id"));
-        let held = value::obj(&d.doc, &all, old).expect("a held card is in the document");
-        if old == new {
-            write_card(d, &held, Some(was), now);
-            held
-        } else {
-            d.doc.delete(&all, old).unwrap();
-            let c = d.doc.put_object(&all, new, ObjType::Map).unwrap();
-            d.card_skeleton(&c);
-            write_card(d, &c, None, now);
-            let order = order_obj(d);
-            if let Some(at) = position(d, &order, old) {
-                d.doc.put(&order, at, new).unwrap();
-            }
-            c
-        }
-    };
-    d.doc.commit();
-    read_card(d, &c).expect("a written card reads")
 }
 
 /// Puts `card` among the cards at `index` of `order` as one change, and
 /// answers it as it reads.
 pub fn insert(d: &mut Doc, index: usize, card: &Card) -> Card {
     let id = card.id().expect("a placed card has an id");
-    let all = d.cards();
-    let c = d.doc.put_object(&all, id, ObjType::Map).unwrap();
-    d.card_skeleton(&c);
-    write_card(d, &c, None, card);
+    let c = put(d, id, card);
     let order = order_obj(d);
     let at = nth_slot(d, &order, index);
     d.doc.insert(&order, at, id).unwrap();
@@ -369,72 +228,271 @@ fn order_obj(d: &Doc) -> ObjId {
     value::obj(&d.doc, &ROOT, ORDER).expect("a document holds its order")
 }
 
-/// Writes `now` into the card map `c` over `was`, what it held, or over an
-/// empty card where `was` is none.
-fn write_card(d: &mut Doc, c: &ObjId, was: Option<&Card>, now: &Card) {
-    let empty = Card::default();
-    let fresh = was.is_none();
-    let was = was.unwrap_or(&empty);
-    if fresh || !was.payload_eq(now) {
-        write_payload(d, c, was, now);
+
+/// Puts `card` under `id` among the cards as a new card map, with no place
+/// in `order`.
+pub fn put(d: &mut Doc, id: &str, card: &Card) -> ObjId {
+    let all = d.cards();
+    let c = d.doc.put_object(&all, id, ObjType::Map).unwrap();
+    d.card_skeleton(&c);
+    fill(d, &c, card);
+    c
+}
+
+/// Fills the card map `c`, an empty card, with `card`.
+fn fill(d: &mut Doc, c: &ObjId, card: &Card) {
+    put_layout(d, c, &card.layout);
+    for (key, v) in &card.fields {
+        put_field(d, c, key, v);
     }
-    if fresh || (was.body != now.body && !d.value(c, BODY).is_some_and(|root| merge_value(d, &root, &now.body))) {
-        d.put_value(c, BODY, &now.body);
+    put_ext(d, c, &card.ext);
+    put_seed(d, c, &card.seed);
+    put_nested(d, c, &card.nested);
+    put_body(d, c, &card.body);
+}
+
+/// The card map of the main card where `id` is none, and otherwise of the
+/// card `id` names.
+pub fn card_obj(d: &Doc, id: Option<&str>) -> Option<ObjId> {
+    match id {
+        None => Some(d.main()),
+        Some(id) => value::obj(&d.doc, &d.cards(), id),
     }
 }
 
-/// Writes `want` over the value `root` by the change between them, so a
-/// concurrent edit to it merges; false where the change does not land.
-fn merge_value(d: &mut Doc, root: &ObjId, want: &Content) -> bool {
-    let now = d.view(root).content;
-    now == *want
-        || crate::content::diff::diff(&now, want)
-            .ok()
-            .is_some_and(|change| d.apply(root, &change, None).is_ok())
+/// Puts `layout` over the layout of the card map `c`.
+pub fn put_layout(d: &mut Doc, c: &ObjId, layout: &[LayoutItem]) {
+    let layout = serde_json::to_value(layout).expect("a layout serializes");
+    write_json_at(&mut d.doc, c, LAYOUT, &layout);
 }
 
-fn write_payload(d: &mut Doc, c: &ObjId, was: &Card, now: &Card) {
-    if was.layout != now.layout {
-        let layout = serde_json::to_value(&now.layout).expect("a layout serializes");
-        write_json_at(&mut d.doc, c, LAYOUT, &layout);
+/// Puts `want` at field `key` of the card map `c`, each content value in it a
+/// text value written in place over the one held there.
+pub fn put_field(d: &mut Doc, c: &ObjId, key: &str, want: &Value) {
+    let fields = value::obj(&d.doc, c, FIELDS).expect("a card holds its fields");
+    write_field_at(&mut d.doc, &fields, key, want);
+}
+
+/// Takes field `key` out of the card map `c`.
+pub fn remove_field(d: &mut Doc, c: &ObjId, key: &str) {
+    let fields = value::obj(&d.doc, c, FIELDS).expect("a card holds its fields");
+    if d.doc.get(&fields, key).unwrap().is_some() {
+        d.doc.delete(&fields, key).unwrap();
     }
-    let fields = match value::obj(&d.doc, c, FIELDS) {
-        Some(f) => f,
-        None => d.doc.put_object(c, FIELDS, ObjType::Map).unwrap(),
-    };
-    for key in d.doc.keys(&fields).collect::<Vec<_>>() {
-        if now.field(&key).is_none() {
-            d.doc.delete(&fields, key.as_str()).unwrap();
-        }
-    }
-    for (key, want) in &now.fields {
-        let had = was.field(key);
-        if had == Some(want) && d.doc.get(&fields, key.as_str()).unwrap().is_some() {
-            continue;
-        }
-        put_field(d, &fields, key, had, want);
-    }
-    write_json_at(&mut d.doc, c, EXT, &Value::Object(now.ext.clone()));
-    write_json_at(&mut d.doc, c, SEED, &Value::Object(now.seed.clone()));
-    let nested = serde_json::to_value(&now.nested).expect("nested comments serialize");
+}
+
+pub fn put_ext(d: &mut Doc, c: &ObjId, ext: &Map<String, Value>) {
+    write_json_at(&mut d.doc, c, EXT, &Value::Object(ext.clone()));
+}
+
+pub fn put_seed(d: &mut Doc, c: &ObjId, seed: &Map<String, Value>) {
+    write_json_at(&mut d.doc, c, SEED, &Value::Object(seed.clone()));
+}
+
+pub fn put_nested(d: &mut Doc, c: &ObjId, nested: &[NestedComment]) {
+    let nested = serde_json::to_value(nested).expect("nested comments serialize");
     write_json_at(&mut d.doc, c, NESTED, &nested);
 }
 
-/// Puts field `key` of `fields` to `want`: a content value over a content
-/// value by the change between them, and anything else as data.
-fn put_field(d: &mut Doc, fields: &ObjId, key: &str, was: Option<&Value>, want: &Value) {
-    if is_content(want) {
-        let content = Content::from_value(want).expect("a content field reads");
-        if let (Some(root), Some(_)) = (d.value(fields, key), was.filter(|w| is_content(w)))
-            && merge_value(d, &root, &content)
-        {
-            return;
+/// Writes `body` over the body of the card map `c` in place.
+pub fn put_body(d: &mut Doc, c: &ObjId, body: &Content) {
+    match d.value(c, BODY) {
+        Some(root) => value::rewrite(&mut d.doc, &root, body),
+        None => {
+            d.put_value(c, BODY, body);
         }
-        d.put_value(fields, key, &content);
-        return;
     }
-    if d.value(fields, key).is_some() {
-        d.doc.delete(fields, key).unwrap();
+}
+
+/// Puts the card `id` names under `card`'s `$id` instead, at its place in
+/// `order`: Automerge moves no map, so the card is put anew there.
+pub fn rename(d: &mut Doc, id: &str, card: &Card) {
+    let new = card.id().expect("a held card has an id");
+    let all = d.cards();
+    d.doc.delete(&all, id).unwrap();
+    put(d, new, card);
+    let order = order_obj(d);
+    if let Some(at) = position(d, &order, id) {
+        d.doc.put(&order, at, new).unwrap();
     }
-    write_json_at(&mut d.doc, fields, key, want);
+}
+
+/// Puts `ids` over `order`, the cards `cards` holds and no others: each card
+/// map an id leaves goes.
+pub fn put_order(d: &mut Doc, ids: &[&str]) {
+    let all = d.cards();
+    for held in d.doc.keys(&all).collect::<Vec<_>>() {
+        if !ids.contains(&held.as_str()) {
+            d.doc.delete(&all, held.as_str()).unwrap();
+        }
+    }
+    let order = order_obj(d);
+    let have: Vec<String> = d
+        .doc
+        .values(&order)
+        .filter_map(|(v, _)| match v {
+            AmValue::Scalar(s) => s.as_str().map(str::to_string),
+            _ => None,
+        })
+        .collect();
+    if have != ids {
+        let want: Vec<Value> = ids.iter().map(|s| Value::String(s.to_string())).collect();
+        write_json_at(&mut d.doc, &ROOT, ORDER, &Value::Array(want));
+    }
+}
+
+/// One card's part a stretch of changes reached: its body, a field by key,
+/// or the rest of its payload.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum Part {
+    Body,
+    Field(String),
+    Payload,
+    Card,
+}
+
+/// What a stretch of changes left of the cards a host holds: Automerge's
+/// patches, spelled, and per card each part they reached as it reads now.
+#[derive(Debug, Default)]
+pub struct Refreshed {
+    pub patches: Vec<Value>,
+    /// A patch outside the cards: the whole document reads again.
+    pub whole: bool,
+    /// The card list changed: the ids in document order now.
+    pub order: Option<Vec<String>>,
+    /// Each card a patch reached, by `$id` (none for the main card).
+    pub cards: Vec<(Option<String>, Reread)>,
+}
+
+/// One card's parts as they read now.
+#[derive(Debug, Default)]
+pub struct Reread {
+    /// The whole card, where a patch reached past its parts, or `None`
+    /// where the card is gone.
+    pub card: Option<Option<Card>>,
+    /// The layout, `ext`, `seed` and comments, where a patch reached the
+    /// payload past its fields' values; `fields` and `body` are empty.
+    pub payload: Option<Card>,
+    /// Each field a patch reached, `None` where it is gone.
+    pub fields: Vec<(String, Option<Value>)>,
+    pub body: Option<Content>,
+}
+
+/// The patches taking the document from `before` to now, spelled in `u`,
+/// and what they left of each card part they reached. A body, or a field
+/// holding a text value, that `held` answers for, as the host holds it, and
+/// that the patches only splice, is followed over that; every other part
+/// reached reads again.
+pub fn refresh(d: &mut Doc, before: &super::Heads, held: impl Fn(Option<&str>, Option<&str>) -> Option<Content>, u: impl crate::content::units::Units) -> Refreshed {
+    d.doc.commit();
+    let (before, after) = (before.hashes(), d.doc.get_heads());
+    let raw = d.doc.diff(before, &after);
+    let mut out = Refreshed::default();
+    let mut reached: std::collections::BTreeMap<Option<String>, std::collections::BTreeSet<Part>> = Default::default();
+    for p in &raw {
+        let keys = super::patch::keys(p);
+        let key = |i: usize| keys.get(i).map(String::as_str);
+        let card = match (key(0), key(1)) {
+            (Some(super::MAIN), _) => None,
+            (Some(super::CARDS), Some(id)) => Some(id.to_string()),
+            (Some(ORDER), _) => {
+                out.order = Some(Vec::new());
+                continue;
+            }
+            _ => {
+                out.whole = true;
+                continue;
+            }
+        };
+        let at = usize::from(card.is_some());
+        let part = match (key(at + 1), key(at + 2)) {
+            _ if keys.len() <= at + 2 => Part::Card,
+            (Some(BODY), _) => Part::Body,
+            (Some(FIELDS), Some(k)) => Part::Field(k.to_string()),
+            (Some(LAYOUT | EXT | SEED | NESTED), _) => Part::Payload,
+            _ => Part::Card,
+        };
+        if card.is_some() && part == Part::Card {
+            out.order = Some(Vec::new());
+        }
+        reached.entry(card).or_default().insert(part);
+    }
+    if out.whole {
+        out.patches = super::patch::spell(&d.doc, before, raw, u, Vec::new());
+        return out;
+    }
+    let mut followed = Vec::new();
+    for (card, parts) in &reached {
+        if parts.contains(&Part::Card) {
+            continue;
+        }
+        let Some(c) = card_obj(d, card.as_deref()) else { continue };
+        for part in parts {
+            let (root, field) = match part {
+                Part::Body => (d.value(&c, BODY), None),
+                Part::Field(k) => (value::obj(&d.doc, &c, FIELDS).and_then(|f| d.value(&f, k)), Some(k.as_str())),
+                _ => continue,
+            };
+            if let (Some(root), Some(was)) = (root, held(card.as_deref(), field)) {
+                followed.push(((card.clone(), part.clone()), root, was));
+            }
+        }
+    }
+    let values: Vec<(ObjId, Content)> = followed.iter().map(|(_, root, was)| (root.clone(), was.clone())).collect();
+    let (patches, follows) = super::patch::follow_all(&d.doc, before, raw, u, values);
+    out.patches = patches;
+    let mut done: std::collections::HashMap<(Option<String>, Part), Content> = Default::default();
+    for ((place, root, _), f) in followed.into_iter().zip(follows) {
+        if let Some(content) = f {
+            debug_assert_eq!(content, d.view(&root).content, "the patches leave the value the document reads");
+            done.insert(place, content);
+        }
+    }
+    if out.order.is_some() {
+        out.order = Some(d.order());
+    }
+    for (card, parts) in reached {
+        let Some(c) = card_obj(d, card.as_deref()) else {
+            out.cards.push((card, Reread { card: Some(None), ..Default::default() }));
+            continue;
+        };
+        let mut r = Reread::default();
+        if parts.contains(&Part::Card) {
+            r.card = Some(Some(read_card(d, &c).expect("a held card reads")));
+            out.cards.push((card, r));
+            continue;
+        }
+        if parts.contains(&Part::Payload) {
+            r.payload = Some(read_card_with(d, &c, false).expect("a held card reads"));
+        }
+        for part in parts {
+            match part {
+                Part::Body => {
+                    r.body = Some(match done.remove(&(card.clone(), Part::Body)) {
+                        Some(content) => content,
+                        None => d.value(&c, BODY).map(|b| d.view(&b).content).unwrap_or_else(Content::empty),
+                    });
+                }
+                Part::Field(k) => {
+                    let v = match done.remove(&(card.clone(), Part::Field(k.clone()))) {
+                        Some(content) => Some(content.to_value()),
+                        None => read_field(d, &c, &k),
+                    };
+                    r.fields.push((k, v));
+                }
+                _ => {}
+            }
+        }
+        out.cards.push((card, r));
+    }
+    out
+}
+
+/// Field `key` of the card map `c` as it reads, `None` where it holds none.
+fn read_field(d: &Doc, c: &ObjId, key: &str) -> Option<Value> {
+    let f = value::obj(&d.doc, c, FIELDS)?;
+    match d.doc.get(&f, key).ok().flatten()? {
+        (AmValue::Object(_), o) => Some(hydrate_field(&d.doc, &o)),
+        (AmValue::Scalar(s), _) => Some(json_scalar(&s)),
+    }
 }

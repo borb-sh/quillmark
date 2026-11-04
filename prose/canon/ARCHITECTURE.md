@@ -69,8 +69,9 @@ workspace; no render path parses markdown: backends lower the content.
 
 `model` is the Quillmark document held as one Automerge document
 (`model::Doc`): the root's cards, each card map's layout, fields, values and
-nested comments as plain data (`model::cards`, which core reads its cards from
-and writes each card edit into), a change lowered into Automerge operations, at the
+nested comments as plain data (`model::cards`, which core places and reads its
+cards in, writes each card edit into part by part, and refreshes its view from
+patches through), a change lowered into Automerge operations, at the
 document's heads or at earlier ones, and the read back through merge repair,
 so every peer holding one merged state reads one valid value. Bytes, heads,
 incremental saves and the sync protocol are Automerge's own. `revise_keeping`

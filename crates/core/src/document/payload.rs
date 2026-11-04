@@ -171,6 +171,37 @@ pub(crate) fn trim_comment_text(mut text: String) -> String {
 pub struct Payload {
     items: Vec<PayloadItem>,
     nested_comments: Vec<NestedComment>,
+    touched: Touched,
+}
+
+/// The parts of a card its edits changed since the last
+/// [`Card::take_touched`](super::Card::take_touched): what a card edit
+/// writes into the document. No part of what a payload equals.
+#[derive(Clone, Default)]
+pub(crate) struct Touched {
+    pub(crate) layout: bool,
+    pub(crate) meta: bool,
+    pub(crate) nested: bool,
+    pub(crate) fields: std::collections::BTreeSet<String>,
+    pub(crate) body: bool,
+}
+
+impl Touched {
+    pub(crate) fn is_empty(&self) -> bool {
+        !(self.layout || self.meta || self.nested || self.body) && self.fields.is_empty()
+    }
+}
+
+impl PartialEq for Touched {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl std::fmt::Debug for Touched {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Touched")
+    }
 }
 
 impl Payload {
@@ -178,6 +209,7 @@ impl Payload {
         Self {
             items: Vec::new(),
             nested_comments: Vec::new(),
+            touched: Touched::default(),
         }
     }
 
@@ -194,6 +226,7 @@ impl Payload {
         Self {
             items,
             nested_comments: Vec::new(),
+            touched: Touched::default(),
         }
     }
 
@@ -207,6 +240,7 @@ impl Payload {
         Self {
             items,
             nested_comments,
+            touched: Touched::default(),
         }
     }
 
@@ -222,9 +256,35 @@ impl Payload {
     /// removes an entry runs it: the new value need not carry the positions the
     /// old one's comments sat at.
     fn prune_nested(&mut self, key: &str) {
+        let had = self.nested_comments.len();
         self.nested_comments.retain(
             |nc| !matches!(nc.container_path.first(), Some(PathSegment::Key(k)) if k == key),
         );
+        self.touched.nested |= self.nested_comments.len() != had;
+    }
+
+    /// The parts its edits changed since this was last called.
+    pub(crate) fn take_touched(&mut self) -> Touched {
+        std::mem::take(&mut self.touched)
+    }
+
+    pub(crate) fn touched_mut(&mut self) -> &mut Touched {
+        &mut self.touched
+    }
+
+    /// Sets field `key` to `value`, appending it where absent, or takes it
+    /// out where `value` is none, as the document reads it after a change
+    /// that landed there: nothing is touched.
+    pub(crate) fn refresh_field(&mut self, key: &str, value: Option<QuillValue>) {
+        let at = self.items.iter().position(|i| matches!(i, PayloadItem::Field { key: k, .. } if k == key));
+        match (at, value) {
+            (Some(at), Some(value)) => self.items[at] = PayloadItem::Field { key: key.to_string(), value },
+            (Some(at), None) => {
+                self.items.remove(at);
+            }
+            (None, Some(value)) => self.items.push(PayloadItem::Field { key: key.to_string(), value }),
+            (None, None) => {}
+        }
     }
 
     /// Replace existing field `key` with `value`, keeping each comment nested
@@ -240,10 +300,13 @@ impl Payload {
         };
         *slot = value;
         let value = slot.as_json().clone();
+        let had = self.nested_comments.len();
         self.nested_comments.retain(|nc| match nc.container_path.split_first() {
             Some((PathSegment::Key(k), rest)) if k == key => holds_container(&value, rest),
             _ => true,
         });
+        self.touched.nested |= self.nested_comments.len() != had;
+        self.touched.fields.insert(key.to_string());
     }
 
     /// Ordered iterator over raw items (`$` entries, fields, comments).
@@ -265,8 +328,12 @@ impl Payload {
         for nc in &mut self.nested_comments {
             if matches!(nc.container_path.first(), Some(PathSegment::Key(k)) if k == from) {
                 nc.container_path[0] = PathSegment::Key(to.clone());
+                self.touched.nested = true;
             }
         }
+        self.touched.layout = true;
+        self.touched.fields.insert(from.to_string());
+        self.touched.fields.insert(to);
     }
 
     /// Remove and return the first item matching `pred`, with the comments
@@ -276,6 +343,14 @@ impl Payload {
         let item = self.items.remove(pos);
         if let Some(PayloadItem::Comment { inline, .. }) = self.items.get_mut(pos) {
             *inline = false;
+        }
+        self.touched.layout = true;
+        match &item {
+            PayloadItem::Field { key, .. } => {
+                self.touched.fields.insert(key.clone());
+            }
+            PayloadItem::Meta { .. } => self.touched.meta = true,
+            _ => {}
         }
         if let Some(key) = item.nested_owner_key() {
             let key = key.to_string();
@@ -384,6 +459,8 @@ impl Payload {
     }
 
     fn upsert_meta(&mut self, new: PayloadItem) {
+        self.touched.layout = true;
+        self.touched.meta |= matches!(new, PayloadItem::Meta { .. });
         let new_rank = new
             .meta_rank()
             .expect("upsert_meta only accepts $-typed items");
@@ -499,6 +576,8 @@ impl Payload {
     /// Each field, its value open to an edit that keeps the comments nested
     /// inside it: the caller keeps every container those comments name.
     pub(crate) fn fields_mut(&mut self) -> impl Iterator<Item = (&String, &mut QuillValue)> + '_ {
+        let keys: Vec<String> = self.keys().cloned().collect();
+        self.touched.fields.extend(keys);
         self.items.iter_mut().filter_map(|item| match item {
             PayloadItem::Field { key, value } => Some((&*key, value)),
             _ => None,
@@ -513,12 +592,13 @@ impl Payload {
         value: QuillValue,
     ) -> Result<Option<QuillValue>, PayloadViolation> {
         for item in self.items.iter_mut() {
-            if let PayloadItem::Field { key: k, value: v } = item {
-                if k == &key {
-                    let old = std::mem::replace(v, value);
-                    self.prune_nested(&key);
-                    return Ok(Some(old));
-                }
+            if let PayloadItem::Field { key: k, value: v } = item
+                && k == &key
+            {
+                let old = std::mem::replace(v, value);
+                self.prune_nested(&key);
+                self.touched.fields.insert(key);
+                return Ok(Some(old));
             }
         }
         let count = self.len() + 1;
@@ -528,6 +608,8 @@ impl Payload {
                 max: MAX_FIELD_COUNT,
             });
         }
+        self.touched.layout = true;
+        self.touched.fields.insert(key.clone());
         self.items.push(PayloadItem::Field { key, value });
         Ok(None)
     }

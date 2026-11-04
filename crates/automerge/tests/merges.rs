@@ -225,10 +225,10 @@ fn a_reword_merges_with_typing_elsewhere() {
 }
 
 /// Two peers rewriting one rich text value nested in a field, an
-/// `array<richtext>` element, merge into a value that reads as valid
-/// content, in either merge order.
+/// `array<richtext>` element, merge as a body does: the element is a text
+/// object, so what each typed lands in the one value, in either merge order.
 #[test]
-fn nested_rich_text_both_sides_rewrote_reads_valid() {
+fn nested_rich_text_both_sides_rewrote_merges_as_text() {
     use quillmark_automerge::model::{Doc, cards};
     let c = |md: &str| from_markdown(md).unwrap().content.to_value();
     let main = cards::Card { fields: vec![("refs".into(), json!([c("*first* ref"), c("second")]))], ..Default::default() };
@@ -236,19 +236,93 @@ fn nested_rich_text_both_sides_rewrote_reads_valid() {
     let wrote = |md: &str| {
         let mut d = Doc::load(&origin).unwrap();
         let (was, _) = cards::read(&d).unwrap();
-        let mut now = was.clone();
-        now.fields[0].1[0] = c(md);
-        cards::write_one(&mut d, true, &was, &now);
+        let mut refs = was.fields[0].1.clone();
+        let mut element = Content::from_value(&refs[0]).unwrap();
+        let typed = from_markdown(md).unwrap().content;
+        element.text = typed.text;
+        element.marks = typed.marks;
+        refs[0] = element.to_value();
+        let main = d.main();
+        cards::put_field(&mut d, &main, "refs", &refs);
+        d.commit();
         d
     };
-    let (mut a, mut b) = (wrote("*a*\n\nb\n\nc\n\nd"), wrote("*first* ref and *more words here*"));
+    let (mut a, mut b) = (wrote("A *first* ref"), wrote("*first* ref and *more*"));
     let (sa, sb) = (a.save(), b.save());
     for (d, other) in [(&mut a, &sb), (&mut b, &sa)] {
         d.merge(other).unwrap();
         let (read, _) = cards::read(d).unwrap();
         let refs = read.fields[0].1.as_array().unwrap();
-        for r in refs {
-            Content::from_value(r).unwrap();
-        }
+        let first = Content::from_value(&refs[0]).unwrap();
+        assert_eq!(first.text, "A first ref and more");
+        assert_eq!(marked(&first, "emph"), "first");
+        assert_eq!(Content::from_value(&refs[1]).unwrap().text, "second");
     }
+}
+
+/// A peer's keystroke into a body lands beside a whole-body write
+/// concurrent with it: the write diffs into the body's text object, by the
+/// change between the two values where that lowers and by Automerge's own
+/// diff of the text where it does not, and never puts a new object.
+#[test]
+fn a_whole_body_write_keeps_a_keystroke_concurrent_with_it() {
+    use quillmark_automerge::model::{BODY, Doc, cards};
+    let now = Content::from_value(&json!({
+        "text": "🎉 \u{2028} [^1] délta\ns\ns alpha",
+        "blocks": [{ "id": "b0", "kind": "para" }, { "id": "b1", "kind": "para", "path": ["l", "i"] }, { "id": "b2", "kind": "para", "path": ["q"] }],
+        "containers": [{ "id": "l", "kind": "list", "attrs": { "ordered": true, "start": 1 } }, { "id": "i", "kind": "item" }, { "id": "q", "kind": "quote" }],
+        "marks": [{ "start": 15, "end": 16, "type": "strike" }, { "start": 17, "end": 18, "type": "strike" }],
+    }))
+    .unwrap();
+    let main = cards::Card { body: now, ..Default::default() };
+    let origin = cards::build(&main, &[]).save();
+    let mut ours = Doc::load(&origin).unwrap();
+    let (was, _) = cards::read(&ours).unwrap();
+    let want = Content::from_value(&json!({
+        "text": "\n🎉 code délta bold\n🎉 délta\n| code 🎉 \u{fffc}",
+        "blocks": [
+            { "id": was.body.blocks[0].id, "kind": "para", "path": ["q0"] },
+            { "id": "n1", "kind": "heading", "attrs": { "level": 1 } },
+            { "id": "n2", "kind": "heading", "attrs": { "level": 1 } },
+            { "id": was.body.blocks[1].id, "kind": "para" },
+        ],
+        "containers": [{ "id": "q0", "kind": "quote" }],
+        "islands": [{ "id": "isl-0", "type": "math", "props": { "tex": "x" } }],
+        "marks": [{ "start": 3, "end": 7, "type": "code" }, { "start": 14, "end": 18, "type": "strong" }, { "start": 29, "end": 33, "type": "code" }],
+    }))
+    .unwrap();
+    let mut theirs = Doc::load(&origin).unwrap();
+    let body = theirs.value(&theirs.main(), BODY).unwrap();
+    theirs.apply(&body, &Change::new(vec![Step::Splice(Splice::new(11, "", "Z"))]), None).unwrap();
+    let main = ours.main();
+    cards::put_body(&mut ours, &main, &want);
+    ours.commit();
+    ours.merge(&theirs.save()).unwrap();
+    let (read, _) = cards::read(&ours).unwrap();
+    assert!(read.body.text.contains('Z'), "the keystroke lands: {:?}", read.body.text);
+    assert!(read.body.text.contains("bold"), "the write lands: {:?}", read.body.text);
+}
+
+/// Automerge's own diff of a value's text, the write a change that does not
+/// lower falls back to, keeps the value's text object, so a peer's
+/// keystroke concurrent with it lands, and leaves the value it was given.
+#[test]
+fn a_value_updated_by_automerge_diff_keeps_a_concurrent_keystroke() {
+    use quillmark_automerge::model::{BODY, Doc, cards};
+    let main = cards::Card { body: from_markdown("alpha beta\n\n- one\n- two").unwrap().content, ..Default::default() };
+    let origin = cards::build(&main, &[]).save();
+    let (mut ours, mut theirs) = (Doc::load(&origin).unwrap(), Doc::load(&origin).unwrap());
+    let body = theirs.value(&theirs.main(), BODY).unwrap();
+    theirs.apply(&body, &Change::new(vec![Step::Splice(Splice::new(5, "", "Z"))]), None).unwrap();
+    let body = ours.value(&ours.main(), BODY).unwrap();
+    let mut want = from_markdown("alpha beta gamma\n\n> *one*\n\n- two").unwrap().content;
+    let held = ours.view(&body).content;
+    want.blocks[0].id = held.blocks[0].id.clone();
+    ours.update_value(&body, &want);
+    let wrote = ours.view(&body).content;
+    assert_eq!(wrote.text, want.text);
+    assert_eq!(wrote.marks, want.marks);
+    assert_eq!(wrote.blocks.iter().map(|b| &b.kind).collect::<Vec<_>>(), want.blocks.iter().map(|b| &b.kind).collect::<Vec<_>>());
+    ours.merge(&theirs.save()).unwrap();
+    assert_eq!(ours.view(&body).content.text, "alphaZ beta gamma\n*one*\ntwo".replace('*', ""), "the keystroke lands in the one text object");
 }

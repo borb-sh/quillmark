@@ -8,7 +8,7 @@ use std::ops::ControlFlow;
 use quillmark_automerge::content::anchors::{AnchorContext, Reattached, anchor_context, anchor_contexts};
 use quillmark_automerge::model::patch;
 use quillmark_automerge::content::model::Content;
-use quillmark_automerge::content::units::{Scalars, Units};
+use quillmark_automerge::content::units::is_content_value;
 use serde_json::Value as JsonValue;
 
 use super::{Card, Document};
@@ -137,25 +137,15 @@ impl Document {
     /// - An id live anywhere in the document, a cell's anchor included, is not
     ///   written: it is answered as reattached, with the selector the first
     ///   value holding it reads.
-    /// - `changes` holds a write's patches, its receipt's `patches`, per path
-    ///   where the caller has them, and a match at that path must then overlap
-    ///   text the write inserted.
+    /// - `changes` holds a write's patches, its receipt's `patches` in the
+    ///   handle's units, per path where the caller has them, and a match at
+    ///   that path must then overlap text the write inserted.
     pub fn reattach(
         &mut self,
         selectors: &[AnchorSelector],
         changes: &HashMap<DocPath, Vec<serde_json::Value>>,
     ) -> Reattached<AnchorSelector> {
-        self.reattach_in(selectors, changes, Scalars)
-    }
-
-    /// [`reattach`](Self::reattach) with each write's patches counted in `u`, as
-    /// a write in `u` answers them.
-    pub fn reattach_in(
-        &mut self,
-        selectors: &[AnchorSelector],
-        changes: &HashMap<DocPath, Vec<serde_json::Value>>,
-        u: impl Units,
-    ) -> Reattached<AnchorSelector> {
+        let u = self.units();
         let mut answered = HashSet::new();
         let selectors: Vec<&AnchorSelector> = selectors
             .iter()
@@ -378,5 +368,5 @@ fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut Visit<'_>) -> Cont
 }
 
 fn content_of(value: &JsonValue) -> Option<Content> {
-    value.is_object().then(|| Content::from_value_lenient(value).ok()).flatten().map(|read| read.content)
+    is_content_value(value).then(|| Content::from_value_lenient(value).ok()).flatten().map(|read| read.content)
 }

@@ -469,8 +469,7 @@ fn drop_value(
     out: &mut Vec<AnchorSelector>,
 ) {
     let content_of = |value: &JsonValue| {
-        value
-            .is_object()
+        quillmark_automerge::content::units::is_content_value(value)
             .then(|| ContentModel::from_value_lenient(value).ok().map(|read| read.content))
             .flatten()
     };

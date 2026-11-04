@@ -920,12 +920,7 @@ impl<'a> CardMut<'a> {
     /// has moved on from builds at the heads a write left it at, and the
     /// write merges with every change since as Automerge merges.
     pub fn write<'o>(&mut self, target: super::Target<'_>, edit: super::Edit<'_>, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.doc.write_at(self.at, target, edit, opts.into(), None, quillmark_automerge::content::units::Scalars, None)
-    }
-
-    /// [`write`](Self::write) for a host counting offsets in `u`.
-    pub fn write_in<'o>(&mut self, target: super::Target<'_>, edit: super::Edit<'_>, opts: impl Into<super::WriteOptions<'o>>, u: impl quillmark_automerge::content::units::Units) -> Result<super::Receipt, EditError> {
-        self.doc.write_at(self.at, target, edit, opts.into(), Some(u), u, None)
+        self.doc.write_at(self.at, target, edit, opts.into(), true, None)
     }
 
     /// [`Card::overwrite_field`].
@@ -978,15 +973,10 @@ impl<'a> CardMut<'a> {
     /// `before` to `heads`, as a host that kept only its receipt's heads
     /// names it.
     pub fn undo_between(&mut self, target: super::Target<'_>, before: &super::Heads, heads: &super::Heads) -> Result<super::Receipt, EditError> {
-        self.undo_between_in(target, before, heads, quillmark_automerge::content::units::Scalars)
-    }
-
-    /// [`undo_between`](Self::undo_between) for a host counting offsets in `u`.
-    pub fn undo_between_in(&mut self, target: super::Target<'_>, before: &super::Heads, heads: &super::Heads, u: impl quillmark_automerge::content::units::Units) -> Result<super::Receipt, EditError> {
         let was = self.doc.read_under(self.at, target, Some(before))?;
         let then = self.doc.read_under(self.at, target, Some(heads))?;
         let change = quillmark_automerge::content::diff::replace(&then, &was).map_err(|e| EditError::change(e.into()))?;
-        self.doc.write_at(self.at, target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) }, None, u, Some(then))
+        self.doc.write_at(self.at, target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) }, false, Some(then))
     }
 }
 

@@ -403,28 +403,28 @@ def element_quill(tmp_path):
 def test_get_content_at_round_trips_an_elements_anchor_and_island_id(element_quill):
     """The nested Content read is the lossless one.
 
-    An anchor and an island id ride read -> edit -> `set` intact; the same
-    loop through `get`, which projects to text, keeps neither."""
+    An anchor and the island id the document gave ride read -> edit -> `set`
+    intact; the same loop through `get`, which projects to text, keeps neither."""
     doc = Document("element_test@0.1.0")
     w = element_quill.writer(doc)
     v = element_quill.reader(doc)
     w.set("paragraphs", ["Plain", "Alpha ![pic](u) bold"])
 
     rt = v.get_content_at("paragraphs", [1])
+    island = rt["islands"][0]["id"]
     rt["anchors"] = [{"id": "c1", "start": 0, "end": 5}]
-    rt["islands"][0]["id"] = "isl-7"  # off the positional mint, so a re-mint shows
     w.set("paragraphs", [v.get_content_at("paragraphs", [0]), rt])
 
     back = v.get_content_at("paragraphs", [1])
     assert back["anchors"] == [{"id": "c1", "start": 0, "end": 5}]
-    assert back["islands"][0]["id"] == "isl-7"
+    assert back["islands"][0]["id"] == island
 
     text = v.get("paragraphs")
     assert all(isinstance(t, str) for t in text)
     w.set("paragraphs", text)
     lost = v.get_content_at("paragraphs", [1])
     assert "anchors" not in lost
-    assert lost["islands"][0]["id"] == "isl-0"
+    assert lost["islands"][0]["id"] != island
 
 
 def test_get_content_at_path_and_card_selector(element_quill):

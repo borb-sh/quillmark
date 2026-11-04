@@ -17,34 +17,70 @@ use std::collections::HashMap;
 
 /// The patches taking the document from `before` to `after`.
 pub fn between(doc: &mut AutoCommit, before: &[ChangeHash], after: &[ChangeHash], u: impl Units) -> Vec<Value> {
-    let patches = doc.diff(before, after);
-    let mut texts = Texts { held: HashMap::new(), before: before.to_vec() };
-    patches.into_iter().map(|p| texts.spell(doc, p, u)).collect()
+    let raw = doc.diff(before, after);
+    spell(doc, before, raw, u, Vec::new())
 }
 
 /// [`between`], with the value `value`, which read as `was` at `before`,
 /// as the patches leave it where they only splice its own text: a
 /// keystroke's view without reading the value again.
 pub fn landed(doc: &mut AutoCommit, before: &[ChangeHash], after: &[ChangeHash], u: impl Units, value: &ObjId, was: &Content) -> (Vec<Value>, Option<Content>) {
-    let patches = doc.diff(before, after);
-    let mut texts = Texts { held: HashMap::new(), before: before.to_vec() };
-    let text = super::value::text(doc, value);
-    if let Some(t) = &text {
-        texts.held.insert(t.clone(), std::iter::once('\u{fffc}').chain(was.text.chars()).collect());
+    let raw = doc.diff(before, after);
+    let (spelled, mut followed) = follow_all(doc, before, raw, u, vec![(value.clone(), was.clone())]);
+    (spelled, followed.pop().flatten())
+}
+
+/// `raw`, the patches from `before`, spelled in `u`, each text in `held`
+/// as it read at `before`.
+pub(crate) fn spell(doc: &AutoCommit, before: &[ChangeHash], raw: Vec<automerge::Patch>, u: impl Units, held: Vec<(ObjId, Vec<char>)>) -> Vec<Value> {
+    let mut texts = Texts { held: held.into_iter().collect(), before: before.to_vec() };
+    raw.into_iter().map(|p| texts.spell(doc, p, u)).collect()
+}
+
+/// `raw`, the patches from `before`, spelled in `u`, and each of `values`,
+/// a value and what it read as at `before`, as the patches leave it where
+/// they only splice its own text, `None` where they do more.
+pub(crate) fn follow_all(doc: &AutoCommit, before: &[ChangeHash], raw: Vec<automerge::Patch>, u: impl Units, values: Vec<(ObjId, Content)>) -> (Vec<Value>, Vec<Option<Content>>) {
+    let mut held = Vec::new();
+    let mut work: Vec<(ObjId, Option<ObjId>, Option<Content>)> = Vec::new();
+    for (value, was) in values {
+        let text = super::value::text(doc, &value);
+        if let Some(t) = &text {
+            held.push((t.clone(), std::iter::once('\u{fffc}').chain(was.text.chars()).collect()));
+        }
+        let was = text.as_ref().map(|_| was);
+        work.push((value, text, was));
     }
-    let mut work = text.as_ref().map(|_| was.clone());
-    let spelled = patches
-        .into_iter()
-        .map(|p| {
-            if let (Some(t), Some(c)) = (&text, work.as_mut())
-                && !follow(c, value, t, &p)
+    for p in &raw {
+        for (value, text, c) in &mut work {
+            if let (Some(t), Some(content)) = (text.as_ref(), c.as_mut())
+                && !follow(content, value, t, p)
             {
-                work = None;
+                *c = None;
             }
-            texts.spell(doc, p, u)
-        })
-        .collect();
-    (spelled, work)
+        }
+    }
+    let spelled = spell(doc, before, raw, u, held);
+    (spelled, work.into_iter().map(|(_, _, c)| c).collect())
+}
+
+/// The keys of the path from the document's root to what `p` changes, the
+/// key it puts or deletes in a map last, a list index spelled as a number.
+pub(crate) fn keys(p: &automerge::Patch) -> Vec<String> {
+    let mut out: Vec<String> = p.path.iter().map(|(_, prop)| prop_string(prop)).collect();
+    match &p.action {
+        PatchAction::PutMap { key, .. } | PatchAction::DeleteMap { key } => out.push(key.clone()),
+        PatchAction::Increment { prop, .. } | PatchAction::Conflict { prop } => out.push(prop_string(prop)),
+        _ => {}
+    }
+    out
+}
+
+fn prop_string(p: &Prop) -> String {
+    match p {
+        Prop::Map(k) => k.clone(),
+        Prop::Seq(i) => i.to_string(),
+    }
 }
 
 /// Takes `p` into `c`, the value `value` with the text `text`: `false`

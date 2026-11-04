@@ -121,18 +121,19 @@ The document's root holds `schema` (`quillmark/document@0.135.0`), `main`,
 `cards` and `order`: `cards` maps each composable card's `$id` to its card,
 and `order` lists the `$id`s in document order. A card holds `layout`, its
 payload items' order and comments; `fields`, each field by key; `ext`; `seed`;
-`nestedComments`; and `body`. A body, and a field holding a content value (a
-`richtext` or `text` field in its stored form, [SCHEMAS.md](SCHEMAS.md)
-§ "Content fields are stored per codec"), is an Automerge text object with its
-blocks as markers, maps keyed `type`, `attrs` and `parents`, its marks and
-anchors as Automerge marks, and its containers and islands as records named by
-their object ids. A field holding a string, as a `text` field does before a
-schema-aware write, or any other JSON, is Automerge maps, lists and scalars,
-merged as data, a map's key order held in its `\u{1f}order` list, since an
-Automerge map holds none. A content value nested in such a field, an
-`array<richtext>` element or an object's content property, is data too: a
-merge of two writes to it can leave it invalid, and each read takes it
-through repair. `Document::load` refuses bytes whose
+`nestedComments`; and `body`. A body, and each content value in a field (an
+object holding a `text` string and a `blocks` array, the one test every layer
+asks, `content::units::is_content_value`: a `richtext` or `text` field in its
+stored form, [SCHEMAS.md](SCHEMAS.md)
+§ "Content fields are stored per codec"), the field's whole value or one at
+any depth in it, an `array<richtext>` element or an object's content
+property, is an Automerge text object with its blocks as markers, maps keyed
+`type`, `attrs` and `parents`, its marks and anchors as Automerge marks, and
+its containers and islands as records named by their object ids, so it merges
+as a body does and each read takes it through repair. The rest of a field, a
+string as a `text` field holds before a schema-aware write, or any other JSON,
+is Automerge maps, lists and scalars, merged as data, a map's key order held
+in its `\u{1f}order` list, since an Automerge map holds none. `Document::load` refuses bytes whose
 root holds no document in this shape, or names a schema this build does not
 read (`edit::bad_live_bytes`). The root's `schema` tag names the layout
 version of the live document.
@@ -140,7 +141,11 @@ version of the live document.
 Concurrent changes merge as Automerge merges them: a field, a card or a record
 two writers set reads as the later in Automerge's order, text both edited
 keeps both edits, and a card one writer removed while another edited it reads
-as Automerge leaves the two.
+as Automerge leaves the two. A whole-value write over a body or content field
+diffs into its text object and never puts a new one: by the change between the
+value it reads as and the value written, and where that change does not lower,
+by Automerge's own diff of the text (`update_spans`), so text a concurrent
+writer typed into it keeps.
 
 ## Byte-stability
 

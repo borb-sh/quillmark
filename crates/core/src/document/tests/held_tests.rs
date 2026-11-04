@@ -57,13 +57,12 @@ fn equal_documents_build_equal_bytes() {
 }
 
 #[test]
-fn writing_all_cards_writes_what_changed() {
+fn writing_over_the_cards_writes_what_changed() {
     let doc = parse("~~~\n$quill: q@0.1\ntitle: Hi\n~~~\n\nOne.\n\n~~~\n$kind: note\n$id: n1\n~~~\n\nTwo.\n");
     let mut held = held::build(doc.main(), doc.cards());
     let (main, cards) = held::read(&held).unwrap();
-    let mut edited = parse("~~~\n$quill: q@0.1\ntitle: Bye\nmore: 2\n~~~\n\nOne and more.\n\n~~~\n$kind: note\n$id: n2\n~~~\n\nThree.\n\n~~~\n$kind: note\n$id: n1\n~~~\n\nTwo.\n");
-    let _ = &mut edited;
-    held::write_all(&mut held, (&main, &cards), (edited.main(), edited.cards()));
+    let edited = parse("~~~\n$quill: q@0.1\ntitle: Bye\nmore: 2\n~~~\n\nOne and more.\n\n~~~\n$kind: note\n$id: n2\n~~~\n\nThree.\n\n~~~\n$kind: note\n$id: n1\n~~~\n\nTwo.\n");
+    held::write_over(&mut held, (&main, &cards), (edited.main(), edited.cards()));
     let (m2, c2) = held::read(&held).unwrap();
     same(&m2, edited.main());
     assert_eq!(c2.len(), 2);

@@ -1,10 +1,13 @@
 //! Plain JSON held as Automerge maps, lists and scalars, written key by key
 //! and over a list's changed run, so two writers changing different parts
-//! both land.
+//! both land. A field's value holds each content value in it, at any depth,
+//! as a text value instead, which merges as text does.
 
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjId, ObjType, ReadDoc, ScalarValue, Value as AmValue};
 use serde_json::{Map, Number, Value};
+
+use super::value;
 
 pub(crate) fn scalar(v: &Value) -> ScalarValue {
     match v {
@@ -38,8 +41,21 @@ pub fn json_scalar(s: &ScalarValue) -> Value {
 
 /// An Automerge map or list read back as JSON.
 pub fn hydrate(doc: &AutoCommit, o: &ObjId) -> Value {
+    hydrate_in(doc, o, false)
+}
+
+/// A field's value read back as JSON: each text value in it, at any depth,
+/// as the content it reads as.
+pub fn hydrate_field(doc: &AutoCommit, o: &ObjId) -> Value {
+    hydrate_in(doc, o, true)
+}
+
+fn hydrate_in(doc: &AutoCommit, o: &ObjId, texts: bool) -> Value {
+    if texts && value::text(doc, o).is_some() {
+        return value::view(doc, o).to_value();
+    }
     let item = |v: AmValue<'_>, id: ObjId| match v {
-        AmValue::Object(_) => hydrate(doc, &id),
+        AmValue::Object(_) => hydrate_in(doc, &id, texts),
         AmValue::Scalar(s) => json_scalar(&s),
     };
     match doc.object_type(o).unwrap() {
@@ -89,34 +105,71 @@ fn key_order(doc: &AutoCommit, o: &ObjId) -> Vec<String> {
 /// suffix, so two writers changing different keys or inserting at different
 /// places both land.
 pub fn write_json_at(doc: &mut AutoCommit, parent: &ObjId, key: &str, want: &Value) {
-    let have = doc
-        .get(parent, key)
-        .unwrap()
-        .map(|(v, id)| (v.into_owned(), id));
+    write_at(doc, parent, key, want, false)
+}
+
+/// [`write_json_at`] for a field's value: each content value in `want`, at
+/// any depth, is held as a text value, written over the one held there in
+/// place.
+pub fn write_field_at(doc: &mut AutoCommit, parent: &ObjId, key: &str, want: &Value) {
+    write_at(doc, parent, key, want, true)
+}
+
+/// The object `doc` holds at `prop` of `parent`, as `texts` sees it: a text
+/// value apart from every other map.
+fn held(doc: &AutoCommit, parent: &ObjId, prop: impl Into<automerge::Prop>, texts: bool) -> Option<(Held, ObjId)> {
+    match doc.get(parent, prop).unwrap()? {
+        (AmValue::Object(ObjType::Map), id) if texts && value::text(doc, &id).is_some() => Some((Held::Text, id)),
+        (AmValue::Object(ObjType::Map), id) => Some((Held::Map, id)),
+        (AmValue::Object(ObjType::List), id) => Some((Held::List, id)),
+        (AmValue::Scalar(s), id) => Some((Held::Scalar(json_scalar(&s)), id)),
+        (AmValue::Object(_), id) => Some((Held::Other, id)),
+    }
+}
+
+enum Held {
+    Text,
+    Map,
+    List,
+    Scalar(Value),
+    Other,
+}
+
+fn write_at(doc: &mut AutoCommit, parent: &ObjId, key: &str, want: &Value, texts: bool) {
+    let have = held(doc, parent, key, texts);
+    if let Some(content) = texts.then(|| value::content_of(want)).flatten() {
+        match have {
+            Some((Held::Text, id)) => value::rewrite(doc, &id, &content),
+            _ => {
+                value::create(doc, parent, key, &content);
+            }
+        }
+        return;
+    }
     match (want, have) {
-        (Value::Object(w), Some((AmValue::Object(ObjType::Map), id))) => write_map(doc, &id, w),
-        (Value::Array(w), Some((AmValue::Object(ObjType::List), id))) => write_list(doc, &id, w),
+        (Value::Object(w), Some((Held::Map, id))) => write_map(doc, &id, w, texts),
+        (Value::Array(w), Some((Held::List, id))) => write_list(doc, &id, w, texts),
         (Value::Object(w), _) => {
             let id = doc.put_object(parent, key, ObjType::Map).unwrap();
-            write_map(doc, &id, w)
+            write_map(doc, &id, w, texts)
         }
         (Value::Array(w), _) => {
             let id = doc.put_object(parent, key, ObjType::List).unwrap();
-            write_list(doc, &id, w)
+            write_list(doc, &id, w, texts)
         }
-        (w, Some((AmValue::Scalar(s), _))) if json_scalar(&s) == *w => {}
+        (w, Some((Held::Scalar(s), _))) if s == *w => {}
         (w, _) => doc.put(parent, key, scalar(w)).unwrap(),
     }
 }
 
-fn write_map(doc: &mut AutoCommit, o: &ObjId, want: &Map<String, Value>) {
+fn write_map(doc: &mut AutoCommit, o: &ObjId, want: &Map<String, Value>, texts: bool) {
     for k in doc.keys(o).collect::<Vec<_>>() {
         if k != ORDER && !want.contains_key(&k) {
             doc.delete(o, k.as_str()).unwrap();
         }
     }
     for (k, v) in want {
-        write_json_at(doc, o, k, v);
+        write_at(doc, o, k, v, texts);
     }
     let order: Vec<&String> = want.keys().collect();
     if want.len() > 1 && key_order(doc, o).iter().collect::<Vec<_>>() != order {
@@ -125,8 +178,8 @@ fn write_map(doc: &mut AutoCommit, o: &ObjId, want: &Map<String, Value>) {
     }
 }
 
-fn write_list(doc: &mut AutoCommit, o: &ObjId, want: &[Value]) {
-    let have: Vec<Value> = match hydrate(doc, o) {
+fn write_list(doc: &mut AutoCommit, o: &ObjId, want: &[Value], texts: bool) {
+    let have: Vec<Value> = match hydrate_in(doc, o, texts) {
         Value::Array(a) => a,
         _ => unreachable!("a list hydrates as an array"),
     };
@@ -141,15 +194,14 @@ fn write_list(doc: &mut AutoCommit, o: &ObjId, want: &[Value]) {
     let common = hm.min(wm);
     for k in 0..common {
         let i = pre + k;
-        let held = doc.get(o, i).unwrap().map(|(v, id)| (v.into_owned(), id));
-        match (&want[i], held) {
-            (Value::Object(w), Some((AmValue::Object(ObjType::Map), id))) => write_map(doc, &id, w),
-            (Value::Array(w), Some((AmValue::Object(ObjType::List), id))) => {
-                write_list(doc, &id, w)
-            }
-            (w, _) => {
+        let content = texts.then(|| value::content_of(&want[i])).flatten();
+        match (&want[i], content, held(doc, o, i, texts)) {
+            (_, Some(c), Some((Held::Text, id))) => value::rewrite(doc, &id, &c),
+            (Value::Object(w), None, Some((Held::Map, id))) => write_map(doc, &id, w, texts),
+            (Value::Array(w), None, Some((Held::List, id))) => write_list(doc, &id, w, texts),
+            (w, _, _) => {
                 doc.delete(o, i).unwrap();
-                insert_json(doc, o, i, w);
+                insert_at(doc, o, i, w, texts);
             }
         }
     }
@@ -157,19 +209,24 @@ fn write_list(doc: &mut AutoCommit, o: &ObjId, want: &[Value]) {
         doc.delete(o, pre + common).unwrap();
     }
     for k in common..wm {
-        insert_json(doc, o, pre + k, &want[pre + k]);
+        insert_at(doc, o, pre + k, &want[pre + k], texts);
     }
 }
 
-pub(crate) fn insert_json(doc: &mut AutoCommit, o: &ObjId, i: usize, v: &Value) {
+fn insert_at(doc: &mut AutoCommit, o: &ObjId, i: usize, v: &Value, texts: bool) {
+    if let Some(content) = texts.then(|| value::content_of(v)).flatten() {
+        let id = doc.insert_object(o, i, ObjType::Map).unwrap();
+        value::fill(doc, &id, &content);
+        return;
+    }
     match v {
         Value::Object(m) => {
             let id = doc.insert_object(o, i, ObjType::Map).unwrap();
-            write_map(doc, &id, m);
+            write_map(doc, &id, m, texts);
         }
         Value::Array(a) => {
             let id = doc.insert_object(o, i, ObjType::List).unwrap();
-            write_list(doc, &id, a);
+            write_list(doc, &id, a, texts);
         }
         s => doc.insert(o, i, scalar(s)).unwrap(),
     }
