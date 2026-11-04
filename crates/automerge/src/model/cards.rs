@@ -378,19 +378,28 @@ fn write_card(d: &mut Doc, c: &ObjId, was: Option<&Card>, now: &Card) {
     if fresh || !was.payload_eq(now) {
         write_payload(d, c, was, now);
     }
-    if fresh || (was.body != now.body && !d.value(c, BODY).is_some_and(|root| merge_value(d, &root, &now.body))) {
-        d.put_value(c, BODY, &now.body);
+    if fresh || was.body != now.body {
+        match d.value(c, BODY) {
+            Some(root) => rewrite(d, &root, &now.body),
+            None => {
+                d.put_value(c, BODY, &now.body);
+            }
+        }
     }
 }
 
-/// Writes `want` over the value `root` by the change between them, so a
-/// concurrent edit to it merges; false where the change does not land.
-fn merge_value(d: &mut Doc, root: &ObjId, want: &Content) -> bool {
+/// Writes `want` over the value `root` in place, so an edit concurrent with
+/// it merges: by the change between them, made against what the value reads
+/// as, and where that does not lower, by Automerge's own diff of the text.
+fn rewrite(d: &mut Doc, root: &ObjId, want: &Content) {
     let now = d.view(root).content;
-    now == *want
-        || crate::content::diff::diff(&now, want)
-            .ok()
-            .is_some_and(|change| d.apply(root, &change, None).is_ok())
+    if now == *want {
+        return;
+    }
+    let lowered = crate::content::diff::diff(&now, want).is_ok_and(|change| d.apply_from(root, &change, None, Some(&now)).is_ok());
+    if !lowered {
+        d.update_value(root, want);
+    }
 }
 
 fn write_payload(d: &mut Doc, c: &ObjId, was: &Card, now: &Card) {
@@ -412,7 +421,7 @@ fn write_payload(d: &mut Doc, c: &ObjId, was: &Card, now: &Card) {
         if had == Some(want) && d.doc.get(&fields, key.as_str()).unwrap().is_some() {
             continue;
         }
-        put_field(d, &fields, key, had, want);
+        put_field(d, &fields, key, want);
     }
     write_json_at(&mut d.doc, c, EXT, &Value::Object(now.ext.clone()));
     write_json_at(&mut d.doc, c, SEED, &Value::Object(now.seed.clone()));
@@ -420,17 +429,17 @@ fn write_payload(d: &mut Doc, c: &ObjId, was: &Card, now: &Card) {
     write_json_at(&mut d.doc, c, NESTED, &nested);
 }
 
-/// Puts field `key` of `fields` to `want`: a content value over a content
-/// value by the change between them, and anything else as data.
-fn put_field(d: &mut Doc, fields: &ObjId, key: &str, was: Option<&Value>, want: &Value) {
+/// Puts field `key` of `fields` to `want`: a content value over a text
+/// value in place, and anything else as data.
+fn put_field(d: &mut Doc, fields: &ObjId, key: &str, want: &Value) {
     if is_content(want) {
         let content = Content::from_value(want).expect("a content field reads");
-        if let (Some(root), Some(_)) = (d.value(fields, key), was.filter(|w| is_content(w)))
-            && merge_value(d, &root, &content)
-        {
-            return;
+        match d.value(fields, key) {
+            Some(root) => rewrite(d, &root, &content),
+            None => {
+                d.put_value(fields, key, &content);
+            }
         }
-        d.put_value(fields, key, &content);
         return;
     }
     if d.value(fields, key).is_some() {

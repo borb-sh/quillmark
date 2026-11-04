@@ -140,7 +140,11 @@ version of the live document.
 Concurrent changes merge as Automerge merges them: a field, a card or a record
 two writers set reads as the later in Automerge's order, text both edited
 keeps both edits, and a card one writer removed while another edited it reads
-as Automerge leaves the two.
+as Automerge leaves the two. A whole-value write over a body or content field
+diffs into its text object and never puts a new one: by the change between the
+value it reads as and the value written, and where that change does not lower,
+by Automerge's own diff of the text (`update_spans`), so text a concurrent
+writer typed into it keeps.
 
 ## Byte-stability
 

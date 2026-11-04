@@ -252,3 +252,70 @@ fn nested_rich_text_both_sides_rewrote_reads_valid() {
         }
     }
 }
+
+/// A peer's keystroke into a body lands beside a whole-body write
+/// concurrent with it: the write diffs into the body's text object, by the
+/// change between the two values where that lowers and by Automerge's own
+/// diff of the text where it does not, and never puts a new object.
+#[test]
+fn a_whole_body_write_keeps_a_keystroke_concurrent_with_it() {
+    use quillmark_automerge::model::{BODY, Doc, cards};
+    let now = Content::from_value(&json!({
+        "text": "🎉 \u{2028} [^1] délta\ns\ns alpha",
+        "blocks": [{ "id": "b0", "kind": "para" }, { "id": "b1", "kind": "para", "path": ["l", "i"] }, { "id": "b2", "kind": "para", "path": ["q"] }],
+        "containers": [{ "id": "l", "kind": "list", "attrs": { "ordered": true, "start": 1 } }, { "id": "i", "kind": "item" }, { "id": "q", "kind": "quote" }],
+        "marks": [{ "start": 15, "end": 16, "type": "strike" }, { "start": 17, "end": 18, "type": "strike" }],
+    }))
+    .unwrap();
+    let main = cards::Card { body: now, ..Default::default() };
+    let origin = cards::build(&main, &[]).save();
+    let mut ours = Doc::load(&origin).unwrap();
+    let (was, _) = cards::read(&ours).unwrap();
+    let want = Content::from_value(&json!({
+        "text": "\n🎉 code délta bold\n🎉 délta\n| code 🎉 \u{fffc}",
+        "blocks": [
+            { "id": was.body.blocks[0].id, "kind": "para", "path": ["q0"] },
+            { "id": "n1", "kind": "heading", "attrs": { "level": 1 } },
+            { "id": "n2", "kind": "heading", "attrs": { "level": 1 } },
+            { "id": was.body.blocks[1].id, "kind": "para" },
+        ],
+        "containers": [{ "id": "q0", "kind": "quote" }],
+        "islands": [{ "id": "isl-0", "type": "math", "props": { "tex": "x" } }],
+        "marks": [{ "start": 3, "end": 7, "type": "code" }, { "start": 14, "end": 18, "type": "strong" }, { "start": 29, "end": 33, "type": "code" }],
+    }))
+    .unwrap();
+    let mut theirs = Doc::load(&origin).unwrap();
+    let body = theirs.value(&theirs.main(), BODY).unwrap();
+    theirs.apply(&body, &Change::new(vec![Step::Splice(Splice::new(11, "", "Z"))]), None).unwrap();
+    let mut wrote = was.clone();
+    wrote.body = want;
+    cards::write_one(&mut ours, true, &was, &wrote);
+    ours.merge(&theirs.save()).unwrap();
+    let (read, _) = cards::read(&ours).unwrap();
+    assert!(read.body.text.contains('Z'), "the keystroke lands: {:?}", read.body.text);
+    assert!(read.body.text.contains("bold"), "the write lands: {:?}", read.body.text);
+}
+
+/// Automerge's own diff of a value's text, the write a change that does not
+/// lower falls back to, keeps the value's text object, so a peer's
+/// keystroke concurrent with it lands, and leaves the value it was given.
+#[test]
+fn a_value_updated_by_automerge_diff_keeps_a_concurrent_keystroke() {
+    use quillmark_automerge::model::{BODY, Doc, cards};
+    let main = cards::Card { body: from_markdown("alpha beta\n\n- one\n- two").unwrap().content, ..Default::default() };
+    let origin = cards::build(&main, &[]).save();
+    let (mut ours, mut theirs) = (Doc::load(&origin).unwrap(), Doc::load(&origin).unwrap());
+    let body = theirs.value(&theirs.main(), BODY).unwrap();
+    theirs.apply(&body, &Change::new(vec![Step::Splice(Splice::new(5, "", "Z"))]), None).unwrap();
+    let body = ours.value(&ours.main(), BODY).unwrap();
+    let mut want = from_markdown("alpha beta gamma\n\n> *one*\n\n- two").unwrap().content;
+    let held = ours.view(&body).content;
+    want.blocks[0].id = held.blocks[0].id.clone();
+    ours.update_value(&body, &want);
+    let wrote = ours.view(&body).content;
+    assert_eq!(wrote.text, want.text);
+    assert_eq!(wrote.marks, want.marks);
+    assert_eq!(wrote.blocks.iter().map(|b| &b.kind).collect::<Vec<_>>(), want.blocks.iter().map(|b| &b.kind).collect::<Vec<_>>());
+    ours.merge(&theirs.save()).unwrap();
+    assert_eq!(ours.view(&body).content.text, "alphaZ beta gamma\n*one*\ntwo".replace('*', ""), "the keystroke lands in the one text object");
+}

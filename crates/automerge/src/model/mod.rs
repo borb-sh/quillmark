@@ -448,6 +448,12 @@ impl Doc {
         value::create(&mut self.doc, parent, key, content)
     }
 
+    /// Writes `content` over the value `root` in place by Automerge's diff
+    /// of its text, so an edit concurrent with it merges.
+    pub fn update_value(&mut self, root: &ObjId, content: &Content) {
+        value::update(&mut self.doc, root, content);
+    }
+
     /// The value at `key` of the map `parent`.
     pub fn value(&self, parent: &ObjId, key: &str) -> Option<ObjId> {
         value::obj(&self.doc, parent, key).filter(|v| value::text(&self.doc, v).is_some())
