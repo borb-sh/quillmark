@@ -105,10 +105,10 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   `base_hash=`, `base_content=` and `base_stored=` were; `doc.hash`,
   `doc.hash_at`, `writer.hash` and `writer.hash_at` are gone, and a receipt
   dict holds no `hash` or `rebased`.
-- feat: **a receipt carries the heads its write left.** `Receipt` and
-  `DocumentRevised` gain `heads`, the document's heads after the write, as
-  `heads()` answers them, the next write's `heads`; a card no document holds
-  answers none. WASM and Python carry them as hex strings.
+- feat: **a receipt carries the heads either side of its write.**
+  `Receipt` and `DocumentRevised` carry `before` and `heads`, the
+  document's heads before and after the write, as `heads()` answers them,
+  `heads` the next write's. WASM and Python carry them as hex strings.
 - feat(bindings)!: **the writer's `revise` names its card by `$id`.** WASM
   `writer.revise({ card })` and Python `writer.revise(card=)` take a
   composable card's `$id` and throw on an index, as `apply`, `revise` and

@@ -1427,8 +1427,9 @@ impl PyWriter {
     /// the selector `reattach` takes, read off the stored document; `warnings`,
     /// `Diagnostic` objects, the `conform::*` ones last; and
     /// `from`, for each composable card of the revised document the index of
-    /// the stored card it revises, or `None` for an inserted card. Clears the
-    /// document's load `warnings`. Raises `QuillmarkError` on a parse failure
+    /// the stored card it revises, or `None` for an inserted card; and
+    /// `before` and `heads`, the document's heads before and after. Clears
+    /// the document's load `warnings`. Raises `QuillmarkError` on a parse failure
     /// or a `$quill` this quill does not answer to, leaving the document
     /// unchanged.
     ///
@@ -1458,6 +1459,7 @@ impl PyWriter {
         )?;
         receipt.set_item("warnings", py_diagnostics(revised.warnings))?;
         receipt.set_item("from", revised.from)?;
+        receipt.set_item("before", revised.before.encode())?;
         receipt.set_item("heads", revised.heads.encode())?;
         Ok(receipt)
     }

@@ -318,12 +318,14 @@ export interface Delta {
  * content, reports no drop. `from` names, for each composable card of the
  * revised document, the index of the stored card it revises, or `null` for an
  * inserted card; a stored card no entry names was removed, and only cards of
- * one `$kind` pair. `heads` is the document's heads after the revise.
+ * one `$kind` pair. `before` and `heads` are the document's heads before
+ * and after the revise, as a value write's `Receipt` carries them.
  */
 export interface DocumentRevised {
     droppedAnchors: AnchorContext[];
     warnings: Diagnostic[];
     from: (number | null)[];
+    before: string[];
     heads: string[];
 }
 
@@ -2026,6 +2028,7 @@ struct DocumentRevisedJs {
     dropped_anchors: Vec<AnchorContextJs>,
     warnings: Vec<Diagnostic>,
     from: Vec<Option<usize>>,
+    before: Vec<String>,
     heads: Vec<String>,
 }
 
@@ -2065,6 +2068,7 @@ impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
                 .collect(),
             warnings: diags(revised.warnings),
             from: revised.from,
+            before: revised.before.encode(),
             heads: revised.heads.encode(),
         }
     }

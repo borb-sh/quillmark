@@ -40,6 +40,8 @@ pub struct DocumentRevised {
     /// entry names was removed. Only cards of one `$kind` pair, and a card
     /// revising a stored one holds its `$id`.
     pub from: Vec<Option<usize>>,
+    /// The document's heads before the revise.
+    pub before: Heads,
     /// The document's heads after the revise.
     pub heads: Heads,
 }
@@ -92,6 +94,7 @@ impl Document {
                 },
             bodies,
         } = revising;
+        let before = self.heads();
         let Document { main, cards, .. } = incoming;
         let mut bodies = bodies.into_iter();
 
@@ -184,6 +187,7 @@ impl Document {
             dropped_anchors,
             warnings,
             from: pairs.into_iter().map(|pair| pair.map(|(i, _)| i)).collect(),
+            before,
             heads: self.heads(),
         }
     }

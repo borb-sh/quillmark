@@ -282,7 +282,7 @@ card_kinds:
     const receipt = ed.reviseDocument(
       '~~~card-yaml\n$quill: editor_test\nsubject: Q3 **results**\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nprose: fresh\n~~~\n\n~~~card-yaml\n$kind: note\nprose: kept\n~~~\n',
     )
-    expect(Object.keys(receipt).sort()).toEqual(['droppedAnchors', 'from', 'heads', 'warnings'])
+    expect(Object.keys(receipt).sort()).toEqual(['before', 'droppedAnchors', 'from', 'heads', 'warnings'])
     expect(receipt.from).toEqual([null, 0])
     expect(receipt.heads).toEqual(doc.heads())
     expect(receipt.droppedAnchors).toEqual([])

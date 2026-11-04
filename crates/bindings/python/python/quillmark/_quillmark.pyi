@@ -315,6 +315,7 @@ DocumentRevised = TypedDict(
         "dropped_anchors": list[AnchorContext],
         "warnings": list[Diagnostic],
         "from": list[int | None],
+        "before": list[str],
         "heads": list[str],
     },
 )

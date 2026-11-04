@@ -707,6 +707,7 @@ fn a_receipt_carries_the_heads_its_write_left() {
     assert!(!receipt.heads.hashes().is_empty());
     assert_eq!(receipt.heads, doc.heads());
     let revised = doc.revise("~~~\n$quill: q\n~~~\n\nRevenue fell.\n").unwrap();
+    assert_eq!(revised.before, receipt.heads);
     assert_ne!(revised.heads, receipt.heads);
     assert_eq!(revised.heads, doc.heads());
 }

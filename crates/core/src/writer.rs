@@ -148,8 +148,9 @@ impl<'a> TypedWriter<'a> {
     /// Heads the document's history does not hold fail as
     /// [`BoundParseError::Edit`] (`edit::stale_base`) before any mutation.
     pub fn revise_document<'o>(&mut self, markdown: &str, opts: impl Into<WriteOptions<'o>>) -> Result<DocumentRevised, BoundParseError> {
+        let before = self.doc.heads();
         let heads = match opts.into().heads {
-            Some(heads) if self.doc.heads() != *heads => heads,
+            Some(heads) if before != *heads => heads,
             _ => return self.revise_parsed(Document::parse_revising(markdown)?),
         };
         let Some(mut wanted) = self.doc.at(heads) else {
@@ -169,6 +170,7 @@ impl<'a> TypedWriter<'a> {
             }
         }
         revised.warnings.extend(self.config.conform(self.doc).expect("the landed document carries the checked `$quill`"));
+        revised.before = before;
         revised.heads = self.doc.heads();
         Ok(revised)
     }

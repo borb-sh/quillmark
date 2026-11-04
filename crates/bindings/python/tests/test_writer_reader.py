@@ -142,7 +142,7 @@ def test_writer_revise_document():
     receipt = w.revise_document(
         "~~~\n$quill: sample_form@0.1.0\nbio: make it <kbd>**bold**</kbd>\n~~~\n\nBody.\n"
     )
-    assert sorted(receipt) == ["dropped_anchors", "from", "heads", "warnings"]
+    assert sorted(receipt) == ["before", "dropped_anchors", "from", "heads", "warnings"]
     assert (receipt["dropped_anchors"], receipt["from"]) == ([], [])
     assert receipt["heads"] == doc.heads()
     (dropped,) = receipt["warnings"]
