@@ -59,10 +59,11 @@ impl Document {
             Some(i) => &self.cards[i],
         };
         let doc = self.held.0.as_mut().expect("bound");
+        let before = Heads::from(doc.heads());
         let (v, written) = cards::value_at(doc, at.and(id.as_deref()), target.field(), || card.read(target))?
             .expect("a bound card is held");
         if written {
-            self.reread_at(at);
+            super::held::refresh(doc, &before, &mut self.main, &mut self.cards, false, units::Scalars);
         }
         Ok((v, put))
     }

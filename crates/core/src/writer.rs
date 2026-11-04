@@ -153,11 +153,12 @@ impl<'a> TypedWriter<'a> {
             Some(heads) if before != *heads => heads,
             _ => return self.revise_parsed(Document::parse_revising(markdown)?),
         };
-        let Some(mut wanted) = self.doc.at(heads) else {
+        let Some(then) = self.doc.at(heads) else {
             return Err(EditError::StaleHeads { field: None }.into());
         };
+        let mut wanted = then.clone();
         let mut revised = TypedWriter::new(self.config, &mut wanted).revise_document(markdown, None)?;
-        self.doc.land_at(heads, &wanted);
+        self.doc.land_at(heads, &then, &wanted);
         let recard = |path: &str| -> Option<String> {
             let path: crate::path::DocPath = path.parse().ok()?;
             let Some(crate::path::DocSeg::Card { index, .. }) = path.segs().first() else { return None };

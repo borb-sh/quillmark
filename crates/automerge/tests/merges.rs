@@ -236,13 +236,15 @@ fn nested_rich_text_both_sides_rewrote_merges_as_text() {
     let wrote = |md: &str| {
         let mut d = Doc::load(&origin).unwrap();
         let (was, _) = cards::read(&d).unwrap();
-        let mut now = was.clone();
-        let mut element = Content::from_value(&was.fields[0].1[0]).unwrap();
+        let mut refs = was.fields[0].1.clone();
+        let mut element = Content::from_value(&refs[0]).unwrap();
         let typed = from_markdown(md).unwrap().content;
         element.text = typed.text;
         element.marks = typed.marks;
-        now.fields[0].1[0] = element.to_value();
-        cards::write_one(&mut d, true, &was, &now);
+        refs[0] = element.to_value();
+        let main = d.main();
+        cards::put_field(&mut d, &main, "refs", &refs);
+        d.commit();
         d
     };
     let (mut a, mut b) = (wrote("A *first* ref"), wrote("*first* ref and *more*"));
@@ -292,9 +294,9 @@ fn a_whole_body_write_keeps_a_keystroke_concurrent_with_it() {
     let mut theirs = Doc::load(&origin).unwrap();
     let body = theirs.value(&theirs.main(), BODY).unwrap();
     theirs.apply(&body, &Change::new(vec![Step::Splice(Splice::new(11, "", "Z"))]), None).unwrap();
-    let mut wrote = was.clone();
-    wrote.body = want;
-    cards::write_one(&mut ours, true, &was, &wrote);
+    let main = ours.main();
+    cards::put_body(&mut ours, &main, &want);
+    ours.commit();
     ours.merge(&theirs.save()).unwrap();
     let (read, _) = cards::read(&ours).unwrap();
     assert!(read.body.text.contains('Z'), "the keystroke lands: {:?}", read.body.text);
