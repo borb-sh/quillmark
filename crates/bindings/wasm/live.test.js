@@ -50,14 +50,17 @@ describe('a document as Automerge bytes', () => {
     expect(err.diagnostics[0].args.reason).toBe('decode')
   })
 
-  it('merges the changes since heads into a peer', () => {
+  it('merges the changes since heads into a peer and answers their receipt', () => {
     const a = parse('Hello world')
     const b = Document.load(a.save())
     const heads = a.heads()
     a.apply({}, splice(5, ' brave'))
     b.apply({}, splice(11, '!'))
 
-    b.merge(a.saveSince(heads))
+    const before = b.heads()
+    const merged = b.merge(a.saveSince(heads))
+    expect([merged.before, merged.heads]).toEqual([before, b.heads()])
+    expect(merged.patches).toEqual([{ action: 'splice', path: ['main', 'body', 'text', 6], value: ' brave' }])
     a.merge(b.save())
     expect(a.read({}).text).toBe('Hello brave world!')
     expect(b.read({})).toEqual(a.read({}))

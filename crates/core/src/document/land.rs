@@ -109,7 +109,7 @@ impl Document {
         let (v, written) = cards::value_at(self.doc(), at.and(id.as_deref()), field, || content.expect("a field target reads its value"))
             .expect("a flushed card is held");
         if written {
-            self.reread();
+            self.reread_at(at);
         }
         Ok((v, put))
     }
@@ -131,18 +131,18 @@ impl Document {
 
     /// Takes `after`, what the value at `target` of the card at `at` reads as
     /// once a write landed, into the cards: a body in place, a field by
-    /// reading the cards again.
+    /// reading its card again.
     fn set_read(&mut self, at: Option<usize>, target: Target<'_>, after: &Content) {
-        let Target::Body = target else { return self.reread() };
+        let Target::Body = target else { return self.reread_at(at) };
         match at {
             None => self.main.set_body(after.clone()),
             Some(i) => self.cards[i].set_body(after.clone()),
         }
         #[cfg(debug_assertions)]
         {
-            let (main, cards) = (self.main.clone(), self.cards.clone());
-            self.reread();
-            debug_assert!(self.main == main && self.cards == cards, "a body write reads as the document does");
+            let card = self.card_at(at).clone();
+            self.reread_at(at);
+            debug_assert!(self.card_at(at) == &card, "a body write reads as the document does");
         }
     }
 
@@ -217,13 +217,14 @@ impl Document {
             }
         };
         let doc = &mut self.held().doc;
-        if heads.is_none() {
-            doc.track();
-        }
         let before = Heads::from(doc.heads());
         let lowered = doc.apply_from(&root, &change, heads.as_ref().map(Heads::hashes), Some(&read));
         lowered.map_err(step_error)?;
-        let (patches, view) = doc.patches_on(&root, before.hashes(), &now);
+        let patches = match u {
+            Some(u) => doc.patches(before.hashes(), u),
+            None => doc.patches(before.hashes(), units::Scalars),
+        };
+        let view = doc.view(&root);
         let landed = Heads::from(doc.heads());
         let mut removed = Vec::new();
         removed_by(&change, &mut removed);
@@ -235,18 +236,13 @@ impl Document {
             dropped.extend(change::lost_anchors(&wrote, &view.content, |id| !held.contains(id)));
         }
         self.set_read(at, target, &view.content);
-        let receipt = Receipt::landed(before, landed, patches, &now, dropped, view.repairs, warnings);
-        Ok(match u {
-            Some(u) => receipt.in_units(u),
-            None => receipt,
-        })
+        Ok(Receipt { before, heads: landed, patches, dropped_anchors: dropped, repairs: view.repairs, warnings })
     }
 
     /// Runs `write`, which changes the value at `target` of the card at `at`
     /// on the card, lands it in the document, and answers its receipt.
     pub(crate) fn landing(&mut self, at: Option<usize>, target: Target<'_>, write: impl FnOnce(&mut Card) -> Result<Vec<ImportWarning>, EditError>) -> Result<Receipt, EditError> {
         let (root, put) = self.value_obj(at, target)?;
-        self.doc().track();
         let before = Heads::from(self.doc().heads());
         let was = self.card_at(at).read(target)?;
         let warnings = self.edit_card(at, |card| {
@@ -257,9 +253,10 @@ impl Document {
             })
         })?;
         let doc = &mut self.held().doc;
-        let (patches, view) = doc.patches_on(&root, before.hashes(), &was);
+        let patches = doc.patches(before.hashes(), units::Scalars);
+        let view = doc.view(&root);
         let landed = Heads::from(doc.heads());
         let dropped = change::lost_anchors(&was, &view.content, |_| true);
-        Ok(Receipt::landed(before, landed, patches, &was, dropped, view.repairs, warnings))
+        Ok(Receipt { before, heads: landed, patches, dropped_anchors: dropped, repairs: view.repairs, warnings })
     }
 }

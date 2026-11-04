@@ -1092,11 +1092,6 @@ impl Document {
                 let serde_json::Value::Array(patches) = patches else {
                     return Err(invalid(format!("changes[{path:?}] is not a Patch[]")));
                 };
-                let patches = patches
-                    .iter()
-                    .map(quillmark_core::document::Patch::from_value)
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| invalid(format!("changes[{path:?}] is not a Patch[]: {e}")))?;
                 by_path.insert(parse_path(&path)?, patches);
             }
         }
@@ -1567,7 +1562,9 @@ impl Document {
             None => base.body(),
             Some(field) => base.field(field),
         };
-        let receipt = content::receipt_js(receipt.in_units(quillmark_automerge::content::units::Utf16), &path, card_id);
+        let mut receipt = receipt;
+        receipt.patches = self.inner.patches(&receipt.before, &receipt.heads, quillmark_automerge::content::units::Utf16);
+        let receipt = content::receipt_js(receipt, &path, card_id);
         serialize_or_throw(&receipt, "revise")
     }
 

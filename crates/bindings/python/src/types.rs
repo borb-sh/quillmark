@@ -856,11 +856,6 @@ impl PyDocument {
                 let serde_json::Value::Array(patches) = patches else {
                     return Err(invalid(format!("changes[{path:?}] is a list of patches")));
                 };
-                let patches = patches
-                    .iter()
-                    .map(quillmark_core::document::Patch::from_value)
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| invalid(format!("changes[{path:?}] is not a list of patches: {e}")))?;
                 by_path.insert(parse_path(&path)?, patches);
             }
         }
@@ -1041,11 +1036,12 @@ impl PyDocument {
     }
 
     /// Take the changes `data` holds, another peer's `save` or `save_since`,
-    /// and merge them as Automerge merges. Bytes that do not decode, or leave
-    /// the document outside its schema, raise `edit::bad_live_bytes` and
-    /// change nothing.
-    fn merge(&mut self, data: &[u8]) -> PyResult<()> {
-        self.inner.merge(data).map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))
+    /// merge them as Automerge merges, and return their receipt. Bytes that
+    /// do not decode, or leave the document outside its schema, raise
+    /// `edit::bad_live_bytes` and change nothing.
+    fn merge<'py>(&mut self, py: Python<'py>, data: &[u8]) -> PyResult<Bound<'py, PyDict>> {
+        let receipt = self.inner.merge(data).map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))?;
+        crate::content::receipt_to_py(py, receipt, &quillmark_core::path::DocPath::main(), None)
     }
 
     /// The next Automerge sync message to the peer `state` tracks, `None`
@@ -1054,12 +1050,14 @@ impl PyDocument {
         self.inner.generate_sync_message(&mut state.inner).map(|m| PyBytes::new(py, &m.encode()))
     }
 
-    /// Take an Automerge sync message from the peer `state` tracks. A message
-    /// that does not decode, or would leave the document outside its schema,
-    /// raises `edit::bad_live_bytes` and changes nothing.
-    fn receive_sync_message(&mut self, state: &mut crate::content::PySyncState, message: &[u8]) -> PyResult<()> {
+    /// Take an Automerge sync message from the peer `state` tracks and
+    /// return its receipt. A message that does not decode, or would leave
+    /// the document outside its schema, raises `edit::bad_live_bytes` and
+    /// changes nothing.
+    fn receive_sync_message<'py>(&mut self, py: Python<'py>, state: &mut crate::content::PySyncState, message: &[u8]) -> PyResult<Bound<'py, PyDict>> {
         let message = quillmark_core::document::SyncMessage::decode(message).map_err(crate::content::refused)?;
-        self.inner.receive_sync_message(&mut state.inner, message).map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))
+        let receipt = self.inner.receive_sync_message(&mut state.inner, message).map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))?;
+        crate::content::receipt_to_py(py, receipt, &quillmark_core::path::DocPath::main(), None)
     }
 }
 

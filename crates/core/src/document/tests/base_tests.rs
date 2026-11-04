@@ -57,11 +57,11 @@ impl Placed {
     }
 
     fn revise_body(&mut self, markdown: impl AsRef<str>) -> Result<crate::document::Receipt, EditError> {
-        self.0.card_mut(0).unwrap().revise_counted(crate::document::Target::Body, markdown.as_ref(), None)
+        self.0.card_mut(0).unwrap().revise(crate::document::Target::Body, markdown.as_ref(), None)
     }
 
     fn revise_body_at(&mut self, heads: &Heads, markdown: impl AsRef<str>) -> Result<crate::document::Receipt, EditError> {
-        self.0.card_mut(0).unwrap().revise_counted(crate::document::Target::Body, markdown.as_ref(), Some(heads))
+        self.0.card_mut(0).unwrap().revise(crate::document::Target::Body, markdown.as_ref(), Some(heads))
     }
 
     fn heads(&mut self) -> Heads {

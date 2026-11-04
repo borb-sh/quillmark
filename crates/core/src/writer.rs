@@ -373,7 +373,7 @@ fn revise_impl(
 ) -> Result<Receipt, EditError> {
     let name = match target {
         Target::Body => {
-            return card.revise_counted(Target::Body, text, heads);
+            return card.revise(Target::Body, text, heads);
         }
         Target::Field(name) => name,
     };

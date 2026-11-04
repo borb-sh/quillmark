@@ -939,13 +939,6 @@ impl<'a> CardMut<'a> {
         self.edit(|c| c.commit_field(name, value, schema))
     }
 
-    /// A markdown revise of the value at `target` at `heads`, its receipt
-    /// counted in scalars, which [`Receipt::in_units`](super::Receipt::in_units)
-    /// converts.
-    pub(crate) fn revise_counted(&mut self, target: super::Target<'_>, markdown: &str, heads: Option<&super::Heads>) -> Result<super::Receipt, EditError> {
-        self.write(target, super::Edit::Revise(markdown), super::WriteOptions { heads })
-    }
-
     #[doc(hidden)]
     pub fn revise_field_checked(&mut self, name: &str, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
         check_field_name(name)?;
@@ -987,10 +980,16 @@ impl<'a> CardMut<'a> {
     /// `before` to `heads`, as a host that kept only its receipt's heads
     /// names it.
     pub fn undo_between(&mut self, target: super::Target<'_>, before: &super::Heads, heads: &super::Heads) -> Result<super::Receipt, EditError> {
+        self.undo_between_in(target, before, heads, quillmark_automerge::content::units::Scalars)
+    }
+
+    /// [`undo_between`](Self::undo_between) for a host counting offsets in `u`.
+    pub fn undo_between_in(&mut self, target: super::Target<'_>, before: &super::Heads, heads: &super::Heads, u: impl quillmark_automerge::content::units::Units) -> Result<super::Receipt, EditError> {
         let was = self.doc.read_under(self.at, target, Some(before))?;
         let then = self.doc.read_under(self.at, target, Some(heads))?;
         let change = quillmark_automerge::content::diff::replace(&then, &was).map_err(|e| EditError::change(e.into()))?;
-        self.write(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) })
+        let change = quillmark_automerge::content::units::change_from_scalars(&change, &then, u).map_err(EditError::change)?;
+        self.write_in(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) }, u)
     }
 }
 

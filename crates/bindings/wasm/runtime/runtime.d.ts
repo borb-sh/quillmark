@@ -161,7 +161,6 @@ export type {
 	Imported,
 	DocPathSeg,
 	Pos,
-	MapResult,
 	WrapKind,
 	RawContent,
 	Repair,

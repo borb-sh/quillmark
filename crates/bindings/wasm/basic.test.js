@@ -734,7 +734,10 @@ describe('Document apply: the write primitive', () => {
     const heads = doc.heads()
     const receipt = doc.apply({}, { steps: [{ splice: { at: 0, delete: 'Body', insert: 'Text' } }] }, { heads })
     expect([receipt.before, receipt.heads]).toEqual([heads, doc.heads()])
-    expect(receipt.patches).toEqual([{ delete: { at: 0, len: 4 } }, { insert: { at: 0, text: 'Text', blocks: [], islands: [], marks: [] } }])
+    expect(receipt.patches).toEqual([
+      { action: 'splice', path: ['main', 'body', 'text', 1], value: 'Text' },
+      { action: 'del', path: ['main', 'body', 'text', 5], length: 4 },
+    ])
     doc.apply({}, { steps: [] }, { heads })
     const foreign = blankDoc()
     expect(foreign.heads()).toEqual(heads)
@@ -755,7 +758,7 @@ describe('Document apply: the write primitive', () => {
     doc.apply({}, { steps: [{ splice: { at: 0, delete: '', insert: '🎉 ' } }] })
     const anchor = { steps: [{ anchor: { id: 'a1', start: 9, end: 14, quote: 'world' } }] }
     const receipt = doc.apply({}, anchor, { heads })
-    expect(receipt.patches).toEqual([{ anchor: { id: 'a1', start: 12, end: 17 } }])
+    expect(receipt.patches).toEqual([{ action: 'mark', path: ['main', 'body', 'text'], marks: [{ name: 'anchor:a1', value: true, start: 13, end: 18 }] }])
     expect(doc.read({}).anchors).toEqual([{ id: 'a1', start: 12, end: 17 }])
 
     const reworded = { steps: [{ splice: { at: 9, delete: 'world', insert: 'there' } }] }
@@ -778,7 +781,7 @@ describe('Document apply: the write primitive', () => {
     doc.apply({}, { steps: [{ splice: { at: 0, delete: '', insert: 'XX ' } }] })
     expectEditCode(() => doc.apply({}, anchor), 'edit::content_apply')
     const receipt = doc.apply({}, { steps: [{ anchor: { id: 'a1', start: 12, end: 17, quote: 'world' } }] })
-    expect(receipt.patches).toEqual([{ anchor: { id: 'a1', start: 12, end: 17 } }])
+    expect(receipt.patches).toEqual([{ action: 'mark', path: ['main', 'body', 'text'], marks: [{ name: 'anchor:a1', value: true, start: 13, end: 18 }] }])
   })
 
   it('an anchor placement refuses a held id and a move moves the held one', () => {
@@ -788,17 +791,22 @@ describe('Document apply: the write primitive', () => {
     expectEditCode(() => doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 6, end: 11 } }] }), 'edit::content_apply')
     expectEditCode(() => doc.apply({}, { steps: [{ anchor: { id: 'c9', start: 6, end: 11, move: true } }] }), 'edit::content_apply')
     const receipt = doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 6, end: 11, move: true } }] })
-    expect(receipt.patches).toEqual([{ anchor: { id: 'c1', start: 6, end: 11 } }])
+    expect(receipt.patches).toEqual([{ action: 'mark', path: ['main', 'body', 'text'], marks: [
+      { name: 'anchor:c1', value: null, start: 1, end: 6 },
+      { name: 'anchor:c1', value: true, start: 7, end: 12 },
+    ] }])
     expect(doc.read({}).anchors).toEqual([{ id: 'c1', start: 6, end: 11 }])
   })
 
-  it('a receipt carries each anchor a write touched as it reads after, a point included', () => {
+  it('a receipt carries the text a write put and the point anchor it moved', () => {
     const doc = blankDoc()
     doc.replace({}, importMarkdown('😀 alpha beta gamma delta').content)
     doc.apply({}, { steps: [{ anchor: { id: 'p', start: 3, end: 3 } }, { anchor: { id: 'r', start: 9, end: 13 } }] })
     const receipt = doc.apply({}, { steps: [{ anchor: { id: 'p', start: 14, end: 14, move: true } }, { splice: { at: 13, delete: '', insert: '!' } }] })
-    const anchors = receipt.patches.filter((p) => p.anchor).map((p) => p.anchor)
-    expect(anchors.sort((a, b) => a.id.localeCompare(b.id))).toEqual(doc.read({}).anchors.sort((a, b) => a.id.localeCompare(b.id)))
+    expect(receipt.patches.map((p) => [p.action, p.path])).toEqual([
+      ['splice', ['main', 'body', 'text', 14]],
+      ['put', ['main', 'body', 'points', 'p']],
+    ])
   })
 
   it('a reserved x- name rides as written, and another unknown one throws', () => {
@@ -824,9 +832,10 @@ describe('Document apply: the write primitive', () => {
     doc.replace({}, importMarkdown('😀 ab\n\n- one\n- two').content)
     const heads = doc.heads()
     doc.setActor('ann')
+    const unsplit = doc.read({})
     const split = doc.splitBlock({}, 4, { heads })
     expect(inserts(split)).toEqual([{ at: 4, text: '\n' }])
-    const [ann] = putIds(split)
+    const [ann] = putIds(unsplit, doc.read({}))
     expect(ann).toMatch(/@616e6e$/)
     expect(doc.read({}).text).toBe('😀 a\nb\none\ntwo')
     doc.setActor('bo')
@@ -846,9 +855,9 @@ describe('Document apply: the write primitive', () => {
     doc.outdent({}, second)
     expect(doc.read({}).blocks[2].path).toHaveLength(2)
     const held = new Set(c.containers.map((k) => k.id))
-    const wrapped = doc.wrap({}, c.blocks[0].id, c.blocks[0].id, { kind: 'quote' })
-    const [quote] = wrapped.patches.filter((p) => p.container && !held.has(p.container.id)).map((p) => p.container.id)
+    doc.wrap({}, c.blocks[0].id, c.blocks[0].id, { kind: 'quote' })
     c = doc.read({})
+    const [quote] = c.containers.filter((k) => !held.has(k.id)).map((k) => k.id)
     expect(c.blocks[0].path).toEqual([quote])
     expect(c.containers.find((k) => k.id === quote).kind).toBe('quote')
     expectEditCode(() => doc.indent({}, first), 'edit::content_apply')
@@ -884,8 +893,9 @@ describe('Document apply: the write primitive', () => {
       { setBlock: { id: '?n', kind: 'heading', attrs: { level: 2 } } },
     ] }
     doc.setActor('ann')
-    const receipt = doc.apply({}, change, { heads })
-    const [made] = putIds(receipt)
+    const unmade = doc.read({})
+    doc.apply({}, change, { heads })
+    const [made] = putIds(unmade, doc.read({}))
     expect(made).toMatch(/@616e6e$/)
     expect(doc.read({}).blocks[1]).toEqual({ id: made, kind: 'heading', attrs: { level: 2 } })
   })
@@ -952,8 +962,9 @@ describe('Document apply: the write primitive', () => {
     expect(doc.read({}).blocks).toHaveLength(1)
     expect(exportMarkdown(doc.read({}))).toBe('one\\\ntwo')
 
-    const split = doc.apply({}, { steps: [{ splice: { at: 3, delete: ' ', insert: '\n', blocks: [{ id: '?b', kind: 'para' }] } }] })
-    expect(doc.read({}).blocks.map((b) => b.id)).toEqual([doc.read({}).blocks[0].id, putIds(split)[0]])
+    const unsplit = doc.read({})
+    doc.apply({}, { steps: [{ splice: { at: 3, delete: ' ', insert: '\n', blocks: [{ id: '?b', kind: 'para' }] } }] })
+    expect(doc.read({}).blocks.map((b) => b.id)).toEqual([doc.read({}).blocks[0].id, putIds(unsplit, doc.read({}))[0]])
     expect(exportMarkdown(doc.read({}))).toBe('one\n\ntwo')
   })
 

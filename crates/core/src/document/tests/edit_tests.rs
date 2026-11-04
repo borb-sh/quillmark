@@ -621,14 +621,12 @@ fn test_revise_body_returns_its_patches_and_updates_body() {
     let _ = card.revise(crate::document::Target::Body, "hello world", None).unwrap();
     let patches = card.revise(crate::document::Target::Body, "hello brave world", None).unwrap().patches;
     assert_eq!(card.body_lines().text, "hello brave world");
-    let inserted: Vec<(usize, &str)> = patches
+    let spliced: Vec<(&serde_json::Value, &str)> = patches
         .iter()
-        .filter_map(|p| match &p.action {
-            crate::document::PatchAction::Insert { at, text, .. } => Some((*at, text.as_str())),
-            _ => None,
-        })
+        .filter(|p| p["action"] == "splice")
+        .map(|p| (p["path"].as_array().unwrap().last().unwrap(), p["value"].as_str().unwrap()))
         .collect();
-    assert_eq!(inserted, [(6, "brave ")]);
+    assert_eq!(spliced, [(&serde_json::json!(7), "brave ")]);
 }
 
 #[test]

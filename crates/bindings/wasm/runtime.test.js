@@ -175,7 +175,7 @@ card_kinds:
 
     ed.revise('memo', 'a 😀 \\*b\\*')
     const memo = ed.revise('memo', 'a 😀 \\*b\\* c')
-    expect(memo.patches).toEqual([{ insert: { at: 10, text: ' c', blocks: [], islands: [], marks: [] } }])
+    expect(memo.patches).toEqual([{ action: 'splice', path: ['main', 'fields', 'memo', 'text', 11], value: ' c' }])
     expect(ed.revise('memo', 'a 😀 \\*b\\* c').patches).toEqual([])
 
     doc.apply({}, { steps: [{ anchor: { id: 'g', start: 14, end: 19 } }] })

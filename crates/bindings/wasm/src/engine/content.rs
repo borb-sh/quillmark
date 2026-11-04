@@ -163,41 +163,30 @@ export type Step =
     | { nested: { island: string; slot: string; change: Change } };
 
 /**
- * One change a write made to a value, Automerge's patch lowered to it: at
- * offsets (UTF-16) into the value as the patches before it left it. `insert`
- * puts `text`, each `\n` opening the next of `blocks` and each island
- * character holding the next of `islands`, carrying `marks`, offsets into
- * `text`; `delete` takes `len` out at `at`; `block`, `island`, `container` and
- * `anchor` are a record as it reads now, and `containerRemoved` and
- * `anchorRemoved` name one gone; `mark` puts formatting over its range in
- * place of any of its tag, and `unmark` takes `tag` off `[start, end)`;
- * `value` is the whole value. `slot` names the island slots it reaches,
- * outermost first, where it reaches one.
+ * One of Automerge's patches, as automerge-js spells it: `path` runs from
+ * the document's root, and an index into a text is in UTF-16 code units,
+ * each block marker and island one unit, so value offset `n` is index
+ * `n + 1` of the value's `text`.
  */
-export type Patch = { slot?: { island: string; slot: string }[] } & (
-    | { insert: { at: number; text: string; blocks: ContentBlock[]; islands: ContentIsland[]; marks: ContentMark[] } }
-    | { delete: { at: number; len: number } }
-    | { block: ContentBlock }
-    | { island: ContentIsland }
-    | { container: ContentContainer }
-    | { containerRemoved: { id: string } }
-    | { mark: ContentMark }
-    | { unmark: { start: number; end: number; tag: string } }
-    | { anchor: ContentAnchor }
-    | { anchorRemoved: { id: string } }
-    | { value: Content }
-);
+export type Patch =
+    | { action: "put"; path: (string | number)[]; value: unknown; conflict?: boolean }
+    | { action: "insert"; path: (string | number)[]; values: unknown[] }
+    | { action: "splice"; path: (string | number)[]; value: string; marks?: Record<string, unknown> }
+    | { action: "del"; path: (string | number)[]; length?: number }
+    | { action: "inc"; path: (string | number)[]; value: number }
+    | { action: "conflict"; path: (string | number)[] }
+    | { action: "mark"; path: (string | number)[]; marks: { name: string; value: unknown; start: number; end: number }[] };
 
 /**
- * What a write did. `before` and `heads` are the document's heads before
- * and after the write: `heads` is the next write's, and `undo` takes the
- * value back to `before`. `patches`, applied in order to the value as it
- * read before the write, give the value after.
+ * What a write, a merge or a sync message did. `before` and `heads` are
+ * the document's heads before and after: `heads` is the next write's, and
+ * `undo` takes a written value back to `before`. `patches` are Automerge's
+ * for the change, in order.
  * `droppedAnchors` names each anchor the value held and holds
  * nowhere now, as it read before: every one a `revise` or `replace` lost, and
  * for an `apply` every one but those its `anchor` steps removed.
  * `repairs` names what reading the value after mended, where the write left
- * it invalid; its patch is then the whole value.
+ * it invalid.
  * `warnings` holds a `parse::dropped_construct` per construct a revise's
  * markdown dropped.
  */
@@ -520,7 +509,7 @@ pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath,
     ReceiptJs {
         before: receipt.before.encode(),
         heads: receipt.heads.encode(),
-        patches: receipt.patches.iter().map(|p| p.to_value_in(Utf16)).collect(),
+        patches: receipt.patches,
         repairs: receipt.repairs.iter().map(|r| r.to_value()).collect(),
         dropped_anchors: receipt
             .dropped_anchors
@@ -645,7 +634,7 @@ impl Document {
         let card_base = card_base(&self.inner, &addr);
         let path = value_path(&card_base, &addr);
         let mut card = card_mut_of(&mut self.inner, &addr)?;
-        let receipt = card.undo_between(target(&addr), &before, &heads).map_err(|e| edit_error_to_js(&e, &card_base))?.in_units(Utf16);
+        let receipt = card.undo_between_in(target(&addr), &before, &heads, Utf16).map_err(|e| edit_error_to_js(&e, &card_base))?;
         let card_id = card.id().map(str::to_string);
         serialize_or_throw(&receipt_js(receipt, &path, card_id), "undo")
     }

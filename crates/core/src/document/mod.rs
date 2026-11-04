@@ -698,7 +698,6 @@ pub use quillmark_automerge::model::LoadError;
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};
 pub use write::{Edit, Located, MAX_CHANGE_STEPS, Receipt, Target, WriteOptions, check_change, check_content_value};
-pub use quillmark_automerge::model::patch::{Action as PatchAction, Patch, SlotStep, apply as apply_patch};
 
 /// Where Quillmark Markdown departs from plain Markdown and YAML, as rules
 /// surfaced verbatim to LLM/MCP consumers and to the bindings. The single
@@ -1142,6 +1141,16 @@ impl Document {
         self.cards = cards;
     }
 
+    /// Reads the card at `at`, the main card where `None`, again from the
+    /// Automerge document.
+    pub(crate) fn reread_at(&mut self, at: Option<usize>) {
+        let held = self.held.0.as_ref().expect("bound");
+        match at {
+            None => self.main = held::read_at(&held.doc, None),
+            Some(i) => self.cards[i] = held::read_at(&held.doc, Some(self.cards[i].id().expect("a held card has an id"))),
+        }
+    }
+
     /// The card at `at` to edit in place, the main card where `None`. Writes
     /// only through [`edit_card`](Self::edit_card), [`CardEdit`] or
     /// [`CardMut`], which carry the edit into the Automerge document.
@@ -1286,20 +1295,36 @@ impl Document {
         self.doc().generate_sync_message(state)
     }
 
-    /// Takes a peer's sync message and reads the cards again; one that
+    /// Takes a peer's sync message and answers what it changed; one that
     /// leaves the document outside its schema is refused and undone.
-    pub fn receive_sync_message(&mut self, state: &mut SyncState, message: SyncMessage) -> Result<(), EditError> {
+    pub fn receive_sync_message(&mut self, state: &mut SyncState, message: SyncMessage) -> Result<Receipt, EditError> {
+        let before = self.heads();
         self.doc().receive_sync_message(state, message).map_err(EditError::bad_live_bytes)?;
-        self.reread();
-        Ok(())
+        Ok(self.took(before))
     }
 
     /// Takes the changes `bytes` hold, another peer's save or
-    /// [`save_since`](Document::save_since), and reads the cards again.
-    pub fn merge(&mut self, bytes: &[u8]) -> Result<(), EditError> {
+    /// [`save_since`](Document::save_since), and answers what they changed.
+    pub fn merge(&mut self, bytes: &[u8]) -> Result<Receipt, EditError> {
+        let before = self.heads();
         self.doc().merge(bytes).map_err(EditError::bad_live_bytes)?;
-        self.reread();
-        Ok(())
+        Ok(self.took(before))
+    }
+
+    /// The receipt of the changes taken since `before`, each card they
+    /// reached read again.
+    fn took(&mut self, before: Heads) -> Receipt {
+        let held = self.held.0.as_mut().expect("bound");
+        let patches = held.doc.patches(before.hashes(), quillmark_automerge::content::units::Scalars);
+        let heads = Heads::from(held.doc.heads());
+        held::reread(&held.doc, &patches, &mut self.main, &mut self.cards);
+        Receipt { before, heads, patches, dropped_anchors: Vec::new(), repairs: Vec::new(), warnings: Vec::new() }
+    }
+
+    /// Automerge's patches taking the document from `before` to `heads`, as
+    /// a [`Receipt`] spells them, text indexes counted in `u`.
+    pub fn patches(&mut self, before: &Heads, heads: &Heads, u: impl quillmark_automerge::content::units::Units) -> Vec<serde_json::Value> {
+        self.doc().patches_between(before.hashes(), heads.hashes(), u)
     }
 
     /// Create a blank document: a main card carrying only `$quill`, an empty

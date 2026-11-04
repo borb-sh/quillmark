@@ -105,7 +105,7 @@ def test_writer_revise_field():
     w = quill.writer(doc)
     receipt = w.revise("make it **bold**", "bio")
     assert sorted(receipt) == ["before", "dropped_anchors", "heads", "patches", "repairs", "warnings"]
-    assert [p["insert"]["text"] for p in receipt["patches"] if "insert" in p] == ["make it bold"]
+    assert "".join(p["value"] for p in receipt["patches"] if p["action"] == "splice") == "make it bold"
     assert receipt["heads"] == doc.heads()
     assert (receipt["dropped_anchors"], receipt["repairs"], receipt["warnings"]) == ([], [], [])
     assert quill.reader(doc).get("bio") == "make it **bold**"
@@ -470,11 +470,11 @@ def test_to_markdown_at_reads_the_main_body():
 
 
 def test_a_text_field_revise_answers_one_insert_over_its_literal_text():
-    """A `text` field's receipt is one insert into the literal text, in code
+    """A `text` field's receipt is one splice into the literal text, in code
     points."""
     doc = taro_quill().parse(TARO_MARKDOWN)
     w = taro_quill().writer(doc)
     w.revise("a \U0001F600 \\*b\\*", "title")
     receipt = w.revise("a \U0001F600 \\*b\\* c", "title")
-    assert receipt["patches"] == [{"insert": {"at": 9, "text": " c", "blocks": [], "islands": [], "marks": []}}]
+    assert receipt["patches"] == [{"action": "splice", "path": ["main", "fields", "title", "text", 10], "value": " c"}]
     assert w.revise("a \U0001F600 \\*b\\* c", "title")["patches"] == []

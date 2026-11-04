@@ -205,9 +205,9 @@ class Document:
     def set_actor(self, actor: str) -> None: ...
     def heads(self) -> list[str]: ...
     def save_since(self, heads: list[str]) -> bytes: ...
-    def merge(self, data: bytes) -> None: ...
+    def merge(self, data: bytes) -> Receipt: ...
     def generate_sync_message(self, state: SyncState) -> bytes | None: ...
-    def receive_sync_message(self, state: SyncState, message: bytes) -> None: ...
+    def receive_sync_message(self, state: SyncState, message: bytes) -> Receipt: ...
 
 # What one peer of the sync protocol is known to hold. One serves one peer;
 # `encode` keeps it across a restart.
@@ -231,20 +231,19 @@ class ReceiptDroppedAnchor(AnchorContext, total=False):
     island: str
     slot: str
 
-# One change a write made to a value: a dict of one action key, `insert`
-# (`at`, `text`, `blocks`, `islands`, `marks`), `delete` (`at`, `len`),
-# `block`, `island`, `container`, `containerRemoved` (`id`), `mark`,
-# `unmark` (`start`, `end`, `tag`), `anchor`, `anchorRemoved` (`id`) or
-# `value`, and `slot`, the island slots it reaches, where it reaches one.
+# One of Automerge's patches, as automerge-js spells it: `action` (`put`,
+# `insert`, `splice`, `del`, `inc`, `conflict` or `mark`) and `path` from the
+# document's root, a text index counting code points with each block marker
+# and island one, so value offset `n` is index `n + 1` of the value's `text`.
 Patch = dict[str, Any]
 
 class Receipt(TypedDict):
-    # The document's heads before the write, which `undo` takes it back to.
+    # The document's heads before the write, merge or sync message, which
+    # `undo` takes a written value back to.
     before: list[str]
-    # The document's heads after the write, the next write's `heads`.
+    # The document's heads after, the next write's `heads`.
     heads: list[str]
-    # Applied in order to the value as it read before the write, they give
-    # the value after. Offsets count code points.
+    # Automerge's patches for the change, in order.
     patches: list[Patch]
     dropped_anchors: list[ReceiptDroppedAnchor]
     repairs: list[dict[str, Any]]

@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 
 use quillmark_automerge::content::anchors::{AnchorContext, Reattached, anchor_context, anchor_contexts};
-use quillmark_automerge::model::patch::{self, Patch};
+use quillmark_automerge::model::patch;
 use quillmark_automerge::content::model::Content;
 use quillmark_automerge::content::units::{Scalars, Units};
 use serde_json::Value as JsonValue;
@@ -143,17 +143,17 @@ impl Document {
     pub fn reattach(
         &mut self,
         selectors: &[AnchorSelector],
-        changes: &HashMap<DocPath, Vec<Patch>>,
+        changes: &HashMap<DocPath, Vec<serde_json::Value>>,
     ) -> Reattached<AnchorSelector> {
         self.reattach_in(selectors, changes, Scalars)
     }
 
     /// [`reattach`](Self::reattach) with each write's patches counted in `u`, as
-    /// [`Receipt::in_units`](super::Receipt::in_units) answers it.
+    /// a write in `u` answers them.
     pub fn reattach_in(
         &mut self,
         selectors: &[AnchorSelector],
-        changes: &HashMap<DocPath, Vec<Patch>>,
+        changes: &HashMap<DocPath, Vec<serde_json::Value>>,
         u: impl Units,
     ) -> Reattached<AnchorSelector> {
         let mut answered = HashSet::new();
@@ -199,7 +199,7 @@ impl Document {
             let ctxs: Vec<AnchorContext> = at.iter().map(|&i| selectors[i].context()).collect();
             let change = changes.get(path);
             let Some(placed) = self.edit_content_at(path, |content| {
-                let inserted = change.map(|c| patch::inserted_spans(c, &content.text, u));
+                let inserted = change.map(|c| patch::inserted_spans(c, u, &content.text));
                 content
                     .reattach(&ctxs, inserted.as_deref(), &HashSet::new())
                     .reattached

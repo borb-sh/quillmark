@@ -121,6 +121,42 @@ pub fn read(d: &Doc) -> Result<(Card, Vec<Card>), String> {
     Ok((main, cards))
 }
 
+/// What a stretch of patches reached among the cards.
+#[derive(Debug, Default)]
+pub struct Touched {
+    /// A patch outside the cards: the whole document reads again.
+    pub whole: bool,
+    pub main: bool,
+    /// The list of cards changed: it reads again from `order`.
+    pub moved: bool,
+    /// The `$id` of each card a patch reached.
+    pub cards: std::collections::BTreeSet<String>,
+}
+
+/// What `patches`, as [`patch::between`](super::patch::between) spells
+/// them, reached among the cards.
+pub fn touched(patches: &[Value]) -> Touched {
+    let mut t = Touched::default();
+    for p in patches {
+        let path = p["path"].as_array().map(Vec::as_slice).unwrap_or_default();
+        match (path.first().and_then(Value::as_str), path.get(1).and_then(Value::as_str)) {
+            (Some(super::MAIN), _) => t.main = true,
+            (Some(super::CARDS), Some(id)) => {
+                t.moved |= path.len() == 2;
+                t.cards.insert(id.to_string());
+            }
+            (Some(ORDER), _) => t.moved = true,
+            _ => t.whole = true,
+        }
+    }
+    t
+}
+
+/// The card held under `id`.
+pub fn read_id(d: &Doc, id: &str) -> Result<Card, String> {
+    read_card(d, &value::obj(&d.doc, &d.cards(), id).ok_or_else(|| format!("no card holds `{id}`"))?)
+}
+
 /// The card the card map `c` holds: each layout entry a merge left
 /// readable, and each field by key.
 pub fn read_card(d: &Doc, c: &ObjId) -> Result<Card, String> {

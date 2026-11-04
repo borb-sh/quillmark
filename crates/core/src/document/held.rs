@@ -142,3 +142,42 @@ pub(crate) fn remove_card(d: &mut Doc, id: &str) {
 pub(crate) fn move_card(d: &mut Doc, id: &str, index: usize) {
     cards::move_to(d, id, index);
 }
+
+/// The card at `at` as the document reads it, the main card where `None`.
+pub(crate) fn read_at(d: &Doc, id: Option<&str>) -> Card {
+    card(match id {
+        None => cards::read_card(d, &d.main()),
+        Some(id) => cards::read_id(d, id),
+    }
+    .expect("a held card reads"))
+}
+
+/// Reads again the cards `patches` reached into `main` and `all`.
+pub(crate) fn reread(d: &Doc, patches: &[serde_json::Value], main: &mut Card, all: &mut Vec<Card>) {
+    let t = cards::touched(patches);
+    if t.whole {
+        (*main, *all) = read(d).expect("a held document reads as cards");
+        return;
+    }
+    if t.main {
+        *main = read_at(d, None);
+    }
+    let read_id = |id: &str| read_at(d, Some(id));
+    if t.moved {
+        let mut held: std::collections::HashMap<String, Card> = all.drain(..).filter_map(|c| Some((c.id()?.to_string(), c))).collect();
+        *all = d
+            .order()
+            .into_iter()
+            .map(|id| match held.remove(&id).filter(|_| !t.cards.contains(&id)) {
+                Some(c) => c,
+                None => read_id(&id),
+            })
+            .collect();
+    } else {
+        for c in all.iter_mut() {
+            if let Some(id) = c.id().filter(|id| t.cards.contains(*id)).map(str::to_string) {
+                *c = read_id(&id);
+            }
+        }
+    }
+}

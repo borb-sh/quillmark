@@ -398,32 +398,18 @@ impl Doc {
         lowered
     }
 
-    /// The patches taking the value `root` from `before` to now, each at
-    /// offsets into the value's text as the patches before it left it.
-    pub fn patches(&mut self, root: &ObjId, before: &[ChangeHash]) -> Vec<patch::Patch> {
-        let was = self.view_at(root, before).content;
-        self.patches_on(root, before, &was).0
-    }
-
-    /// Starts recording the changes from now, so [`patches_on`](Self::patches_on)
-    /// from the heads now reads them without scanning the document.
-    pub fn track(&mut self) {
-        self.doc.update_diff_cursor();
-    }
-
-    /// [`patches`](Self::patches) from `was`, the value as it read at
-    /// `before`, and the value now. A value the patches leave invalid reads
-    /// through repair, its patch the whole value.
-    pub fn patches_on(&mut self, root: &ObjId, before: &[ChangeHash], was: &Content) -> (Vec<patch::Patch>, View) {
+    /// Automerge's patches taking the document from `before` to now, text
+    /// indexes counted in `u`.
+    pub fn patches(&mut self, before: &[ChangeHash], u: impl crate::content::units::Units) -> Vec<Value> {
         self.doc.commit();
         let after = self.doc.get_heads();
-        let (patches, content) = patch::lower(&mut self.doc, root, before, &after, was);
-        if content.validate().is_ok() {
-            debug_assert_eq!(content, self.view(root).content, "the patches leave the value the document reads");
-            return (patches, View { content, repairs: Vec::new() });
-        }
-        let view = self.view(root);
-        (vec![patch::Patch { slot: Vec::new(), action: patch::Action::Value(view.content.clone()) }], view)
+        patch::between(&mut self.doc, before, &after, u)
+    }
+
+    /// Automerge's patches taking the document from `before` to `after`.
+    pub fn patches_between(&mut self, before: &[ChangeHash], after: &[ChangeHash], u: impl crate::content::units::Units) -> Vec<Value> {
+        self.doc.commit();
+        patch::between(&mut self.doc, before, after, u)
     }
 
     /// Puts `content` under `key` of the map `parent` as a new value.
