@@ -18,7 +18,7 @@ crate-type = ["cdylib", "rlib"]
 # version pin is needed. `typst` re-enables Typst via `quillmark/typst`.
 quillmark = { path = "../../quillmark", default-features = false }
 quillmark-core = { workspace = true }
-# The content model (importMarkdown / exportMarkdown / invert / diff) and the
+# The content model (importMarkdown / exportMarkdown / diff) and the
 # units the bindings convert offsets in.
 quillmark-automerge = { workspace = true }
 wasm-bindgen = { workspace = true }

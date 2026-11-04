@@ -35,6 +35,6 @@ The Automerge bytes carry a live editing session between peers, not a row. `doc.
 
 A write passes the heads its writer read, and lands there, merged with every change since ([CONTENT.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/CONTENT.md#live-state-and-merge)). A session lasts as long as its peers share one history: heads read anywhere in it resolve on every peer loaded from its bytes. A reload from the row starts a new session, in which no heads read before it resolve (`edit::stale_base`), and peers rejoin from the row, which every process loads to one origin.
 
-Two documents of different histories hold different ids and bytes for the same content: compare them by what they read, not by their rows.
+Two documents of different histories hold different ids and Automerge bytes for the same content, but their rows (`toStored()`) are equal, since a row names each record by place.
 
 Full model: [DOCUMENT_STORAGE.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/DOCUMENT_STORAGE.md).

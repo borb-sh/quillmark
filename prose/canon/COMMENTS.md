@@ -90,7 +90,7 @@ A field holding no content (an enum, a number, a date, a boolean, or a container
 
 ## Hosting
 
-A host holding threads persists the document's bytes, or keeps the document and revises it.
+A host holding threads persists `toStored()`, which keeps every anchor, or keeps the document and revises it.
 It never reopens from markdown: the plain `toMarkdown` drops every anchor, and `equals` counts anchors, so an echo guarded by `equals` never matches once a document holds one.
 A host that stores markdown recovers by running `reattach` over every stored selector after the open, under the same rule. Recovery is a search that can orphan, so it is the fallback, not the design.
 

@@ -68,7 +68,7 @@ A content write meets the content bounds under `edit::*`:
 - `edit::too_many_marks` (`count`, `max`): a text holding more marks than 64 and 4 per character of it.
 - `edit::too_many_anchors` (`count`, `max`): a value holding more than 100 000 anchors.
 
-A write or card placement whose `actor` is not 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, refuses with `edit::invalid_actor` (`actor`).
+An actor given to `doc.setActor` (`set_actor`) that is not 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, refuses with `edit::invalid_actor` (`actor`).
 
 `parse::payload_not_mapping` is a card-yaml block whose payload is YAML but not a mapping, usually code fenced with `~~~` in a body. It is located at the fence's line. Its `args` carry `actual` (`string`, `number`, `boolean` or `sequence`) and, when the fence has one, `info`, the info string.
 

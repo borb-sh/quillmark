@@ -161,10 +161,8 @@ applied. Every `body` subtree, by contrast, is the recursively key-sorted
 to `Content::to_value` and independent of `preserve_order`, even in a
 consumer crate graph that lacks the feature. A `richtext` field's value is
 written through the same form. `Content::write_canonical` writes those bytes as it
-reads the value, building no `Value` tree, and the content hash
-(`quillmark/hash@1`, SHA-256 over the tag, a newline and these bytes)
-digests them as they are written; the bytes and the hash are the ones the
-tree serializes to, unchanged. Sortedness is semantic *inside* the content
+reads the value, building no `Value` tree; the bytes are the ones the tree
+serializes to, unchanged. Sortedness is semantic *inside* the content
 (mark, island and attribute order carry no meaning, so the serializer commits
 to one bit pattern); insertion order is semantic *outside* it (payload item
 order is source order, and matters).
@@ -409,8 +407,8 @@ Five rules bound the payload:
   `MAX_MARKDOWN_SIZE` (10 MiB), refused as `ImportError::TooLarge`
   (`edit::input_too_large`). The bindings refuse a content value whose text
   and its slots' texts pass the same 10 MiB before decoding it, and a change
-  of more than `MAX_CHANGE_STEPS` (16 384) steps, nested ones counted
-  (`edit::too_many_steps`); `Card::write` refuses such a change too. A
+  of more than `MAX_CHANGE_STEPS` steps, nested ones counted
+  (`edit::too_many_steps`); `CardMut::write` refuses such a change too. A
   footnote reference copies its note, so an import shares
   `MAX_NOTE_COPIES` (1 000 000) characters among every copy past each
   note's first; a reference past it stays as its `[^label]` text, warning
@@ -463,11 +461,11 @@ is therefore **uniqueness**, not `id == isl-{index}`.
 
 A step names the ids of what it lands, and the apply refuses one already live
 in its scope. A live client mints none of its own: a record it puts carries a
-placeholder the write fills, and the write mints under the client's actor,
-`{actor}:{prefix}{n}`, so two clients never mint one id
-([CONTENT.md](CONTENT.md) § Ids). A document's ids and bytes therefore depend
-on which actors wrote it, and its hash is stable from the moment it is stored
-rather than equal to a cold import's. Merge repair derives each id it mints
+placeholder the write fills with the record's object id, under the client's
+Automerge actor, so two clients never mint one id
+([CONTENT.md](CONTENT.md) § Ids). A live document's ids and Automerge bytes
+therefore depend on which actors wrote it; its stored row names each record
+by place, so equal content stores as equal bytes. Merge repair derives each id it mints
 from the ids involved ([CONTENT.md](CONTENT.md) § "Merge repair").
 
 A markdown revise keeps the ids of what it kept (`diff::align`), an island
@@ -476,8 +474,8 @@ every other part past the highest id the value held, so none takes a dropped
 part's id. How a revise or replace mints over a stale base, reading values
 alone, is CONTENT.md § "Writing a value".
 
-Re-landing a dropped part is not a mint: the delete freed the id and it travels
-back with its part in the inverse, so restoring a deletion restores the bytes.
+Re-landing a dropped part is not a mint: outside a document an id travels
+with its part; inside one, `undo` puts the record again under a new object id.
 
 ## Anchor-id identity
 
@@ -666,9 +664,6 @@ is retired.
 - The bounds a value is held to (`MAX_TABLE_CELLS`, `MAX_NESTING_DEPTH`,
   `MAX_JSON_DEPTH`, `max_marks`, `MAX_ANCHORS`, `MAX_CARD_COUNT`) only
   loosen, since a lowered bound makes a stored row unreadable.
-- A hash, `Document::hash`, a body's or a field's, holds within one storage
-  tag. `Document::hash` digests the tag, so a storage bump moves it for an
-  equal document; a host keeping such hashes across one reads them again.
 
 ## Gotchas
 

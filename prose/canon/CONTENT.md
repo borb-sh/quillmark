@@ -85,7 +85,7 @@ Each axis is a closed set, and a name outside it is `ParseError::UnknownName` at
 - Validation of an `x-` member is structural only: the name, the ranges, and its bag's JSON depth. An `x-` island holds any slots, each of paragraphs.
 - The line form lowers an `x-` block to a paragraph, drops an `x-` mark, and keeps an `x-` island with its slots as cells. The renderers draw the island as nothing, and markdown writes it as nothing, reporting the loss; the annotated read spells it as its token, so a revise keeps it.
 - A revise keeps a kept block's `x-` kind where the markdown reads back as a paragraph, and an `x-` mark over the text the diff keeps.
-- A revise or replace at one address (`Card::revise`, `Card::replace`, the typed field revise) whose change removes an `x-` island refuses with `edit::drops_ext_island`, since its writer may never have seen it; a change through `apply` removes one. A whole-document revise (`Document::revise`) does not check, and a plain markdown revise of the document drops the island.
+- A revise or replace at one address (`CardMut::revise`, `CardMut::replace`, the typed field revise) whose change removes an `x-` island refuses with `edit::drops_ext_island`, since its writer may never have seen it; a change through `apply` removes one. A whole-document revise (`Document::revise`) does not check, and a plain markdown revise of the document drops the island.
 - Steps set and remove `x-` names like any other.
 
 ## Validity
@@ -113,7 +113,7 @@ Normalizing spends the mark bound before validating can refuse: a mark crosses a
 - a reversed or empty mark and an unused container, which are already invalid;
 - a key the value's shape does not define, on the value or any record or slot in it, and an `attrs` entry a built-in member does not name, as `ParseError::UnknownKey` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies").
 
-So a value decodes only from the bytes it encodes to, up to the wire's own spelling of an empty key (absent or empty reads as one), and decoding then encoding is the identity on every value a write accepts. `diff::replace` and `Card::replace` refuse the same values a decode does. `normalize` is the producer's verb: a producer that builds a value by hand normalizes it before it writes it.
+So a value decodes only from the bytes it encodes to, up to the wire's own spelling of an empty key (absent or empty reads as one), and decoding then encoding is the identity on every value a write accepts. `diff::replace` and `CardMut::replace` refuse the same values a decode does. `normalize` is the producer's verb: a producer that builds a value by hand normalizes it before it writes it.
 
 **A stored value reads leniently.** The read of a value already stored (`Content::from_value_lenient`: a stored row's body and fields, a field a document holds, the renderers' read) checks the bounds, joins a table cell or a footnote's note of several paragraphs with `U+2028`, normalizes and validates, and says whether it rewrote anything. `Document::from_stored` warns `content::noncanonical_read` at each body or field it rewrote, so a host stores the row again ([ERROR.md](ERROR.md) § "Warning flow").
 
@@ -121,14 +121,14 @@ So a value decodes only from the bytes it encodes to, up to the wire's own spell
 
 Blocks, containers, islands, slots, table rows and table columns have structural ids. Outside a document Quillmark mints every one, by one rule (`ids`, `mint`); inside one, a block, container or island takes the Automerge object id of its record (§ "Live state and merge"):
 
-- Import, migration and a write through a handle with no actor mint positionally, `{prefix}{n}` past the highest number the values in play hold under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A revise, as an LLM writer makes it, sets no actor.
-- A live client mints through the engine under its handle's actor: a write through a document with an actor set (`Document::set_actor`) mints `{actor}:{prefix}{n}` the same way. An actor is 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, the one grammar a content write and a card placement both hold it to ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Card-id identity"), one per session, so two clients writing from one value never mint one id and their merge needs no repair. No positional id holds a `:`, and a repair's `a-b` or a diff's `{id}-{n}` holds one only where it derives from an actor's.
+- Outside a document, import, migration and a change applied to a value mint positionally, `{prefix}{n}` past the highest number the values in play hold under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes.
+- Inside a document a placeholder fills with the object id of the record it puts, `{counter}@{actor}` under the writing handle's Automerge actor, so two clients never mint one id and their merge needs no repair. A handle's actor (`Document::set_actor`) is 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, the grammar a card placement holds it to ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Card-id identity"), one per session.
 - A record a change puts may carry a placeholder in place of its id: `?` and an id, such as `"?1"`, which other steps of the change may name. No id opens with `?`. The write that lands the change mints an id for each placeholder, which the receipt's patch putting the record carries; a placeholder put twice, or named and never put, refuses the change.
 - A write into a document fills a placeholder with the object id of the record it puts, so no write mints an id twice (§ "Writing a value").
 
 The cost is stated: a live document's ids and bytes depend on which actor wrote, so equal content does not mean equal Automerge bytes across two documents; two documents compare by what they read, and the stored row names each record by place ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The Format"); determinism holds for an import and a migration ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Island-id determinism").
 
-Two writers with one actor or none can both introduce an id, and their merge holds it twice, which repair mends (§ "Merge repair"). Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
+Two values merged outside a document can both introduce an id, and the merge holds it twice, which repair mends (§ "Merge repair"). Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
 
 ## Changes
 
@@ -157,11 +157,11 @@ Each step holds to what its writer read as far as its precondition reaches. A st
 
 A step whose object holds a key its kind does not define, a splice's `delet` or a mark's `qoute`, is `ParseError::UnknownKey` at every decoder, so a misspelled precondition never decodes as a step without it. So is a change holding a key beside `steps`, and a record or island a step carries holding a key its shape does not define, as a value's decode refuses one ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies"). A step's `props` and an `x-` member's `attrs` stay open.
 
-`quote` and `block` are optional on input. The normalized change, `Applied.applied`, fills both in, as it fills a splice's `removed`, so a stale write's conflict check reads every step as its writer read it.
+`quote` and `block` are optional on input. The normalized change, `Applied.applied`, fills both in, as it fills a splice's `removed`, so a write at earlier heads reads every step as its writer read it.
 
-With no base, a step is refused rather than landing on whatever now sits at its offsets only where its precondition reads the value: a splice that deletes text, a `mark` step or anchor placement that carries `quote`, and an island insert that names its `block`. A step by id, a `setBlock`, a `container` step or an island props step, lands over whatever the value now holds, so a stale props step that adds a column deletes a row added since.
+With no heads, a step is refused rather than landing on whatever now sits at its offsets only where its precondition reads the value: a splice that deletes text, a `mark` step or anchor placement that carries `quote`, and an island insert that names its `block`. A step by id, a `setBlock`, a `container` step or an island props step, lands over whatever the value now holds, so a stale props step that adds a column deletes a row added since.
 
-A writer outside the live session therefore passes the base. A stale write then merges with what changed since, a step by id included, which overwrites a record changed since as the later write (§ "Live state and merge").
+A writer outside the live session therefore passes `heads`. A stale write then merges with what changed since, a step by id included, which overwrites a record changed since as the later write (§ "Live state and merge").
 
 A split inserts a `\n` whose record names the right half; the left half keeps its id, since the record that opens it does not move. A join deletes the right block's `\n` and record, and the joined block keeps the left's id and kind. Splits and joins therefore never rewrite a record a concurrent `setBlock` could be aimed at. Collab's Y form keeps the same boundary, so a split or a join lowers into Y as an insertion or a deletion alone.
 
@@ -201,7 +201,9 @@ Text deleted under a range anchor shrinks it to what survives. An anchor whose t
 
 ## Live state and merge
 
-A document holds its cards in one Automerge document (`quillmark-automerge`, `model::Doc`), and the cards a reader sees are a view of it. A parse, `Document::new` and `Document::load` hold one; a write to the view, such as a typed writer's `set`, is written into it as a diff before the next content write, save or sync, and read back. How the document lays out cards, fields and values is [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)'s; how a value is held, a change lowered and a write isolated at earlier heads is the `quillmark-automerge` rustdoc's.
+A document holds its cards in one Automerge document (`quillmark-automerge`, `model::Doc`), and the cards a reader sees are a view of it. `Document::load` holds one from the start; a parse, `Document::new` or a stored row holds one from its first write, save or sync, and until then its cards are its state, so a document read only to render builds none.
+
+Once held, every card edit, a typed writer's `set` included, is written into it as it is made, a payload edit as the diff of the card it changed and a whole-document revise as the diff of every card, and the card is read back. How the document lays out cards, fields and values is [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)'s; how a value is held, a change lowered and a write isolated at earlier heads is the `quillmark-automerge` rustdoc's.
 
 A block, container or island id inside a document is the Automerge object id of the record that holds it, `{counter}@{actor}`: the change that puts the record mints it, and it names that record for the document's life. A block or island a write moves is deleted and put again, so it takes a new id. A value outside a document, an import or a `Content` a host builds, keeps the ids § Ids mints, and a write into a document mints its own in their place, which the receipt's patches carry.
 
@@ -246,7 +248,7 @@ A handle with no actor set writes under its document's own random Automerge acto
 Each law is a property test over generated values and generated changes (`tests/change_laws.rs`, `tests/repair_laws.rs`).
 
 1. A change lowered into a document whose value reads as `d` reads as `apply(d, c)` in text, records and anchor ids, with marks and anchor edges where Automerge's expand rules put them, and a save and a load read as the live document (`crates/automerge/tests/model.rs`).
-2. `parse(serialize(d)) == d`, and equal values serialize to equal bytes. `parse` refuses a value `normalize` would change, and the lenient read of it reaches one `parse` accepts (`tests/properties.rs`).
+2. `parse(serialize(d)) == d`, and equal values serialize to equal bytes. `parse` refuses a value `normalize` would change, and the lenient read of it reaches one `parse` accepts (`crates/automerge/tests/content_properties.rs`).
 3. Every `Change` yields a valid value or fails and changes nothing.
 4. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported.
 5. Two changes made from one value merge into a valid value, and a change merged with an empty one is itself in text and records either way round. Two changes to text either side of a character neither touches, joining no blocks, merge into text holding each side as its writer left it, the same text in either order. A block kind one side set and the other left alone stays (`crates/automerge/tests/convergence.rs`, beside sessions of three peers writing and merging at random, stale writes included, that reach one value, `crates/automerge/tests/sessions.rs`).
@@ -271,24 +273,24 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 
 **There is one revise**, at every address:
 
-- `Card::revise` builds it, at the body or a field.
+- `CardMut::revise` builds it, at the body or a field.
 - The typed writer's revise (`TypedWriter::revise`, WASM `writer.revise`) is it, a field read under its schema's codec and then conformed.
 - `Document::revise` runs it on each body and content field of each card it aligns. A value whose markdown imports to one that does not validate keeps its stored value, with an `edit::content_apply` warning at its address.
 - A typed revise of the whole document at the heads it was read (`TypedWriter::revise_document(md, &heads)`) lands the writer's document there, merged with every change since ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive").
 
 A binding's write names its card by `$id`, or the main card, never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, nothing tells the write. An id no card holds refuses with `edit::unknown_card_id`.
 
-Each write answers a `Receipt` (§ "Live state and merge"): `before` and `heads`, the document's heads either side of the write, `heads` the next write's base; `patches`, Automerge's patches between them; `droppedAnchors`; the `repairs` reading the value after made; and a revise's import warnings. `CardMut::undo(target, &receipt)` takes the write back. A write's options are `heads` and `actor` (`WriteOptions`); the actor scopes every id the write mints (§ Ids), and one that is not an actor refuses with `edit::invalid_actor`.
+Each write answers a `Receipt` (§ "Live state and merge"): `before` and `heads`, the document's heads either side of the write, `heads` the next write's base; `patches`, Automerge's patches between them; `droppedAnchors`; the `repairs` reading the value after made; and a revise's import warnings. `CardMut::undo(target, &receipt)` takes the write back. A write's options are `heads` (`WriteOptions`); it writes under the handle's actor, which `Document::set_actor` refuses with `edit::invalid_actor` where it is not one (§ Ids).
 
 **Pass the heads.** `heads` is the document's revision when the writer read (`Document::heads`). Without it, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. A write at heads the document has moved on from merges with what changed since (§ "Live state and merge"):
 
 - Heads merge where the document's history holds them: a session's bytes carry the history, and a document loaded from its stored row has none, so heads read before its load refuse with `edit::stale_base`.
 - A revise or replace diffs from the value as the heads read it, so an edit made since is not read as text the writer deleted.
-- Each block, container and island id a revise or replace introduces is minted afresh where the value now holds it, past the ids of the value the heads read, the value now and the write (`diff::revise_holding`, `diff::replace_holding`), a replace's own id among them. Under an actor, each id such a write minted rather than took from its writer moves under the actor (`mint::remint`).
-- Minting reads those two values alone, so equal values written over equal values by one actor, or none, store equal bytes, and `normalize` predicts what `replace` stores up to the first block's id, which a replace keeps, and the actor's ids.
+- Each block, container and island id a revise or replace introduces is minted afresh where the value now holds it, past the ids of the value the heads read, the value now and the write (`diff::revise_holding`, `diff::replace_holding`), a replace's own id among them.
+- Minting reads those two values alone, so `normalize` predicts what `replace` stores up to the first block's id, which a replace keeps, and the object ids the document gives the records it puts.
 - Two stale writes that each add a paragraph both land, and no id is minted twice.
 - A write that sets what a change since set lands as the later write; heads the document's history does not hold refuse with `edit::stale_base`, and the writer reads again.
-- A change may hold at most `MAX_CHANGE_STEPS` (16384) steps, nested ones counted; a writer splits a larger edit into several changes.
+- A change may hold at most `MAX_CHANGE_STEPS` steps, nested ones counted; a writer splits a larger edit into several changes.
 
 `diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line and then by word, and a revise keeps its anchors through the same diff, but for one whose tag the writer kept, which stands where the tag does.
 
@@ -304,7 +306,7 @@ The interactive target is a field of 20000 blocks or 500000 characters: a keystr
 
 ## Merge repair
 
-A single step cannot break the model, but two valid concurrent edits can merge into a state no step allows. `repair(raw) -> (Content, Repair[], Change)` makes any such state valid (`src/repair.rs`).
+A single step cannot break the model, but two valid concurrent edits can merge into a state no step allows. `repair(raw) -> (Content, Repair[], Change)` makes any such state valid (`crates/automerge/src/content/repair.rs`).
 
 Its `Change` takes the merged text to the value's: each character a rule deletes, inserts or rewrites as a splice, a slot's edits as a `nested` step, and a table's slots a rule removed or added as a props step. A peer lowers an exact change into the merged state's coordinates through it.
 

@@ -714,8 +714,8 @@ export declare class DocumentWriter {
 	/**
 	 * Revise the body or content field at `addr` from authored text: anchors
 	 * ride their text, and the write answers the `Receipt` a content write does,
-	 * `applied` the change from the value before, its warnings at the value,
-	 * and the anchors the write dropped or moved. A bare string is `Addr`
+	 * `{ before, heads, patches, droppedAnchors, repairs, warnings }`, its
+	 * warnings at the value. A bare string is `Addr`
 	 * shorthand for `{ field }`; an absent `addr.field` is the body, an absent
 	 * `addr.card` the main card, and a composable card is named by its `$id`,
 	 * an index throwing.
@@ -723,7 +723,7 @@ export declare class DocumentWriter {
 	 * The codec comes from the declared type, the body's being `richtext`:
 	 * `richtext` diffs markdown, while `text` diffs the literal text and never
 	 * imports markdown, so a byte-identical revise of a value carrying escapes
-	 * is a byte no-op and its `applied` is one splice over the literal text. A
+	 * is a byte no-op and its patches are one splice over the literal text. A
 	 * field's result is schema-conformed (a one-paragraph `richtext` rejects a
 	 * multi-block result), and an undeclared name throws `UnknownField`.
 	 *
@@ -736,8 +736,8 @@ export declare class DocumentWriter {
 	/**
 	 * Replace the bound document with `markdown`, then conform it. Composable
 	 * cards align to the stored ones by `$kind` and text similarity, an aligned
-	 * card's body and stored content fields revise, their anchors rebasing as
-	 * {@link revise}'s do, and every declared content field lands in its stored form.
+	 * card's body and stored content fields revise, their anchors riding their
+	 * text as {@link revise}'s do, and every declared content field lands in its stored form.
 	 * Returns the `DocumentRevised` receipt, its `from` naming the stored card
 	 * each composable card revises and its `warnings` ending with the
 	 * `conform::*` ones, and clears `doc.warnings`. Throws when `markdown`

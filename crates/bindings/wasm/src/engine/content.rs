@@ -138,8 +138,8 @@ export interface Change {
  * A record a step puts, a block a splice opens, a container it sets or an
  * island it inserts, may carry a placeholder id, `?` and an id (`"?1"`), and a
  * step may name it, as a `setBlock` path or a `nested` island does: the write
- * mints an id for it past every id the value holds, under `actor` where one is
- * given, and the receipt's patch that puts the record carries it.
+ * fills it with the object id of the record it puts, under the document's
+ * Automerge actor, and the receipt's patch that puts the record carries it.
  *
  * A placement of a held id, and a move or removal of one the text does not
  * hold, is refused (`edit::content_apply`).
@@ -188,7 +188,8 @@ export type Patch =
  * `repairs` names what reading the value after mended, where the write left
  * it invalid.
  * `warnings` holds a `parse::dropped_construct` per construct a revise's
- * markdown dropped.
+ * markdown dropped. All three are empty for a merge or sync message, whose
+ * `patches` carry what changed.
  */
 export interface Receipt {
     before: string[];

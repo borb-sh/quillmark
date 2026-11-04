@@ -44,7 +44,7 @@ A field whose type tree bears no content leaf is outside the walk, so conform is
 
 Decoding a string needs the schema and not the payload: a `richtext` string is markdown and a `text` string is literal text, so the same stored bytes decode two ways and only the declared type says which. A content object in its stored form names its codec, and a quill-free write or read honours it. That is why the `Content` read binds the quill instead of sitting beside `getStored`: a quill-free version would guess a codec, and would guess markdown.
 
-**A `Content`-typed read is also a write input, so it answers in the one canonical form** ([CONTENT.md](CONTENT.md) § "Validity"), the only form a `Content` input takes: every verb taking one refuses a value `normalize` would rewrite, as Rust's `Content::from_value` and `Card::replace` do, but `normalize`, which answers that form. Every write path carries it: `doc.read`, `reader.getContent{,At}`, `getStored` on a body, `importMarkdown`, `normalize`, and the `Card` wire behind `document.main` / `cards` / `card(i)` / `removeCard` / `seedCard`. `getStored` on a field and `payloadItems` carry the same form, echoed unread, which is why both are typed `unknown`.
+**A `Content`-typed read is also a write input, so it answers in the one canonical form** ([CONTENT.md](CONTENT.md) § "Validity"), the only form a `Content` input takes: every verb taking one refuses a value `normalize` would rewrite, as Rust's `Content::from_value` and `CardMut::replace` do, but `normalize`, which answers that form. Every write path carries it: `doc.read`, `reader.getContent{,At}`, `getStored` on a body, `importMarkdown`, `normalize`, and the `Card` wire behind `document.main` / `cards` / `card(i)` / `removeCard` / `seedCard`. `getStored` on a field and `payloadItems` carry the same form, echoed unread, which is why both are typed `unknown`.
 
 A field's markdown lives here, and the quill-free markdown export stays on `Document`: `doc.toMarkdown(addr?, { annotated })` answers the whole document without an address and one body or content value with one, the codec the value names deciding its spelling. Markdown has one import and one export: `Document.parse` / `importMarkdown` in, `toMarkdown` / `exportMarkdown` out, each export taking `annotated` to say whether anchors and islands survive. The placement rule generalizes: *a verb that needs a schema lives on the writer (writes) or the view (reads); `Document` is quill-free data.*
 
@@ -52,11 +52,11 @@ The rule scales from a field to a card without a new receiver: `reader.card(i)` 
 
 `revise` is the writer verb that is both typed *and* anchor-preserving: the content `revise` at the address, merged with the read's loss, with its quote relocation ([CONTENT.md](CONTENT.md) § "Writing a value").
 
-- At a field, the result then commits under the field schema like `set`. Because that needs the schema, it lives on the writer, wrapping core's `Card::revise_field_checked` primitive, which `Document` does not expose.
+- At a field, the result then commits under the field schema like `set`. Because that needs the schema, it lives on the writer, wrapping core's `CardMut::revise_field_checked` primitive, which `Document` does not expose.
 - It takes the address `get` takes, so the body is the address with no field, not a verb of its own. The body's codec is `richtext` by format, and it has no schema to conform to.
 - `reviseDocument` is the same revise at every value of the document.
 
-**The writer is the only typed input path, core included.** The typed primitives (`Card::commit_field`, `Card::revise_field_checked`) are `#[doc(hidden)]`. A resolved `FieldSchema` argument is the only thing that tells them from their opaque and schema-blind neighbours, and disambiguating by argument is a third mechanism beside the receiver and the verb: one the rule below does not name and a caller cannot see.
+**The writer is the only typed input path, core included.** The typed primitives (`Card::commit_field`, `CardMut::revise_field_checked`) are `#[doc(hidden)]`. A resolved `FieldSchema` argument is the only thing that tells them from their opaque and schema-blind neighbours, and disambiguating by argument is a third mechanism beside the receiver and the verb: one the rule below does not name and a caller cannot see.
 
 **The verb carries the write path.** One vocabulary rule, stated once here:
 
@@ -90,7 +90,7 @@ The bindings carry the write and the helper a writer outside the editor needs, `
 - `diffRange(before, after, { from, to })`, the exact splice over a range the editor knows, beside `diff`;
 - `inheritedMarks`, the formatting typed text carries.
 
-Every input path that takes a value or a change bounds it before any work: a `Change` of more than `MAX_CHANGE_STEPS` (16 384) steps throws `edit::too_many_steps`, a `Content` or `RawContent` whose text and its slots' texts pass 10 MiB throws `edit::input_too_large`, as markdown past 10 MiB does at `revise` and `importMarkdown`, and a value past its mark or anchor bound throws `edit::too_many_marks` or `edit::too_many_anchors` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies").
+Every input path that takes a value or a change bounds it before any work: a `Change` of more than `MAX_CHANGE_STEPS` steps throws `edit::too_many_steps`, a `Content` or `RawContent` whose text and its slots' texts pass 10 MiB throws `edit::input_too_large`, as markdown past 10 MiB does at `revise` and `importMarkdown`, and a value past its mark or anchor bound throws `edit::too_many_marks` or `edit::too_many_anchors` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies").
 
 WASM and Python also expose merge `repair`, which reads a state concurrent edits merged into (`RawContent`) as the valid value every peer holding it reads, with each mend it made and the change from the merged text to the value's ([CONTENT.md](CONTENT.md) § "Merge repair"). A stale write reaches the merge through `apply`, `revise` and `replace` at the heads it read.
 
@@ -150,7 +150,7 @@ The body follows from the same rule rather than from a separate one. `writer.rev
 - Nothing refuses: text both changed keeps both edits, and a record both set reads as the later write. On `reviseDocument` the writer's revise of the document as it read then lands at those heads, so a card both sides changed merges field by field.
 - Heads the document's history does not hold, as every read before the document was loaded from its stored row, refuse with `edit::stale_base`, and the writer reads again.
 
-Heads are the one base, on every verb and in every binding: a host holds `doc.heads()` beside what its writer read, as it would hold a hash, and nothing a hash or the value itself named is outside them. A `heads` key present with no string array throws, so a lookup that found nothing never drops into an unguarded write.
+Heads are the one base, on every verb and in every binding: a host holds `doc.heads()` beside what its writer read. A `heads` key present with no string array throws, so a lookup that found nothing never drops into an unguarded write.
 
 **Writers and card cursors are ephemeral: bind, write, discard.** They hold an address (the quill + document, or an index), never a cache; every call reads through the document, so a `removeCard` / `addCard` between binding a cursor and writing through it silently retargets it. A caller whose cards move re-resolves the index at write time ([PROGRAMMATIC.md](PROGRAMMATIC.md)).
 

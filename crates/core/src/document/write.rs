@@ -110,7 +110,9 @@ pub enum Edit<'a> {
     Replace(Content),
 }
 
-/// What a write did.
+/// What a write, a merge or a sync message did. A merge's or sync message's
+/// `dropped_anchors`, `repairs` and `warnings` are empty; its `patches`
+/// carry what changed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Receipt {
     /// The document's heads before the write; the heads

@@ -1261,8 +1261,9 @@ impl Document {
         self.reread();
     }
 
-    /// The document's bytes: what a host stores and [`load`](Document::load)
-    /// reads back.
+    /// The document as Automerge bytes, its whole history: what a peer
+    /// [`load`](Document::load)s or [`merge`](Document::merge)s. A host
+    /// stores the row, its [`StoredDocument`] JSON.
     pub fn save(&mut self) -> Vec<u8> {
         self.doc().save()
     }

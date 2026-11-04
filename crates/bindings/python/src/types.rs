@@ -800,7 +800,7 @@ impl PyDocument {
     /// without is path-strict. A path naming no body or content value orphans
     /// its selector. An id live anywhere in the document, a table cell's
     /// included, is answered as reattached and not written. Each id is answered
-    /// once, by its first selector. `changes` maps a path to the `applied` of the
+    /// once, by its first selector. `changes` maps a path to the `patches` of the
     /// write that dropped its anchors, and a match there must overlap text
     /// that write inserted. Raises `ValueError` on a selector or change that
     /// is not one, or a path that does not parse.
@@ -906,9 +906,9 @@ impl PyDocument {
     /// **Apply** `change` to the value at `field` on `card`, all its steps or
     /// none, and return the receipt: `before` and `heads` (the document's
     /// heads before and after the write, `heads` the next write's),
-    /// `patches` (what the write did to the value, Automerge's patches lowered
-    /// to it: applied in order to the value as it read before, they give the
-    /// value after), `dropped_anchors`, `repairs` and `warnings`. A record a
+    /// `patches` (Automerge's patches for the write, as automerge-js spells
+    /// them, each path from the document's root), `dropped_anchors`,
+    /// `repairs` and `warnings`. A record a
     /// placeholder id named carries its minted id in the patch that puts it.
     /// The write writes under the document's `actor`. `heads` is
     /// the revision the writer read (`heads()`), the change's offsets into the
@@ -995,8 +995,8 @@ impl PyDocument {
         crate::content::taking(py, &mut self.inner, target.index, &target.base, field, |card, target| card.undo_between(target, &before, &heads))
     }
 
-    /// The document as Automerge bytes, its whole history: the row a host
-    /// stores, which `load` reads back.
+    /// The document as Automerge bytes, its whole history: what a peer `load`s
+    /// or `merge`s. A host stores the row, `to_stored()`.
     fn save<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
         PyBytes::new(py, &self.inner.save())
     }
@@ -1371,11 +1371,11 @@ impl PyWriter {
     /// and an undeclared name raises `edit::unknown_field`.
     ///
     /// Returns the receipt a content write answers, as `Document.revise` does:
-    /// `applied`, the change from the value before (a `text` field's is one
-    /// splice over its literal text); `heads`, the document's heads after
-    /// the write; `dropped_anchors` and `moved_anchors`; and `warnings`, the
-    /// import's `parse::dropped_construct` as `Diagnostic` objects anchored
-    /// at the value.
+    /// `before` and `heads`, the document's heads either side of the write;
+    /// `patches` (a `text` field's are one splice over its literal text);
+    /// `dropped_anchors`; `repairs`; and `warnings`, the import's
+    /// `parse::dropped_construct` as `Diagnostic` objects anchored at the
+    /// value.
     ///
     /// `heads` names the revision the writer read (`Document.heads`): the
     /// write lands there and merges with the change since as Automerge

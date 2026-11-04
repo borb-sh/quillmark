@@ -59,8 +59,8 @@ impl Document {
         Ok(Document { inner, parse_warnings: Vec::new() })
     }
 
-    /// The document as Automerge bytes, its whole history: the row a host
-    /// stores, which `load` reads back.
+    /// The document as Automerge bytes, its whole history: what a peer `load`s
+    /// or `merge`s. A host stores the row, `toStored()`.
     pub fn save(&mut self) -> Vec<u8> {
         self.inner.save()
     }

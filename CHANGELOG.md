@@ -34,7 +34,8 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
 - feat(core)!: **a document is one Automerge document.** Every `Document`
   holds its cards in one Automerge 0.12 document, and the cards are a view of
   it: the root holds `schema`, `main`, `cards` by `$id` and `order`, a content
-  value is a text object, and any other value is maps, lists and scalars.
+  value is a text object, and any other value is maps, lists and scalars,
+  a content value nested in one read through repair.
   Inside a document a block, container or island id is its record's
   Automerge object id, minted by the write that puts it; a moved block or
   island takes a new one.
@@ -91,12 +92,12 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   `heads`.** `doc.save()`, `Document.load(bytes)`, `doc.heads()`,
   `doc.saveSince(heads)`, `doc.merge(bytes)`, and
   `doc.generateSyncMessage(state)` / `doc.receiveSyncMessage(state, message)`
-  with the opaque `SyncState`. `WriteOptions` is `{ heads, actor }`, and
-  `writer.revise` and `writer.reviseDocument` take `HeadsOptions`,
-  `{ heads }`; `base`, `baseHash`, `baseContent`, `baseStored`,
-  `BaseOptions` and `DocumentBaseOptions` are gone, as are `doc.hash`,
-  `doc.hashAt`, `writer.hash` and `writer.hashAt`. A receipt is
-  `{ applied, heads, droppedAnchors, movedAnchors, warnings, minted }`.
+  with the opaque `SyncState`. Every write, `writer.revise` and
+  `writer.reviseDocument` among them, takes `WriteOptions`, `{ heads }`;
+  `base`, `baseHash`, `baseContent`, `baseStored`, `BaseOptions` and
+  `DocumentBaseOptions` are gone, as are `doc.hash`, `doc.hashAt`,
+  `writer.hash` and `writer.hashAt`. The structural edits are `Document`
+  verbs, `indent` and `outdent` taking `first` and `last`.
 - feat(python)!: **the same in snake case**: `doc.save()`,
   `Document.load`, `doc.heads()`, `doc.save_since`, `doc.merge`,
   `doc.generate_sync_message(state)` and `doc.receive_sync_message(state,

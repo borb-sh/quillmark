@@ -241,8 +241,8 @@ pub enum EditError {
     #[error("the write removes the {kind} island '{island}', which its writer may not have seen; remove it with apply")]
     DropsExtIsland { island: String, kind: String },
 
-    /// A write's or a card placement's actor is not an
-    /// [actor](quillmark_automerge::content::ids::is_actor).
+    /// The actor [`Document::set_actor`](super::Document::set_actor) is given
+    /// is not an [actor](quillmark_automerge::content::ids::is_actor).
     #[error("invalid actor '{0}': must be 1 to 57 of [A-Za-z0-9_-], opening with a letter or digit")]
     InvalidActor(String),
 
@@ -1492,7 +1492,7 @@ impl Card {
     }
 
     /// The revise of `before`, the value at `target`, by `markdown`, as
-    /// [`revise`](Self::revise) builds it, landed nowhere.
+    /// [`CardMut::revise`](crate::document::CardMut::revise) builds it, landed nowhere.
     fn revision(
         &self,
         before: &quillmark_automerge::content::model::Content,

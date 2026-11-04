@@ -248,6 +248,8 @@ class Receipt(TypedDict):
     heads: list[str]
     # Automerge's patches for the change, in order.
     patches: list[Patch]
+    # The next three are empty for a merge or sync message, whose `patches`
+    # carry what changed.
     dropped_anchors: list[ReceiptDroppedAnchor]
     repairs: list[dict[str, Any]]
     warnings: list[Diagnostic]
