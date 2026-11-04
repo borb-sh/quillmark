@@ -9,9 +9,8 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_automerge::automerge::transaction::Transactable;
-use quillmark_automerge::automerge::{ActorId, ObjId, ReadDoc, Value as AmValue};
-use quillmark_automerge::model::{self as am, StepError};
+use quillmark_automerge::automerge::{ActorId, ObjId};
+use quillmark_automerge::model::{StepError, cards};
 use quillmark_content::change::{self, AnchorStep, ApplyError, Change, Step};
 use quillmark_content::lines::import::ImportWarning;
 use quillmark_content::diff;
@@ -38,13 +37,6 @@ fn step_error(e: StepError) -> EditError {
         StepError::AnchorHeld { id, .. } => ApplyError::AnchorHeld { id },
         StepError::Bad { step, reason } => ApplyError::BadStep { step, reason },
     })
-}
-
-fn obj(doc: &am::Doc, parent: &ObjId, key: &str) -> Option<ObjId> {
-    match doc.am().get(parent, key).ok()?? {
-        (AmValue::Object(_), id) => Some(id),
-        _ => None,
-    }
 }
 
 /// `v` with each string `minted` renames renamed, the values under a key
@@ -115,25 +107,18 @@ impl Document {
             }
         }
         let id = self.card_at(at).id().map(str::to_string);
-        let doc = self.doc();
-        let card = match (at, id) {
-            (None, _) => doc.main(),
-            (Some(_), Some(id)) => obj(doc, &doc.cards(), &id).expect("a flushed card is held"),
-            (Some(i), None) => return Err(EditError::IndexOutOfRange { index: i, len: 0 }),
-        };
-        let Target::Field(name) = target else {
-            return Ok((doc.value(&card, am::BODY).expect("a card holds its body"), put));
-        };
-        let fields = obj(doc, &card, am::FIELDS).expect("a card holds its fields");
-        if let Some(v) = doc.value(&fields, name) {
-            return Ok((v, put));
+        if let (Some(i), None) = (at, &id) {
+            return Err(EditError::IndexOutOfRange { index: i, len: 0 });
         }
-        if doc.am().get(&fields, name).unwrap().is_some() {
-            doc.am_mut().delete(&fields, name).unwrap();
+        let field = match target {
+            Target::Field(name) => Some(name),
+            _ => None,
+        };
+        let (v, written) = cards::value_at(self.doc(), at.and(id.as_deref()), field, || content.expect("a field target reads its value"))
+            .expect("a flushed card is held");
+        if written {
+            self.reread();
         }
-        let v = doc.put_value(&fields, name, &content.expect("a field target reads its value"));
-        doc.am_mut().commit();
-        self.reread();
         Ok((v, put))
     }
 

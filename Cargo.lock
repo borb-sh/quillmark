@@ -2533,6 +2533,7 @@ dependencies = [
  "automerge",
  "proptest",
  "quillmark-content",
+ "serde",
  "serde_json",
  "thiserror",
 ]

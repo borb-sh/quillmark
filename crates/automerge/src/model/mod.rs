@@ -11,6 +11,7 @@
 //! each comment whole), `fields`, `nestedComments`, `ext`, `seed` and
 //! `body`; a body or content field is a value in the shape `value` states.
 
+pub mod cards;
 pub mod ids;
 pub mod json;
 pub mod patch;
@@ -229,8 +230,13 @@ impl Doc {
 
     /// The document, to write outside [`apply`](Doc::apply). A caller
     /// commits what it writes.
-    pub fn am_mut(&mut self) -> &mut AutoCommit {
+    pub(crate) fn am_mut(&mut self) -> &mut AutoCommit {
         &mut self.doc
+    }
+
+    /// Commits what the document holds uncommitted.
+    pub fn commit(&mut self) {
+        self.doc.commit();
     }
 
     pub fn main(&self) -> ObjId {

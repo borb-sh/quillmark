@@ -90,7 +90,7 @@ fn held(content: &Content) -> Doc {
     let mut doc = Doc::new();
     let main = doc.main();
     doc.put_value(&main, "body", content);
-    doc.am_mut().commit();
+    doc.commit();
     doc
 }
 

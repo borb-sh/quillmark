@@ -184,7 +184,7 @@ fn doc_of(d: &Content) -> (Doc, ObjId) {
     let mut doc = Doc::new();
     let main = doc.main();
     let root = doc.put_value(&main, "v", d);
-    doc.am_mut().commit();
+    doc.commit();
     (doc, root)
 }
 

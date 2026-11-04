@@ -810,7 +810,7 @@ fn payload_by_place(p: &Payload) -> Payload {
         .items()
         .iter()
         .map(|item| match item {
-            PayloadItem::Field { key, value } if held::is_content(value.as_json()) => {
+            PayloadItem::Field { key, value } if quillmark_automerge::model::cards::is_content(value.as_json()) => {
                 let c = Content::from_value(value.as_json()).expect("a content field reads").by_place();
                 PayloadItem::Field { key: key.clone(), value: crate::value::QuillValue::from_json(c.to_value()) }
             }

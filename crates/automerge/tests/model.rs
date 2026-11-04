@@ -16,7 +16,7 @@ fn held(d: &Content) -> (Doc, automerge::ObjId) {
     let mut doc = Doc::new();
     let main = doc.main();
     let root = doc.put_value(&main, "v", d);
-    doc.am_mut().commit();
+    doc.commit();
     (doc, root)
 }
 
@@ -101,7 +101,7 @@ fn two_documents_built_alike_share_their_origin() {
     assert_eq!(ha, b.heads());
     let main = a.main();
     a.put_value(&main, "v", &Content::empty());
-    a.am_mut().commit();
+    a.commit();
     let bytes = a.save_since(&ha);
     b.merge(&bytes).unwrap();
     assert_eq!(a.heads(), b.heads());

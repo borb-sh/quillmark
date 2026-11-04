@@ -69,7 +69,9 @@ backends lower the content.
 ### `quillmark-automerge`
 
 The Quillmark document held as one Automerge document (`model::Doc`): the
-root's cards, fields and values, a change lowered into Automerge operations,
+root's cards, each card map's layout, fields, values and nested comments as
+plain data (`model::cards`, which core reads its cards from and flushes them
+into), a change lowered into Automerge operations,
 at the document's heads or at earlier ones, and the read back through merge
 repair, so every peer holding one merged state reads one valid value. Bytes,
 heads, incremental saves and the sync protocol are Automerge's own.
