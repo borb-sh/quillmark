@@ -137,8 +137,17 @@ pub(crate) fn rewrite(doc: &mut AutoCommit, root: &ObjId, want: &Content) {
         return;
     }
     let lowered = crate::content::diff::diff(&now, want).is_ok_and(|change| super::step::lower(doc, root, &change, Some(&now)).is_ok());
-    if !lowered {
-        update(doc, root, want);
+    match lowered {
+        true => put_codec(doc, root, want.codec),
+        false => update(doc, root, want),
+    }
+}
+
+fn put_codec(doc: &mut AutoCommit, root: &ObjId, codec: Codec) {
+    match codec.name() {
+        Some(c) => doc.put(root, CODEC, c).unwrap(),
+        None if doc.get(root, CODEC).unwrap().is_some() => doc.delete(root, CODEC).unwrap(),
+        None => {}
     }
 }
 
@@ -154,11 +163,7 @@ pub(crate) fn update(doc: &mut AutoCommit, root: &ObjId, content: &Content) {
         fill(doc, root, content);
         return;
     };
-    match content.codec.name() {
-        Some(c) => doc.put(root, CODEC, c).unwrap(),
-        None if doc.get(root, CODEC).unwrap().is_some() => doc.delete(root, CODEC).unwrap(),
-        None => {}
-    }
+    put_codec(doc, root, content.codec);
     let cs = match obj(doc, root, CONTAINERS) {
         Some(cs) => cs,
         None => doc.put_object(root, CONTAINERS, ObjType::List).unwrap(),
