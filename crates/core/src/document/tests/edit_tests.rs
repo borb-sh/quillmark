@@ -621,14 +621,12 @@ fn test_revise_body_returns_its_patches_and_updates_body() {
     let _ = card.revise(crate::document::Target::Body, "hello world", None).unwrap();
     let patches = card.revise(crate::document::Target::Body, "hello brave world", None).unwrap().patches;
     assert_eq!(card.body_lines().text, "hello brave world");
-    let inserted: Vec<(usize, &str)> = patches
+    let spliced: Vec<(&serde_json::Value, &str)> = patches
         .iter()
-        .filter_map(|p| match &p.action {
-            crate::document::PatchAction::Insert { at, text, .. } => Some((*at, text.as_str())),
-            _ => None,
-        })
+        .filter(|p| p["action"] == "splice")
+        .map(|p| (p["path"].as_array().unwrap().last().unwrap(), p["value"].as_str().unwrap()))
         .collect();
-    assert_eq!(inserted, [(6, "brave ")]);
+    assert_eq!(spliced, [(&serde_json::json!(7), "brave ")]);
 }
 
 #[test]
@@ -984,7 +982,7 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
             .unwrap_err(),
     );
     refused.push(
-        commit_richtext(doc.main_card_mut(), "late", &serde_json::json!("v"), false).unwrap_err(),
+        commit_richtext(&mut doc.main_card_mut(), "late", &serde_json::json!("v"), false).unwrap_err(),
     );
     for err in refused {
         assert_eq!(err.code(), "edit::invalid_payload");
@@ -1153,7 +1151,8 @@ fn a_field_write_holds_its_content_as_a_body_write_does() {
     wire.payload_items.push(crate::document::PayloadItemWire::Field { key: "f".into(), value: bad.clone() });
     assert_eq!(Card::try_from(wire).unwrap_err().code(), "edit::field_decode");
 
-    let row = stored(&b).replace(&serde_json::to_string(&canonical).unwrap(), &serde_json::to_string(&bad).unwrap());
+    let row = stored(&b).replace(r#"{"end":5,"id":"a1","start":0}"#, r#"{"end":99,"id":"a1","start":0}"#);
+    assert_ne!(row, stored(&b));
     assert!(Document::from_stored(&row).is_err(), "a load refuses a field it would refuse as a body");
 }
 

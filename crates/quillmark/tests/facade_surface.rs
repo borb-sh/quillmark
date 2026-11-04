@@ -85,7 +85,7 @@ fn content_lane_spells_through_the_facade() {
 
     let revised: Result<Receipt, EditError> = doc.main_mut().revise(quillmark::Target::Body, "# Body", None);
     let Receipt { patches, dropped_anchors, .. } = revised.expect("a heading imports");
-    let _: Vec<quillmark::Patch> = patches;
+    let _: Vec<serde_json::Value> = patches;
     let _: Vec<quillmark::Dropped> = dropped_anchors;
     let _: fn(ImportError) -> EditError = EditError::Import;
 
@@ -102,7 +102,7 @@ fn content_lane_spells_through_the_facade() {
 
     let selectors: Vec<AnchorSelector> = doc.anchor_contexts();
     let _: Option<AnchorSelector> = doc.anchor_context("c1");
-    let changes: HashMap<DocPath, Vec<quillmark::Patch>> = HashMap::new();
+    let changes: HashMap<DocPath, Vec<serde_json::Value>> = HashMap::new();
     let Reattached {
         reattached,
         orphaned,

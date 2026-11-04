@@ -123,3 +123,61 @@ pub(crate) fn flush(d: &mut Doc, was: (&Card, &[Card]), now: (&Card, &[Card])) {
     let now_all: Vec<_> = now.1.iter().map(held).collect();
     cards::flush(d, (&held(was.0), &was_all), (&held(now.0), &now_all));
 }
+
+/// Writes what the card changed since it read as `was` into the document,
+/// the main card where `main`, and answers it as it reads after.
+pub(crate) fn write_card(d: &mut Doc, main: bool, was: &Card, now: &Card) -> Card {
+    card(cards::write_one(d, main, &held(was), &held(now)))
+}
+
+/// Places `c` at `index` of the document's cards, and answers it as it reads.
+pub(crate) fn insert_card(d: &mut Doc, index: usize, c: &Card) -> Card {
+    card(cards::insert(d, index, &held(c)))
+}
+
+pub(crate) fn remove_card(d: &mut Doc, id: &str) {
+    cards::remove(d, id);
+}
+
+pub(crate) fn move_card(d: &mut Doc, id: &str, index: usize) {
+    cards::move_to(d, id, index);
+}
+
+/// The card at `at` as the document reads it, the main card where `None`.
+pub(crate) fn read_at(d: &Doc, id: Option<&str>) -> Card {
+    card(match id {
+        None => cards::read_card(d, &d.main()),
+        Some(id) => cards::read_id(d, id),
+    }
+    .expect("a held card reads"))
+}
+
+/// Reads again the cards `patches` reached into `main` and `all`.
+pub(crate) fn reread(d: &Doc, patches: &[serde_json::Value], main: &mut Card, all: &mut Vec<Card>) {
+    let t = cards::touched(patches);
+    if t.whole {
+        (*main, *all) = read(d).expect("a held document reads as cards");
+        return;
+    }
+    if t.main {
+        *main = read_at(d, None);
+    }
+    let read_id = |id: &str| read_at(d, Some(id));
+    if t.moved {
+        let mut held: std::collections::HashMap<String, Card> = all.drain(..).filter_map(|c| Some((c.id()?.to_string(), c))).collect();
+        *all = d
+            .order()
+            .into_iter()
+            .map(|id| match held.remove(&id).filter(|_| !t.cards.contains(&id)) {
+                Some(c) => c,
+                None => read_id(&id),
+            })
+            .collect();
+    } else {
+        for c in all.iter_mut() {
+            if let Some(id) = c.id().filter(|id| t.cards.contains(*id)).map(str::to_string) {
+                *c = read_id(&id);
+            }
+        }
+    }
+}

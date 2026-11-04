@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 
 use quillmark_automerge::content::anchors::{AnchorContext, Reattached, anchor_context, anchor_contexts};
-use quillmark_automerge::model::patch::{self, Patch};
+use quillmark_automerge::model::patch;
 use quillmark_automerge::content::model::Content;
 use quillmark_automerge::content::units::{Scalars, Units};
 use serde_json::Value as JsonValue;
@@ -143,17 +143,17 @@ impl Document {
     pub fn reattach(
         &mut self,
         selectors: &[AnchorSelector],
-        changes: &HashMap<DocPath, Vec<Patch>>,
+        changes: &HashMap<DocPath, Vec<serde_json::Value>>,
     ) -> Reattached<AnchorSelector> {
         self.reattach_in(selectors, changes, Scalars)
     }
 
     /// [`reattach`](Self::reattach) with each write's patches counted in `u`, as
-    /// [`Receipt::in_units`](super::Receipt::in_units) answers it.
+    /// a write in `u` answers them.
     pub fn reattach_in(
         &mut self,
         selectors: &[AnchorSelector],
-        changes: &HashMap<DocPath, Vec<Patch>>,
+        changes: &HashMap<DocPath, Vec<serde_json::Value>>,
         u: impl Units,
     ) -> Reattached<AnchorSelector> {
         let mut answered = HashSet::new();
@@ -199,7 +199,7 @@ impl Document {
             let ctxs: Vec<AnchorContext> = at.iter().map(|&i| selectors[i].context()).collect();
             let change = changes.get(path);
             let Some(placed) = self.edit_content_at(path, |content| {
-                let inserted = change.map(|c| patch::inserted_spans(c, &content.text, u));
+                let inserted = change.map(|c| patch::inserted_spans(c, u, &content.text));
                 content
                     .reattach(&ctxs, inserted.as_deref(), &HashSet::new())
                     .reattached
@@ -288,19 +288,17 @@ impl Document {
         path: &DocPath,
         f: impl FnOnce(&mut Content) -> R,
     ) -> Option<R> {
-        self.touch();
-        let (card, rest) = match path.segs() {
-            [DocSeg::Main, rest @ ..] => (&mut self.main, rest),
+        let (at, rest) = match path.segs() {
+            [DocSeg::Main, rest @ ..] => (None, rest),
             [DocSeg::Card { kind, index }, rest @ ..] => {
-                let card = self.cards.get_mut(*index)?;
-                if card.kind() != kind.as_deref() {
+                if self.cards.get(*index)?.kind() != kind.as_deref() {
                     return None;
                 }
-                (card, rest)
+                (Some(*index), rest)
             }
             _ => return None,
         };
-        match rest {
+        self.edit_card(at, |card| match rest {
             [DocSeg::Body] => {
                 let mut body = card.body().clone();
                 let out = f(&mut body);
@@ -330,7 +328,7 @@ impl Document {
                 Some(out)
             }
             _ => None,
-        }
+        })
     }
 
     /// `visit` each body and content value with its path, in the order

@@ -2,17 +2,15 @@
 //! value the step before it left; [`apply`] runs them all or none, holds each
 //! step to what [`Content::check`] asks of what it touched and the whole
 //! change to [`Content::validate`], and returns the change in its normalized
-//! form. [`invert`] reads back the inverse each step gives as it applies, and
-//! [`map_pos`] maps a position across a change.
+//! form.
 
 use crate::content::draft::{Draft, HeldTwice};
 use crate::content::ids::is_id;
 use crate::content::lines::anchor::AnchorContext;
 use crate::content::model::{
-    Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Scalar, break_offsets, check_block,
+    Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Scalar, break_offsets, check_block,
     check_island, check_mark_kind, is_text_char, mark_spans, normalized_marks,
 };
-pub use crate::content::mapping::{MapResult, Mapping};
 use crate::content::table::{self, Table};
 use crate::content::units::{Scalars, Units};
 use serde_json::{Map, Value};
@@ -113,13 +111,6 @@ pub enum IslandStep {
     Insert { at: Scalar, island: Island, block: Option<String> },
 }
 
-/// Which side of an insertion at a position the position keeps to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Assoc {
-    Before,
-    After,
-}
-
 /// Why a change was refused. Nothing changed.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -183,9 +174,6 @@ pub struct Applied {
     /// Each anchor the value held before and holds nowhere after, unless an
     /// `anchor` step removed it, as it read before, in reading order.
     pub dropped: Vec<Dropped>,
-    /// Each surviving anchor, a point included, whose position, block or
-    /// context the change moved, by id.
-    pub moved: Vec<Moved>,
     /// Each placeholder the change gave a record it put, and the id
     /// [`mint::fill`](crate::content::mint::fill) gave it, minted past the ids `before`
     /// holds.
@@ -206,41 +194,6 @@ pub struct Dropped {
 pub struct SlotRef {
     pub island: String,
     pub slot: String,
-}
-
-/// A surviving anchor a change moved: the text it covered before and after,
-/// and what moved.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Moved {
-    pub id: String,
-    pub before: String,
-    pub after: String,
-    pub reason: MoveReason,
-}
-
-/// What moved about an anchor, the first of these that holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum MoveReason {
-    /// A step put it other than where the change's edits to the text carry
-    /// it, or in another slot.
-    Position,
-    /// Its start sits in another block.
-    Block,
-    /// Its text, or the [`CONTEXT`] characters on either side of it, reads
-    /// otherwise.
-    Context,
-}
-
-impl MoveReason {
-    /// The reason's name on the wire.
-    pub fn name(self) -> &'static str {
-        match self {
-            MoveReason::Position => "position",
-            MoveReason::Block => "block",
-            MoveReason::Context => "context",
-        }
-    }
 }
 
 /// The characters on each side of an anchor its context reads, as many as
@@ -276,28 +229,15 @@ impl Splice {
 /// Run `change` on `before`, all or none: the value it leaves, the change in
 /// its normalized form and what it dropped, or the first step that fails.
 pub fn apply(before: &Content, change: &Change) -> Result<Applied, ApplyError> {
-    Ok(applying(before, change, false)?.0)
-}
-
-/// The change that undoes `change` on the value it applies to: the inverse
-/// each step gave as it applied, last first.
-pub fn invert(change: &Change, before: &Content) -> Result<Change, ApplyError> {
-    Ok(applying(before, change, true)?.1)
-}
-
-fn applying(before: &Content, change: &Change, undo: bool) -> Result<(Applied, Change), ApplyError> {
-    let mut run = Run::new(undo);
+    let mut run = Run::new();
     let crate::content::mint::Filled { change, minted } = crate::content::mint::fill(change, &[before], None)?;
     let mut draft = Draft::new(before.clone());
-    let (mut applied, mut groups) = run.level(&mut draft, &change.steps)?;
+    let mut applied = run.level(&mut draft, &change.steps)?;
     let mut content = draft.finish();
     let used: HashSet<&str> = content.blocks.iter().flat_map(|b| b.path.iter().map(String::as_str)).collect();
     let unused: Vec<Container> = content.containers.iter().filter(|c| !used.contains(c.id.as_str())).cloned().collect();
     for k in unused {
-        applied.push(Step::Container(ContainerStep::Remove { id: k.id.clone() }));
-        if undo {
-            groups.push(vec![Step::Container(ContainerStep::Set(k))]);
-        }
+        applied.push(Step::Container(ContainerStep::Remove { id: k.id }));
     }
     content.order_containers(true);
     content.validate()?;
@@ -308,10 +248,7 @@ fn applying(before: &Content, change: &Change, undo: bool) -> Result<(Applied, C
         }
         false => Vec::new(),
     };
-    let applied = Change { steps: applied };
-    let moved = moved_anchors(before, &content, &applied, &run);
-    let inverse = Change { steps: groups.into_iter().rev().flatten().collect() };
-    Ok((Applied { content, applied, dropped, moved, minted }, inverse))
+    Ok(Applied { content, applied: Change { steps: applied }, dropped, minted })
 }
 
 /// The text `change`'s top-level splices inserted that survives in `after`,
@@ -381,79 +318,49 @@ fn anchor_homes(c: &Content, slot: Option<&SlotRef>, out: &mut HashMap<String, O
 /// the checks of the whole value at the end.
 pub(crate) fn run(c: &mut Content, steps: &[Step]) -> Result<(), ApplyError> {
     let mut draft = Draft::new(std::mem::take(c));
-    let done = Run::new(false).level(&mut draft, steps).map(|_| ());
+    let done = Run::new().level(&mut draft, steps).map(|_| ());
     *c = draft.finish();
     done
 }
 
 /// A change running: what its steps report beyond the value they leave.
 pub(crate) struct Run {
-    /// Whether each step gives its inverse.
-    undo: bool,
     /// The id of each anchor an `anchor` step removed.
     removed: Vec<String>,
-    /// Each anchor whose position, block or context a step may have moved.
-    touched: HashSet<String>,
-    /// Each anchor an `anchor` step placed or moved.
-    stepped: HashSet<String>,
     /// Whether a step may have lost an anchor other than by an `anchor` step.
     lost: bool,
 }
-
-/// The steps that undo one step.
-type Undo = Vec<Step>;
 
 const TWICE_BLOCK: &str = "the block id is held twice";
 const TWICE_ISLAND: &str = "the island id is held twice";
 
 impl Run {
-    pub(crate) fn new(undo: bool) -> Run {
-        Run { undo, removed: Vec::new(), touched: HashSet::new(), stepped: HashSet::new(), lost: false }
+    pub(crate) fn new() -> Run {
+        Run { removed: Vec::new(), lost: false }
     }
 
     /// Runs `steps` on one level, each checked over what it touched, and
-    /// answers them normalized and, where the run gives them, their inverses.
-    fn level(&mut self, d: &mut Draft, steps: &[Step]) -> Result<(Vec<Step>, Vec<Undo>), ApplyError> {
-        let mut applied = Vec::with_capacity(steps.len());
-        let mut groups = Vec::with_capacity(if self.undo { steps.len() } else { 0 });
-        for (n, step) in steps.iter().enumerate() {
-            let (done, undo) = self.step(d, step, n)?;
-            applied.push(done);
-            if self.undo {
-                groups.push(undo);
-            }
-        }
-        Ok((applied, groups))
+    /// answers them normalized.
+    fn level(&mut self, d: &mut Draft, steps: &[Step]) -> Result<Vec<Step>, ApplyError> {
+        steps.iter().enumerate().map(|(n, step)| self.step(d, step, n)).collect()
     }
 
     /// One step on `d`, the `n`th of its level.
-    pub(crate) fn step(&mut self, d: &mut Draft, step: &Step, n: usize) -> Result<(Step, Undo), ApplyError> {
+    pub(crate) fn step(&mut self, d: &mut Draft, step: &Step, n: usize) -> Result<Step, ApplyError> {
         Ok(match step {
-            Step::Splice(s) => {
-                let (done, undo) = self.splice(d, s, n)?;
-                (Step::Splice(done), undo)
-            }
-            Step::SetBlock(s) => {
-                let (done, undo, _) = set_block(d, s, n)?;
-                (Step::SetBlock(done), vec![Step::SetBlock(undo)])
-            }
+            Step::Splice(s) => Step::Splice(self.splice(d, s, n)?),
+            Step::SetBlock(s) => Step::SetBlock(set_block(d, s, n)?),
             Step::Container(s) => {
-                let undo = container(&mut d.c, s)?;
-                (step.clone(), vec![undo])
+                container(&mut d.c, s)?;
+                step.clone()
             }
-            Step::Mark(m) => {
-                let (done, undo) = self.mark(d, m, n)?;
-                (Step::Mark(done), undo)
-            }
-            Step::Anchor(a) => {
-                let (done, undo) = self.anchor(d, a, n)?;
-                (Step::Anchor(done), vec![undo])
-            }
+            Step::Mark(m) => Step::Mark(self.mark(d, m, n)?),
+            Step::Anchor(a) => Step::Anchor(self.anchor(d, a, n)?),
             Step::Island(IslandStep::Props { id, props, slots }) => {
-                let (gained, undo) = self.island_props(&mut d.c, id, props, slots, n)?;
+                let gained = self.island_props(&mut d.c, id, props, slots, n)?;
                 let k = island_index(&d.c, id, n)?;
                 let props = d.c.islands[k].props.clone();
-                (Step::Island(IslandStep::Props { id: id.clone(), props, slots: gained }), vec![undo])
+                Step::Island(IslandStep::Props { id: id.clone(), props, slots: gained })
             }
             Step::Island(IslandStep::Insert { at, island, block }) => {
                 let held = (*at <= d.len()).then(|| d.c.blocks[d.block_at(*at)].id.clone());
@@ -461,9 +368,9 @@ impl Run {
                     return Err(ApplyError::Stale { step: n });
                 }
                 let s = Splice { islands: vec![island.clone()], ..Splice::new(*at, "", ISLAND_SLOT.to_string()) };
-                let (done, undo) = self.splice(d, &s, n)?;
+                let done = self.splice(d, &s, n)?;
                 let island = done.islands.into_iter().next().unwrap_or_else(|| island.clone());
-                (Step::Island(IslandStep::Insert { at: *at, island, block: held }), undo)
+                Step::Island(IslandStep::Insert { at: *at, island, block: held })
             }
             Step::Nested { island, slot, change } => {
                 let unknown = || ApplyError::UnknownSlot { island: island.clone(), slot: slot.clone() };
@@ -473,18 +380,17 @@ impl Run {
                 };
                 let target = d.c.islands[k].slots.get_mut(slot).ok_or_else(unknown)?;
                 let mut inner = Draft::new(std::mem::take(target));
-                let (steps, groups) = self.level(&mut inner, &change.steps)?;
+                let steps = self.level(&mut inner, &change.steps)?;
                 *target = inner.finish();
                 if !target.is_slot_shape() {
                     return Err(Invariant::BadSlot { island: island.clone(), slot: slot.clone() }.into());
                 }
-                let nested = |steps| Step::Nested { island: island.clone(), slot: slot.clone(), change: Change { steps } };
-                (nested(steps), vec![nested(groups.into_iter().rev().flatten().collect())])
+                Step::Nested { island: island.clone(), slot: slot.clone(), change: Change { steps } }
             }
         })
     }
 
-    fn splice(&mut self, d: &mut Draft, s: &Splice, n: usize) -> Result<(Splice, Undo), ApplyError> {
+    fn splice(&mut self, d: &mut Draft, s: &Splice, n: usize) -> Result<Splice, ApplyError> {
         let (at, dn, m) = (s.at, s.delete.chars().count(), s.insert.chars().count());
         let end = at.checked_add(dn).filter(|&end| end <= d.len()).ok_or(ApplyError::Stale { step: n })?;
         let (k0, k1) = (d.block_at(at), d.block_at(end));
@@ -522,9 +428,6 @@ impl Run {
                 return Err(Invariant::BadId { id: island.id.clone() }.into());
             }
             check_island(island)?;
-            for slot in island.slots.values() {
-                self.touched.extend(slot.anchor_ids());
-            }
         }
 
         let (first, lost) = (d.slots_before(at), d.slots_before(end) - d.slots_before(at));
@@ -551,33 +454,13 @@ impl Run {
         let next = if untouched { next } else { settled(ws, &written, next) };
         let inserted = clipped(&next, at, at + m);
 
-        let breaks = s.insert.contains('\n') || s.delete.contains('\n');
-        let (lo, hi) = match breaks {
-            true => (ws.min(at.saturating_sub(CONTEXT)), d.block_end(k1).max(end + CONTEXT)),
-            false => (at.saturating_sub(CONTEXT), end + CONTEXT),
-        };
-        let near = d.c.anchors.partition_point(|a| a.start <= hi);
-        self.touched.extend(d.c.anchors[..near].iter().filter(|a| a.end >= lo).map(|a| a.id.clone()));
-        let restores = self.shift_anchors(d, at, dn, m);
+        self.shift_anchors(d, at, dn, m);
         let blocks = d.rewrite(k0, k1, &written, next, s.blocks.clone());
         let gone: Vec<Island> = d.c.islands.splice(first..first + lost, islands.iter().cloned()).collect();
         if gone.iter().any(|i| i.slots.values().any(|slot| !slot.anchors.is_empty())) {
             self.lost = true;
         }
         let removed = Removed { blocks, marks: removed_marks, islands: gone };
-        let mut undo = Vec::new();
-        if self.undo {
-            undo.push(Step::Splice(Splice {
-                at,
-                delete: s.insert.clone(),
-                insert: s.delete.clone(),
-                marks: removed.marks.clone(),
-                blocks: removed.blocks.clone(),
-                islands: removed.islands.clone(),
-                removed: Some(Removed { blocks: s.blocks.clone(), marks: inserted.clone(), islands: islands.clone() }),
-            }));
-            undo.extend(restores);
-        }
         let done = Splice {
             at,
             delete: s.delete.clone(),
@@ -587,13 +470,11 @@ impl Run {
             islands,
             removed: Some(removed),
         };
-        Ok((done, undo))
+        Ok(done)
     }
 
-    /// Moves the anchors across a splice of `dn` characters at `at` by `m`,
-    /// and answers a step putting back each one the splice's inverse would
-    /// not, quoting the text it reads now.
-    fn shift_anchors(&mut self, d: &mut Draft, at: Scalar, dn: Scalar, m: Scalar) -> Undo {
+    /// Moves the anchors across a splice of `dn` characters at `at` by `m`.
+    fn shift_anchors(&mut self, d: &mut Draft, at: Scalar, dn: Scalar, m: Scalar) {
         let end = at + dn;
         let split = d.c.anchors.partition_point(|a| a.start <= end);
         for a in &mut d.c.anchors[split..] {
@@ -601,9 +482,8 @@ impl Run {
             a.end = a.end - dn + m;
         }
         if d.c.anchors[..split].iter().all(|a| a.end <= at) {
-            return Vec::new();
+            return;
         }
-        let mut restores = Vec::new();
         let mut changed = false;
         let mut kept = Vec::with_capacity(d.c.anchors.len());
         for a in d.c.anchors.drain(..split) {
@@ -614,15 +494,6 @@ impl Run {
             let point = a.is_point();
             let (start, end_) = (map_start(a.start, at, dn, m, point), map_end(a.end, at, dn, m, point));
             let alive = point || start < end_;
-            if !point && ((at < a.end && end > a.start) || (a.start < at && at < a.end)) {
-                self.touched.insert(a.id.clone());
-            }
-            if self.undo {
-                let back = (map_start(start, at, m, dn, point), map_end(end_, at, m, dn, point));
-                if !alive || back != (a.start, a.end) {
-                    restores.push((a.clone(), alive));
-                }
-            }
             if !alive {
                 self.lost = true;
                 changed = true;
@@ -636,19 +507,9 @@ impl Run {
         if changed {
             d.c.sort_anchors();
         }
-        restores
-            .into_iter()
-            .map(|(a, alive)| {
-                let quote = Some(d.slice(a.start, a.end));
-                Step::Anchor(match alive {
-                    true => AnchorStep::Move { anchor: a, quote },
-                    false => AnchorStep::Place { anchor: a, quote },
-                })
-            })
-            .collect()
     }
 
-    fn mark(&mut self, d: &mut Draft, s: &MarkStep, n: usize) -> Result<(MarkStep, Undo), ApplyError> {
+    fn mark(&mut self, d: &mut Draft, s: &MarkStep, n: usize) -> Result<MarkStep, ApplyError> {
         let (start, end, tag, quote) = match s {
             MarkStep::Add { mark, quote } => (mark.start, mark.end, mark.kind.tag(), quote),
             MarkStep::Remove { start, end, tag, quote } => (*start, *end, tag.as_str(), quote),
@@ -660,7 +521,6 @@ impl Run {
         let (k0, k1) = (d.block_at(start), d.block_at(end));
         let (ws, text, mut marks) = d.window(k0, k1);
         let held_marks = marks.len();
-        let was = if self.undo { marks.clone() } else { Vec::new() };
         let remove = matches!(s, MarkStep::Remove { .. }) || matches!(s, MarkStep::Add { mark, .. } if mark.kind.is_keyed());
         if remove {
             clear(&mut marks, start, end, tag);
@@ -671,26 +531,15 @@ impl Run {
         }
         within_marks(d, held_marks, ws, &text, &marks, d.len())?;
         let marks = settled(ws, &text, marks);
-        let undo = match self.undo {
-            true => mark_fixups(&marks, &was).into_iter().map(|step| quoting(step, |a, b| d.slice(a, b))).collect(),
-            false => Vec::new(),
-        };
         d.set_marks(k0, k1, marks);
         let done = match s {
             MarkStep::Add { mark, .. } => MarkStep::Add { mark: mark.clone(), quote: held },
             MarkStep::Remove { .. } => MarkStep::Remove { start, end, tag: tag.to_string(), quote: held },
         };
-        Ok((done, undo))
+        Ok(done)
     }
 
-    fn anchor(&mut self, d: &mut Draft, s: &AnchorStep, n: usize) -> Result<(AnchorStep, Step), ApplyError> {
-        let back = |d: &Draft, a: Anchor, place: bool| {
-            let quote = Some(d.slice(a.start, a.end));
-            Step::Anchor(match place {
-                true => AnchorStep::Place { anchor: a, quote },
-                false => AnchorStep::Move { anchor: a, quote },
-            })
-        };
+    fn anchor(&mut self, d: &mut Draft, s: &AnchorStep, n: usize) -> Result<AnchorStep, ApplyError> {
         match s {
             AnchorStep::Place { anchor: a, quote } | AnchorStep::Move { anchor: a, quote } => {
                 let held = quoted(d, a.start, a.end, quote, n)?;
@@ -699,38 +548,32 @@ impl Run {
                 }
                 let prior = d.c.anchors.iter().position(|h| h.id == a.id);
                 let place = matches!(s, AnchorStep::Place { .. });
-                let prior = match (place, prior) {
-                    (true, None) if !d.c.islands.iter().any(|i| i.slots.values().any(|slot| slot.holds_anchor(&a.id))) => None,
+                match (place, prior) {
+                    (true, None) if !d.c.islands.iter().any(|i| i.slots.values().any(|slot| slot.holds_anchor(&a.id))) => {}
                     (true, _) => return Err(ApplyError::AnchorHeld { id: a.id.clone() }),
-                    (false, Some(k)) => Some(d.c.anchors.remove(k)),
+                    (false, Some(k)) => {
+                        d.c.anchors.remove(k);
+                    }
                     (false, None) => return Err(ApplyError::UnknownAnchor { id: a.id.clone() }),
-                };
+                }
                 let key = |h: &Anchor| (h.start, h.end, h.id.clone());
                 let at = d.c.anchors.partition_point(|h| key(h) < key(a));
                 d.c.anchors.insert(at, a.clone());
-                self.touched.insert(a.id.clone());
-                self.stepped.insert(a.id.clone());
-                let undo = match prior {
-                    Some(p) => back(d, p, false),
-                    None => Step::Anchor(AnchorStep::Remove { id: a.id.clone() }),
-                };
-                let done = match place {
+                Ok(match place {
                     true => AnchorStep::Place { anchor: a.clone(), quote: held },
                     false => AnchorStep::Move { anchor: a.clone(), quote: held },
-                };
-                Ok((done, undo))
+                })
             }
             AnchorStep::Remove { id } => {
                 let at = d.c.anchors.iter().position(|h| &h.id == id).ok_or_else(|| ApplyError::UnknownAnchor { id: id.clone() })?;
-                let held = d.c.anchors.remove(at);
+                d.c.anchors.remove(at);
                 self.removed.push(id.clone());
-                Ok((s.clone(), back(d, held, true)))
+                Ok(s.clone())
             }
         }
     }
 
-    /// Sets an island's props, and answers the content of each slot it gained
-    /// and the step that puts back its props and the slots it lost.
+    /// Sets an island's props, and answers the content of each slot it gained.
     fn island_props(
         &mut self,
         c: &mut Content,
@@ -738,13 +581,13 @@ impl Run {
         props: &Value,
         given: &BTreeMap<String, Content>,
         n: usize,
-    ) -> Result<(BTreeMap<String, Content>, Step), ApplyError> {
+    ) -> Result<BTreeMap<String, Content>, ApplyError> {
         let k = island_index(c, id, n)?;
         let island = &mut c.islands[k];
         if !props.is_object() {
             return Err(ApplyError::BadStep { step: n, reason: "`props` is not an object" });
         }
-        let was = std::mem::replace(&mut island.props, props.clone());
+        island.props = props.clone();
         let order = island.slot_order();
         if island.island_type == crate::content::lines::island::IslandType::Table && Table::read(props).is_none() {
             return Err(ApplyError::BadStep { step: n, reason: "a table's props do not spell a grid" });
@@ -758,7 +601,6 @@ impl Run {
                     let mut fresh = given.get(&slot).cloned().unwrap_or_default();
                     fresh.check_bounds()?;
                     fresh.normalize();
-                    self.touched.extend(fresh.anchor_ids());
                     gained.insert(slot.clone(), fresh.clone());
                     fresh
                 }
@@ -778,8 +620,7 @@ impl Run {
         }
         table::normalize_island(island);
         check_island(island)?;
-        let undo = Step::Island(IslandStep::Props { id: id.to_string(), props: was, slots: lost });
-        Ok((gained, undo))
+        Ok(gained)
     }
 }
 
@@ -860,20 +701,14 @@ fn map_point(p: Scalar, at: Scalar, dn: Scalar, m: Scalar) -> Scalar {
     }
 }
 
-/// Sets a block's record, and answers the step that puts it back.
-fn set_block(d: &mut Draft, s: &SetBlock, n: usize) -> Result<(SetBlock, SetBlock, usize), ApplyError> {
+/// Sets a block's record, and answers the step normalized.
+fn set_block(d: &mut Draft, s: &SetBlock, n: usize) -> Result<SetBlock, ApplyError> {
     let k = d
         .block_index(&s.id)
         .map_err(|HeldTwice| ApplyError::BadStep { step: n, reason: TWICE_BLOCK })?
         .ok_or_else(|| ApplyError::UnknownBlock { id: s.id.clone() })?;
     let (blocks, containers) = (&mut d.c.blocks, &d.c.containers);
     let b = &mut blocks[k];
-    let undo = SetBlock {
-        id: s.id.clone(),
-        kind: Some(b.kind.tag().to_string()),
-        attrs: crate::content::wire::block_attrs(&b.kind).and_then(|v| v.as_object().cloned()),
-        path: Some(b.path.clone()),
-    };
     if s.kind.is_some() || s.attrs.is_some() {
         let tag = s.kind.as_deref().unwrap_or(b.kind.tag());
         let mut attrs = match (&s.kind, crate::content::wire::block_attrs(&b.kind)) {
@@ -890,25 +725,21 @@ fn set_block(d: &mut Draft, s: &SetBlock, n: usize) -> Result<(SetBlock, SetBloc
     check_block(b, |id| containers.iter().find(|k| k.id == id).map(|k| &k.kind))?;
     let attrs = crate::content::wire::block_attrs(&b.kind).and_then(|v| v.as_object().cloned());
     let kind = (s.kind.is_some() || s.attrs.is_some()).then(|| b.kind.tag().to_string());
-    Ok((SetBlock { id: s.id.clone(), attrs: kind.as_ref().and(attrs), kind, path: s.path.clone() }, undo, k))
+    Ok(SetBlock { id: s.id.clone(), attrs: kind.as_ref().and(attrs), kind, path: s.path.clone() })
 }
 
-/// Runs a container step, and answers the step that undoes it.
-fn container(c: &mut Content, s: &ContainerStep) -> Result<Step, ApplyError> {
-    Ok(match s {
+/// Runs a container step.
+fn container(c: &mut Content, s: &ContainerStep) -> Result<(), ApplyError> {
+    match s {
         ContainerStep::Set(k) => {
-            let undo = match c.containers.iter_mut().find(|h| h.id == k.id) {
+            match c.containers.iter_mut().find(|h| h.id == k.id) {
                 Some(held) if !held.kind.same_kind(&k.kind) => return Err(ApplyError::ContainerKind { id: k.id.clone() }),
-                Some(held) => ContainerStep::Set(Container { id: k.id.clone(), kind: std::mem::replace(&mut held.kind, k.kind.clone()) }),
-                None => {
-                    c.containers.push(k.clone());
-                    ContainerStep::Remove { id: k.id.clone() }
-                }
-            };
+                Some(held) => held.kind = k.kind.clone(),
+                None => c.containers.push(k.clone()),
+            }
             if !is_id(&k.id) {
                 return Err(Invariant::BadId { id: k.id.clone() }.into());
             }
-            Step::Container(undo)
         }
         ContainerStep::Remove { id } => {
             if c.blocks.iter().any(|b| b.path.contains(id)) {
@@ -919,9 +750,10 @@ fn container(c: &mut Content, s: &ContainerStep) -> Result<Step, ApplyError> {
                 .iter()
                 .position(|h| &h.id == id)
                 .ok_or_else(|| ApplyError::UnknownContainer { id: id.clone() })?;
-            Step::Container(ContainerStep::Set(c.containers.remove(at)))
+            c.containers.remove(at);
         }
-    })
+    }
+    Ok(())
 }
 
 /// The text over `[start, end)`, held to `quote` where the step gives one:
@@ -949,20 +781,6 @@ fn clear(marks: &mut Vec<Mark>, start: Scalar, end: Scalar, tag: &str) {
         }
     }
     *marks = out;
-}
-
-/// `step` with its quote filled in from `over`, the text it reads.
-fn quoting(step: Step, over: impl Fn(Scalar, Scalar) -> String) -> Step {
-    match step {
-        Step::Mark(MarkStep::Add { mark, quote: None }) => {
-            let quote = Some(over(mark.start, mark.end));
-            Step::Mark(MarkStep::Add { mark, quote })
-        }
-        Step::Mark(MarkStep::Remove { start, end, tag, quote: None }) => {
-            Step::Mark(MarkStep::Remove { start, end, tag, quote: Some(over(start, end)) })
-        }
-        step => step,
-    }
 }
 
 /// The mark steps that take the marks `now` to `want`, both sorted, per
@@ -1013,174 +831,6 @@ fn differing(a: &[&Mark], b: &[&Mark]) -> Vec<(Scalar, Scalar)> {
         (i, j) = (i1, j1);
     }
     gone
-}
-
-/// Each anchor `run` touched that the change kept and moved, by id: one an
-/// `anchor` step put other than where the change's edits carry it, then one
-/// whose start sits in another block, then one whose text or context reads
-/// otherwise.
-fn moved_anchors(before: &Content, after: &Content, applied: &Change, run: &Run) -> Vec<Moved> {
-    if run.touched.is_empty() {
-        return Vec::new();
-    }
-    let mut was = HashMap::new();
-    sites(before, &run.touched, &[], &mut was);
-    let mut now = HashMap::new();
-    sites(after, &run.touched, &[], &mut now);
-    let maps = match run.stepped.is_empty() {
-        true => None,
-        false => Mapping::from_change(applied).ok(),
-    };
-    let mut out: Vec<Moved> = now
-        .into_iter()
-        .filter_map(|(id, n)| {
-            let w = was.remove(&id)?;
-            let placed = || match &maps {
-                _ if w.path != n.path => true,
-                Some(maps) => carried(maps, &w) != Some((n.start, n.end)),
-                None => true,
-            };
-            let reason = if run.stepped.contains(&id) && placed() {
-                MoveReason::Position
-            } else if w.block != n.block {
-                MoveReason::Block
-            } else if (&w.prefix, &w.quote, &w.suffix) != (&n.prefix, &n.quote, &n.suffix) {
-                MoveReason::Context
-            } else {
-                return None;
-            };
-            Some(Moved { id, before: w.quote, after: n.quote, reason })
-        })
-        .collect();
-    out.sort_by(|a, b| a.id.cmp(&b.id));
-    out
-}
-
-/// Each anchor `ids` names that `before` and `after` both hold and that
-/// sits otherwise in `after`: in another slot, then with its start in
-/// another block, then with its text or context reading otherwise, by id.
-/// A merge reads it between the value its writer's own change gave and the
-/// merge, for the anchors that change put.
-pub fn moved_between(before: &Content, after: &Content, ids: &HashSet<String>) -> Vec<Moved> {
-    let (mut was, mut now) = (HashMap::new(), HashMap::new());
-    sites(before, ids, &[], &mut was);
-    sites(after, ids, &[], &mut now);
-    let mut out: Vec<Moved> = now
-        .into_iter()
-        .filter_map(|(id, n)| {
-            let w = was.remove(&id)?;
-            let reason = if w.path != n.path {
-                MoveReason::Position
-            } else if w.block != n.block {
-                MoveReason::Block
-            } else if (&w.prefix, &w.quote, &w.suffix) != (&n.prefix, &n.quote, &n.suffix) {
-                MoveReason::Context
-            } else {
-                return None;
-            };
-            Some(Moved { id, before: w.quote, after: n.quote, reason })
-        })
-        .collect();
-    out.sort_by(|a, b| a.id.cmp(&b.id));
-    out
-}
-
-/// Where an anchor read in `site` lands across `maps`, as `apply` moves it.
-fn carried(maps: &Mapping, site: &Site) -> Option<(Scalar, Scalar)> {
-    let at = |p: Scalar| {
-        site.path.iter().rev().fold(Pos::At(p), |inner, (island, slot)| Pos::In {
-            island: island.clone(),
-            slot: slot.clone(),
-            at: Box::new(inner),
-        })
-    };
-    let local = |r: MapResult| {
-        let mut p = r.pos;
-        loop {
-            match p {
-                Pos::At(p) => return p,
-                Pos::In { at, .. } => p = *at,
-            }
-        }
-    };
-    Some(match site.start == site.end {
-        true => {
-            let p = local(maps.map_point(&at(site.start)));
-            (p, p)
-        }
-        false => (local(maps.map(&at(site.start), Assoc::After)), local(maps.map(&at(site.end), Assoc::Before))),
-    })
-}
-
-/// An anchor as one value holds it: the slots it sits in, its range, the id
-/// of the block its start sits in, and its text and context.
-struct Site {
-    path: Vec<(String, String)>,
-    start: Scalar,
-    end: Scalar,
-    block: String,
-    prefix: String,
-    quote: String,
-    suffix: String,
-}
-
-/// The site of each anchor `ids` names, in `c`, at `path`, and its slots.
-fn sites(c: &Content, ids: &HashSet<String>, path: &[(String, String)], out: &mut HashMap<String, Site>) {
-    let want: Vec<&Anchor> = c.anchors.iter().filter(|a| ids.contains(&a.id)).collect();
-    if !want.is_empty() {
-        let mut edges: Vec<Scalar> = want.iter().flat_map(|a| [a.start.saturating_sub(CONTEXT), a.start, a.end, a.end + CONTEXT]).collect();
-        edges.sort_unstable();
-        edges.dedup();
-        let mut at = HashMap::with_capacity(edges.len());
-        let mut next = edges.iter().peekable();
-        let mut breaks = 0;
-        for (k, (b, ch)) in c.text.char_indices().enumerate() {
-            while next.next_if(|&&e| e == k).is_some() {
-                at.insert(k, (b, breaks));
-            }
-            if next.peek().is_none() {
-                break;
-            }
-            breaks += usize::from(ch == '\n');
-        }
-        let end = (c.text.len(), breaks);
-        let read = |p: Scalar| *at.get(&p).unwrap_or(&end);
-        for a in want {
-            let (from, (s, k), (e, _), to) = (read(a.start.saturating_sub(CONTEXT)), read(a.start), read(a.end), read(a.end + CONTEXT));
-            out.insert(
-                a.id.clone(),
-                Site {
-                    path: path.to_vec(),
-                    start: a.start,
-                    end: a.end,
-                    block: c.blocks.get(k).map(|b| b.id.clone()).unwrap_or_default(),
-                    prefix: c.text[from.0..s].to_string(),
-                    quote: c.text[s..e].to_string(),
-                    suffix: c.text[e..to.0].to_string(),
-                },
-            );
-        }
-    }
-    for island in &c.islands {
-        for (slot, inner) in &island.slots {
-            let mut deeper = path.to_vec();
-            deeper.push((island.id.clone(), slot.clone()));
-            sites(inner, ids, &deeper, out);
-        }
-    }
-}
-
-/// Where `pos` lands after `change`, and what around it the change deleted:
-/// [`Mapping`] over the change's steps. A splice that deletes an island names
-/// it in `removed`, as the normalized change does; one that names none is
-/// refused, since which island went is not in the step.
-pub fn map_pos(change: &Change, pos: &Pos, assoc: Assoc) -> Result<MapResult, ApplyError> {
-    map_pos_in(change, pos, assoc, Scalars)
-}
-
-/// [`map_pos`] over a change and a position whose offsets count `u`.
-pub fn map_pos_in(change: &Change, pos: &Pos, assoc: Assoc, u: impl Units) -> Result<MapResult, ApplyError> {
-    Ok(Mapping::from_change_in(change, u)?.map(pos, assoc))
 }
 
 mod wire {

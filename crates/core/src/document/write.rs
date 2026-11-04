@@ -8,17 +8,14 @@
 //! it merges with what changed since as Automerge merges; heads the
 //! document's history does not hold refuse with `edit::stale_base`.
 
-use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
+use std::collections::HashSet;
 
-use quillmark_automerge::model::patch::{self, Patch, SlotStep};
 use quillmark_automerge::content::change::{self, Change, Dropped, Step};
 use quillmark_automerge::content::structural::StructuralEdit;
 use quillmark_automerge::content::lines::import::ImportWarning;
 use quillmark_automerge::content::lines::island::IslandType;
 use quillmark_automerge::content::model::Content;
 use quillmark_automerge::content::repair::Repair;
-use quillmark_automerge::content::units::Units;
 
 use super::edit::EditError;
 use super::{Card, Heads};
@@ -121,39 +118,21 @@ pub struct Receipt {
     pub before: Heads,
     /// The document's heads after the write, the next write's `heads`.
     pub heads: Heads,
-    /// What the write did to the value, as Automerge's patches lowered to the
-    /// view: applied in order to the value as it read before the write, they
-    /// give the value after.
-    pub patches: Vec<Patch>,
+    /// Automerge's patches for the write, as automerge-js spells them: each
+    /// a path from the document's root, text indexes in the writer's units.
+    pub patches: Vec<serde_json::Value>,
     /// Each anchor the value held and holds nowhere now, as it read before,
     /// with the slot that held it: every one a revise or replace lost, and
     /// for an apply every one but those its `anchor` steps removed.
     pub dropped_anchors: Vec<Dropped>,
     /// What reading the value after the write repaired, where the write
-    /// left it invalid; its patch is then the whole value.
+    /// left it invalid.
     pub repairs: Vec<Repair>,
     /// The markdown import's warnings, for a revise.
     pub warnings: Vec<ImportWarning>,
-    /// The text of each value the patches reach as it read before them,
-    /// while the patches count their offsets in scalars.
-    texts: Option<Arc<BTreeMap<Vec<SlotStep>, String>>>,
 }
 
 impl Receipt {
-    pub(crate) fn landed(before: Heads, heads: Heads, patches: Vec<Patch>, was: &Content, dropped_anchors: Vec<Dropped>, repairs: Vec<Repair>, warnings: Vec<ImportWarning>) -> Receipt {
-        let texts = Some(Arc::new(patch::texts(was, &patches)));
-        Receipt { before, heads, patches, dropped_anchors, repairs, warnings, texts }
-    }
-
-    /// The receipt with its patches' offsets counted in `u`; a receipt
-    /// already counted comes back as it is.
-    pub fn in_units(mut self, u: impl Units) -> Receipt {
-        if let Some(texts) = self.texts.take() {
-            self.patches = patch::in_units(&self.patches, &texts, u);
-        }
-        self
-    }
-
     /// The receipt's warnings as diagnostics at `at`: a
     /// [`dropped_construct`](super::dropped_construct) per construct the
     /// markdown dropped.

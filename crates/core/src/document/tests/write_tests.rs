@@ -3,7 +3,7 @@ use quillmark_automerge::content::model::{Anchor, Block, BlockKind};
 
 use crate::document::{Card, Document, EditError, Target};
 
-use super::{new_containers, parse, put_ids, replayed};
+use super::{new_containers, parse, put_ids};
 
 const SOURCE: &str = "~~~\n$quill: q\n~~~\n\nRevenue grew 12%.\n\nShip v2\n";
 
@@ -29,8 +29,7 @@ fn apply_lands_a_change_and_undo_takes_it_back() {
     assert_eq!(receipt.heads, doc.heads());
     let body = doc.main().body();
     assert_eq!(body.text, "Revenue grew\n12%.\nShip v2");
-    assert_eq!(block_ids(body), [before.blocks[0].id.clone(), put_ids(&receipt)[0].clone(), before.blocks[1].id.clone()]);
-    assert_eq!(&replayed(&before, &receipt), body);
+    assert_eq!(block_ids(body), [before.blocks[0].id.clone(), put_ids(&before, body)[0].clone(), before.blocks[1].id.clone()]);
 
     let undone = doc.main_mut().undo(Target::Body, &receipt).unwrap();
     assert_eq!(doc.main().body(), &before);
@@ -270,9 +269,11 @@ fn an_id_is_never_minted_again() {
     let charlie = doc.main().body().blocks[2].id.clone();
     doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(11, "\ncharlie", ""))]), None).unwrap();
     let enter = Splice { blocks: vec![Block::new("b2".to_string(), BlockKind::Para)], ..Splice::new(5, "", "\nnew") };
-    let receipt = doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(enter)]), None).unwrap();
-    assert_eq!(doc.main().body().blocks[1].id, put_ids(&receipt)[0]);
-    assert_ne!(put_ids(&receipt)[0], charlie);
+    let was = doc.main().body().clone();
+    doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(enter)]), None).unwrap();
+    let put = put_ids(&was, doc.main().body());
+    assert_eq!(doc.main().body().blocks[1].id, put[0]);
+    assert_ne!(put[0], charlie);
 }
 
 /// A stale revise that moves a block lands as a delete and an insert, so
@@ -377,8 +378,9 @@ fn a_revise_or_replace_refuses_to_remove_an_x_island() {
     let mut doc = parse(SOURCE);
     let island = Island::new("isl-x", IslandType::Ext("x-chart".into())).with_props(serde_json::json!({"series": [1]}));
     let insert = Change::new(vec![Step::Island(IslandStep::Insert { at: 7, island, block: None })]);
+    let was = doc.main().body().clone();
     let inserted = doc.main_mut().apply(Target::Body, &insert, None).unwrap();
-    let isl = put_ids(&inserted)[0].clone();
+    let isl = put_ids(&was, doc.main().body())[0].clone();
     let held = doc.clone();
     let plain = quillmark_automerge::content::markdown::to_markdown(doc.main().body());
     let err = doc.main_mut().revise(Target::Body, &plain, None).unwrap_err();
@@ -593,16 +595,17 @@ fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
     let at_base = WriteOptions { heads: Some(&base) };
     let start = doc.main().body().clone();
     doc.set_actor("ann").unwrap();
-    let quoted = doc.main_mut().wrap(Target::Body, &read[0], &read[1], Wrap::Quote, at_base).unwrap();
-    let quote = new_containers(&quoted, &start)[0].clone();
+    doc.main_mut().wrap(Target::Body, &read[0], &read[1], Wrap::Quote, at_base).unwrap();
+    let quote = new_containers(&start, doc.main().body())[0].clone();
     assert!(under(&quote, "ann"), "{quote}");
     doc.set_actor("bo").unwrap();
-    let split = doc.main_mut().split_block(Target::Body, 14, None, at_base).unwrap();
-    let right = put_ids(&split)[0].clone();
+    let was = doc.main().body().clone();
+    doc.main_mut().split_block(Target::Body, 14, None, at_base).unwrap();
+    let right = put_ids(&was, doc.main().body())[0].clone();
     assert!(under(&right, "bo"));
     let held = doc.main().body().clone();
-    let listed = doc.main_mut().wrap(Target::Body, &read[2], &read[2], Wrap::List { ordered: true, checked: None }, at_base).unwrap();
-    let made = new_containers(&listed, &held);
+    doc.main_mut().wrap(Target::Body, &read[2], &read[2], Wrap::List { ordered: true, checked: None }, at_base).unwrap();
+    let made = new_containers(&held, doc.main().body());
     assert!(made.iter().all(|id| under(id, "bo")) && made.len() == 2, "{made:?}");
     let body = doc.main().body();
     assert_eq!(block_ids(body), [read[0].clone(), read[1].clone(), read[2].clone(), right]);
@@ -618,8 +621,9 @@ fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
             path: None,
         }),
     ]);
-    let filled = doc.main_mut().apply(Target::Body, &insert, Some(&base)).unwrap();
-    let p = put_ids(&filled)[0].clone();
+    let was = doc.main().body().clone();
+    doc.main_mut().apply(Target::Body, &insert, Some(&base)).unwrap();
+    let p = put_ids(&was, doc.main().body())[0].clone();
     assert!(doc.main().body().blocks.iter().any(|b| b.id == p && matches!(b.kind, BlockKind::Heading { level: 2 })));
 
     let now = doc.heads();
@@ -761,9 +765,9 @@ fn peers_writing_with_no_actor_sync_from_one_origin() {
 #[test]
 fn a_document_refuses_bytes_or_a_message_it_cannot_read() {
     use crate::document::{SyncMessage, SyncState};
-    use quillmark_automerge::automerge::sync::{self, SyncDoc};
-    use quillmark_automerge::automerge::transaction::Transactable;
-    use quillmark_automerge::automerge::{AutoCommit, ROOT};
+    use automerge::sync::{self, SyncDoc};
+    use automerge::transaction::Transactable;
+    use automerge::{AutoCommit, ROOT};
     assert!(Document::load(b"not a document").is_err());
     assert!(Document::load(&AutoCommit::new().save()).is_err());
 

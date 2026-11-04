@@ -160,8 +160,6 @@ export type {
 	Reattached,
 	Imported,
 	DocPathSeg,
-	Pos,
-	MapResult,
 	WrapKind,
 	RawContent,
 	Repair,

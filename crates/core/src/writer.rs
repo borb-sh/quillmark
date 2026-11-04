@@ -73,7 +73,7 @@ impl<'a> TypedWriter<'a> {
     ) -> Result<Vec<Diagnostic>, EditError> {
         let schema = Some(&self.config.main.fields);
         commit_impl(
-            self.doc.main_card_mut(),
+            &mut self.doc.main_card_mut(),
             schema,
             name,
             value,
@@ -100,7 +100,7 @@ impl<'a> TypedWriter<'a> {
         I: IntoIterator<Item = (K, V)>,
     {
         let schema = Some(&self.config.main.fields);
-        set_all_impl(self.doc.main_card_mut(), schema, fields, &DocPath::main())
+        set_all_impl(&mut self.doc.main_card_mut(), schema, fields, &DocPath::main())
     }
 
     /// Revise the main card's body or a content field from authored text:
@@ -277,10 +277,9 @@ impl<'a> CardWriter<'a> {
             .expect("bound in range, and cards cannot move while this cursor holds the document")
     }
 
-    fn card_mut(&mut self) -> &mut Card {
+    fn card_mut(&mut self) -> crate::document::CardEdit<'_> {
         self.doc
-            .cards_vec_mut()
-            .get_mut(self.index)
+            .card_edit(self.index)
             .expect("bound in range, and cards cannot move while this cursor holds the document")
     }
 
@@ -312,7 +311,7 @@ impl<'a> CardWriter<'a> {
     ) -> Result<Vec<Diagnostic>, EditError> {
         let schema = self.fields_schema();
         let base = self.base();
-        commit_impl(self.card_mut(), schema, name, value, &base)
+        commit_impl(&mut self.card_mut(), schema, name, value, &base)
     }
 
     /// The card twin of [`TypedWriter::revise`], resolved against the card's
@@ -342,7 +341,7 @@ impl<'a> CardWriter<'a> {
     {
         let schema = self.fields_schema();
         let base = self.base();
-        set_all_impl(self.card_mut(), schema, fields, &base)
+        set_all_impl(&mut self.card_mut(), schema, fields, &base)
     }
 }
 
@@ -374,7 +373,7 @@ fn revise_impl(
 ) -> Result<Receipt, EditError> {
     let name = match target {
         Target::Body => {
-            return card.revise_counted(Target::Body, text, heads);
+            return card.revise(Target::Body, text, heads);
         }
         Target::Field(name) => name,
     };

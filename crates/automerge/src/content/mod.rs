@@ -7,8 +7,8 @@
 //! [`markdown`] is the projection at the edges, one import and one export
 //! per codec.
 //! [`change`] is the one way a value is edited, [`anchors`] reads each
-//! anchor's context and re-attaches a dropped one, [`mapping`] maps
-//! positions across changes, [`structural`] is the change of each structural
+//! anchor's context and re-attaches a dropped one, [`structural`] is the
+//! change of each structural
 //! edit, [`mint`] fills the ids a change leaves to its write, and [`repair`]
 //! makes valid a state two concurrent edits merged into.
 //!
@@ -25,7 +25,7 @@ pub mod structural;
 pub mod ids;
 #[doc(hidden)]
 pub mod lines;
-pub mod mapping;
+
 pub mod markdown;
 #[doc(hidden)]
 pub mod migrate;

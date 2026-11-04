@@ -5,7 +5,7 @@
 
 ## TL;DR
 
-One content value per card body, `richtext` field or `text` field: flat text, explicit blocks and containers, range marks, comment anchors, and islands that hold rich text of their own. Every structural part has an id and nothing derived is stored. Every edit is a `Change` that applies, inverts and lowers into the one Automerge document its document is held in, merging as Automerge merges, and a value two concurrent edits merged into an invalid state repairs deterministically.
+One content value per card body, `richtext` field or `text` field: flat text, explicit blocks and containers, range marks, comment anchors, and islands that hold rich text of their own. Every structural part has an id and nothing derived is stored. Every edit is a `Change` that applies and lowers into the one Automerge document its document is held in, merging as Automerge merges, and a value two concurrent edits merged into an invalid state repairs deterministically.
 
 ## Glossary
 
@@ -126,17 +126,19 @@ Blocks, containers, islands, slots, table rows and table columns have structural
 - A record a change puts may carry a placeholder in place of its id: `?` and an id, such as `"?1"`, which other steps of the change may name. No id opens with `?`. The write that lands the change mints an id for each placeholder, which the receipt's patch putting the record carries; a placeholder put twice, or named and never put, refuses the change.
 - A write into a document fills a placeholder with the object id of the record it puts, so no write mints an id twice (§ "Writing a value").
 
-The cost is stated: a document's ids and bytes depend on which actor wrote, so equal content does not mean equal bytes across two documents; two documents compare by what they read; determinism holds for an import and a migration ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Island-id determinism"). Two writers with one actor or none can both introduce an id, and their merge holds it twice, which repair mends (§ "Merge repair"). Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
+The cost is stated: a live document's ids and bytes depend on which actor wrote, so equal content does not mean equal Automerge bytes across two documents; two documents compare by what they read, and the stored row names each record by place ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The Format"); determinism holds for an import and a migration ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Island-id determinism").
+
+Two writers with one actor or none can both introduce an id, and their merge holds it twice, which repair mends (§ "Merge repair"). Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
 
 ## Changes
 
 A `Change` is a list of steps. Each step reads the value the step before it left, and `apply` runs all of them or none.
 
-A `Change` is session-scoped, not a storage format: its JSON carries no version, and a later build may decode a change an earlier one wrote otherwise or refuse it. A host persists the value, never the changes that reached it; a receipt's `applied` serves undo within the process that took the write, and the document's history serves a stale base (§ "Live state and merge").
+A `Change` is session-scoped, not a storage format: its JSON carries no version, and a later build may decode a change an earlier one wrote otherwise or refuse it. A host persists the value, never the changes that reached it; the document's history serves undo and a stale base (§ "Live state and merge").
 
 | Step | Shape | What it does |
 |---|---|---|
-| `splice` | `{at, delete, insert, marks?, blocks?, islands?}` | Replaces text. `delete` is the removed text itself, and the step fails if the value holds anything else there. `marks` is the formatting the inserted text carries; omitted, it carries none. Each `\n` in `insert` brings the record of the block it opens, and each `U+FFFC` its island. The removed records, marks and islands travel with the step as `removed`, for inversion. |
+| `splice` | `{at, delete, insert, marks?, blocks?, islands?}` | Replaces text. `delete` is the removed text itself, and the step fails if the value holds anything else there. `marks` is the formatting the inserted text carries; omitted, it carries none. Each `\n` in `insert` brings the record of the block it opens, and each `U+FFFC` its island. The removed records, marks and islands travel with the normalized step as `removed`. |
 | `setBlock` | `{id, kind?, attrs?, path?}` | Changes a block's kind, attributes or path. Indenting and outdenting are path changes. |
 | `container` | `{id, kind, attrs?}` or `{id, remove: true}` | Adds a container or sets an existing one's attributes, or removes one no path names. |
 | `mark` | `{start, end, type, attrs?, add, quote?}` | Adds or removes formatting over a range. |
@@ -155,7 +157,7 @@ Each step holds to what its writer read as far as its precondition reaches. A st
 
 A step whose object holds a key its kind does not define, a splice's `delet` or a mark's `qoute`, is `ParseError::UnknownKey` at every decoder, so a misspelled precondition never decodes as a step without it. So is a change holding a key beside `steps`, and a record or island a step carries holding a key its shape does not define, as a value's decode refuses one ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies"). A step's `props` and an `x-` member's `attrs` stay open.
 
-`quote` and `block` are optional on input. The normalized change, `Applied.applied`, fills both in, as it fills a splice's `removed`, so a stale write's conflict check reads every step as its writer read it. `invert` fills them in its own steps, and each splice's `removed`, from the value each undoes: each step answers its inverse as it applies, and `invert` is those inverses read back last first.
+`quote` and `block` are optional on input. The normalized change, `Applied.applied`, fills both in, as it fills a splice's `removed`, so a stale write's conflict check reads every step as its writer read it.
 
 With no base, a step is refused rather than landing on whatever now sits at its offsets only where its precondition reads the value: a splice that deletes text, a `mark` step or anchor placement that carries `quote`, and an island insert that names its `block`. A step by id, a `setBlock`, a `container` step or an island props step, lands over whatever the value now holds, so a stale props step that adds a column deletes a row added since.
 
@@ -180,7 +182,7 @@ Text edits go through `diff_range(before, after, from, to)` (`diffRange(before, 
 
 `diff` stays for a writer with no steps (§ "Writing a value").
 
-`apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The growth defaults are for producers, and the read `structural::inherited_marks(content, at)` states them, for a producer that asks: `strong`, `emph`, `underline` and `strike` grow at their end, `code`, `link` and an `x-` mark at neither edge, and `font_family` at both, the family before `at` winning over the one after. A `\n` and a hard break hold no mark, so at a block's or a line's start only a family grows.
+`apply` never grows a mark: a splice states the marks its inserted text carries. The growth defaults are for producers, and the read `structural::inherited_marks(content, at)` states them, for a producer that asks: `strong`, `emph`, `underline` and `strike` grow at their end, `code`, `link` and an `x-` mark at neither edge, and `font_family` at both, the family before `at` winning over the one after. A `\n` and a hard break hold no mark, so at a block's or a line's start only a family grows.
 
 Anchors never grow: a range keeps its edges, and a point stays left of text typed at it. Across peers an anchor's or a mark's edge where another writer typed concurrently lands as Automerge orders the two changes (§ "Live state and merge").
 
@@ -195,17 +197,7 @@ What each structural edit does to the blocks it reaches:
 
 Tab then Shift-Tab over the same blocks puts the value back.
 
-`mapping` maps a position across a change, after ProseMirror's maps. A `StepMap` reads off one step what it does to positions, and `map_pos` answers a `MapResult`: where the position lands, and whether the characters before it, after it, on its `assoc` side, or across it were deleted. A position always lands:
-
-- one inside deleted text on the deletion's `assoc` edge;
-- one inside an island a splice deleted on the island's character in the text that held it;
-- one in a slot a props step removed at its own address, since the step does not say where its island sits.
-
-An island a change removes and inserts again under its id, a removal paired with the next insert of that id or the other way round and the slots going as they came, as `diff` and `replace` move one, is moved rather than deleted across the two: a position in its slots keeps its address.
-
-A splice says which islands it deleted only in `removed`. A change mapped holds it on each splice that deletes an island character, as the normalized change does, and one without it is refused. A `Mapping` is a list of step maps with mirror links, each pairing a map with its inverse, so a position one map deleted and its mirror put back maps to where it was. `Mapping::map_point` maps a position as `apply` moves a point anchor, and `project` takes a mapping's maps inside one slot.
-
-Text deleted under a range anchor shrinks it to what survives. An anchor whose text is deleted entirely is removed and named in the receipt's `droppedAnchors`; a surviving anchor the write moved, a point included, reaches the receipt as an `anchor` patch, where it reads after (§ "Live state and merge"). An island removed by a splice, or a slot a props step no longer names, takes the anchors of its slots with it, and each is named in `droppedAnchors` with the island and slot that held it. Every anchor a change takes out of the value is named there, except one its own `anchor` step removed, which the writer asked for.
+Text deleted under a range anchor shrinks it to what survives. An anchor whose text is deleted entirely is removed and named in the receipt's `droppedAnchors`; a range anchor's edges move as its mark's do, which the receipt's patches carry (§ "Live state and merge"). An island removed by a splice, or a slot a props step no longer names, takes the anchors of its slots with it, and each is named in `droppedAnchors` with the island and slot that held it. Every anchor a change takes out of the value is named there, except one its own `anchor` step removed, which the writer asked for.
 
 ## Live state and merge
 
@@ -227,13 +219,14 @@ Heads are the only base. The document holds every heads its history reaches, so 
 - A reload from the stored row (`Document::from_stored`) starts a new session, in which no heads read before the reload resolve.
 - Two processes loading one row build one origin, since a document's first change is written under one actor at time 0, so peers rejoining from the row share it and differ only in the changes since.
 
-The receipt's `before` and `heads` are the document's heads either side of the write, and its `patches` are the value's Automerge patches between them, lowered onto the view (`quillmark_automerge::model::patch`): applied in order to the value as it read at `before`, by `apply_patch` or by a host holding that value, they give the value at `heads`, the merge with every change since included. Each patch names the slot it acts in by the island and slot keys down to it, and does one of:
+The receipt's `before` and `heads` are the document's heads either side of the write, and its `patches` are Automerge's own patches between them, the merge with every change since included, spelled as automerge-js spells them (`quillmark_automerge::model::patch`):
 
-- `insert` text at an offset, with the record of each block and island its line breaks and island characters open, and the formatting it carries; `delete` a run;
-- set a `block`, `island` or `container` record by its id, or remove a container (`containerRemoved`);
-- `mark` a range with one mark, which replaces the mark of its tag there, or `unmark` a tag over a range;
-- place an `anchor` where it reads after, or remove one (`anchorRemoved`);
-- set the whole `value`, where the value after does not validate and reads through repair.
+- Each is a JSON object with an `action` (`put`, `insert`, `splice`, `del`, `inc`, `conflict` or `mark`) and a `path` from the document's root, through `main` or `cards` down to the value's map and its `text`.
+- A host holding the Automerge document applies them as automerge-js does; one holding only the view reads the value again.
+- Text indexes count in the host's units, UTF-16 in WASM and scalars elsewhere. A value's text opens with its first block's marker and holds each block marker and island as one unit, so value offset `n` is text index `n + 1`.
+- A range anchor is the mark `anchor:<id>`, so its patches are `mark` patches; a point anchor is a cursor under the value's `points`.
+
+A merge or a sync message the document takes answers the same receipt, its patches the merged changes'.
 
 `droppedAnchors` names every anchor the value held before the write and holds nowhere after, besides one the write's own `anchor` step removed. `undo` takes a write back: it diffs the value at `heads` to the value at `before` and lands that at `heads`, so it keeps what others wrote since.
 
@@ -252,14 +245,12 @@ A handle with no actor set writes under its document's own random Automerge acto
 
 Each law is a property test over generated values and generated changes (`tests/change_laws.rs`, `tests/repair_laws.rs`).
 
-1. `apply(apply(d, c), invert(c, d)) == d`. Every change undoes exactly, deleted islands, anchors and block records included.
-2. A change lowered into a document whose value reads as `d` reads as `apply(d, c)` in text, records and anchor ids, with marks and anchor edges where Automerge's expand rules put them, and a save and a load read as the live document (`crates/automerge/tests/model.rs`).
-3. `map_pos(c, p)` agrees with `apply`: the two edges of a character both say it was deleted, or land around it afterwards in the same order, a character inside a nested slot included, and one in an island the change moves keeps its place. A change's maps followed by their mirrored inverses take every position home.
-4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes. `parse` refuses a value `normalize` would change, and the lenient read of it reaches one `parse` accepts (`tests/properties.rs`).
-5. Every `Change` yields a valid value or fails and changes nothing.
-6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported.
-7. Two changes made from one value merge into a valid value, and a change merged with an empty one is itself in text and records either way round. Two changes to text either side of a character neither touches, joining no blocks, merge into text holding each side as its writer left it, the same text in either order. A block kind one side set and the other left alone stays (`crates/automerge/tests/convergence.rs`, beside sessions of three peers writing and merging at random, stale writes included, that reach one value, `crates/automerge/tests/sessions.rs`).
-8. A write's or a merge's patches, applied to the value before, give the value after in text, records, anchors and the formatting of each character (`crates/automerge/tests/patches.rs`).
+1. A change lowered into a document whose value reads as `d` reads as `apply(d, c)` in text, records and anchor ids, with marks and anchor edges where Automerge's expand rules put them, and a save and a load read as the live document (`crates/automerge/tests/model.rs`).
+2. `parse(serialize(d)) == d`, and equal values serialize to equal bytes. `parse` refuses a value `normalize` would change, and the lenient read of it reaches one `parse` accepts (`tests/properties.rs`).
+3. Every `Change` yields a valid value or fails and changes nothing.
+4. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported.
+5. Two changes made from one value merge into a valid value, and a change merged with an empty one is itself in text and records either way round. Two changes to text either side of a character neither touches, joining no blocks, merge into text holding each side as its writer left it, the same text in either order. A block kind one side set and the other left alone stays (`crates/automerge/tests/convergence.rs`, beside sessions of three peers writing and merging at random, stale writes included, that reach one value, `crates/automerge/tests/sessions.rs`).
+6. A write's or a merge's patches, replayed in UTF-16 on the value's text before, give its text after (`crates/automerge/tests/patches.rs`).
 
 ## Writing a value
 
@@ -287,7 +278,7 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 
 A binding's write names its card by `$id`, or the main card, never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, nothing tells the write. An id no card holds refuses with `edit::unknown_card_id`.
 
-Each write answers a `Receipt` (§ "Live state and merge"): `before` and `heads`, the document's heads either side of the write, `heads` the next write's base; `patches`, which take the value before to the value after; `droppedAnchors`; the `repairs` reading the value after made; and a revise's import warnings. `CardMut::undo(target, &receipt)` takes the write back. A write's options are `heads` and `actor` (`WriteOptions`); the actor scopes every id the write mints (§ Ids), and one that is not an actor refuses with `edit::invalid_actor`.
+Each write answers a `Receipt` (§ "Live state and merge"): `before` and `heads`, the document's heads either side of the write, `heads` the next write's base; `patches`, Automerge's patches between them; `droppedAnchors`; the `repairs` reading the value after made; and a revise's import warnings. `CardMut::undo(target, &receipt)` takes the write back. A write's options are `heads` and `actor` (`WriteOptions`); the actor scopes every id the write mints (§ Ids), and one that is not an actor refuses with `edit::invalid_actor`.
 
 **Pass the heads.** `heads` is the document's revision when the writer read (`Document::heads`). Without it, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. A write at heads the document has moved on from merges with what changed since (§ "Live state and merge"):
 
@@ -315,7 +306,7 @@ The interactive target is a field of 20000 blocks or 500000 characters: a keystr
 
 A single step cannot break the model, but two valid concurrent edits can merge into a state no step allows. `repair(raw) -> (Content, Repair[], Change)` makes any such state valid (`src/repair.rs`).
 
-Its `Change` takes the merged text to the value's: each character a rule deletes, inserts or rewrites as a splice, a slot's edits as a `nested` step, and a table's slots a rule removed or added as a props step. A position mapped through it lands where repair puts an anchor there, which a law holds (`tests/repair_laws.rs`), so a peer maps its caret, or lowers an exact change into the merged state's coordinates, through it.
+Its `Change` takes the merged text to the value's: each character a rule deletes, inserts or rewrites as a splice, a slot's edits as a `nested` step, and a table's slots a rule removed or added as a props step. A peer lowers an exact change into the merged state's coordinates through it.
 
 Repair is how a merged state reads: it is total and deterministic, so peers holding one merged state compute one value without writing anything. Writing a repair back into the shared state is optional, and who may write it back depends on what it writes:
 

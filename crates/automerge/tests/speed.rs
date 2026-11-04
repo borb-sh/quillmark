@@ -10,7 +10,7 @@
 
 use quillmark_automerge::model::{Doc, ids};
 use quillmark_automerge::revise;
-use quillmark_automerge::content::change::{AnchorStep, Change, MarkStep, Splice, Step, apply, invert};
+use quillmark_automerge::content::change::{AnchorStep, Change, MarkStep, Splice, Step, apply};
 use quillmark_automerge::content::diff::{diff, replace};
 use quillmark_automerge::content::markdown::{from_markdown, to_markdown};
 use quillmark_automerge::content::model::{Anchor, Block, BlockKind, Content, Mark, MarkKind};
@@ -83,23 +83,22 @@ fn time<T>(f: impl Fn() -> T) -> Duration {
     best
 }
 
-/// The 288k-character case's limits in milliseconds: five times the targets
-/// of 100 to apply and 200 to invert, and about ten times what a laptop takes
+/// The 288k-character case's limits in milliseconds: five times the target
+/// of 100 to apply, and about ten times what a laptop takes
 /// for the diff and the UTF-16 round trip, which a pass that walks the whole
 /// text per step overruns. The merge is a stale write: one change lowered at
 /// the heads a document held the value at, into the document after another
 /// change landed since, and the merged value read back. Building the
 /// document is not timed, as a session holds its document already.
-const BUDGET: [(&str, f64); 5] = [("apply", 500.0), ("invert", 1000.0), ("diff", 1500.0), ("merge", 2500.0), ("utf16", 500.0)];
+const BUDGET: [(&str, f64); 4] = [("apply", 500.0), ("diff", 1500.0), ("merge", 2500.0), ("utf16", 500.0)];
 
-fn measure(n: usize) -> (usize, usize, [f64; 5]) {
+fn measure(n: usize) -> (usize, usize, [f64; 4]) {
     let d = document(n);
     let mine = change(&d, "holds", "carries", "m");
     let theirs = change(&d, "end", "close", "t");
     let after = apply(&d, &mine).unwrap().content;
     let times = [
         time(|| apply(&d, &mine).unwrap()),
-        time(|| invert(&mine, &d).unwrap()),
         time(|| apply(&d, &diff(&d, &after).unwrap()).unwrap()),
         stale(&d, &mine, &theirs),
         time(|| change_to_scalars(&change_from_scalars(&mine, &d, Utf16).unwrap(), &d, Utf16).unwrap()),

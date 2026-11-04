@@ -10,18 +10,22 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   `WriteOptions.actor`, `PlaceOptions` and the `actor` argument of
   `insert_card` and `add_card` are gone. `mapPos` is gone from the WASM
   surface.
+- feat(core)!: **a stored row names each record by place.** A content
+  value's blocks, containers and islands store as `p0`, `p1`, … rather than
+  the live document's Automerge object ids, so equal content stores as equal
+  bytes whichever actors wrote it.
 - refactor!: **`quillmark-content` folds into `quillmark-automerge`.** The
   content model, its changes, repair and the markdown codecs are the
   `content` module of `quillmark-automerge`, beside the Automerge document
   that holds them, and the `quillmark-content` crate is no longer published.
 - feat(core)!: **a receipt carries Automerge's patches, and `undo` takes a
   write back.** Every content write answers `{ before, heads, patches,
-  droppedAnchors, repairs, warnings }`: `patches` are the value's Automerge
-  patches between the heads, lowered onto the view, which applied to the
-  value the write read give the value it left, a stale write's merge
-  included. A minted id rides the patch putting its record, and a moved
-  anchor its `anchor` patch. `applied`, `movedAnchors`, `minted` and
-  `invert` are gone; `doc.undo(addr, receipt)` (`CardMut::undo`) lands the
+  droppedAnchors, repairs, warnings }`: `patches` are Automerge's own
+  patches between the heads, spelled as automerge-js spells them, paths from
+  the document's root and text indexes in the host's units, a stale write's
+  merge included. `merge` and `receiveSyncMessage` answer the same receipt.
+  `applied`, `movedAnchors`, `minted` and `invert` are gone, with
+  `content::mapping`, `Pos` and the `automerge` re-export; `doc.undo(addr, receipt)` (`CardMut::undo`) lands the
   value at `before` over the receipt's heads. `reattach` takes each path's
   patches. The unbound `Card` write verbs are gone; a write goes through
   `CardMut`.

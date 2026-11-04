@@ -17,7 +17,10 @@ def test_a_receipt_carries_its_patches_and_undo_takes_the_write_back():
     receipt = doc.apply({"steps": [{"splice": {"at": 0, "delete": "hello", "insert": "hi"}}]}, heads=heads)
     assert doc.read()["text"] == "hi world"
     assert (receipt["before"], receipt["heads"]) == (heads, doc.heads())
-    assert receipt["patches"] == [{"delete": {"at": 0, "len": 5}}, {"insert": {"at": 0, "text": "hi", "blocks": [], "islands": [], "marks": []}}]
+    assert receipt["patches"] == [
+        {"action": "del", "path": ["main", "body", "text", 1], "length": 5},
+        {"action": "splice", "path": ["main", "body", "text", 1], "value": "hi"},
+    ]
     assert receipt["dropped_anchors"] == [] and receipt["warnings"] == []
     doc.apply({"steps": []}, heads=heads)
     foreign = Document.parse(MD)
@@ -51,7 +54,7 @@ def test_a_quoted_step_refuses_text_its_writer_did_not_read():
     with raises_edit_code("edit::content_apply"):
         doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]})
     receipt = doc.apply({"steps": [{"mark": {"start": 9, "end": 14, "type": "strong", "add": True}}]})
-    assert receipt["patches"] == [{"mark": {"start": 9, "end": 14, "type": "strong"}}]
+    assert receipt["patches"] == [{"action": "mark", "path": ["main", "body", "text"], "marks": [{"name": "strong", "value": True, "start": 10, "end": 15}]}]
 
 
 def test_a_write_at_stale_heads_merges_with_the_change_since():
@@ -80,10 +83,9 @@ def test_a_placeholder_is_minted_under_the_writers_actor():
     change = {"steps": [{"splice": {"at": 5, "insert": "\nnew", "blocks": [{"id": "?n", "kind": "para"}]}}]}
     doc.set_actor("ann")
     assert doc.actor == "ann"
-    receipt = doc.apply(change)
-    (minted,) = [b["id"] for p in receipt["patches"] if "insert" in p for b in p["insert"]["blocks"]]
+    doc.apply(change)
+    minted = doc.read()["blocks"][1]["id"]
     assert minted.endswith("@" + "ann".encode().hex())
-    assert doc.read()["blocks"][1]["id"] == minted
     with raises_edit_code("edit::invalid_actor"):
         doc.set_actor("a:b")
     assert doc.actor == "ann"
@@ -165,7 +167,10 @@ def test_an_anchor_placement_refuses_a_held_id_and_a_move_moves_it():
     with raises_edit_code("edit::content_apply"):
         doc.apply({"steps": [{"anchor": {"id": "c9", "start": 6, "end": 11, "move": True}}]})
     receipt = doc.apply({"steps": [{"anchor": {"id": "c1", "start": 6, "end": 11, "move": True}}]})
-    assert receipt["patches"] == [{"anchor": {"id": "c1", "start": 6, "end": 11}}]
+    assert receipt["patches"] == [{"action": "mark", "path": ["main", "body", "text"], "marks": [
+        {"name": "anchor:c1", "value": None, "start": 0, "end": 12},
+        {"name": "anchor:c1", "value": True, "start": 7, "end": 12},
+    ]}]
     assert doc.read()["anchors"] == [{"id": "c1", "start": 6, "end": 11}]
 
 
@@ -179,15 +184,16 @@ def test_repair_answers_the_change_from_the_merged_text():
     assert repair(valid) == {"content": valid, "repairs": [], "change": {"steps": []}}
 
 
-def test_a_receipt_carries_each_anchor_a_write_touched_as_it_reads_after():
+def test_a_receipt_carries_the_block_a_write_put_and_the_point_anchor_it_moved():
     doc = Document.parse(MD)
     doc.apply({"steps": [{"anchor": {"id": "p", "start": 0, "end": 0}}, {"anchor": {"id": "r", "start": 6, "end": 11}}]})
     receipt = doc.apply({"steps": [
         {"anchor": {"id": "p", "start": 5, "end": 5, "move": True}},
         {"splice": {"at": 5, "delete": " ", "insert": "\n", "blocks": [{"id": "b9", "kind": "para"}]}},
     ]})
-    anchors = [p["anchor"] for p in receipt["patches"] if "anchor" in p]
-    assert sorted(anchors, key=lambda a: a["id"]) == [{"id": "p", "start": 6, "end": 6}, {"id": "r", "start": 6, "end": 11}]
+    paths = [p["path"][-2:] for p in receipt["patches"]]
+    assert ["points", "p"] in paths and ["text", 6] in paths
+    assert doc.read()["anchors"] == [{"id": "p", "start": 6, "end": 6}, {"id": "r", "start": 6, "end": 11}]
 
 
 def test_the_markdown_import_and_export_and_the_predicates_hold_no_document():

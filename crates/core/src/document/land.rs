@@ -9,8 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_automerge::automerge::ObjId;
-use quillmark_automerge::model::{StepError, cards};
+use quillmark_automerge::model::{StepError, ValueId, cards};
 use quillmark_automerge::content::change::{self, AnchorStep, ApplyError, Change, Step};
 use quillmark_automerge::content::lines::import::ImportWarning;
 use quillmark_automerge::content::diff;
@@ -84,24 +83,17 @@ impl Document {
         }
     }
 
-    pub(crate) fn card_at_mut(&mut self, at: Option<usize>) -> &mut Card {
-        self.touch();
-        match at {
-            None => &mut self.main,
-            Some(i) => &mut self.cards[i],
-        }
-    }
-
     /// The value at `target` of the card at `at`, a field made a text value
     /// where it holds its content as JSON or holds nothing; `true` with it
     /// where the field was absent and is put now.
-    fn value_obj(&mut self, at: Option<usize>, target: Target<'_>) -> Result<(ObjId, bool), EditError> {
+    fn value_obj(&mut self, at: Option<usize>, target: Target<'_>) -> Result<(ValueId, bool), EditError> {
+        self.bind();
         let mut put = false;
         let mut content = None;
         if let Target::Field(name) = target {
             let read = content.insert(self.card_at(at).read(target)?).to_value();
             if self.card_at(at).payload().get(name).is_none() {
-                self.card_at_mut(at).payload_mut().insert(name.to_string(), QuillValue::from_json(read)).map_err(EditError::InvalidPayload)?;
+                self.edit_card(at, |c| c.payload_mut().insert(name.to_string(), QuillValue::from_json(read))).map_err(EditError::InvalidPayload)?;
                 put = true;
             }
         }
@@ -116,7 +108,7 @@ impl Document {
         let (v, written) = cards::value_at(self.doc(), at.and(id.as_deref()), field, || content.expect("a field target reads its value"))
             .expect("a flushed card is held");
         if written {
-            self.reread();
+            self.reread_at(at);
         }
         Ok((v, put))
     }
@@ -138,18 +130,18 @@ impl Document {
 
     /// Takes `after`, what the value at `target` of the card at `at` reads as
     /// once a write landed, into the cards: a body in place, a field by
-    /// reading the cards again.
+    /// reading its card again.
     fn set_read(&mut self, at: Option<usize>, target: Target<'_>, after: &Content) {
-        let Target::Body = target else { return self.reread() };
+        let Target::Body = target else { return self.reread_at(at) };
         match at {
             None => self.main.set_body(after.clone()),
             Some(i) => self.cards[i].set_body(after.clone()),
         }
         #[cfg(debug_assertions)]
         {
-            let (main, cards) = (self.main.clone(), self.cards.clone());
-            self.reread();
-            debug_assert!(self.main == main && self.cards == cards, "a body write reads as the document does");
+            let card = self.card_at(at).clone();
+            self.reread_at(at);
+            debug_assert!(self.card_at(at) == &card, "a body write reads as the document does");
         }
     }
 
@@ -178,13 +170,12 @@ impl Document {
         let (root, put) = self.value_obj(at, target)?;
         let landed = self.write_on(at, target, &root, edit, opts, u);
         if let (Err(_), true, Target::Field(name)) = (&landed, put, target) {
-            self.card_at_mut(at).remove_field(name)?;
-            self.flush();
+            self.edit_card(at, |c| c.remove_field(name))?;
         }
         landed
     }
 
-    fn write_on<U: Units>(&mut self, at: Option<usize>, target: Target<'_>, root: &ObjId, edit: Edit<'_>, opts: WriteOptions<'_>, u: Option<U>) -> Result<Receipt, EditError> {
+    fn write_on<U: Units>(&mut self, at: Option<usize>, target: Target<'_>, root: &ValueId, edit: Edit<'_>, opts: WriteOptions<'_>, u: Option<U>) -> Result<Receipt, EditError> {
         let root = root.clone();
         let heads = self.heads_for(target, opts.heads)?;
         let now = self.card_at(at).read(target)?;
@@ -231,7 +222,10 @@ impl Document {
         let before = Heads::from(doc.heads());
         let lowered = doc.apply_from(&root, &change, heads.as_ref().map(Heads::hashes), Some(&read));
         lowered.map_err(step_error)?;
-        let (patches, view) = doc.patches_on(&root, before.hashes(), &now);
+        let (patches, view) = match u {
+            Some(u) => doc.landed(&root, before.hashes(), &now, u),
+            None => doc.landed(&root, before.hashes(), &now, units::Scalars),
+        };
         let landed = Heads::from(doc.heads());
         let mut removed = Vec::new();
         removed_by(&change, &mut removed);
@@ -243,11 +237,7 @@ impl Document {
             dropped.extend(change::lost_anchors(&wrote, &view.content, |id| !held.contains(id)));
         }
         self.set_read(at, target, &view.content);
-        let receipt = Receipt::landed(before, landed, patches, &now, dropped, view.repairs, warnings);
-        Ok(match u {
-            Some(u) => receipt.in_units(u),
-            None => receipt,
-        })
+        Ok(Receipt { before, heads: landed, patches, dropped_anchors: dropped, repairs: view.repairs, warnings })
     }
 
     /// Runs `write`, which changes the value at `target` of the card at `at`
@@ -257,21 +247,17 @@ impl Document {
         self.doc().track();
         let before = Heads::from(self.doc().heads());
         let was = self.card_at(at).read(target)?;
-        let warnings = match write(self.card_at_mut(at)) {
-            Ok(w) => w,
-            Err(e) => {
+        let warnings = self.edit_card(at, |card| {
+            write(card).inspect_err(|_| {
                 if let (true, Target::Field(name)) = (put, target) {
-                    self.card_at_mut(at).remove_field(name)?;
+                    let _ = card.remove_field(name);
                 }
-                self.flush();
-                return Err(e);
-            }
-        };
-        self.flush();
+            })
+        })?;
         let doc = &mut self.held().doc;
-        let (patches, view) = doc.patches_on(&root, before.hashes(), &was);
+        let (patches, view) = doc.landed(&root, before.hashes(), &was, units::Scalars);
         let landed = Heads::from(doc.heads());
         let dropped = change::lost_anchors(&was, &view.content, |_| true);
-        Ok(Receipt::landed(before, landed, patches, &was, dropped, view.repairs, warnings))
+        Ok(Receipt { before, heads: landed, patches, dropped_anchors: dropped, repairs: view.repairs, warnings })
     }
 }

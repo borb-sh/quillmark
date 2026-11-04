@@ -362,6 +362,7 @@ fn the_plate_shape_for_text_is_unchanged() {
         let mut doc = Document::parse("~~~card-yaml\n$quill: conform_test@1.0.0\n~~~\n\nBody.")
             .expect("parse")
             .document;
+        doc.set_actor("w").unwrap();
         {
             let mut w = quill.writer(&mut doc);
             w.set("note", value).unwrap();
@@ -530,11 +531,16 @@ fn revise_document_revises_then_conforms() {
     );
     assert_ne!(doc.cards()[0].id(), Some(stored_id.as_str()));
     let without_ids = |doc: &Document| {
-        let mut doc = doc.clone();
-        for card in doc.cards_vec_mut() {
-            card.payload_mut().remove_id();
-        }
-        doc.to_markdown()
+        let cards: Vec<crate::document::Card> = doc
+            .cards()
+            .iter()
+            .map(|card| {
+                let mut card = card.clone();
+                card.payload_mut().remove_id();
+                card
+            })
+            .collect();
+        Document::assembled(doc.main().clone(), cards, Default::default()).to_markdown()
     };
     assert_eq!(without_ids(&doc), without_ids(&expected));
     let anchored = doc.cards()[1]

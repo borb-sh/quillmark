@@ -350,7 +350,7 @@ fn convert(change: &Change, before: &Content, u: impl Units, dir: Dir) -> Result
 fn steps(c: Content, steps_: &[Step], u: impl Units, dir: Dir) -> Result<Change, ApplyError> {
     let mut index = Index::new(u, &c.text);
     let mut draft = Draft::new(c);
-    let mut run = Run::new(false);
+    let mut run = Run::new();
     let mut out = Vec::with_capacity(steps_.len());
     for (n, step) in steps_.iter().enumerate() {
         let conv = step_in(&draft, &index, step, n, u, dir)?;

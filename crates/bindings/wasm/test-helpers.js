@@ -189,12 +189,15 @@ export function storedByPlace(stored) {
   return stored.replace(/\d+@[0-9a-f]+/g, (id) => names.get(id) ?? (names.set(id, `#${names.size}`), names.get(id)))
 }
 
-/** The `insert` patches of `receipt` on the value's own text, as `{ at, text }`. */
+/** The text `receipt`'s patches put in a value's own text, as `{ at, text }` at value offsets, a block marker as `\n`. */
 export const inserts = (receipt) =>
-  receipt.patches.filter((p) => p.insert && !p.slot).map((p) => ({ at: p.insert.at, text: p.insert.text }))
-
-/** The id of each block and island the `insert` patches of `receipt` put, in order. */
-export const putIds = (receipt) =>
   receipt.patches
-    .filter((p) => p.insert && !p.slot)
-    .flatMap((p) => [...p.insert.blocks.map((b) => b.id), ...p.insert.islands.map((i) => i.id)])
+    .filter((p) => (p.action === 'splice' || p.action === 'insert') && p.path.at(-2) === 'text' && !p.path.includes('slots'))
+    .map((p) => ({ at: p.path.at(-1) - 1, text: p.action === 'splice' ? p.value : '\n'.repeat(p.values.length) }))
+
+/** The id of each block and island of the value `after` that `before` holds none of, blocks first. */
+export const putIds = (before, after) => {
+  const ids = (c) => [...c.blocks.map((b) => b.id), ...(c.islands ?? []).map((i) => i.id)]
+  const had = new Set(ids(before))
+  return ids(after).filter((id) => !had.has(id))
+}

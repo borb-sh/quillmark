@@ -27,7 +27,7 @@ use crate::value::QuillValue;
 use crate::version::QuillReference;
 
 /// The storage version tag every save writes: each body a content-model
-/// value, its blocks, containers, anchors and island slots carrying ids.
+/// value, its blocks, containers and islands named by their place.
 ///
 /// The wire key is spelled `schema` though it names a storage version, not a
 /// field schema: it is the serde tag [`StoredDocument`] dispatches on, and
@@ -251,11 +251,13 @@ impl From<&Document> for DocumentV0_134_0 {
     }
 }
 
+/// A card stores each content part under its place, not the id a live
+/// document gave it, so a row is the same bytes whichever history wrote it.
 impl From<&Card> for CardV0_134_0 {
     fn from(card: &Card) -> Self {
         CardV0_134_0 {
-            payload: PayloadV0_134_0::from(card.payload()),
-            body: StoredContent::from(card.body().clone()),
+            payload: PayloadV0_134_0::from(&super::payload_by_place(card.payload())),
+            body: StoredContent::from(card.body().by_place()),
         }
     }
 }
@@ -656,22 +658,6 @@ This body and the metadata above are an indorsement card.
         .document
     }
 
-    /// `overwrite_body` takes a caller's content on the canonical-form token
-    /// alone, so an invalid shape reaches the DTO.
-    #[test]
-    fn an_unreadable_body_is_refused_on_write() {
-        use quillmark_automerge::content::lines::model::{Container, Content, Line, LineKind};
-
-        let mut doc = sample();
-        let mut line = Line::new(LineKind::Para);
-        line.containers =
-            vec![Container::Quote { instance: 0 }; quillmark_automerge::content::MAX_NESTING_DEPTH + 1];
-        doc.main_card_mut()
-            .overwrite_body(Content::new("x".to_string(), vec![line]));
-        let err = serde_json::to_string(&doc).expect_err("write refuses what load would reject");
-        assert!(err.to_string().contains("nests 13 deep"), "{err}");
-    }
-
     #[test]
     fn content_field_survives_storage_round_trip_losslessly() {
         // The storage DTO is the lossless carrier: an `underline` with no
@@ -1039,7 +1025,7 @@ title: Hi
             !body.marks.is_empty(),
             "test needs a non-trivial content (marks present)"
         );
-        let expected = body.to_json();
+        let expected = body.by_place().to_json();
         let envelope = serde_json::to_string(&doc).unwrap();
         let body = locate_body_subtree(&envelope);
         assert_eq!(

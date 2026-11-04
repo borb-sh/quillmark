@@ -1,7 +1,7 @@
 //! The document's Automerge history across the JS boundary: its bytes, its
 //! heads, and the sync protocol a peer runs against it.
 
-use super::{Document, edit_error_to_js};
+use super::{Document, edit_error_to_js, serialize_or_throw};
 use quillmark_core::document::{EditError, Heads, LoadError, SyncMessage};
 use quillmark_core::path::DocPath;
 use wasm_bindgen::prelude::*;
@@ -93,11 +93,19 @@ impl Document {
     }
 
     /// Takes the changes `bytes` hold, another peer's `save` or `saveSince`,
-    /// and merges them as Automerge merges. Bytes that do not decode, or
-    /// leave the document outside its schema, throw `edit::bad_live_bytes`
-    /// and change nothing.
-    pub fn merge(&mut self, bytes: &[u8]) -> Result<(), JsValue> {
-        self.inner.merge(bytes).map_err(|e| edit_error_to_js(&e, &DocPath::main()))
+    /// merges them as Automerge merges, and answers their `Receipt`. Bytes
+    /// that do not decode, or leave the document outside its schema, throw
+    /// `edit::bad_live_bytes` and change nothing.
+    #[wasm_bindgen(unchecked_return_type = "Receipt")]
+    pub fn merge(&mut self, bytes: &[u8]) -> Result<JsValue, JsValue> {
+        let receipt = self.inner.merge(bytes).map_err(|e| edit_error_to_js(&e, &DocPath::main()))?;
+        self.took(receipt, "merge")
+    }
+
+    /// `receipt`, the document's own, as it crosses, its patches in UTF-16.
+    fn took(&mut self, mut receipt: quillmark_core::document::Receipt, op: &str) -> Result<JsValue, JsValue> {
+        receipt.patches = self.inner.patches(&receipt.before, &receipt.heads, quillmark_automerge::content::units::Utf16);
+        serialize_or_throw(&super::content::receipt_js(receipt, &DocPath::main(), None), op)
     }
 
     /// The next Automerge sync message to the peer `state` tracks,
@@ -107,12 +115,14 @@ impl Document {
         self.inner.generate_sync_message(&mut state.inner).map(SyncMessage::encode)
     }
 
-    /// Takes an Automerge sync message from the peer `state` tracks. A
-    /// message that does not decode, or would leave the document outside its
-    /// schema, throws `edit::bad_live_bytes` and changes nothing.
-    #[wasm_bindgen(js_name = receiveSyncMessage)]
-    pub fn receive_sync_message(&mut self, state: &mut SyncState, message: &[u8]) -> Result<(), JsValue> {
+    /// Takes an Automerge sync message from the peer `state` tracks and
+    /// answers its `Receipt`. A message that does not decode, or would leave
+    /// the document outside its schema, throws `edit::bad_live_bytes` and
+    /// changes nothing.
+    #[wasm_bindgen(js_name = receiveSyncMessage, unchecked_return_type = "Receipt")]
+    pub fn receive_sync_message(&mut self, state: &mut SyncState, message: &[u8]) -> Result<JsValue, JsValue> {
         let message = SyncMessage::decode(message).map_err(refused)?;
-        self.inner.receive_sync_message(&mut state.inner, message).map_err(|e| edit_error_to_js(&e, &DocPath::main()))
+        let receipt = self.inner.receive_sync_message(&mut state.inner, message).map_err(|e| edit_error_to_js(&e, &DocPath::main()))?;
+        self.took(receipt, "receiveSyncMessage")
     }
 }

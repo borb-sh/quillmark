@@ -21,6 +21,19 @@ mod step;
 pub(crate) mod value;
 
 pub use peer::{Heads, SyncMessage, SyncState};
+
+/// A value's place in the document, which the document's reads and writes
+/// of that value take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValueId(ObjId);
+
+impl std::ops::Deref for ValueId {
+    type Target = ObjId;
+
+    fn deref(&self) -> &ObjId {
+        &self.0
+    }
+}
 pub use step::{Lowered, StepError};
 
 use automerge::sync::SyncDoc;
@@ -223,9 +236,9 @@ impl Doc {
         self.doc.get_heads()
     }
 
-    /// Writes under `actor`, the bytes its hex spells, from now on.
-    pub fn set_actor(&mut self, actor: ActorId) {
-        self.doc.set_actor(actor);
+    /// Writes under `actor`, its bytes the Automerge actor, from now on.
+    pub fn set_actor(&mut self, actor: &str) {
+        self.doc.set_actor(ActorId::from(actor.as_bytes()));
     }
 
     pub fn generate_sync_message(&mut self, state: &mut SyncState) -> Option<SyncMessage> {
@@ -398,32 +411,40 @@ impl Doc {
         lowered
     }
 
-    /// The patches taking the value `root` from `before` to now, each at
-    /// offsets into the value's text as the patches before it left it.
-    pub fn patches(&mut self, root: &ObjId, before: &[ChangeHash]) -> Vec<patch::Patch> {
-        let was = self.view_at(root, before).content;
-        self.patches_on(root, before, &was).0
+    /// Automerge's patches taking the document from `before` to now, text
+    /// indexes counted in `u`.
+    pub fn patches(&mut self, before: &[ChangeHash], u: impl crate::content::units::Units) -> Vec<Value> {
+        self.doc.commit();
+        let after = self.doc.get_heads();
+        patch::between(&mut self.doc, before, &after, u)
     }
 
-    /// Starts recording the changes from now, so [`patches_on`](Self::patches_on)
-    /// from the heads now reads them without scanning the document.
+    /// Starts recording the changes past the document's heads now, so
+    /// [`landed`](Self::landed) from them reads no history.
     pub fn track(&mut self) {
         self.doc.update_diff_cursor();
     }
 
-    /// [`patches`](Self::patches) from `was`, the value as it read at
-    /// `before`, and the value now. A value the patches leave invalid reads
-    /// through repair, its patch the whole value.
-    pub fn patches_on(&mut self, root: &ObjId, before: &[ChangeHash], was: &Content) -> (Vec<patch::Patch>, View) {
+    /// [`patches`](Self::patches) from `before`, and the view of `root`, which
+    /// read as `was` at `before`, they leave.
+    pub fn landed(&mut self, root: &ObjId, before: &[ChangeHash], was: &Content, u: impl crate::content::units::Units) -> (Vec<Value>, View) {
         self.doc.commit();
         let after = self.doc.get_heads();
-        let (patches, content) = patch::lower(&mut self.doc, root, before, &after, was);
-        if content.validate().is_ok() {
-            debug_assert_eq!(content, self.view(root).content, "the patches leave the value the document reads");
-            return (patches, View { content, repairs: Vec::new() });
-        }
-        let view = self.view(root);
-        (vec![patch::Patch { slot: Vec::new(), action: patch::Action::Value(view.content.clone()) }], view)
+        let (patches, followed) = patch::landed(&mut self.doc, before, &after, u, root, was);
+        let view = match followed {
+            Some(content) => {
+                debug_assert_eq!(content, self.view(root).content, "the patches leave the value the document reads");
+                View { content, repairs: Vec::new() }
+            }
+            None => self.view(root),
+        };
+        (patches, view)
+    }
+
+    /// Automerge's patches taking the document from `before` to `after`.
+    pub fn patches_between(&mut self, before: &[ChangeHash], after: &[ChangeHash], u: impl crate::content::units::Units) -> Vec<Value> {
+        self.doc.commit();
+        patch::between(&mut self.doc, before, after, u)
     }
 
     /// Puts `content` under `key` of the map `parent` as a new value.

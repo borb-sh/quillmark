@@ -39,7 +39,7 @@ pub use quillmark_core::{
     document::{
         AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, Card, CardMut, Document,
         DocumentAnchor, DocumentRevised, Edit, EditError, Heads, ImportError, Located, Parsed,
-        Patch, PatchAction, Reattached, Receipt, Target, Unchecked, WriteOptions,
+        Reattached, Receipt, Target, Unchecked, WriteOptions,
     },
     error::{DOCUMENT_FILE, Diagnostic, Location, ParseError, RenderError, RenderResult, Severity},
     path::DocPath,

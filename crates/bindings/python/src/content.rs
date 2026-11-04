@@ -149,7 +149,7 @@ pub(crate) fn receipt_to_py<'py>(
             entry
         })
         .collect();
-    let patches: Vec<serde_json::Value> = receipt.patches.iter().map(|p| p.to_value()).collect();
+    let patches = receipt.patches;
     let repairs: Vec<serde_json::Value> = receipt.repairs.iter().map(quillmark_automerge::content::repair::Repair::to_value).collect();
     let out = PyDict::new(py);
     out.set_item("before", receipt.before.encode())?;

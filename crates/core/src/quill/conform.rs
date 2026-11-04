@@ -102,25 +102,18 @@ impl QuillConfig {
     pub(crate) fn conform(&self, doc: &mut Document) -> Result<Vec<Diagnostic>, RenderError> {
         self.check_quill_reference(doc)?;
         let mut diags = Vec::new();
-        conform_card(
-            &self.main,
-            doc.main_card_mut(),
-            &DocPath::main(),
-            &mut diags,
-        );
-        for (index, card) in doc.cards_vec_mut().iter_mut().enumerate() {
+        conform_card(&self.main, &mut doc.main_card_mut(), &DocPath::main(), &mut diags);
+        for index in 0..doc.cards().len() {
             // A card whose `$kind` declares no schema has no declared field to
-            // conform: it passes untouched, as the render gate passes it. The
-            // kind is copied out so the card is free to be borrowed mutably.
-            let Some(kind) = card.kind().map(str::to_string) else {
+            // conform: it passes untouched, as the render gate passes it.
+            let Some(kind) = doc.cards()[index].kind().map(str::to_string) else {
                 continue;
             };
             let Some(schema) = self.card_kind(&kind) else {
                 continue;
             };
-            conform_card(schema, card, &DocPath::card(Some(&kind), index), &mut diags);
+            conform_card(schema, &mut doc.card_edit(index).expect("in range"), &DocPath::card(Some(&kind), index), &mut diags);
         }
-        doc.settle();
         Ok(diags)
     }
 }

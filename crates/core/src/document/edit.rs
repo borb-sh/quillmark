@@ -824,43 +824,39 @@ impl<'a> CardMut<'a> {
         Self { doc, at }
     }
 
-    fn card(&mut self) -> &mut Card {
-        self.doc.card_at_mut(self.at)
-    }
-
-    pub(crate) fn payload_mut(&mut self) -> &mut Payload {
-        self.card().payload_mut()
+    fn edit<R>(&mut self, f: impl FnOnce(&mut Card) -> R) -> R {
+        self.doc.edit_card(self.at, f)
     }
 
     /// [`Card::remove_field`].
     pub fn remove_field(&mut self, name: &str) -> Result<Option<QuillValue>, EditError> {
-        self.card().remove_field(name)
+        self.edit(|c| c.remove_field(name))
     }
 
     /// [`Card::store_ext`].
     pub fn store_ext(&mut self, value: serde_json::Map<String, serde_json::Value>) -> Result<(), EditError> {
-        self.card().store_ext(value)
+        self.edit(|c| c.store_ext(value))
     }
 
     /// [`Card::remove_ext`].
     pub fn remove_ext(&mut self) -> Option<serde_json::Map<String, serde_json::Value>> {
-        self.card().remove_ext()
+        self.edit(|c| c.remove_ext())
     }
 
     /// [`Card::store_seed_overlay`].
     pub fn store_seed_overlay(&mut self, card_kind: impl Into<String>, value: serde_json::Value) -> Result<(), EditError> {
-        self.card().store_seed_overlay(card_kind, value)
+        self.edit(|c| c.store_seed_overlay(card_kind, value))
     }
 
     /// [`Card::remove_seed_overlay`].
     pub fn remove_seed_overlay(&mut self, card_kind: &str) -> Option<serde_json::Value> {
-        self.card().remove_seed_overlay(card_kind)
+        self.edit(|c| c.remove_seed_overlay(card_kind))
     }
 
     /// [`Card::overwrite_body`].
     #[cfg(test)]
     pub(crate) fn overwrite_body(&mut self, content: impl Into<Lines>) {
-        self.card().overwrite_body(content)
+        self.edit(|c| c.overwrite_body(content))
     }
 
     /// [`write`](Self::write) of [`Edit::Apply`](super::Edit::Apply).
@@ -935,19 +931,12 @@ impl<'a> CardMut<'a> {
     /// [`Card::overwrite_field`].
     #[cfg(test)]
     pub(crate) fn overwrite_field(&mut self, name: &str, content: impl Into<Lines>) -> Result<(), EditError> {
-        self.card().overwrite_field(name, content)
+        self.edit(|c| c.overwrite_field(name, content))
     }
 
     #[doc(hidden)]
     pub fn commit_field(&mut self, name: &str, value: impl Into<QuillValue>, schema: &FieldSchema) -> Result<(), EditError> {
-        self.card().commit_field(name, value, schema)
-    }
-
-    /// A markdown revise of the value at `target` at `heads`, its receipt
-    /// counted in scalars, which [`Receipt::in_units`](super::Receipt::in_units)
-    /// converts.
-    pub(crate) fn revise_counted(&mut self, target: super::Target<'_>, markdown: &str, heads: Option<&super::Heads>) -> Result<super::Receipt, EditError> {
-        self.write(target, super::Edit::Revise(markdown), super::WriteOptions { heads })
+        self.edit(|c| c.commit_field(name, value, schema))
     }
 
     #[doc(hidden)]
@@ -991,16 +980,16 @@ impl<'a> CardMut<'a> {
     /// `before` to `heads`, as a host that kept only its receipt's heads
     /// names it.
     pub fn undo_between(&mut self, target: super::Target<'_>, before: &super::Heads, heads: &super::Heads) -> Result<super::Receipt, EditError> {
+        self.undo_between_in(target, before, heads, quillmark_automerge::content::units::Scalars)
+    }
+
+    /// [`undo_between`](Self::undo_between) for a host counting offsets in `u`.
+    pub fn undo_between_in(&mut self, target: super::Target<'_>, before: &super::Heads, heads: &super::Heads, u: impl quillmark_automerge::content::units::Units) -> Result<super::Receipt, EditError> {
         let was = self.doc.read_under(self.at, target, Some(before))?;
         let then = self.doc.read_under(self.at, target, Some(heads))?;
         let change = quillmark_automerge::content::diff::replace(&then, &was).map_err(|e| EditError::change(e.into()))?;
-        self.write(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) })
-    }
-}
-
-impl Drop for CardMut<'_> {
-    fn drop(&mut self) {
-        self.doc.settle();
+        let change = quillmark_automerge::content::units::change_from_scalars(&change, &then, u).map_err(EditError::change)?;
+        self.write_in(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) }, u)
     }
 }
 
@@ -1056,7 +1045,7 @@ impl Document {
                 id
             }
         };
-        self.cards_vec_mut().insert(index, card);
+        self.insert_card_at(index, card);
         Ok(id)
     }
 
@@ -1093,7 +1082,7 @@ impl Document {
         if index >= self.cards().len() {
             return None;
         }
-        Some(self.cards_vec_mut().remove(index))
+        Some(self.remove_card_at(index))
     }
 
     /// Replace the `$kind` of the composable card at `index`.
@@ -1112,7 +1101,7 @@ impl Document {
         check_kind(&new_kind)?;
         let len = self.cards().len();
         let mut card = self
-            .card_mut(index)
+            .card_edit(index)
             .ok_or(EditError::IndexOutOfRange { index, len })?;
         card.payload_mut().set_kind(new_kind);
         Ok(())
@@ -1131,8 +1120,7 @@ impl Document {
         if from == to {
             return Ok(());
         }
-        let card = self.cards_vec_mut().remove(from);
-        self.cards_vec_mut().insert(to, card);
+        self.move_card_at(from, to);
         Ok(())
     }
 }
@@ -1156,13 +1144,9 @@ impl Unchecked<'_> {
         value: impl Into<QuillValue>,
     ) -> Result<(), EditError> {
         let len = self.0.cards().len();
-        let card = match card {
+        let mut card = match card {
             None => self.0.main_card_mut(),
-            Some(index) => self
-                .0
-                .cards_vec_mut()
-                .get_mut(index)
-                .ok_or(EditError::IndexOutOfRange { index, len })?,
+            Some(index) => self.0.card_edit(index).ok_or(EditError::IndexOutOfRange { index, len })?,
         };
         card.store_field(name, value)
     }

@@ -294,7 +294,7 @@ proptest! {
             doc.unchecked().store_field(None, key, QuillValue::from_json(value)).expect("stored");
         }
         let ext = json!({ "meta": { k.clone(): text } });
-        doc.main_mut().payload_mut().set_ext(ext.as_object().unwrap().clone());
+        doc.main_card_mut().payload_mut().set_ext(ext.as_object().unwrap().clone());
 
         let emitted = doc.to_markdown();
         let back = Document::parse(&emitted)

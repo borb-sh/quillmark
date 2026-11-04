@@ -10,10 +10,10 @@ mod common;
 
 use common::*;
 use proptest::prelude::*;
-use quillmark_automerge::automerge::marks::{ExpandMark, Mark};
-use quillmark_automerge::automerge::sync::{State, SyncDoc};
-use quillmark_automerge::automerge::transaction::Transactable;
-use quillmark_automerge::automerge::{AutoCommit, ObjId, ObjType, ROOT, ReadDoc, ScalarValue, Value};
+use automerge::marks::{ExpandMark, Mark};
+use automerge::sync::{State, SyncDoc};
+use automerge::transaction::Transactable;
+use automerge::{AutoCommit, ObjId, ObjType, ROOT, ReadDoc, ScalarValue, Value};
 use quillmark_automerge::model::{Doc, LoadError, SyncMessage, SyncState};
 use quillmark_automerge::content::model::Content;
 
@@ -154,7 +154,7 @@ proptest! {
         let (mut ours, mut theirs) = (SyncState::new(), State::new());
         for _ in 0..8 {
             if let Some(m) = doc.generate_sync_message(&mut ours) {
-                peer.sync().receive_sync_message(&mut theirs, quillmark_automerge::automerge::sync::Message::decode(&m.encode()).unwrap()).unwrap();
+                peer.sync().receive_sync_message(&mut theirs, automerge::sync::Message::decode(&m.encode()).unwrap()).unwrap();
             }
             let Some(m) = peer.sync().generate_sync_message(&mut theirs) else { break };
             let (kept, mut before) = (ours.encode(), doc.clone());

@@ -2559,6 +2559,7 @@ dependencies = [
 name = "quillmark-core"
 version = "0.134.1"
 dependencies = [
+ "automerge",
  "crc32fast",
  "glob",
  "indexmap",
