@@ -1113,10 +1113,13 @@ impl Document {
         serde_json::to_string(&self.inner).expect("Document serialization is infallible")
     }
 
+    /// A new handle on this document as a new peer: its history, a random
+    /// Automerge actor and no `actor`, so what either writes merges into the
+    /// other. A clone that places cards under an actor calls `setActor`.
     #[wasm_bindgen(js_name = clone)]
     pub fn clone_doc(&self) -> Document {
         Document {
-            inner: self.inner.clone(),
+            inner: self.inner.fork(),
             parse_warnings: self.parse_warnings.clone(),
         }
     }

@@ -207,6 +207,14 @@ impl Doc {
         }
     }
 
+    /// This document as a new peer: its history, writing under a random
+    /// actor, so what either writes merges into the other.
+    pub fn fork(&self) -> Doc {
+        let mut doc = self.doc.clone();
+        doc.set_actor(ActorId::random());
+        Doc { doc }
+    }
+
     pub fn save(&mut self) -> Vec<u8> {
         self.doc.save()
     }

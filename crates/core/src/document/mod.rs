@@ -1105,6 +1105,19 @@ impl Document {
         Ok(())
     }
 
+    /// A new handle on this document as a new peer: its cards and history,
+    /// a random Automerge actor and no actor set, so what either handle
+    /// writes merges into the other. `Clone` keeps the actor, which two
+    /// handles that both write must not share.
+    pub fn fork(&self) -> Document {
+        Document {
+            main: self.main.clone(),
+            cards: self.cards.clone(),
+            mints: card_id::ActorMints::default(),
+            held: Bound(self.held.0.as_ref().map(|h| Held::new(h.doc.fork()))),
+        }
+    }
+
     /// Holds the document in an Automerge document where it is not yet,
     /// each part then read back carrying the id that document gives it.
     pub(crate) fn bind(&mut self) {

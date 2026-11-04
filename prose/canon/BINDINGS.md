@@ -101,7 +101,7 @@ WASM and Python also expose merge `repair`, which reads a state concurrent edits
 - `new SyncState()` (Python `SyncState()`) makes an opaque `SyncState`, what one peer is known to hold; `state.encode()` and `SyncState.decode(bytes)` keep it across a restart.
 - `doc.generateSyncMessage(state)` answers the next message's bytes, `undefined` (`None`) once the peer holds everything, and `doc.receiveSyncMessage(state, message)` takes a peer's.
 
-Bytes or a message that would leave the document outside its schema throw `edit::bad_live_bytes` with its `reason`, and change nothing. Peers that sync start from one document, one read from another's `save`, and each writes under its own `actor` or none: a write with no actor writes under its document's own random Automerge actor, while two peers writing under one actor mint one Automerge sequence number twice.
+Bytes or a message that would leave the document outside its schema throw `edit::bad_live_bytes` with its `reason`, and change nothing. Peers that sync start from one document, one read from another's `save` or a `doc.clone()`, which is a new peer with no `actor`, and each writes under its own `actor` or none: a write with no actor writes under its document's own random Automerge actor, while two peers writing under one actor mint one Automerge sequence number twice.
 
 Bytes are the session's form, not the row's. A host stores `toStored()` (`to_stored`), the versioned JSON envelope ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "When to use it"), and `Document.fromStored` (`from_stored`) starts a new session from it: no heads read before the reload resolve, and peers rejoin from the row, which every process loads to one origin.
 

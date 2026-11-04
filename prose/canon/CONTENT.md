@@ -239,7 +239,7 @@ A merge or a sync message the document takes answers the same receipt, its patch
 
 Bytes `merge` takes leniently, as Automerge loads an increment: a trailing run that does not decode is left out.
 
-A handle with no actor set writes under its document's own random Automerge actor, which a clone keeps, so a clone is the same peer and a second peer reads the bytes; a writer's actor is its own bytes, so two peers writing under one actor mint one sequence number twice. Both bindings expose the verbs on `Document` ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive").
+A handle with no actor set writes under its document's own random Automerge actor. A clone (`Document::fork`, `clone()` in both bindings) is a new peer, with a random Automerge actor and no actor set, so a clone and its source merge into each other; Rust's `Clone` keeps the actor, for a snapshot that does not write; a writer's actor is its own bytes, so two peers writing under one actor mint one sequence number twice. Both bindings expose the verbs on `Document` ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive").
 
 ## The laws
 

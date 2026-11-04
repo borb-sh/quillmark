@@ -8,8 +8,10 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   it and `doc.setActor(actor)` (`set_actor` in Rust and Python) sets it, and
   every write and card placement through the handle writes under it.
   `WriteOptions.actor`, `PlaceOptions` and the `actor` argument of
-  `insert_card` and `add_card` are gone. `mapPos` is gone from the WASM
-  surface.
+  `insert_card` and `add_card` are gone. `doc.clone()` (Rust
+  `Document::fork`) is a new peer, a random Automerge actor and no actor
+  set, whose writes merge back into its source. `mapPos` is gone from the
+  WASM surface.
 - feat(core)!: **a stored row names each record by place.** A content
   value's blocks, containers and islands store as `p0`, `p1`, … rather than
   the live document's Automerge object ids, so equal content stores as equal

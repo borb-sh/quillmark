@@ -550,10 +550,12 @@ impl PyDocument {
         self.inner.quill_reference().to_string()
     }
 
-    /// Return a fresh `Document` handle with the same parsed state.
+    /// A new handle on this document as a new peer: its history, a random
+    /// Automerge actor and no `actor`, so what either writes merges into the
+    /// other. A clone that places cards under an actor calls `set_actor`.
     fn clone(&self) -> Self {
         PyDocument {
-            inner: self.inner.clone(),
+            inner: self.inner.fork(),
             parse_warnings: self.parse_warnings.clone(),
         }
     }

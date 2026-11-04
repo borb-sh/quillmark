@@ -129,7 +129,10 @@ anchors as Automerge marks, and its containers and islands as records named by
 their object ids. A field holding a string, as a `text` field does before a
 schema-aware write, or any other JSON, is Automerge maps, lists and scalars,
 merged as data, a map's key order held in its `\u{1f}order` list, since an
-Automerge map holds none. `Document::load` refuses bytes whose
+Automerge map holds none. A content value nested in such a field, an
+`array<richtext>` element or an object's content property, is data too: a
+merge of two writes to it can leave it invalid, and each read takes it
+through repair. `Document::load` refuses bytes whose
 root holds no document in this shape, or names a schema this build does not
 read (`edit::bad_live_bytes`). The root's `schema` tag names the layout
 version of the live document.

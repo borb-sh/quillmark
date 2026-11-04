@@ -107,6 +107,23 @@ fn heads_read_before_any_write_merge_with_a_change_since() {
     }
 }
 
+/// A fork is a new peer: it writes under its own actor, and its save
+/// merges back into the document it forked from beside that document's own
+/// write.
+#[test]
+fn a_fork_writes_and_merges_back_into_its_source() {
+    let mut doc = parse(SOURCE);
+    doc.set_actor("a1").unwrap();
+    let _ = doc.heads();
+    let mut fork = doc.fork();
+    assert_eq!(fork.actor(), None);
+    let key = |at: usize, s: &str| Change::new(vec![Step::Splice(Splice::new(at, "", s))]);
+    let _ = fork.main_mut().apply(Target::Body, &key(0, "<"), None).unwrap();
+    let _ = doc.main_mut().apply(Target::Body, &key(7, ">"), None).unwrap();
+    doc.merge(&fork.save()).unwrap();
+    assert_eq!(doc.main().body().text, "<Revenue> grew 12%.\nShip v2");
+}
+
 /// A base read before a write of more steps than a keystroke's thousands
 /// merges with it.
 #[test]

@@ -11,6 +11,8 @@
 use automerge::transaction::Transactable;
 use automerge::{ObjId, ObjType, ROOT, ReadDoc, Value as AmValue};
 use crate::content::model::Content;
+use crate::content::repair::{Raw, repair};
+use crate::content::units::is_content_value;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -176,7 +178,7 @@ pub fn read_card(d: &Doc, c: &ObjId) -> Result<Card, String> {
             let v = match d.value(&f, &key) {
                 Some(root) => d.view(&root).content.to_value(),
                 None => match d.doc.get(&f, key.as_str()).ok().flatten() {
-                    Some((AmValue::Object(_), o)) => hydrate(&d.doc, &o),
+                    Some((AmValue::Object(_), o)) => repaired(hydrate(&d.doc, &o)),
                     Some((AmValue::Scalar(s), _)) => json_scalar(&s),
                     None => continue,
                 },
@@ -193,6 +195,19 @@ pub fn read_card(d: &Doc, c: &ObjId) -> Result<Card, String> {
         nested,
         body: d.value(c, BODY).map(|b| d.view(&b).content).unwrap_or_else(Content::empty),
     })
+}
+
+/// `v` with each content value it holds, at any depth, read through repair.
+fn repaired(v: Value) -> Value {
+    match v {
+        v if is_content_value(&v) => match Raw::from_value(&v) {
+            Ok(raw) => repair(raw).0.to_value(),
+            Err(_) => v,
+        },
+        Value::Array(a) => Value::Array(a.into_iter().map(repaired).collect()),
+        Value::Object(o) => Value::Object(o.into_iter().map(|(k, x)| (k, repaired(x))).collect()),
+        v => v,
+    }
 }
 
 /// Writes what differs between `was` and `now` into the document, each
