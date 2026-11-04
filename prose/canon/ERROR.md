@@ -131,10 +131,9 @@ any other verb refuses the same way. A content write's
 revise or replace whose change removes an `x-` island refuses under
 `edit::drops_ext_island`, carrying `island` and `type`: markdown cannot spell
 one, so its writer may not have seen it, and a change through `apply` removes
-one. The line-form revise verbs do not check. A content write whose `actor`
-is not an actor ([CONTENT.md](CONTENT.md) § Ids) refuses under
-`edit::invalid_actor`, carrying `actor`, as does a card placement under
-one.
+one. An actor that is not one ([CONTENT.md](CONTENT.md) § Ids), given to
+`Document::set_actor` (`setActor`, `set_actor`), refuses under
+`edit::invalid_actor`, carrying `actor`.
 
 Building a card from a `CardWire` (`unchecked.insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:

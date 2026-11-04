@@ -44,7 +44,9 @@ the `Document` and `Quill` model, and the `Diagnostic` currency; see the
 crate's rustdoc for the full surface, and [Core Interfaces](#core-interfaces)
 below for the ones carrying the contract. It depends on `quillmark-automerge`
 (the Automerge document every `Document` is held in, and the content values
-its fields hold), and on no backend; backends depend on it.
+its fields hold), and on no backend; backends depend on it. A `Document` is
+held in its Automerge document from its first write, save or sync, or from
+its `load`; until then its cards are its state.
 
 ### `quillmark-automerge`
 
@@ -68,7 +70,7 @@ workspace; no render path parses markdown: backends lower the content.
 `model` is the Quillmark document held as one Automerge document
 (`model::Doc`): the root's cards, each card map's layout, fields, values and
 nested comments as plain data (`model::cards`, which core reads its cards from
-and flushes them into), a change lowered into Automerge operations, at the
+and writes each card edit into), a change lowered into Automerge operations, at the
 document's heads or at earlier ones, and the read back through merge repair,
 so every peer holding one merged state reads one valid value. Bytes, heads,
 incremental saves and the sync protocol are Automerge's own. `revise_keeping`

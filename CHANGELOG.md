@@ -8,8 +8,10 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   it and `doc.setActor(actor)` (`set_actor` in Rust and Python) sets it, and
   every write and card placement through the handle writes under it.
   `WriteOptions.actor`, `PlaceOptions` and the `actor` argument of
-  `insert_card` and `add_card` are gone. `mapPos` is gone from the WASM
-  surface.
+  `insert_card` and `add_card` are gone. `doc.clone()` (Rust
+  `Document::fork`) is a new peer, a random Automerge actor and no actor
+  set, whose writes merge back into its source. `mapPos` is gone from the
+  WASM surface.
 - feat(core)!: **a stored row names each record by place.** A content
   value's blocks, containers and islands store as `p0`, `p1`, … rather than
   the live document's Automerge object ids, so equal content stores as equal
@@ -32,15 +34,17 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
 - feat(core)!: **a document is one Automerge document.** Every `Document`
   holds its cards in one Automerge 0.12 document, and the cards are a view of
   it: the root holds `schema`, `main`, `cards` by `$id` and `order`, a content
-  value is a text object, and any other value is maps, lists and scalars.
+  value is a text object, and any other value is maps, lists and scalars,
+  a content value nested in one read through repair.
   Inside a document a block, container or island id is its record's
   Automerge object id, minted by the write that puts it; a moved block or
   island takes a new one.
 - feat(core)!: **heads are the only base, and a stale write merges as
   Automerge merges.** A write names what its writer read by the document's
-  heads then: `WriteOptions { heads, actor }` on `Card::apply`, `revise`,
-  `replace` and the structural edits, `heads` on `TypedWriter::revise` and
-  `CardWriter::revise`, and `TypedWriter::revise_document_at(heads, md)`.
+  heads then, through one `opts: impl Into<WriteOptions>` (`WriteOptions {
+  heads }` or bare heads) on every write that takes them: `CardMut::apply`,
+  `revise`, `replace` and the structural edits, `TypedWriter::revise`,
+  `CardWriter::revise` and `TypedWriter::revise_document(md, opts)`.
   The write lands as one change at those heads, concurrent with every change
   since: text both sides edited interleaves, a record or field both set reads
   as the later write, and an anchor or mark put at earlier heads takes in
@@ -88,12 +92,12 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   `heads`.** `doc.save()`, `Document.load(bytes)`, `doc.heads()`,
   `doc.saveSince(heads)`, `doc.merge(bytes)`, and
   `doc.generateSyncMessage(state)` / `doc.receiveSyncMessage(state, message)`
-  with the opaque `SyncState`. `WriteOptions` is `{ heads, actor }`, and
-  `writer.revise` and `writer.reviseDocument` take `HeadsOptions`,
-  `{ heads }`; `base`, `baseHash`, `baseContent`, `baseStored`,
-  `BaseOptions` and `DocumentBaseOptions` are gone, as are `doc.hash`,
-  `doc.hashAt`, `writer.hash` and `writer.hashAt`. A receipt is
-  `{ applied, heads, droppedAnchors, movedAnchors, warnings, minted }`.
+  with the opaque `SyncState`. Every write, `writer.revise` and
+  `writer.reviseDocument` among them, takes `WriteOptions`, `{ heads }`;
+  `base`, `baseHash`, `baseContent`, `baseStored`, `BaseOptions` and
+  `DocumentBaseOptions` are gone, as are `doc.hash`, `doc.hashAt`,
+  `writer.hash` and `writer.hashAt`. The structural edits are `Document`
+  verbs, `indent` and `outdent` taking `first` and `last`.
 - feat(python)!: **the same in snake case**: `doc.save()`,
   `Document.load`, `doc.heads()`, `doc.save_since`, `doc.merge`,
   `doc.generate_sync_message(state)` and `doc.receive_sync_message(state,
@@ -102,10 +106,10 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   `base_hash=`, `base_content=` and `base_stored=` were; `doc.hash`,
   `doc.hash_at`, `writer.hash` and `writer.hash_at` are gone, and a receipt
   dict holds no `hash` or `rebased`.
-- feat: **a receipt carries the heads its write left.** `Receipt` and
-  `DocumentRevised` gain `heads`, the document's heads after the write, as
-  `heads()` answers them, the next write's `heads`; a card no document holds
-  answers none. WASM and Python carry them as hex strings.
+- feat: **a receipt carries the heads either side of its write.**
+  `Receipt` and `DocumentRevised` carry `before` and `heads`, the
+  document's heads before and after the write, as `heads()` answers them,
+  `heads` the next write's. WASM and Python carry them as hex strings.
 - feat(bindings)!: **the writer's `revise` names its card by `$id`.** WASM
   `writer.revise({ card })` and Python `writer.revise(card=)` take a
   composable card's `$id` and throw on an index, as `apply`, `revise` and

@@ -98,7 +98,7 @@ def test_card_selector_targets_the_composable_card_on_both_lanes():
 
 
 def test_writer_revise_field():
-    """revise_field diff-imports markdown into a richtext field under the same
+    """revise diff-imports markdown into a richtext field under the same
     guards as `set`, returning the receipt a content write answers."""
     quill = richtext_quill()
     doc = Document("sample_form@0.1.0")
@@ -142,7 +142,7 @@ def test_writer_revise_document():
     receipt = w.revise_document(
         "~~~\n$quill: sample_form@0.1.0\nbio: make it <kbd>**bold**</kbd>\n~~~\n\nBody.\n"
     )
-    assert sorted(receipt) == ["dropped_anchors", "from", "heads", "warnings"]
+    assert sorted(receipt) == ["before", "dropped_anchors", "from", "heads", "warnings"]
     assert (receipt["dropped_anchors"], receipt["from"]) == ([], [])
     assert receipt["heads"] == doc.heads()
     (dropped,) = receipt["warnings"]
@@ -206,7 +206,7 @@ def test_a_row_starts_a_new_session_and_bytes_continue_one():
 
 
 def test_an_anchor_survives_the_field_and_document_revises():
-    """revise_field and revise_document rebase an anchor the field holds."""
+    """revise and revise_document keep an anchor the field holds."""
     quill = richtext_quill()
     doc = Document("sample_form@0.1.0")
     quill.writer(doc).revise("make it bold here", "bio")
@@ -254,7 +254,7 @@ def test_a_dropped_anchor_is_named_and_reattached_where_its_text_is_found_once()
 
 
 def test_markdown_writes_return_their_drops_at_the_body_written():
-    """revise_body and add_card return the import's drops, each at the body
+    """revise and add_card return the import's drops, each at the body
     it wrote."""
     quill = taro_quill()
     doc = Document("taro@0.1.0")

@@ -99,7 +99,7 @@ fn a_text_revise_carries_its_anchors_by_the_diff() {
 fn a_document_revise_keeps_a_text_anchor() {
     let mut doc = anchored();
     let md = doc.to_markdown().replace("note: a *literal* line", "note: still a *literal* line");
-    let revised = quill().writer(&mut doc).revise_document(&md).expect("revise");
+    let revised = quill().writer(&mut doc).revise_document(&md, None).expect("revise");
     assert_eq!(revised.dropped_anchors, []);
     let c1 = doc.anchor_context("c1").expect("c1 survives");
     assert_eq!((c1.quote.as_str(), c1.prefix.as_str()), ("literal", "still a *"));

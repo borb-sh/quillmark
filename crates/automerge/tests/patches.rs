@@ -65,7 +65,7 @@ proptest! {
         let base = doc.heads();
         let change = ids::renamed(&change_for(&d, &ops), &d, &before);
         doc.apply(&root, &change, None).unwrap();
-        let patches = doc.patches(&base, Utf16);
+        let patches = { let h = doc.heads(); doc.patches_between(&base, &h, Utf16) };
         replay(&mut text, &patches);
         prop_assert_eq!(text, text_of(&doc, &root), "{:?}", patches);
     }
@@ -81,7 +81,7 @@ proptest! {
         let mut text = text_of(&doc, &root);
         let at = doc.heads();
         doc.merge(&peer.save_since(&base)).unwrap();
-        let patches = doc.patches(&at, Utf16);
+        let patches = { let h = doc.heads(); doc.patches_between(&at, &h, Utf16) };
         replay(&mut text, &patches);
         prop_assert_eq!(text, text_of(&doc, &root), "{:?}", patches);
     }

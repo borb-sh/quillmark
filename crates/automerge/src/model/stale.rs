@@ -10,7 +10,7 @@ use automerge::{ActorId, AutoCommit, ChangeHash, ExpandedChange, ObjId, ScalarVa
 use crate::content::change::Change;
 use crate::content::model::Content;
 
-use super::step::{self, Lowered, StepError};
+use super::step::{self, StepError};
 
 pub(super) fn apply(
     doc: &mut AutoCommit,
@@ -18,11 +18,11 @@ pub(super) fn apply(
     change: &Change,
     heads: &[ChangeHash],
     read: Option<&Content>,
-) -> Option<Result<Lowered, StepError>> {
+) -> Option<Result<Option<Content>, StepError>> {
     let mut fork = super::fork(doc, heads)?;
     let actor = isolated_actor(doc, heads);
     fork.set_actor(actor.clone());
-    let mut lowered = match step::lower(&mut fork, root, change, read) {
+    let lowered = match step::lower(&mut fork, root, change, read) {
         Ok(l) => l,
         Err(e) => return Some(Err(e)),
     };
@@ -56,14 +56,6 @@ pub(super) fn apply(
     e.start_op = std::num::NonZeroU64::new(start + shift).expect("op counters start at one");
     e.hash = None;
     doc.apply_changes([automerge::Change::from(e)]).expect("a change made at the document's heads applies");
-    lowered.minted = lowered
-        .minted
-        .into_iter()
-        .map(|(k, v)| {
-            let v = renamed(&v, &hex, start, shift).unwrap_or(v);
-            (k, v)
-        })
-        .collect();
     Some(Ok(lowered))
 }
 
@@ -84,7 +76,7 @@ fn isolated_actor(doc: &mut AutoCommit, heads: &[ChangeHash]) -> ActorId {
 
 /// The string naming an op of the fork's change by its id, as an id or as a
 /// cursor, `shift` counters on; none for any other string. A block's path,
-/// a point's cursor and a minted id are written so.
+/// a point's cursor and a record's id are written so.
 fn renamed(v: &str, actor: &str, start: u64, shift: u64) -> Option<String> {
     let (lead, id) = v.strip_prefix('-').map_or(("", v), |rest| ("-", rest));
     let (ctr, a) = id.split_once('@')?;

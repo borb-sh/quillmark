@@ -86,6 +86,14 @@ pub fn renamed(change: &Change, from: &Content, to: &Content) -> Change {
     Change::from_value(&rename_steps(&change.to_value(), from, to)).unwrap_or_else(|_| change.clone())
 }
 
+/// `change` with each id `map` names renamed, at any depth.
+pub fn renamed_by(change: &Change, map: &HashMap<String, String>) -> Change {
+    if map.is_empty() {
+        return change.clone();
+    }
+    Change::from_value(&rename_json(&change.to_value(), map)).unwrap_or_else(|_| change.clone())
+}
+
 /// `content` with each id `map` names renamed, at any depth.
 pub fn renamed_content(content: &Content, map: &HashMap<String, String>) -> Content {
     if map.is_empty() {

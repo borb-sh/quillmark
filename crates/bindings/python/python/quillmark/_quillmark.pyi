@@ -175,6 +175,7 @@ class Document:
         change: Change,
         field: str | None = None,
         card: str | None = None,
+        *,
         heads: list[str] | None = None,
     ) -> Receipt: ...
     def revise(
@@ -182,6 +183,7 @@ class Document:
         markdown: str,
         field: str | None = None,
         card: str | None = None,
+        *,
         heads: list[str] | None = None,
     ) -> Receipt: ...
     def replace(
@@ -189,6 +191,7 @@ class Document:
         content: Content,
         field: str | None = None,
         card: str | None = None,
+        *,
         heads: list[str] | None = None,
     ) -> Receipt: ...
     def undo(
@@ -245,6 +248,8 @@ class Receipt(TypedDict):
     heads: list[str]
     # Automerge's patches for the change, in order.
     patches: list[Patch]
+    # The next three are empty for a merge or sync message, whose `patches`
+    # carry what changed.
     dropped_anchors: list[ReceiptDroppedAnchor]
     repairs: list[dict[str, Any]]
     warnings: list[Diagnostic]
@@ -312,6 +317,7 @@ DocumentRevised = TypedDict(
         "dropped_anchors": list[AnchorContext],
         "warnings": list[Diagnostic],
         "from": list[int | None],
+        "before": list[str],
         "heads": list[str],
     },
 )

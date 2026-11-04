@@ -107,6 +107,23 @@ fn heads_read_before_any_write_merge_with_a_change_since() {
     }
 }
 
+/// A fork is a new peer: it writes under its own actor, and its save
+/// merges back into the document it forked from beside that document's own
+/// write.
+#[test]
+fn a_fork_writes_and_merges_back_into_its_source() {
+    let mut doc = parse(SOURCE);
+    doc.set_actor("a1").unwrap();
+    let _ = doc.heads();
+    let mut fork = doc.fork();
+    assert_eq!(fork.actor(), None);
+    let key = |at: usize, s: &str| Change::new(vec![Step::Splice(Splice::new(at, "", s))]);
+    let _ = fork.main_mut().apply(Target::Body, &key(0, "<"), None).unwrap();
+    let _ = doc.main_mut().apply(Target::Body, &key(7, ">"), None).unwrap();
+    doc.merge(&fork.save()).unwrap();
+    assert_eq!(doc.main().body().text, "<Revenue> grew 12%.\nShip v2");
+}
+
 /// A base read before a write of more steps than a keystroke's thousands
 /// merges with it.
 #[test]
@@ -483,7 +500,7 @@ fn a_revise_with_the_annotated_read_keeps_what_markdown_cannot_spell() {
 /// lands as written, and one that rewrites what the read re-spelled lands
 /// merged with what the read lost.
 #[test]
-fn a_revise_over_what_its_read_could_not_spell_lands_as_written_or_conflicts() {
+fn a_revise_over_what_its_read_could_not_spell_lands_as_written_or_merged() {
     let shape = |name: &str| unspelled().into_iter().find(|(n, _)| *n == name).unwrap().1;
     let mut doc = parse(SOURCE);
     doc.main_mut().replace(Target::Body, &shape("emphasis in link text"), None).unwrap();
@@ -690,6 +707,7 @@ fn a_receipt_carries_the_heads_its_write_left() {
     assert!(!receipt.heads.hashes().is_empty());
     assert_eq!(receipt.heads, doc.heads());
     let revised = doc.revise("~~~\n$quill: q\n~~~\n\nRevenue fell.\n").unwrap();
+    assert_eq!(revised.before, receipt.heads);
     assert_ne!(revised.heads, receipt.heads);
     assert_eq!(revised.heads, doc.heads());
 }

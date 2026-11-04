@@ -150,7 +150,6 @@ export type {
 	Addr,
 	CardAddr,
 	Delta,
-	HeadsOptions,
 	DocumentRevised,
 	CardAdded,
 	AnnotatedMarkdown,
@@ -682,7 +681,7 @@ export interface DocumentUnchecked {
 	insertCard(card: CardInput, at?: number): string;
 }
 
-import type { Addr, CardAdded, CardInput, HeadsOptions, Content, DocumentRevised, PathStep, Receipt, Resolved } from '../core/wasm.js';
+import type { Addr, CardAdded, CardInput, Content, DocumentRevised, PathStep, Receipt, Resolved, WriteOptions } from '../core/wasm.js';
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
@@ -715,8 +714,8 @@ export declare class DocumentWriter {
 	/**
 	 * Revise the body or content field at `addr` from authored text: anchors
 	 * ride their text, and the write answers the `Receipt` a content write does,
-	 * `applied` the change from the value before, its warnings at the value,
-	 * and the anchors the write dropped or moved. A bare string is `Addr`
+	 * `{ before, heads, patches, droppedAnchors, repairs, warnings }`, its
+	 * warnings at the value. A bare string is `Addr`
 	 * shorthand for `{ field }`; an absent `addr.field` is the body, an absent
 	 * `addr.card` the main card, and a composable card is named by its `$id`,
 	 * an index throwing.
@@ -724,7 +723,7 @@ export declare class DocumentWriter {
 	 * The codec comes from the declared type, the body's being `richtext`:
 	 * `richtext` diffs markdown, while `text` diffs the literal text and never
 	 * imports markdown, so a byte-identical revise of a value carrying escapes
-	 * is a byte no-op and its `applied` is one splice over the literal text. A
+	 * is a byte no-op and its patches are one splice over the literal text. A
 	 * field's result is schema-conformed (a one-paragraph `richtext` rejects a
 	 * multi-block result), and an undeclared name throws `UnknownField`.
 	 *
@@ -733,12 +732,12 @@ export declare class DocumentWriter {
 	 * merges (CONTENT.md § "Live state and merge"); heads the document's
 	 * history does not hold throw `edit::stale_base`.
 	 */
-	revise(addr: Addr | string, text: string, opts?: HeadsOptions): Receipt;
+	revise(addr: Addr | string, text: string, opts?: WriteOptions): Receipt;
 	/**
 	 * Replace the bound document with `markdown`, then conform it. Composable
 	 * cards align to the stored ones by `$kind` and text similarity, an aligned
-	 * card's body and stored content fields revise, their anchors rebasing as
-	 * {@link revise}'s do, and every declared content field lands in its stored form.
+	 * card's body and stored content fields revise, their anchors riding their
+	 * text as {@link revise}'s do, and every declared content field lands in its stored form.
 	 * Returns the `DocumentRevised` receipt, its `from` naming the stored card
 	 * each composable card revises and its `warnings` ending with the
 	 * `conform::*` ones, and clears `doc.warnings`. Throws when `markdown`
@@ -751,7 +750,7 @@ export declare class DocumentWriter {
 	 * set reading as the later write. Heads the history does not hold throw
 	 * `edit::stale_base` before any mutation.
 	 */
-	reviseDocument(markdown: string, opts?: HeadsOptions): DocumentRevised;
+	reviseDocument(markdown: string, opts?: WriteOptions): DocumentRevised;
 	/**
 	 * Build a composable card of `kind`, typed-commit `fields` onto it, set its
 	 * body from optional markdown, and place it. `at` omitted appends, a number
@@ -793,7 +792,7 @@ export declare class CardWriter {
 	 * holds none of, so `opts` naming heads throws: it goes through
 	 * `writer.revise({ card: id, field }, ...)`.
 	 */
-	revise(addr: { field?: string } | string, text: string, opts?: HeadsOptions): Receipt;
+	revise(addr: { field?: string } | string, text: string, opts?: WriteOptions): Receipt;
 }
 
 /**

@@ -19,7 +19,7 @@ fn anchored(s: &str, id: &str, quote: &str) -> Content {
 }
 
 #[test]
-fn the_codec_rides_the_wire_and_the_hash_bytes() {
+fn the_codec_rides_the_wire_and_the_canonical_bytes() {
     let c = anchored("a *literal* line", "c1", "literal");
     let v = c.to_value();
     assert_eq!(v["codec"], json!("plain"));

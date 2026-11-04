@@ -36,10 +36,10 @@ pub fn landed(doc: &mut AutoCommit, before: &[ChangeHash], after: &[ChangeHash],
     let spelled = patches
         .into_iter()
         .map(|p| {
-            if let (Some(t), Some(c)) = (&text, work.as_mut()) {
-                if !follow(c, value, t, &p) {
-                    work = None;
-                }
+            if let (Some(t), Some(c)) = (&text, work.as_mut())
+                && !follow(c, value, t, &p)
+            {
+                work = None;
             }
             texts.spell(doc, p, u)
         })

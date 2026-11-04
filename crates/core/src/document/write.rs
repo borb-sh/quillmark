@@ -110,7 +110,9 @@ pub enum Edit<'a> {
     Replace(Content),
 }
 
-/// What a write did.
+/// What a write, a merge or a sync message did. A merge's or sync message's
+/// `dropped_anchors`, `repairs` and `warnings` are empty; its `patches`
+/// carry what changed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Receipt {
     /// The document's heads before the write; the heads
@@ -187,16 +189,6 @@ impl Card {
         let index = content.block_at(at);
         let block = &content.blocks[index];
         Ok(Located { id: block.id.clone(), index, path: block.path.clone() })
-    }
-
-    /// The value at `target` as the writer that read at `heads` read it: the
-    /// value now where `heads` is absent, and refused with `edit::stale_base`
-    /// otherwise, since a card outside a document keeps no history.
-    pub fn read_at(&self, target: Target<'_>, heads: Option<&Heads>) -> Result<Content, EditError> {
-        match heads {
-            Some(_) => Err(EditError::StaleHeads { field: target.field().map(str::to_string) }),
-            None => self.read(target),
-        }
     }
 }
 

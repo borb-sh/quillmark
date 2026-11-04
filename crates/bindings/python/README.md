@@ -167,7 +167,8 @@ doc.set_quill_ref("other@1.0")
 doc.unchecked.insert_card({"kind": "note", "body": "..."}, at=None)   # at appends/inserts; returns the $id
 doc.unchecked.insert_card({"kind": "note",                            # fields → payload items
                            "payload_items": [{"type": "field", "key": "x", "value": 1}]})
-doc.unchecked.insert_card({"kind": "note"}, actor="7")                # a live client's $id, minted under its actor
+doc.set_actor("7")
+doc.unchecked.insert_card({"kind": "note"})                # a live client's $id, minted under its actor
 doc.unchecked.store_field("title", "x", card=None)                    # no schema coercion; content stored canonical
 doc.remove_card(0)                               # returns the Card dict, or None
 doc.move_card(2, 0)

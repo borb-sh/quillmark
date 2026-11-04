@@ -241,8 +241,8 @@ pub enum EditError {
     #[error("the write removes the {kind} island '{island}', which its writer may not have seen; remove it with apply")]
     DropsExtIsland { island: String, kind: String },
 
-    /// A write's or a card placement's actor is not an
-    /// [actor](quillmark_automerge::content::ids::is_actor).
+    /// The actor [`Document::set_actor`](super::Document::set_actor) is given
+    /// is not an [actor](quillmark_automerge::content::ids::is_actor).
     #[error("invalid actor '{0}': must be 1 to 57 of [A-Za-z0-9_-], opening with a letter or digit")]
     InvalidActor(String),
 
@@ -920,12 +920,12 @@ impl<'a> CardMut<'a> {
     /// has moved on from builds at the heads a write left it at, and the
     /// write merges with every change since as Automerge merges.
     pub fn write<'o>(&mut self, target: super::Target<'_>, edit: super::Edit<'_>, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.doc.write_at(self.at, target, edit, opts.into(), None::<quillmark_automerge::content::units::Scalars>)
+        self.doc.write_at(self.at, target, edit, opts.into(), None, quillmark_automerge::content::units::Scalars, None)
     }
 
     /// [`write`](Self::write) for a host counting offsets in `u`.
     pub fn write_in<'o>(&mut self, target: super::Target<'_>, edit: super::Edit<'_>, opts: impl Into<super::WriteOptions<'o>>, u: impl quillmark_automerge::content::units::Units) -> Result<super::Receipt, EditError> {
-        self.doc.write_at(self.at, target, edit, opts.into(), Some(u))
+        self.doc.write_at(self.at, target, edit, opts.into(), Some(u), u, None)
     }
 
     /// [`Card::overwrite_field`].
@@ -939,23 +939,21 @@ impl<'a> CardMut<'a> {
         self.edit(|c| c.commit_field(name, value, schema))
     }
 
+    /// The typed revise of field `name` under `schema`. With `opts.heads`,
+    /// a content field is revised as its writer read it then, and the change
+    /// from that read lands there, merged with every change since; a field
+    /// of another type, or a write with no heads, revises the value now.
     #[doc(hidden)]
-    pub fn revise_field_checked(&mut self, name: &str, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
-        check_field_name(name)?;
-        let body = body.into();
-        self.doc.landing(self.at, super::Target::Field(name), |card| card.revise_field_payload(name, body, schema))
-    }
-
-    /// [`revise_field_checked`](Self::revise_field_checked) at `heads`. A
-    /// content field is revised as its writer read it at `heads`, and the
-    /// change from that read lands there, merged with every change since;
-    /// a field of another type revises the value now.
-    #[doc(hidden)]
-    pub fn revise_field_checked_at(&mut self, name: &str, heads: &super::Heads, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
+    pub fn revise_field_checked<'o>(&mut self, name: &str, body: impl Into<String>, schema: &FieldSchema, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
         let content = matches!(schema.r#type, FieldType::Text { .. } | FieldType::RichText { .. });
-        if !content {
-            return self.revise_field_checked(name, body, schema);
-        }
+        let heads = match opts.into().heads {
+            Some(heads) if content => heads,
+            _ => {
+                check_field_name(name)?;
+                let body = body.into();
+                return self.doc.landing(self.at, super::Target::Field(name), |card| card.revise_field_payload(name, body, schema));
+            }
+        };
         let target = super::Target::Field(name);
         let read = self.doc.read_under(self.at, target, Some(heads))?;
         let mut scratch = Card::from_parts(Payload::new(), quillmark_automerge::content::model::Content::empty());
@@ -988,8 +986,7 @@ impl<'a> CardMut<'a> {
         let was = self.doc.read_under(self.at, target, Some(before))?;
         let then = self.doc.read_under(self.at, target, Some(heads))?;
         let change = quillmark_automerge::content::diff::replace(&then, &was).map_err(|e| EditError::change(e.into()))?;
-        let change = quillmark_automerge::content::units::change_from_scalars(&change, &then, u).map_err(EditError::change)?;
-        self.write_in(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) }, u)
+        self.doc.write_at(self.at, target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) }, None, u, Some(then))
     }
 }
 
@@ -1495,7 +1492,7 @@ impl Card {
     }
 
     /// The revise of `before`, the value at `target`, by `markdown`, as
-    /// [`revise`](Self::revise) builds it, landed nowhere.
+    /// [`CardMut::revise`](crate::document::CardMut::revise) builds it, landed nowhere.
     fn revision(
         &self,
         before: &quillmark_automerge::content::model::Content,

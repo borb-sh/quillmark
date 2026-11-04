@@ -223,3 +223,32 @@ fn a_reword_merges_with_typing_elsewhere() {
     let done = merge3(&d, &mine, &typed).unwrap();
     assert_eq!(done.content.text, "Oh, Hello World, again");
 }
+
+/// Two peers rewriting one rich text value nested in a field, an
+/// `array<richtext>` element, merge into a value that reads as valid
+/// content, in either merge order.
+#[test]
+fn nested_rich_text_both_sides_rewrote_reads_valid() {
+    use quillmark_automerge::model::{Doc, cards};
+    let c = |md: &str| from_markdown(md).unwrap().content.to_value();
+    let main = cards::Card { fields: vec![("refs".into(), json!([c("*first* ref"), c("second")]))], ..Default::default() };
+    let origin = cards::build(&main, &[]).save();
+    let wrote = |md: &str| {
+        let mut d = Doc::load(&origin).unwrap();
+        let (was, _) = cards::read(&d).unwrap();
+        let mut now = was.clone();
+        now.fields[0].1[0] = c(md);
+        cards::write_one(&mut d, true, &was, &now);
+        d
+    };
+    let (mut a, mut b) = (wrote("*a*\n\nb\n\nc\n\nd"), wrote("*first* ref and *more words here*"));
+    let (sa, sb) = (a.save(), b.save());
+    for (d, other) in [(&mut a, &sb), (&mut b, &sa)] {
+        d.merge(other).unwrap();
+        let (read, _) = cards::read(d).unwrap();
+        let refs = read.fields[0].1.as_array().unwrap();
+        for r in refs {
+            Content::from_value(r).unwrap();
+        }
+    }
+}

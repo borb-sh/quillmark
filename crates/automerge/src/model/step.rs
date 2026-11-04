@@ -12,20 +12,12 @@ use automerge::marks::Mark as AmMark;
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ObjId, ObjType, ReadDoc};
 use crate::content::change::{
-    AnchorStep, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step,
+    AnchorStep, ApplyError, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step,
 };
 use crate::content::model::{Block, Content, Island};
 use crate::content::wire;
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashMap};
-
-/// What a lowered change made: each id the change gave a record it inserted,
-/// a placeholder or an id it carried over, and the object id the record
-/// took.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Lowered {
-    pub minted: BTreeMap<String, String>,
-}
+use std::collections::HashMap;
 
 /// A step the view it was made against cannot place. Nothing changed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -44,6 +36,25 @@ pub enum StepError {
     AnchorHeld { step: usize, id: String },
     #[error("step {step}: {reason}")]
     Bad { step: usize, reason: &'static str },
+}
+
+impl From<StepError> for ApplyError {
+    /// A step the document could not lower, as the error `apply` gives for it.
+    fn from(e: StepError) -> ApplyError {
+        match e {
+            StepError::Stale { step, .. } | StepError::Bounds { step, .. } => ApplyError::Stale { step },
+            StepError::Unknown { what: "block", id, .. } => ApplyError::UnknownBlock { id },
+            StepError::Unknown { what: "container", id, .. } => ApplyError::UnknownContainer { id },
+            StepError::Unknown { what: "anchor", id, .. } => ApplyError::UnknownAnchor { id },
+            StepError::Unknown { what: "slot", id, .. } => match id.split_once('/') {
+                Some((island, slot)) => ApplyError::UnknownSlot { island: island.to_string(), slot: slot.to_string() },
+                None => ApplyError::UnknownSlot { island: id, slot: String::new() },
+            },
+            StepError::Unknown { id, .. } => ApplyError::UnknownIsland { id },
+            StepError::AnchorHeld { id, .. } => ApplyError::AnchorHeld { id },
+            StepError::Bad { step, reason } => ApplyError::BadStep { step, reason },
+        }
+    }
 }
 
 /// Checks that `step` places in `view`, the value as the steps before it
@@ -91,10 +102,10 @@ fn check(view: &Content, step: &Step, n: usize) -> Result<(), StepError> {
         Step::Anchor(AnchorStep::Place { anchor: a, quote: Some(q) }) | Step::Anchor(AnchorStep::Move { anchor: a, quote: Some(q) }) => Some((a.start, a.end, q)),
         _ => None,
     };
-    if let Some((start, end, q)) = quoted {
-        if !view.text.chars().skip(start).take(end - start).eq(q.chars()) {
-            return Err(StepError::Stale { step: n, at: start });
-        }
+    if let Some((start, end, q)) = quoted
+        && !view.text.chars().skip(start).take(end - start).eq(q.chars())
+    {
+        return Err(StepError::Stale { step: n, at: start });
     }
     Ok(())
 }
@@ -117,16 +128,14 @@ fn renumber(e: StepError, n: usize) -> StepError {
 }
 
 /// Lowers `change` into the value `root`, which reads as `read` where
-/// given and is read from the document otherwise.
+/// given and is read from the document otherwise, and answers what the
+/// change makes of `read`, where given.
 ///
 /// Each step is checked against the value as the steps before it left it,
 /// and a step that does not place refuses the whole change: the caller
 /// rolls the transaction back.
-pub(crate) fn lower(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<&Content>) -> Result<Lowered, StepError> {
-    let mut out = Lowered::default();
-    let mut scopes = HashMap::new();
-    lower_in(doc, root, change, read.cloned(), &mut out, &mut scopes)?;
-    Ok(out)
+pub(crate) fn lower(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<&Content>) -> Result<Option<Content>, StepError> {
+    lower_in(doc, root, change, read.cloned(), &mut HashMap::new())
 }
 
 /// Per value a change made, each id its given content named and the object
@@ -194,7 +203,7 @@ impl Formatting {
     }
 }
 
-fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Content>, out: &mut Lowered, scopes: &mut Scopes) -> Result<(), StepError> {
+fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Content>, scopes: &mut Scopes) -> Result<Option<Content>, StepError> {
     let t = value::text(doc, root).ok_or(StepError::Bad { step: 0, reason: "the value holds no text" })?;
     let mut ids: HashMap<String, String> = scopes.get(root).cloned().unwrap_or_default();
     let whole = read.as_ref().and_then(|r| crate::content::change::apply(r, change).ok());
@@ -213,7 +222,7 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Co
         match step {
             Step::Splice(s) => {
                 let carried = formatting.at(s.at);
-                splice(doc, &t, s, &carried, &mut ids, out, scopes);
+                splice(doc, &t, s, &carried, &mut ids, scopes);
                 let ins = s.insert.chars().count();
                 formatting.splice(s.at, s.delete.chars().count(), ins);
                 for m in &s.marks {
@@ -237,7 +246,6 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Co
                             .insert_object(&cs, doc.length(&cs), ObjType::Map)
                             .unwrap();
                         ids.insert(c.id.clone(), id_of(&m));
-                        out.minted.insert(c.id.clone(), id_of(&m));
                         m
                     }
                 };
@@ -281,7 +289,6 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Co
                 let m = doc.split_block(&t, at + 1).unwrap();
                 value::put_island(doc, &m, island);
                 note_slots(doc, &m, island, scopes);
-                out.minted.insert(island.id.clone(), id_of(&m));
                 ids.insert(island.id.clone(), id_of(&m));
             }
             Step::Island(IslandStep::Props { id, props, slots }) => {
@@ -327,7 +334,7 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Co
                 let slot_root = obj(doc, &m, SLOTS)
                     .and_then(|s| obj(doc, &s, slot))
                     .ok_or_else(|| unknown(n, "slot", slot))?;
-                lower_in(doc, &slot_root, change, None, out, scopes).map_err(|e| renumber(e, n))?;
+                lower_in(doc, &slot_root, change, None, scopes).map_err(|e| renumber(e, n))?;
             }
         }
         next = landed.filter(|_| matches!(step, Step::Splice(_) | Step::Mark(_) | Step::Anchor(_))).map(|l| l.content);
@@ -335,7 +342,7 @@ fn lower_in(doc: &mut AutoCommit, root: &ObjId, change: &Change, read: Option<Co
     for d in whole.iter().flat_map(|w| &w.dropped) {
         value::unplace(doc, root, &t, &d.context.id);
     }
-    Ok(())
+    Ok(whole.map(|w| w.content))
 }
 
 fn unknown(step: usize, what: &'static str, id: &str) -> StepError {
@@ -362,7 +369,6 @@ fn splice(
     s: &Splice,
     carried: &[String],
     ids: &mut HashMap<String, String>,
-    out: &mut Lowered,
     scopes: &mut Scopes,
 ) {
     let (del, ins): (Vec<char>, Vec<char>) = (s.delete.chars().collect(), s.insert.chars().collect());
@@ -378,11 +384,10 @@ fn splice(
     }
     let mid: String = ins[pre..ins.len() - suf].iter().collect();
     let made = value::insert_text(doc, t, s.at + pre + 1, &mid, mid_blocks, &s.islands, ids);
-    let mut keep = |doc: &mut AutoCommit, offset: usize, b: Option<&Block>, ids: &mut HashMap<String, String>| {
+    let keep = |doc: &mut AutoCommit, offset: usize, b: Option<&Block>, ids: &mut HashMap<String, String>| {
         let (Some(b), Ok(Some((_, m)))) = (b, doc.get(t, offset + 1)) else { return };
         value::put_block(doc, &m, b, ids);
         ids.insert(b.id.clone(), id_of(&m));
-        out.minted.insert(b.id.clone(), id_of(&m));
     };
     let mut n = 0;
     for (i, c) in ins[..pre].iter().enumerate() {
@@ -412,8 +417,7 @@ fn splice(
             }),
         };
         if let Some(g) = given {
-            ids.insert(g.clone(), id_of(m));
-            out.minted.insert(g, id_of(m));
+            ids.insert(g, id_of(m));
         }
     }
     let len = s.insert.chars().count();

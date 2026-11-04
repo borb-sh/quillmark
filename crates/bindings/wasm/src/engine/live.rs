@@ -2,6 +2,7 @@
 //! heads, and the sync protocol a peer runs against it.
 
 use super::{Document, edit_error_to_js, serialize_or_throw};
+use quillmark_automerge::content::units::Utf16;
 use quillmark_core::document::{EditError, Heads, LoadError, SyncMessage};
 use quillmark_core::path::DocPath;
 use wasm_bindgen::prelude::*;
@@ -58,8 +59,8 @@ impl Document {
         Ok(Document { inner, parse_warnings: Vec::new() })
     }
 
-    /// The document as Automerge bytes, its whole history: the row a host
-    /// stores, which `load` reads back.
+    /// The document as Automerge bytes, its whole history: what a peer `load`s
+    /// or `merge`s. A host stores the row, `toStored()`.
     pub fn save(&mut self) -> Vec<u8> {
         self.inner.save()
     }
@@ -86,10 +87,12 @@ impl Document {
         self.inner.heads().encode()
     }
 
-    /// The changes since `heads`, as bytes `merge` takes.
+    /// The changes since `heads`, as bytes `merge` takes. A head that is no
+    /// change hash throws, as a malformed `heads` option does.
     #[wasm_bindgen(js_name = saveSince)]
     pub fn save_since(&mut self, heads: Vec<String>) -> Result<Vec<u8>, JsValue> {
-        Ok(self.inner.save_since(&Heads::decode(&heads).map_err(refused)?))
+        let heads = Heads::decode(&heads).map_err(|e| crate::error::WasmError::from(format!("saveSince: {e}")).to_js_value())?;
+        Ok(self.inner.save_since(&heads))
     }
 
     /// Takes the changes `bytes` hold, another peer's `save` or `saveSince`,
@@ -98,14 +101,8 @@ impl Document {
     /// `edit::bad_live_bytes` and change nothing.
     #[wasm_bindgen(unchecked_return_type = "Receipt")]
     pub fn merge(&mut self, bytes: &[u8]) -> Result<JsValue, JsValue> {
-        let receipt = self.inner.merge(bytes).map_err(|e| edit_error_to_js(&e, &DocPath::main()))?;
-        self.took(receipt, "merge")
-    }
-
-    /// `receipt`, the document's own, as it crosses, its patches in UTF-16.
-    fn took(&mut self, mut receipt: quillmark_core::document::Receipt, op: &str) -> Result<JsValue, JsValue> {
-        receipt.patches = self.inner.patches(&receipt.before, &receipt.heads, quillmark_automerge::content::units::Utf16);
-        serialize_or_throw(&super::content::receipt_js(receipt, &DocPath::main(), None), op)
+        let receipt = self.inner.merge_in(bytes, Utf16).map_err(|e| edit_error_to_js(&e, &DocPath::main()))?;
+        serialize_or_throw(&super::content::receipt_js(receipt, &DocPath::main(), None), "merge")
     }
 
     /// The next Automerge sync message to the peer `state` tracks,
@@ -122,7 +119,7 @@ impl Document {
     #[wasm_bindgen(js_name = receiveSyncMessage, unchecked_return_type = "Receipt")]
     pub fn receive_sync_message(&mut self, state: &mut SyncState, message: &[u8]) -> Result<JsValue, JsValue> {
         let message = SyncMessage::decode(message).map_err(refused)?;
-        let receipt = self.inner.receive_sync_message(&mut state.inner, message).map_err(|e| edit_error_to_js(&e, &DocPath::main()))?;
-        self.took(receipt, "receiveSyncMessage")
+        let receipt = self.inner.receive_sync_message_in(&mut state.inner, message, Utf16).map_err(|e| edit_error_to_js(&e, &DocPath::main()))?;
+        serialize_or_throw(&super::content::receipt_js(receipt, &DocPath::main(), None), "receiveSyncMessage")
     }
 }

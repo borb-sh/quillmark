@@ -20,10 +20,11 @@ fn document() -> Document {
     let mut doc = parse(SOURCE);
     let body = anchored(doc.main().body_lines(), "met on Monday", "m1");
     doc.main_mut().overwrite_body(body);
-    let mut note = doc.card_mut(0).unwrap();
-    let body = anchored(note.body_lines(), "orchard rows", "n1");
-    note.overwrite_body(body);
-    drop(note);
+    {
+        let mut note = doc.card_mut(0).unwrap();
+        let body = anchored(note.body_lines(), "orchard rows", "n1");
+        note.overwrite_body(body);
+    }
     let item = crate::document::import_body("an item worth a flag").unwrap();
     let items = json!([
         crate::document::stored_over(None, &crate::document::import_body("a plain item").unwrap()),
@@ -272,7 +273,7 @@ fn every_field_revise_names_the_anchor_it_drops() {
             c.replace(crate::document::Target::Field("f"), &n, None).unwrap()
         }),
         ("revise_field_checked", |c, _, s| {
-            c.revise_field_checked("f", "Keep this line.", s).unwrap()
+            c.revise_field_checked("f", "Keep this line.", s, None).unwrap()
         }),
     ];
     for (rung, revise) in rungs {

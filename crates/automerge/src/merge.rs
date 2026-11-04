@@ -1,7 +1,7 @@
 //! Two changes made from one value, merged as Automerge merges them, and the
 //! markdown revise that merges what its read could not spell back in.
 
-use crate::model::{Doc, StepError, View, ids};
+use crate::model::{Doc, View, ids};
 use crate::content::change::{ApplyError, Change, apply};
 use crate::content::diff::{self, Keeping, Revision, ReviseError};
 use crate::content::model::Content;
@@ -29,33 +29,16 @@ pub fn merge3(base: &Content, ours: &Change, theirs: &Change) -> Result<View, Ap
     let held = doc.view(&root).content;
     let before = doc.heads();
     doc.set_actor(THEIRS);
-    doc.apply_from(&root, &ids::renamed(theirs, base, &held), None, Some(&held)).map_err(refused)?;
+    doc.apply_from(&root, &ids::renamed(theirs, base, &held), None, Some(&held)).map_err(ApplyError::from)?;
     let mut back: HashMap<String, String> = ids::places(&doc.view(&root).content, &since);
     let after_theirs = doc.heads();
     doc.set_actor(OURS);
-    doc.apply_from(&root, &ids::renamed(ours, base, &held), Some(&before), Some(&held)).map_err(refused)?;
+    doc.apply_from(&root, &ids::renamed(ours, base, &held), Some(&before), Some(&held)).map_err(ApplyError::from)?;
     if let Some(at_ours) = doc.heads().into_iter().find(|h| !after_theirs.contains(h)).map(|h| vec![h]) {
         back.extend(ids::places(&doc.view_at(&root, &at_ours).content, &mine));
     }
     let View { content, repairs } = doc.view(&root);
     Ok(View { content: ids::renamed_content(&content, &back), repairs })
-}
-
-/// A step the document could not lower, as the error `apply` gives for it.
-fn refused(e: StepError) -> ApplyError {
-    match e {
-        StepError::Stale { step, .. } | StepError::Bounds { step, .. } => ApplyError::Stale { step },
-        StepError::Unknown { what: "block", id, .. } => ApplyError::UnknownBlock { id },
-        StepError::Unknown { what: "container", id, .. } => ApplyError::UnknownContainer { id },
-        StepError::Unknown { what: "anchor", id, .. } => ApplyError::UnknownAnchor { id },
-        StepError::Unknown { what: "slot", id, .. } => match id.split_once('/') {
-            Some((island, slot)) => ApplyError::UnknownSlot { island: island.to_string(), slot: slot.to_string() },
-            None => ApplyError::UnknownSlot { island: id, slot: String::new() },
-        },
-        StepError::Unknown { id, .. } => ApplyError::UnknownIsland { id },
-        StepError::AnchorHeld { id, .. } => ApplyError::AnchorHeld { id },
-        StepError::Bad { step, reason } => ApplyError::BadStep { step, reason },
-    }
 }
 
 /// [`revise_keeping`] of a write that lands on `before`.

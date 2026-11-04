@@ -28,7 +28,7 @@
 use indexmap::IndexMap;
 
 use crate::document::edit::{overflow_errors, resolve_field_write};
-use crate::document::{Card, Document, DocumentRevised, EditError, Heads, Receipt, Revising, Target};
+use crate::document::{Card, Document, DocumentRevised, EditError, Receipt, Revising, Target, WriteOptions};
 use crate::error::Diagnostic;
 use crate::path::DocPath;
 use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
@@ -116,19 +116,19 @@ impl<'a> TypedWriter<'a> {
     /// carrying escapes is a byte no-op, and its [`Receipt`]'s change is one
     /// splice over the literal text.
     ///
-    /// `heads` names the document's heads when the writer read, as
+    /// `opts.heads` names the document's heads when the writer read, as
     /// [`Document::heads`] answered them: a content field or the body is
     /// revised as it read then, and the change lands at those heads, merged
     /// with every change since as Automerge merges; heads the document's
     /// history does not hold refuse with `edit::stale_base`.
-    pub fn revise<'t>(
+    pub fn revise<'t, 'o>(
         &mut self,
         target: impl Into<Target<'t>>,
         text: &str,
-        heads: Option<&Heads>,
+        opts: impl Into<WriteOptions<'o>>,
     ) -> Result<Receipt, EditError> {
         let schema = Some(&self.config.main.fields);
-        revise_impl(self.doc.main_mut(), schema, target.into(), heads, text)
+        revise_impl(self.doc.main_mut(), schema, target.into(), opts.into(), text)
     }
 
     /// Replace the document with `markdown` through [`Document::revise`], then
@@ -139,31 +139,24 @@ impl<'a> TypedWriter<'a> {
     /// A `$quill` this quill does not answer to fails as
     /// [`BoundParseError::Mismatch`] before any mutation, and a parse failure
     /// as [`BoundParseError::Parse`].
-    pub fn revise_document(&mut self, markdown: &str) -> Result<DocumentRevised, BoundParseError> {
-        let revising = Document::parse_revising(markdown)?;
-        self.revise_parsed(revising)
-    }
-
-    /// [`revise_document`](Self::revise_document) at `heads`, the document's
-    /// heads when the writer read: the writer's revise of the document as it
-    /// was then lands as one Automerge change at those heads, merged with
-    /// every change since as Automerge merges. A card both sides changed
-    /// merges field by field, a field both set reads as the later write, and
-    /// text both edited keeps both edits. Heads the document's history does
-    /// not hold fail as [`BoundParseError::Edit`] (`edit::stale_base`) before
-    /// any mutation.
-    pub fn revise_document_at(
-        &mut self,
-        heads: &Heads,
-        markdown: &str,
-    ) -> Result<DocumentRevised, BoundParseError> {
-        if self.doc.heads() == *heads {
-            return self.revise_document(markdown);
-        }
+    ///
+    /// `opts.heads` names the document's heads when the writer read: the
+    /// writer's revise of the document as it was then lands as one Automerge
+    /// change at those heads, merged with every change since as Automerge
+    /// merges. A card both sides changed merges field by field, a field both
+    /// set reads as the later write, and text both edited keeps both edits.
+    /// Heads the document's history does not hold fail as
+    /// [`BoundParseError::Edit`] (`edit::stale_base`) before any mutation.
+    pub fn revise_document<'o>(&mut self, markdown: &str, opts: impl Into<WriteOptions<'o>>) -> Result<DocumentRevised, BoundParseError> {
+        let before = self.doc.heads();
+        let heads = match opts.into().heads {
+            Some(heads) if before != *heads => heads,
+            _ => return self.revise_parsed(Document::parse_revising(markdown)?),
+        };
         let Some(mut wanted) = self.doc.at(heads) else {
             return Err(EditError::StaleHeads { field: None }.into());
         };
-        let mut revised = TypedWriter::new(self.config, &mut wanted).revise_document(markdown)?;
+        let mut revised = TypedWriter::new(self.config, &mut wanted).revise_document(markdown, None)?;
         self.doc.land_at(heads, &wanted);
         let recard = |path: &str| -> Option<String> {
             let path: crate::path::DocPath = path.parse().ok()?;
@@ -177,6 +170,7 @@ impl<'a> TypedWriter<'a> {
             }
         }
         revised.warnings.extend(self.config.conform(self.doc).expect("the landed document carries the checked `$quill`"));
+        revised.before = before;
         revised.heads = self.doc.heads();
         Ok(revised)
     }
@@ -316,15 +310,15 @@ impl<'a> CardWriter<'a> {
 
     /// The card twin of [`TypedWriter::revise`], resolved against the card's
     /// [`CardSchema`](crate::quill::CardSchema).
-    pub fn revise<'t>(
+    pub fn revise<'t, 'o>(
         &mut self,
         target: impl Into<Target<'t>>,
         text: &str,
-        heads: Option<&Heads>,
+        opts: impl Into<WriteOptions<'o>>,
     ) -> Result<Receipt, EditError> {
         let schema = self.fields_schema();
         let card = self.doc.card_mut(self.index).expect("bound in range, and cards cannot move while this cursor holds the document");
-        revise_impl(card, schema, target.into(), heads, text)
+        revise_impl(card, schema, target.into(), opts.into(), text)
     }
 
     /// Write several fields on this card atomically; see
@@ -368,22 +362,19 @@ fn revise_impl(
     mut card: crate::document::CardMut<'_>,
     fields_schema: Option<&IndexMap<String, FieldSchema>>,
     target: Target<'_>,
-    heads: Option<&Heads>,
+    opts: WriteOptions<'_>,
     text: &str,
 ) -> Result<Receipt, EditError> {
     let name = match target {
         Target::Body => {
-            return card.revise(Target::Body, text, heads);
+            return card.revise(Target::Body, text, opts);
         }
         Target::Field(name) => name,
     };
     let Some(schema) = fields_schema.and_then(|m| m.get(name)) else {
         return Err(EditError::unknown_field(name));
     };
-    match heads {
-        None => card.revise_field_checked(name, text, schema),
-        Some(heads) => card.revise_field_checked_at(name, heads, text, schema),
-    }
+    card.revise_field_checked(name, text, schema, opts)
 }
 
 /// All-or-nothing batched write shared by [`TypedWriter::set_all`] and
@@ -834,8 +825,7 @@ card_kinds:
         let receipt = ed
             .revise_document(
                 "~~~\n$quill: memo@1.0.0\nsubject: <kbd>Hello</kbd>\n~~~\n\n<span>Body</span>\n\n\
-                 ~~~\n$kind: note\nblurb: [42]\n~~~\n\n<em>Note</em>\n",
-            )
+                 ~~~\n$kind: note\nblurb: [42]\n~~~\n\n<em>Note</em>\n", None)
             .unwrap();
         let warnings: Vec<_> = receipt
             .warnings

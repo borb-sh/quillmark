@@ -95,7 +95,7 @@ fn content_lane_spells_through_the_facade() {
     let markdown = doc.to_markdown();
     let revised: DocumentRevised = quill
         .writer(&mut doc)
-        .revise_document(&markdown)
+        .revise_document(&markdown, None)
         .expect("the document's own markdown revises");
     let _: &[AnchorSelector] = &revised.dropped_anchors;
     let _: &[Option<usize>] = &revised.from;

@@ -112,9 +112,9 @@ impl PyEngine {
         opts.pages = pages.map(page_indices).transpose()?;
         opts.regions = regions;
         opts.title = title;
-        // A clone, so the `Document` stays editable from other threads while
-        // the GIL is released.
-        let document = doc.inner.clone();
+        // A snapshot, so the `Document` stays editable from other threads
+        // while the GIL is released.
+        let document = doc.inner.snapshot();
         drop(doc);
         let (engine, quill) = (&self.inner, &quill.inner);
         let mut result = py
@@ -550,10 +550,12 @@ impl PyDocument {
         self.inner.quill_reference().to_string()
     }
 
-    /// Return a fresh `Document` handle with the same parsed state.
+    /// A new handle on this document as a new peer: its history, a random
+    /// Automerge actor and no `actor`, so what either writes merges into the
+    /// other. A clone that places cards under an actor calls `set_actor`.
     fn clone(&self) -> Self {
         PyDocument {
-            inner: self.inner.clone(),
+            inner: self.inner.fork(),
             parse_warnings: self.parse_warnings.clone(),
         }
     }
@@ -798,7 +800,7 @@ impl PyDocument {
     /// without is path-strict. A path naming no body or content value orphans
     /// its selector. An id live anywhere in the document, a table cell's
     /// included, is answered as reattached and not written. Each id is answered
-    /// once, by its first selector. `changes` maps a path to the `applied` of the
+    /// once, by its first selector. `changes` maps a path to the `patches` of the
     /// write that dropped its anchors, and a match there must overlap text
     /// that write inserted. Raises `ValueError` on a selector or change that
     /// is not one, or a path that does not parse.
@@ -904,9 +906,9 @@ impl PyDocument {
     /// **Apply** `change` to the value at `field` on `card`, all its steps or
     /// none, and return the receipt: `before` and `heads` (the document's
     /// heads before and after the write, `heads` the next write's),
-    /// `patches` (what the write did to the value, Automerge's patches lowered
-    /// to it: applied in order to the value as it read before, they give the
-    /// value after), `dropped_anchors`, `repairs` and `warnings`. A record a
+    /// `patches` (Automerge's patches for the write, as automerge-js spells
+    /// them, each path from the document's root), `dropped_anchors`,
+    /// `repairs` and `warnings`. A record a
     /// placeholder id named carries its minted id in the patch that puts it.
     /// The write writes under the document's `actor`. `heads` is
     /// the revision the writer read (`heads()`), the change's offsets into the
@@ -915,7 +917,7 @@ impl PyDocument {
     /// state and merge"), raising `edit::stale_base` where the document's
     /// history does not hold them. A refused change raises
     /// `edit::content_apply` and writes nothing.
-    #[pyo3(signature = (change, field=None, card=None, heads=None))]
+    #[pyo3(signature = (change, field=None, card=None, *, heads=None))]
     fn apply<'py>(
         &mut self,
         py: Python<'py>,
@@ -936,7 +938,7 @@ impl PyDocument {
     /// islands whose `qm-*` tags it keeps (`annotated` spells them) stay put,
     /// and the rest keeps what a word-aligned diff keeps. Returns the receipt,
     /// its `warnings` the import's. Raises as `apply`.
-    #[pyo3(signature = (markdown, field=None, card=None, heads=None))]
+    #[pyo3(signature = (markdown, field=None, card=None, *, heads=None))]
     fn revise<'py>(
         &mut self,
         py: Python<'py>,
@@ -955,7 +957,7 @@ impl PyDocument {
     /// Write `content` over the value at `field` on `card`, carrying each
     /// anchor it does not name where a diff keeps its text and reporting the
     /// rest in `dropped_anchors`. Raises as `apply`.
-    #[pyo3(signature = (content, field=None, card=None, heads=None))]
+    #[pyo3(signature = (content, field=None, card=None, *, heads=None))]
     fn replace<'py>(
         &mut self,
         py: Python<'py>,
@@ -987,14 +989,14 @@ impl PyDocument {
         let target = Target::resolve(&self.inner, card)?;
         let heads_of = |key: &str| -> PyResult<quillmark_core::document::Heads> {
             let list: Vec<String> = receipt.get_item(key).and_then(|v| v.extract()).map_err(|_| PyValueError::new_err(format!("undo: the receipt's `{key}` is a list of heads")))?;
-            quillmark_core::document::Heads::decode(&list).map_err(crate::content::refused)
+            heads_of(&list)
         };
         let (before, heads) = (heads_of("before")?, heads_of("heads")?);
         crate::content::taking(py, &mut self.inner, target.index, &target.base, field, |card, target| card.undo_between(target, &before, &heads))
     }
 
-    /// The document as Automerge bytes, its whole history: the row a host
-    /// stores, which `load` reads back.
+    /// The document as Automerge bytes, its whole history: what a peer `load`s
+    /// or `merge`s. A host stores the row, `to_stored()`.
     fn save<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
         PyBytes::new(py, &self.inner.save())
     }
@@ -1029,9 +1031,10 @@ impl PyDocument {
         self.inner.heads().encode()
     }
 
-    /// The changes since `heads`, as bytes `merge` takes.
+    /// The changes since `heads`, as bytes `merge` takes. A head that is no
+    /// change hash raises `ValueError`, as a malformed `heads=` does.
     fn save_since<'py>(&mut self, py: Python<'py>, heads: Vec<String>) -> PyResult<Bound<'py, PyBytes>> {
-        let heads = quillmark_core::document::Heads::decode(&heads).map_err(crate::content::refused)?;
+        let heads = heads_of(&heads)?;
         Ok(PyBytes::new(py, &self.inner.save_since(&heads)))
     }
 
@@ -1141,9 +1144,12 @@ fn index_error(index: usize, len: usize) -> PyErr {
 /// The `heads` a writer read, decoded; a head that is no change hash is a
 /// `ValueError`.
 fn heads_arg(heads: Option<Vec<String>>) -> PyResult<Option<quillmark_core::document::Heads>> {
-    heads
-        .map(|h| quillmark_core::document::Heads::decode(&h).map_err(|e| PyValueError::new_err(e.to_string())))
-        .transpose()
+    heads.map(|h| heads_of(&h)).transpose()
+}
+
+/// The heads `hex` spells; a head that is no change hash raises `ValueError`.
+fn heads_of(hex: &[String]) -> PyResult<quillmark_core::document::Heads> {
+    quillmark_core::document::Heads::decode(hex).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 /// How a `card=` selector names a composable card: by index, or by `$id`.
@@ -1365,11 +1371,11 @@ impl PyWriter {
     /// and an undeclared name raises `edit::unknown_field`.
     ///
     /// Returns the receipt a content write answers, as `Document.revise` does:
-    /// `applied`, the change from the value before (a `text` field's is one
-    /// splice over its literal text); `heads`, the document's heads after
-    /// the write; `dropped_anchors` and `moved_anchors`; and `warnings`, the
-    /// import's `parse::dropped_construct` as `Diagnostic` objects anchored
-    /// at the value.
+    /// `before` and `heads`, the document's heads either side of the write;
+    /// `patches` (a `text` field's are one splice over its literal text);
+    /// `dropped_anchors`; `repairs`; and `warnings`, the import's
+    /// `parse::dropped_construct` as `Diagnostic` objects anchored at the
+    /// value.
     ///
     /// `heads` names the revision the writer read (`Document.heads`): the
     /// write lands there and merges with the change since as Automerge
@@ -1387,18 +1393,18 @@ impl PyWriter {
     ) -> PyResult<Bound<'py, PyDict>> {
         require_card_id(&card, "revise")?;
         let heads = heads_arg(heads)?;
-        let read = heads.as_ref();
+        let opts = quillmark_core::document::WriteOptions { heads: heads.as_ref() };
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
         let card_id = Self::card_id(&doc, target.index);
         let mut writer = quill.inner.writer(&mut doc.inner);
         match target.index {
-            None => writer.revise(field, text, read),
+            None => writer.revise(field, text, opts),
             Some(i) => writer
                 .card(i)
                 .map_err(|e| convert_edit_error(e, &target.base))?
-                .revise(field, text, read),
+                .revise(field, text, opts),
         }
         .map_err(|e| convert_edit_error(e, &target.base))
         .and_then(|receipt| {
@@ -1421,8 +1427,9 @@ impl PyWriter {
     /// the selector `reattach` takes, read off the stored document; `warnings`,
     /// `Diagnostic` objects, the `conform::*` ones last; and
     /// `from`, for each composable card of the revised document the index of
-    /// the stored card it revises, or `None` for an inserted card. Clears the
-    /// document's load `warnings`. Raises `QuillmarkError` on a parse failure
+    /// the stored card it revises, or `None` for an inserted card; and
+    /// `before` and `heads`, the document's heads before and after. Clears
+    /// the document's load `warnings`. Raises `QuillmarkError` on a parse failure
     /// or a `$quill` this quill does not answer to, leaving the document
     /// unchanged.
     ///
@@ -1438,15 +1445,11 @@ impl PyWriter {
         markdown: &str,
         heads: Option<Vec<String>>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let read = heads_arg(heads)?;
+        let heads = heads_arg(heads)?;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let mut writer = quill.inner.writer(&mut doc.inner);
-        let revised = match read {
-            None => writer.revise_document(markdown),
-            Some(heads) => writer.revise_document_at(&heads, markdown),
-        }
-        .map_err(|e| raise_summarized(e.to_diagnostics()))?;
+        let revised = writer.revise_document(markdown, heads.as_ref()).map_err(|e| raise_summarized(e.to_diagnostics()))?;
         doc.parse_warnings.clear();
         let dropped: Vec<_> = revised.dropped_anchors.into_iter().map(selector_json).collect();
         let receipt = PyDict::new(py);
@@ -1456,6 +1459,7 @@ impl PyWriter {
         )?;
         receipt.set_item("warnings", py_diagnostics(revised.warnings))?;
         receipt.set_item("from", revised.from)?;
+        receipt.set_item("before", revised.before.encode())?;
         receipt.set_item("heads", revised.heads.encode())?;
         Ok(receipt)
     }

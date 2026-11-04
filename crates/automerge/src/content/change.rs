@@ -230,7 +230,7 @@ impl Splice {
 /// its normalized form and what it dropped, or the first step that fails.
 pub fn apply(before: &Content, change: &Change) -> Result<Applied, ApplyError> {
     let mut run = Run::new();
-    let crate::content::mint::Filled { change, minted } = crate::content::mint::fill(change, &[before], None)?;
+    let crate::content::mint::Filled { change, minted } = crate::content::mint::fill(change, &[before])?;
     let mut draft = Draft::new(before.clone());
     let mut applied = run.level(&mut draft, &change.steps)?;
     let mut content = draft.finish();

@@ -310,20 +310,6 @@ export interface Delta {
 }
 
 /**
- * What a `revise` or `reviseDocument`'s writer read, its optional last
- * argument: `heads`, the document's revision then (`doc.heads()`). A key
- * present with no string array throws. The writer's change lands at those
- * heads and merges with every change since as Automerge merges (CONTENT.md
- * § "Live state and merge"); a field both sides set reads as the later
- * write. Heads the document's history does not hold, as any read before the
- * document was loaded from its stored row, throw `edit::stale_base` before
- * any mutation.
- */
-export interface HeadsOptions {
-    heads?: string[];
-}
-
-/**
  * The receipt of `writer.reviseDocument`. `droppedAnchors` names every
  * anchor the write did not keep, a table cell's included, as the selector
  * `reattach` takes, read off the stored document. `warnings` are the parse's, then each revised
@@ -332,12 +318,14 @@ export interface HeadsOptions {
  * content, reports no drop. `from` names, for each composable card of the
  * revised document, the index of the stored card it revises, or `null` for an
  * inserted card; a stored card no entry names was removed, and only cards of
- * one `$kind` pair. `heads` is the document's heads after the revise.
+ * one `$kind` pair. `before` and `heads` are the document's heads before
+ * and after the revise, as a value write's `Receipt` carries them.
  */
 export interface DocumentRevised {
     droppedAnchors: AnchorContext[];
     warnings: Diagnostic[];
     from: (number | null)[];
+    before: string[];
     heads: string[];
 }
 
@@ -1113,10 +1101,13 @@ impl Document {
         serde_json::to_string(&self.inner).expect("Document serialization is infallible")
     }
 
+    /// A new handle on this document as a new peer: its history, a random
+    /// Automerge actor and no `actor`, so what either writes merges into the
+    /// other. A clone that places cards under an actor calls `setActor`.
     #[wasm_bindgen(js_name = clone)]
     pub fn clone_doc(&self) -> Document {
         Document {
-            inner: self.inner.clone(),
+            inner: self.inner.fork(),
             parse_warnings: self.parse_warnings.clone(),
         }
     }
@@ -1530,7 +1521,7 @@ impl Document {
     /// absent `addr.field` targets the body, an absent `addr.card` the main
     /// card.
     ///
-    /// `opts.heads` names the revision the writer read (`HeadsOptions`): the
+    /// `opts.heads` names the revision the writer read (`WriteOptions`): the
     /// write lands there and merges with the change since as Automerge
     /// merges (CONTENT.md § "Live state and merge").
     ///
@@ -1542,20 +1533,20 @@ impl Document {
         quill: &Quill,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         text: &str,
-        #[wasm_bindgen(unchecked_optional_param_type = "HeadsOptions")] opts: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let heads = heads_options(&opts, "revise")?;
+        let opts = content::WriteOpts::from_js(&opts, "revise", &[])?;
         let addr = Addr::for_write(&addr, &self.inner, "revise")?;
         let base = self.addr_base(&addr);
         let card_id = self.addr_card_ref(&addr)?.id().map(str::to_string);
         let target = quillmark_core::document::Target::from(addr.field.as_deref());
         let mut writer = quill.inner.writer(&mut self.inner);
         let receipt = match addr.card {
-            None => writer.revise(target, text, heads.as_ref()),
+            None => writer.revise(target, text, opts.as_ref()),
             Some(index) => writer
                 .card(index)
                 .map_err(|e| edit_error_to_js(&e, &base))?
-                .revise(target, text, heads.as_ref()),
+                .revise(target, text, opts.as_ref()),
         }
         .map_err(|e| edit_error_to_js(&e, &base))?;
         let path = match &addr.field {
@@ -1577,15 +1568,11 @@ impl Document {
         &mut self,
         quill: &Quill,
         markdown: &str,
-        #[wasm_bindgen(unchecked_optional_param_type = "HeadsOptions")] opts: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let heads = heads_options(&opts, "reviseDocument")?;
+        let opts = content::WriteOpts::from_js(&opts, "reviseDocument", &[])?;
         let mut writer = quill.inner.writer(&mut self.inner);
-        let revised = match heads {
-            None => writer.revise_document(markdown),
-            Some(heads) => writer.revise_document_at(&heads, markdown),
-        }
-        .map_err(|e| js_err(e.to_diagnostics()))?;
+        let revised = writer.revise_document(markdown, opts.as_ref()).map_err(|e| js_err(e.to_diagnostics()))?;
         self.parse_warnings.clear();
         serialize_or_throw(&DocumentRevisedJs::from(revised), "reviseDocument")
     }
@@ -1980,25 +1967,6 @@ fn markdown_options(opts: &JsValue, verb: &str) -> Result<bool, JsValue> {
     Ok(opts.annotated.unwrap_or(false))
 }
 
-/// The `heads` of a `HeadsOptions`, none where `opts` is absent or names
-/// none. Another key, or a `heads` that is no string array, throws.
-fn heads_options(opts: &JsValue, verb: &str) -> Result<Option<quillmark_core::document::Heads>, JsValue> {
-    if opts.is_undefined() || opts.is_null() {
-        return Ok(None);
-    }
-    let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
-    if !opts.is_object() {
-        return Err(invalid("options must be an object".into()));
-    }
-    for key in js_sys::Object::keys(opts.unchecked_ref::<js_sys::Object>()).iter() {
-        let key = key.as_string().unwrap_or_default();
-        if key != "heads" {
-            return Err(invalid(format!("unknown option `{key}`; expected heads")));
-        }
-    }
-    content::heads_opt(opts, verb)
-}
-
 /// The canonical form of `rt`, read without a document: the one spelling
 /// `replace` and every other content input path take. Marks are cut, unioned and
 /// sorted, anchors and containers ordered, an unused container dropped, island
@@ -2060,6 +2028,7 @@ struct DocumentRevisedJs {
     dropped_anchors: Vec<AnchorContextJs>,
     warnings: Vec<Diagnostic>,
     from: Vec<Option<usize>>,
+    before: Vec<String>,
     heads: Vec<String>,
 }
 
@@ -2099,6 +2068,7 @@ impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
                 .collect(),
             warnings: diags(revised.warnings),
             from: revised.from,
+            before: revised.before.encode(),
             heads: revised.heads.encode(),
         }
     }

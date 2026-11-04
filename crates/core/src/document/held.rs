@@ -10,7 +10,7 @@ use super::prescan::NestedComment;
 use super::{Card, Payload};
 use crate::value::{PathSegment, QuillValue};
 
-fn held(card: &Card) -> cards::Card {
+fn to_model(card: &Card) -> cards::Card {
     let payload = card.payload();
     let mut layout = Vec::new();
     let mut fields = Vec::new();
@@ -108,7 +108,7 @@ fn card(c: cards::Card) -> Card {
 
 /// A new document holding `main` and each of `cards` that holds an id.
 pub(crate) fn build(main: &Card, all: &[Card]) -> Doc {
-    cards::build(&held(main), &all.iter().map(held).collect::<Vec<_>>())
+    cards::build(&to_model(main), &all.iter().map(to_model).collect::<Vec<_>>())
 }
 
 /// The main card and the cards in document order the document reads as.
@@ -118,21 +118,21 @@ pub(crate) fn read(d: &Doc) -> Result<(Card, Vec<Card>), String> {
 }
 
 /// Writes what differs between `was` and `now` into the document.
-pub(crate) fn flush(d: &mut Doc, was: (&Card, &[Card]), now: (&Card, &[Card])) {
-    let was_all: Vec<_> = was.1.iter().map(held).collect();
-    let now_all: Vec<_> = now.1.iter().map(held).collect();
-    cards::flush(d, (&held(was.0), &was_all), (&held(now.0), &now_all));
+pub(crate) fn write_all(d: &mut Doc, was: (&Card, &[Card]), now: (&Card, &[Card])) {
+    let was_all: Vec<_> = was.1.iter().map(to_model).collect();
+    let now_all: Vec<_> = now.1.iter().map(to_model).collect();
+    cards::write_all(d, (&to_model(was.0), &was_all), (&to_model(now.0), &now_all));
 }
 
 /// Writes what the card changed since it read as `was` into the document,
 /// the main card where `main`, and answers it as it reads after.
 pub(crate) fn write_card(d: &mut Doc, main: bool, was: &Card, now: &Card) -> Card {
-    card(cards::write_one(d, main, &held(was), &held(now)))
+    card(cards::write_one(d, main, &to_model(was), &to_model(now)))
 }
 
 /// Places `c` at `index` of the document's cards, and answers it as it reads.
 pub(crate) fn insert_card(d: &mut Doc, index: usize, c: &Card) -> Card {
-    card(cards::insert(d, index, &held(c)))
+    card(cards::insert(d, index, &to_model(c)))
 }
 
 pub(crate) fn remove_card(d: &mut Doc, id: &str) {

@@ -1501,35 +1501,6 @@ fn a_range_diff_types_one_letter_as_one_letter_and_keeps_enter_on_the_text() {
     assert!(matches!(&change.steps[..], [Step::Splice(s)] if s.delete.is_empty() && s.insert == "\n"), "{:?}", change);
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(300))]
-
-    /// Two writers each make a structural edit from one value under their
-    /// own actor: the ids each mints are its own.
-    #[test]
-    fn two_actors_gesturing_from_one_value_never_mint_one_id(
-        d in nested_document(), picks in prop::collection::vec((any::<usize>(), any::<usize>(), 0u8..5), 2),
-    ) {
-        use quillmark_automerge::content::mint::fill;
-        let n = d.blocks.len();
-        let gesture = |(x, y, g): (usize, usize, u8)| {
-            let (k0, k1) = ((x % n).min(y % n), (x % n).max(y % n));
-            let (first, last) = (&d.blocks[k0].id, &d.blocks[k1].id);
-            match g {
-                0 => wrap(&d, first, last, &Wrap::List { ordered: x % 2 == 0, checked: None }),
-                1 => wrap(&d, first, last, &Wrap::Quote),
-                2 => indent(&d, first, last),
-                3 => outdent(&d, first, last),
-                _ => split_block(&d, x % (d.len_scalars() + 1), None),
-            }
-        };
-        let (Ok(a), Ok(b)) = (gesture(picks[0]), gesture(picks[1])) else { return Ok(()) };
-        let (a, b) = (fill(&a, &[&d], Some("ann")).unwrap(), fill(&b, &[&d], Some("bo")).unwrap());
-        let (ours, theirs): (BTreeSet<&String>, BTreeSet<&String>) = (a.minted.values().collect(), b.minted.values().collect());
-        prop_assert!(ours.iter().all(|id| id.starts_with("ann:")) && theirs.iter().all(|id| id.starts_with("bo:")));
-    }
-}
-
 #[test]
 fn a_placeholder_is_filled_by_the_apply() {
     let d = from_markdown("one\n\ntwo").unwrap().content;

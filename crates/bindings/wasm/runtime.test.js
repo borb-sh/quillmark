@@ -218,7 +218,7 @@ card_kinds:
     expect(doc.toMarkdown({})).toBe('Alpha, edited, again.\n\nBeta, two.\n\nGamma, rewritten.')
     ed.revise({}, 'Alpha.\n\nBeta.\n\nGamma.\n\nDelta.', { heads: first })
     expect(doc.toMarkdown({})).toBe('Alpha, edited, again.\n\nBeta, two.\n\nGamma, rewritten.\n\nDelta.')
-    expect(() => ed.reviseDocument(read, { heads: first, baseStored: doc.save() })).toThrow(/unknown option `baseStored`/)
+    expect(() => ed.reviseDocument(read, { heads: first, baseStored: doc.save() })).toThrow(/unknown key `baseStored`/)
     expect(() => ed.revise({}, 'x', { heads: undefined })).toThrow(/heads must be a string array/)
     expect(() => ed.reviseDocument(read, { heads: foreign.heads() })).toThrow(
       expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base' })] }),
@@ -282,7 +282,7 @@ card_kinds:
     const receipt = ed.reviseDocument(
       '~~~card-yaml\n$quill: editor_test\nsubject: Q3 **results**\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nprose: fresh\n~~~\n\n~~~card-yaml\n$kind: note\nprose: kept\n~~~\n',
     )
-    expect(Object.keys(receipt).sort()).toEqual(['droppedAnchors', 'from', 'heads', 'warnings'])
+    expect(Object.keys(receipt).sort()).toEqual(['before', 'droppedAnchors', 'from', 'heads', 'warnings'])
     expect(receipt.from).toEqual([null, 0])
     expect(receipt.heads).toEqual(doc.heads())
     expect(receipt.droppedAnchors).toEqual([])
