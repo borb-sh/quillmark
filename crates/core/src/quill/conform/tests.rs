@@ -519,7 +519,7 @@ fn revise_document_revises_then_conforms() {
             "\n~~~card-yaml\n$kind: entry\nprose: a fresh card\n~~~\n\n~~~card-yaml\n$kind: entry\n",
         );
     let stored_id = doc.cards()[0].id().unwrap().to_string();
-    let receipt = quill.writer(&mut doc).revise_document(&md).expect("revise");
+    let receipt = quill.writer(&mut doc).revise_document(&md, None).expect("revise");
     let (expected, warnings) = parse_bound(&quill, &md);
 
     assert!(receipt.dropped_anchors.is_empty());
@@ -564,7 +564,7 @@ fn revise_document_revises_then_conforms() {
     let before = bytes(&doc);
     let err = quill
         .writer(&mut doc)
-        .revise_document(&md.replace("conform_test@1.0.0", "other@1.0.0"))
+        .revise_document(&md.replace("conform_test@1.0.0", "other@1.0.0"), None)
         .unwrap_err();
     assert!(matches!(err, crate::quill::BoundParseError::Mismatch(_)));
     assert_eq!(bytes(&doc), before);

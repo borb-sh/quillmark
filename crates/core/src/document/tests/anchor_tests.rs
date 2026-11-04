@@ -273,7 +273,7 @@ fn every_field_revise_names_the_anchor_it_drops() {
             c.replace(crate::document::Target::Field("f"), &n, None).unwrap()
         }),
         ("revise_field_checked", |c, _, s| {
-            c.revise_field_checked("f", "Keep this line.", s).unwrap()
+            c.revise_field_checked("f", "Keep this line.", s, None).unwrap()
         }),
     ];
     for (rung, revise) in rungs {

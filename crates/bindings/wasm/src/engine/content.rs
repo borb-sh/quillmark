@@ -324,7 +324,7 @@ struct DroppedAnchorJs {
 
 /// A `WriteOptions` from JS: the `heads` the writer read.
 pub(super) struct WriteOpts {
-    pub(super) heads: Option<Heads>,
+    heads: Option<Heads>,
 }
 
 impl WriteOpts {
@@ -342,7 +342,7 @@ impl WriteOpts {
         Ok(out)
     }
 
-    fn as_ref(&self) -> WriteOptions<'_> {
+    pub(super) fn as_ref(&self) -> WriteOptions<'_> {
         WriteOptions { heads: self.heads.as_ref() }
     }
 }

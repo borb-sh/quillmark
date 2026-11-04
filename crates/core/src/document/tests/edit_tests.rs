@@ -349,7 +349,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
     let mut doc = super::placed(Card::new("note").unwrap());
     let mut card = doc.card_mut(0).unwrap();
     let revised = card
-        .revise_field_checked("subject", "hello target world", &inline)
+        .revise_field_checked("subject", "hello target world", &inline, None)
         .unwrap();
     assert!(!revised.patches.is_empty());
 
@@ -364,7 +364,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
     let base = base.into_lines();
     card.overwrite_field("subject", base).unwrap();
     let _ = card
-        .revise_field_checked("subject", "why keep the target here", &inline)
+        .revise_field_checked("subject", "why keep the target here", &inline, None)
         .unwrap();
     let read = card
         .field_content("subject", Codec::Richtext)
@@ -382,7 +382,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
         .unwrap()
         .unwrap();
     let err = card
-        .revise_field_checked("subject", "line one\n\nline two", &inline)
+        .revise_field_checked("subject", "line one\n\nline two", &inline, None)
         .unwrap_err();
     assert_eq!(err.code(), "edit::field_not_single_line");
     assert_eq!(
@@ -398,7 +398,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
         None,
     );
     let d = card
-        .revise_field_checked("body", "para one\n\npara two", &block)
+        .revise_field_checked("body", "para one\n\npara two", &block, None)
         .unwrap();
     assert!(!d.patches.is_empty());
     assert!(
@@ -1077,7 +1077,7 @@ fn no_verb_on_a_placed_card_moves_it_between_roles() {
             ignore(c.commit_field("f", qv("v"), &richtext()))
         }),
         ("revise_field_checked", |c| {
-            ignore(c.revise_field_checked("f", "text", &richtext()))
+            ignore(c.revise_field_checked("f", "text", &richtext(), None))
         }),
     ];
 

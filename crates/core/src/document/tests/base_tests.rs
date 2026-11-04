@@ -240,10 +240,7 @@ fn an_annotated_document_read_with_a_field_anchor_is_a_fresh_read() {
 
     let mut w = TypedWriter::new(&config, &mut doc);
     let revised = w
-        .revise_document_at(
-            &at,
-            &read.replace("Second para here", "Second paragraph here"),
-        )
+        .revise_document(&read.replace("Second para here", "Second paragraph here"), &at)
         .unwrap();
     assert!(revised.dropped_anchors.is_empty());
     let summary = doc
@@ -267,15 +264,12 @@ fn a_field_both_sides_wrote_takes_the_later_write_and_warnings_follow_their_card
 
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise_document(&read.replace("subject: Hello\n", "subject: Hello\nnote: theirs\n"))
+        .revise_document(&read.replace("subject: Hello\n", "subject: Hello\nnote: theirs\n"), None)
         .unwrap();
     let revised = w
-        .revise_document_at(
-            &at,
-            &read
+        .revise_document(&read
                 .replace("$quill: memo@1.0.0\n", "$quill: memo@1.0.0\nnote: mine\n")
-                .replace("Body.", "Body, mine."),
-        )
+                .replace("Body.", "Body, mine."), &at)
         .unwrap();
     assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     assert_eq!(
@@ -291,13 +285,10 @@ fn a_field_both_sides_wrote_takes_the_later_write_and_warnings_follow_their_card
     let at = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise_document(&read.replace("Body.\n", "Body.\n\n~~~\n$kind: item\n~~~\n\nZero.\n"))
+        .revise_document(&read.replace("Body.\n", "Body.\n\n~~~\n$kind: item\n~~~\n\nZero.\n"), None)
         .unwrap();
     let revised = w
-        .revise_document_at(
-            &at,
-            &read.replace("Two.", "Two <span>x</span>."),
-        )
+        .revise_document(&read.replace("Two.", "Two <span>x</span>."), &at)
         .unwrap();
     assert_eq!(
         revised
@@ -324,7 +315,7 @@ fn a_document_revise_merges_a_read_and_refuses_unknown_heads() {
         .unwrap();
     let mut w = TypedWriter::new(&config, &mut doc);
     let err = w
-        .revise_document_at(&foreign(), &read.replace("Hello", "Goodbye"))
+        .revise_document(&read.replace("Hello", "Goodbye"), &foreign())
         .unwrap_err();
     assert!(
         matches!(&err, BoundParseError::Edit(EditError::StaleHeads { .. })),
@@ -336,7 +327,7 @@ fn a_document_revise_merges_a_read_and_refuses_unknown_heads() {
     );
 
     let _ = w
-        .revise_document_at(&at, &read.replace("Hello", "Goodbye"))
+        .revise_document(&read.replace("Hello", "Goodbye"), &at)
         .unwrap();
     let expected: Document = parse(
         "~~~\n$quill: memo@1.0.0\nsubject: Goodbye\n~~~\n\nAlpha one.\n\nBeta two, edited.\n",
@@ -403,7 +394,7 @@ fn a_plain_read_of_an_unchanged_value_writes_the_writers_own() {
     let at = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise_document_at(&at, &read.replace("edited", "edited twice"))
+        .revise_document(&read.replace("edited", "edited twice"), &at)
         .unwrap();
     assert!(doc.main().body_markdown().contains("edited twice"));
 }
@@ -446,10 +437,10 @@ fn a_token_survives_a_merge() {
     let at = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise_document(&read.replace("Beta two.", "Beta two, theirs."))
+        .revise_document(&read.replace("Beta two.", "Beta two, theirs."), None)
         .unwrap();
     let revised = w
-        .revise_document_at(&at, &read.replace("Alpha", "Alpha, mine,"))
+        .revise_document(&read.replace("Alpha", "Alpha, mine,"), &at)
         .unwrap();
     assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     assert_eq!(
@@ -476,12 +467,9 @@ fn edits_to_two_rows_of_one_array_both_land() {
     let at = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise_document(&read.replace("2019", "2019-2020"))
+        .revise_document(&read.replace("2019", "2019-2020"), None)
         .unwrap();
-    let _ = w.revise_document_at(
-        &at,
-        &read.replace("Analyst", "Senior analyst"),
-    )
+    let _ = w.revise_document(&read.replace("Analyst", "Senior analyst"), &at)
     .unwrap();
     assert_eq!(
         jobs(&doc),
@@ -505,12 +493,9 @@ fn a_card_removed_since_the_read_and_edited_by_the_writer_stays_removed() {
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w.remove_card(1);
     let revised = w
-        .revise_document_at(
-            &at,
-            &read
+        .revise_document(&read
                 .replace("Two.", "Two, mine.")
-                .replace("Hello", "Goodbye"),
-        )
+                .replace("Hello", "Goodbye"), &at)
         .unwrap();
     assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     assert_eq!(doc.cards().len(), 1);
@@ -528,15 +513,12 @@ fn a_body_line_both_sides_changed_takes_both_edits() {
     let at = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise_document(&read.replace("Alpha one.", "Alpha, theirs."))
+        .revise_document(&read.replace("Alpha one.", "Alpha, theirs."), None)
         .unwrap();
     let revised = w
-        .revise_document_at(
-            &at,
-            &read
+        .revise_document(&read
                 .replace("Alpha one.", "Alpha, mine.")
-                .replace("Hello", "Goodbye"),
-        )
+                .replace("Hello", "Goodbye"), &at)
         .unwrap();
     assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     let body = doc.main().body_markdown();

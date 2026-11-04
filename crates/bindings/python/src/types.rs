@@ -1393,18 +1393,18 @@ impl PyWriter {
     ) -> PyResult<Bound<'py, PyDict>> {
         require_card_id(&card, "revise")?;
         let heads = heads_arg(heads)?;
-        let read = heads.as_ref();
+        let opts = quillmark_core::document::WriteOptions { heads: heads.as_ref() };
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
         let card_id = Self::card_id(&doc, target.index);
         let mut writer = quill.inner.writer(&mut doc.inner);
         match target.index {
-            None => writer.revise(field, text, read),
+            None => writer.revise(field, text, opts),
             Some(i) => writer
                 .card(i)
                 .map_err(|e| convert_edit_error(e, &target.base))?
-                .revise(field, text, read),
+                .revise(field, text, opts),
         }
         .map_err(|e| convert_edit_error(e, &target.base))
         .and_then(|receipt| {
@@ -1444,15 +1444,11 @@ impl PyWriter {
         markdown: &str,
         heads: Option<Vec<String>>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let read = heads_arg(heads)?;
+        let heads = heads_arg(heads)?;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let mut writer = quill.inner.writer(&mut doc.inner);
-        let revised = match read {
-            None => writer.revise_document(markdown),
-            Some(heads) => writer.revise_document_at(&heads, markdown),
-        }
-        .map_err(|e| raise_summarized(e.to_diagnostics()))?;
+        let revised = writer.revise_document(markdown, heads.as_ref()).map_err(|e| raise_summarized(e.to_diagnostics()))?;
         doc.parse_warnings.clear();
         let dropped: Vec<_> = revised.dropped_anchors.into_iter().map(selector_json).collect();
         let receipt = PyDict::new(py);

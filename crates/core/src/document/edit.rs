@@ -939,23 +939,21 @@ impl<'a> CardMut<'a> {
         self.edit(|c| c.commit_field(name, value, schema))
     }
 
+    /// The typed revise of field `name` under `schema`. With `opts.heads`,
+    /// a content field is revised as its writer read it then, and the change
+    /// from that read lands there, merged with every change since; a field
+    /// of another type, or a write with no heads, revises the value now.
     #[doc(hidden)]
-    pub fn revise_field_checked(&mut self, name: &str, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
-        check_field_name(name)?;
-        let body = body.into();
-        self.doc.landing(self.at, super::Target::Field(name), |card| card.revise_field_payload(name, body, schema))
-    }
-
-    /// [`revise_field_checked`](Self::revise_field_checked) at `heads`. A
-    /// content field is revised as its writer read it at `heads`, and the
-    /// change from that read lands there, merged with every change since;
-    /// a field of another type revises the value now.
-    #[doc(hidden)]
-    pub fn revise_field_checked_at(&mut self, name: &str, heads: &super::Heads, body: impl Into<String>, schema: &FieldSchema) -> Result<super::Receipt, EditError> {
+    pub fn revise_field_checked<'o>(&mut self, name: &str, body: impl Into<String>, schema: &FieldSchema, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
         let content = matches!(schema.r#type, FieldType::Text { .. } | FieldType::RichText { .. });
-        if !content {
-            return self.revise_field_checked(name, body, schema);
-        }
+        let heads = match opts.into().heads {
+            Some(heads) if content => heads,
+            _ => {
+                check_field_name(name)?;
+                let body = body.into();
+                return self.doc.landing(self.at, super::Target::Field(name), |card| card.revise_field_payload(name, body, schema));
+            }
+        };
         let target = super::Target::Field(name);
         let read = self.doc.read_under(self.at, target, Some(heads))?;
         let mut scratch = Card::from_parts(Payload::new(), quillmark_automerge::content::model::Content::empty());

@@ -274,7 +274,7 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 - `Card::revise` builds it, at the body or a field.
 - The typed writer's revise (`TypedWriter::revise`, WASM `writer.revise`) is it, a field read under its schema's codec and then conformed.
 - `Document::revise` runs it on each body and content field of each card it aligns. A value whose markdown imports to one that does not validate keeps its stored value, with an `edit::content_apply` warning at its address.
-- A typed revise of the whole document at the heads it was read (`TypedWriter::revise_document_at`) lands the writer's document there, merged with every change since ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive").
+- A typed revise of the whole document at the heads it was read (`TypedWriter::revise_document(md, &heads)`) lands the writer's document there, merged with every change since ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive").
 
 A binding's write names its card by `$id`, or the main card, never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, nothing tells the write. An id no card holds refuses with `edit::unknown_card_id`.
 

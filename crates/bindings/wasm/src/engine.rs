@@ -1533,18 +1533,18 @@ impl Document {
         text: &str,
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let heads = content::WriteOpts::from_js(&opts, "revise", &[])?.heads;
+        let opts = content::WriteOpts::from_js(&opts, "revise", &[])?;
         let addr = Addr::for_write(&addr, &self.inner, "revise")?;
         let base = self.addr_base(&addr);
         let card_id = self.addr_card_ref(&addr)?.id().map(str::to_string);
         let target = quillmark_core::document::Target::from(addr.field.as_deref());
         let mut writer = quill.inner.writer(&mut self.inner);
         let receipt = match addr.card {
-            None => writer.revise(target, text, heads.as_ref()),
+            None => writer.revise(target, text, opts.as_ref()),
             Some(index) => writer
                 .card(index)
                 .map_err(|e| edit_error_to_js(&e, &base))?
-                .revise(target, text, heads.as_ref()),
+                .revise(target, text, opts.as_ref()),
         }
         .map_err(|e| edit_error_to_js(&e, &base))?;
         let path = match &addr.field {
@@ -1568,13 +1568,9 @@ impl Document {
         markdown: &str,
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let heads = content::WriteOpts::from_js(&opts, "reviseDocument", &[])?.heads;
+        let opts = content::WriteOpts::from_js(&opts, "reviseDocument", &[])?;
         let mut writer = quill.inner.writer(&mut self.inner);
-        let revised = match heads {
-            None => writer.revise_document(markdown),
-            Some(heads) => writer.revise_document_at(&heads, markdown),
-        }
-        .map_err(|e| js_err(e.to_diagnostics()))?;
+        let revised = writer.revise_document(markdown, opts.as_ref()).map_err(|e| js_err(e.to_diagnostics()))?;
         self.parse_warnings.clear();
         serialize_or_throw(&DocumentRevisedJs::from(revised), "reviseDocument")
     }

@@ -40,9 +40,10 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   island takes a new one.
 - feat(core)!: **heads are the only base, and a stale write merges as
   Automerge merges.** A write names what its writer read by the document's
-  heads then: `WriteOptions { heads, actor }` on `Card::apply`, `revise`,
-  `replace` and the structural edits, `heads` on `TypedWriter::revise` and
-  `CardWriter::revise`, and `TypedWriter::revise_document_at(heads, md)`.
+  heads then, through one `opts: impl Into<WriteOptions>` (`WriteOptions {
+  heads }` or bare heads) on every write that takes them: `CardMut::apply`,
+  `revise`, `replace` and the structural edits, `TypedWriter::revise`,
+  `CardWriter::revise` and `TypedWriter::revise_document(md, opts)`.
   The write lands as one change at those heads, concurrent with every change
   since: text both sides edited interleaves, a record or field both set reads
   as the later write, and an anchor or mark put at earlier heads takes in
