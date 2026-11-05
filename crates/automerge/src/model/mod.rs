@@ -45,7 +45,7 @@ use automerge::{
 };
 use crate::content::change::Change;
 use crate::content::model::Content;
-use crate::content::repair::{Raw, Repair, repair};
+use crate::content::repair::{Repair, repair};
 use serde_json::Value;
 
 /// The document as it was at `heads`, writing under a random actor: the
@@ -320,8 +320,7 @@ impl Doc {
 
     /// What the value `root` reads as.
     pub fn view(&self, root: &ObjId) -> View {
-        let raw = Raw::from_value(&self.raw(root)).expect("a value reads as raw content");
-        let (content, repairs, _) = repair(raw);
+        let (content, repairs, _) = repair(value::read(&self.doc, root));
         View { content, repairs }
     }
 
@@ -359,11 +358,6 @@ impl Doc {
             Some(doc) => read(&Doc { doc }),
             None => self.isolated(heads, |d| read(d)),
         }
-    }
-
-    /// The raw value `root` holds, before repair.
-    fn raw(&self, root: &ObjId) -> Value {
-        value::read(&self.doc, root)
     }
 
     /// Lowers `change`, made against what the value `root` reads as at
