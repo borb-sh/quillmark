@@ -16,7 +16,7 @@
 //! let title = doc.main()
 //!     .payload()
 //!     .get("title")
-//!     .and_then(|v| v.as_str())
+//!     .and_then(|v| v.data()?.as_str())
 //!     .unwrap_or("Untitled");
 //! assert_eq!(title, "Example");
 //! ```

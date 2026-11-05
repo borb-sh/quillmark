@@ -23,6 +23,7 @@ use crate::error::diag_args;
 use crate::path::DocPath;
 use crate::quill::{CoercionError, FieldSchema, FieldType, Leniency, QuillConfig};
 use crate::value::{PathSegment, QuillValue};
+use super::payload::FieldValue;
 use crate::version::QuillReference;
 
 /// A field plus its in-field path, rendered through
@@ -811,7 +812,7 @@ pub(crate) fn committed_text(name: &str, body: String, schema: &FieldSchema) -> 
 /// [`Card::store_seed_overlay`]) run when a card is placed or edited, not when
 /// one is assigned over another. Handing out a `&mut Card` would make
 /// `*doc.card_mut(0).unwrap() = doc.main().clone()` a legal write past all of
-/// them, and [`Document::quill_reference`] reads the root's `$quill` without
+/// them, and [`Snapshot::quill_reference`](super::Snapshot::quill_reference) reads the root's `$quill` without
 /// re-checking. A card built before placement is an ordinary `Card`, so the
 /// verbs stay there and this only withholds the assignment.
 pub struct CardMut<'a> {
@@ -990,11 +991,11 @@ impl std::ops::Deref for CardMut<'_> {
 
 impl Document {
     pub fn set_quill_ref(&mut self, reference: QuillReference) {
-        self.main_card_mut().payload_mut().set_quill(reference);
+        self.edit_card(None, |c| c.payload_mut().set_quill(reference));
     }
 
     pub fn card_mut(&mut self, index: usize) -> Option<CardMut<'_>> {
-        (index < self.cards.len()).then(|| CardMut::new(self, Some(index)))
+        (index < self.view.cards.len()).then(|| CardMut::new(self, Some(index)))
     }
 
     /// The writes no quill schema checks: [`Unchecked`].
@@ -1086,12 +1087,7 @@ impl Document {
     ) -> Result<(), EditError> {
         let new_kind = new_kind.into();
         check_kind(&new_kind)?;
-        let len = self.cards().len();
-        let mut card = self
-            .card_edit(index)
-            .ok_or(EditError::IndexOutOfRange { index, len })?;
-        card.payload_mut().set_kind(new_kind);
-        Ok(())
+        self.edit_card_at(index, |c| c.payload_mut().set_kind(new_kind))
     }
 
     /// Move card at `from` to position `to`. No-op when `from == to`.
@@ -1130,12 +1126,10 @@ impl Unchecked<'_> {
         name: &str,
         value: impl Into<QuillValue>,
     ) -> Result<(), EditError> {
-        let len = self.0.cards().len();
-        let mut card = match card {
-            None => self.0.main_card_mut(),
-            Some(index) => self.0.card_edit(index).ok_or(EditError::IndexOutOfRange { index, len })?,
-        };
-        card.store_field(name, value)
+        match card {
+            None => self.0.edit_card(None, |c| c.store_field(name, value)),
+            Some(index) => self.0.edit_card_at(index, |c| c.store_field(name, value))?,
+        }
     }
 
     /// Place a composable card at `at` (`None` appends; past the last card
@@ -1246,7 +1240,7 @@ impl Card {
     /// validation as [`Card::store_field`].
     pub fn remove_field(&mut self, name: &str) -> Result<Option<QuillValue>, EditError> {
         check_field_name(name)?;
-        Ok(self.payload_mut().remove(name))
+        Ok(self.payload_mut().remove(name).map(FieldValue::into_value))
     }
 
     /// Replace the card's opaque `$ext` map wholesale, inserting it at the
@@ -1394,7 +1388,8 @@ impl Card {
     /// `name` on a full card is [`EditError::InvalidPayload`].
     #[cfg(test)]
     fn store_field_content(&mut self, name: &str, content: &Lines) -> Result<(), EditError> {
-        let stored = self.payload.get(name).map(QuillValue::as_json).filter(|v| v.is_object());
+        let stored = self.payload.get(name).map(FieldValue::to_value);
+        let stored = stored.as_deref().map(QuillValue::as_json).filter(|v| v.is_object());
         if stored.map_or(Codec::Richtext, Codec::of_object) == Codec::Text && !content.is_plain() {
             return Err(field_decode(
                 name,
@@ -1405,7 +1400,7 @@ impl Card {
                 ),
             ));
         }
-        let canonical = super::stored_over(self.payload.get(name).map(QuillValue::as_json), content);
+        let canonical = super::stored_over(stored, content);
         self.payload_mut()
             .insert(name.to_string(), QuillValue::from_json(canonical))
             .map(|_| ())
@@ -1477,7 +1472,8 @@ impl Card {
         check_field_name(name)?;
         match self.payload.get(name) {
             None => Ok(quillmark_automerge::content::model::Content::empty()),
-            Some(v) => Codec::Richtext.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Richtext, e)),
+            Some(FieldValue::Content(c)) => Ok(c.clone()),
+            Some(FieldValue::Data(v)) => Codec::Richtext.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Richtext, e)),
         }
     }
 
@@ -1506,7 +1502,8 @@ impl Card {
             let text = committed_text(name, body, schema)?;
             let mut before = match self.payload.get(name) {
                 None => quillmark_automerge::content::model::Content::empty(),
-                Some(v) => Codec::Text.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Text, e))?,
+                Some(FieldValue::Content(c)) => c.clone(),
+                Some(FieldValue::Data(v)) => Codec::Text.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Text, e))?,
             };
             before.codec = Codec::Text.content();
             let revised = self.revision(&before, &text)?;

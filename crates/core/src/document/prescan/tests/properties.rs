@@ -17,7 +17,7 @@ use serde_saphyr::granit_parser::{Event, Parser, ScanError};
 
 use super::super::{Refusal, options, prescan_fence_content};
 use crate::document::{Document, NestedComment, PayloadItem};
-use crate::value::{PathSegment, QuillValue};
+use crate::value::PathSegment;
 
 #[derive(Debug, Clone)]
 enum Node {
@@ -546,7 +546,8 @@ proptest! {
             nested.sort_by_cached_key(|c| emit_order(&fields, c));
             prop_assert_eq!(payload.nested_comments(), &nested[..], "{}", src);
             for (k, v) in &fields {
-                prop_assert_eq!(payload.get(k).map(QuillValue::as_json), Some(v), "{}", src);
+                let got = payload.get(k).map(|v| v.to_value().into_owned().into_json());
+                prop_assert_eq!(got.as_ref(), Some(v), "{}", src);
             }
 
             let md = doc.to_markdown();

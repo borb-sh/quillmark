@@ -100,9 +100,9 @@ impl QuillConfig {
     /// [`Quill::conform`] over the schema alone, for a door that holds only the
     /// config.
     pub(crate) fn conform(&self, doc: &mut Document) -> Result<Vec<Diagnostic>, RenderError> {
-        self.check_quill_reference(doc)?;
+        self.check_quill_reference(&doc.quill_reference())?;
         let mut diags = Vec::new();
-        conform_card(&self.main, &mut doc.main_card_mut(), &DocPath::main(), &mut diags);
+        doc.edit_card(None, |c| conform_card(&self.main, c, &DocPath::main(), &mut diags));
         for index in 0..doc.cards().len() {
             // A card whose `$kind` declares no schema has no declared field to
             // conform: it passes untouched, as the render gate passes it.
@@ -112,7 +112,7 @@ impl QuillConfig {
             let Some(schema) = self.card_kind(&kind) else {
                 continue;
             };
-            conform_card(schema, &mut doc.card_edit(index).expect("in range"), &DocPath::card(Some(&kind), index), &mut diags);
+            doc.edit_card(Some(index), |c| conform_card(schema, c, &DocPath::card(Some(&kind), index), &mut diags));
         }
         Ok(diags)
     }
@@ -136,9 +136,10 @@ fn conform_card(schema: &CardSchema, card: &mut Card, base: &DocPath, diags: &mu
         if !field_contains_content(field) {
             continue;
         }
-        match resolve_field_write(name, value, field, base) {
+        let current = value.to_value();
+        match resolve_field_write(name, &current, field, base) {
             Ok((conformed, drops)) => {
-                if &conformed != value {
+                if conformed != *current {
                     diags.extend(drops);
                     updates.push((name.clone(), conformed));
                 }

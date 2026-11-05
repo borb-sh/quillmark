@@ -21,7 +21,8 @@ use automerge::{
     AutoCommit, Cursor, CursorPosition, ObjId, ObjType, ReadDoc, ScalarValue, Value as AmValue,
 };
 use crate::content::lines::island::IslandType;
-use crate::content::model::{Block, Codec, Content, ISLAND_SLOT, Island, MarkKind};
+use crate::content::model::{Anchor, Block, BlockKind, Codec, Container, Content, ISLAND_SLOT, Island, Mark, MarkKind};
+use crate::content::repair::{Raw, RawAnchor, RawIsland};
 use crate::content::wire;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -124,8 +125,7 @@ pub(crate) fn content_of(v: &Value) -> Option<Content> {
 
 /// What the value `root` reads as: its raw value read through repair.
 pub(crate) fn view(doc: &AutoCommit, root: &ObjId) -> Content {
-    let raw = crate::content::repair::Raw::from_value(&read(doc, root)).expect("a value reads as raw content");
-    crate::content::repair::repair(raw).0
+    crate::content::repair::repair(read(doc, root)).0
 }
 
 /// Writes `want` over the value `root` in place, so an edit concurrent with
@@ -366,6 +366,17 @@ pub(crate) fn mark_key(kind: &MarkKind) -> (String, ScalarValue) {
 /// The mark `name` holds `value` over `[start, end)`, `None` where its type
 /// and attrs are not a mark's.
 pub(crate) fn mark_json(name: &str, value: &ScalarValue, start: usize, end: usize) -> Option<Value> {
+    let (ty, attrs) = mark_parts(name, value);
+    wire::mark_kind_from(&ty, attrs.as_ref().unwrap_or(&Map::new())).ok()?;
+    let mut v = json!({ "start": start, "end": end, "type": ty });
+    if let Some(a) = attrs {
+        v["attrs"] = Value::Object(a);
+    }
+    Some(v)
+}
+
+/// The type and attrs the Automerge mark `name` holding `value` spells.
+fn mark_parts(name: &str, value: &ScalarValue) -> (String, Option<Map<String, Value>>) {
     let (ty, attrs) = match (name, value) {
         ("link", ScalarValue::Str(s)) => ("link".to_string(), Some(json!({ "url": s.as_str() }))),
         ("font_family", ScalarValue::Str(s)) => (
@@ -381,12 +392,7 @@ pub(crate) fn mark_json(name: &str, value: &ScalarValue, start: usize, end: usiz
         Value::Object(o) => Some(o),
         _ => None,
     });
-    wire::mark_kind_from(&ty, attrs.as_ref().unwrap_or(&Map::new())).ok()?;
-    let mut v = json!({ "start": start, "end": end, "type": ty });
-    if let Some(a) = attrs {
-        v["attrs"] = Value::Object(a);
-    }
-    Some(v)
+    (ty, attrs)
 }
 
 /// Puts the anchor `id` over value offsets `[start, end)` of the text `t` of
@@ -462,72 +468,76 @@ pub(crate) fn is_embed(doc: &AutoCommit, m: &ObjId) -> bool {
     matches!(doc.get(m, EMBED), Ok(Some((AmValue::Scalar(s), _))) if matches!(s.as_ref(), ScalarValue::Boolean(true)))
 }
 
-/// The raw value `root` holds, as [`Raw::from_value`] reads it: text,
-/// records, marks and anchors as the merge left them, islands keyed by id
-/// with the id each island character carries. A record, mark or island a
-/// peer left in a shape no content holds, such as a kind no build names or
-/// a path entry that is not a string, reads as the nearest one the decoder
-/// takes, so every document reads.
-///
-/// [`Raw::from_value`]: crate::content::repair::Raw::from_value
-pub(crate) fn read(doc: &AutoCommit, root: &ObjId) -> Value {
+/// The raw value `root` holds, the input of repair: text, records, marks
+/// and anchors as the merge left them, islands keyed by id with the id each
+/// island character carries. A record, mark or island a peer left in a
+/// shape no content holds, such as a kind no build names or a path entry
+/// that is not a string, reads as the nearest one content holds, so every
+/// document reads.
+pub(crate) fn read(doc: &AutoCommit, root: &ObjId) -> Raw {
+    let para = || Block { id: id_of(root), kind: BlockKind::Para, path: Vec::new() };
+    let codec = get_str(doc, root, CODEC).and_then(|c| Codec::parse(&c)).unwrap_or(Codec::Rich);
     let Some(t) = text(doc, root) else {
-        return json!({ "text": "", "blocks": [{ "id": id_of(root), "kind": "para" }] });
+        return Raw { text: String::new(), blocks: vec![para()], containers: Vec::new(), marks: Vec::new(), anchors: Vec::new(), slot_ids: Vec::new(), islands: BTreeMap::new(), codec };
     };
     let mut text = String::new();
     let mut blocks = Vec::new();
     let mut slot_ids = Vec::new();
-    let mut islands = Map::new();
+    let mut islands = BTreeMap::new();
     for (i, e) in elements(doc, &t).into_iter().enumerate() {
         match e {
             Element::Block(m) => {
                 if i > 0 {
                     text.push('\n');
                 }
-                blocks.push(block_json(doc, &m));
+                blocks.push(block_of(doc, &m));
             }
             Element::Island(m) => {
                 if i == 0 {
-                    blocks.push(json!({ "id": id_of(root), "kind": "para" }));
+                    blocks.push(para());
                 }
                 text.push(ISLAND_SLOT);
-                match island_json(doc, &m) {
+                match island_of(doc, &m) {
                     Some(island) => {
                         let id = id_of(&m);
-                        slot_ids.push(Value::String(id.clone()));
+                        slot_ids.push(Some(id.clone()));
                         islands.insert(id, island);
                     }
-                    None => slot_ids.push(Value::Null),
+                    None => slot_ids.push(None),
                 }
             }
             Element::Char(c) => {
                 if i == 0 {
-                    blocks.push(json!({ "id": id_of(root), "kind": "para" }));
+                    blocks.push(para());
                 }
                 text.push(c)
             }
         }
     }
     if blocks.is_empty() {
-        blocks.push(json!({ "id": id_of(root), "kind": "para" }));
+        blocks.push(para());
     }
-    let containers: Vec<Value> = obj(doc, root, CONTAINERS)
+    let containers = obj(doc, root, CONTAINERS)
         .map(|cs| {
             doc.values(&cs)
                 .filter_map(|(v, id)| match v {
-                    AmValue::Object(ObjType::Map) => container_json(doc, &id),
+                    AmValue::Object(ObjType::Map) => container_of(doc, &id),
                     _ => None,
                 })
                 .collect()
         })
         .unwrap_or_default();
     let all = doc.marks(&t).unwrap();
-    let marks: Vec<Value> = all
+    let marks = all
         .iter()
         .filter(|m| !m.name().starts_with(ANCHOR) && m.end > 1)
-        .filter_map(|m| mark_json(m.name(), m.value(), m.start.saturating_sub(1), m.end - 1))
+        .filter_map(|m| {
+            let (ty, attrs) = mark_parts(m.name(), m.value());
+            let kind = wire::mark_kind_from(&ty, attrs.as_ref().unwrap_or(&Map::new())).ok()?;
+            Some(Mark { start: m.start.saturating_sub(1), end: m.end - 1, kind })
+        })
         .collect();
-    let mut anchors: BTreeMap<String, Value> = BTreeMap::new();
+    let mut anchors: BTreeMap<String, RawAnchor> = BTreeMap::new();
     for m in all.iter() {
         let Some(id) = m.name().strip_prefix(ANCHOR) else {
             continue;
@@ -535,13 +545,9 @@ pub(crate) fn read(doc: &AutoCommit, root: &ObjId) -> Value {
         let (s, e) = (m.start.saturating_sub(1), m.end.saturating_sub(1));
         let entry = anchors
             .entry(id.to_string())
-            .or_insert_with(|| json!({ "id": id, "start": s, "end": e, "range": true }));
-        let (os, oe) = (
-            entry["start"].as_u64().unwrap() as usize,
-            entry["end"].as_u64().unwrap() as usize,
-        );
-        entry["start"] = json!(os.min(s));
-        entry["end"] = json!(oe.max(e));
+            .or_insert_with(|| RawAnchor { anchor: Anchor { id: id.to_string(), start: s, end: e }, range: true });
+        entry.anchor.start = entry.anchor.start.min(s);
+        entry.anchor.end = entry.anchor.end.max(e);
     }
     if let Some(points) = obj(doc, root, POINTS) {
         for id in doc.keys(&points).collect::<Vec<_>>() {
@@ -550,22 +556,10 @@ pub(crate) fn read(doc: &AutoCommit, root: &ObjId) -> Value {
             };
             anchors
                 .entry(id.clone())
-                .or_insert_with(|| json!({ "id": id, "start": at, "end": at }));
+                .or_insert_with(|| RawAnchor { anchor: Anchor { id, start: at, end: at }, range: false });
         }
     }
-    let mut v = json!({
-        "text": text,
-        "blocks": blocks,
-        "containers": containers,
-        "marks": marks,
-        "anchors": anchors.into_values().collect::<Vec<_>>(),
-        "islands": islands,
-        "slot_ids": slot_ids,
-    });
-    if let Some(c) = get_str(doc, root, CODEC).filter(|c| Codec::parse(c).is_some()) {
-        v["codec"] = Value::String(c);
-    }
-    v
+    Raw { text, blocks, containers, marks, anchors: anchors.into_values().collect(), slot_ids, islands, codec }
 }
 
 /// The object `key` of `m` holds, hydrated, where it is a non-empty object.
@@ -587,57 +581,48 @@ pub(crate) fn point_at(doc: &AutoCommit, points: &ObjId, t: &ObjId, id: &str) ->
     Some(at.saturating_sub(1).min(doc.length(t).saturating_sub(1)))
 }
 
-/// The block record `m`: a kind and attrs the decoder takes, a paragraph
-/// where they are not, and the string entries of its path.
-pub(crate) fn block_json(doc: &AutoCommit, m: &ObjId) -> Value {
-    let mut b = Map::new();
-    b.insert("id".into(), Value::String(id_of(m)));
-    let (mut kind, mut attrs) = (get_str(doc, m, TYPE).unwrap_or_else(|| "para".into()), attrs_json(doc, m));
-    if wire::block_kind_from(&kind, &attrs).is_err() {
-        (kind, attrs) = ("para".into(), Map::new());
-    }
-    b.insert("kind".into(), Value::String(kind));
-    if !attrs.is_empty() {
-        b.insert("attrs".into(), Value::Object(attrs));
-    }
-    let path: Vec<Value> = obj(doc, m, PARENTS)
+/// The block record `m`: a kind and attrs content holds, a paragraph where
+/// they are not, and the string entries of its path.
+fn block_of(doc: &AutoCommit, m: &ObjId) -> Block {
+    let kind = get_str(doc, m, TYPE)
+        .and_then(|kind| wire::block_kind_from(&kind, &attrs_json(doc, m)).ok())
+        .unwrap_or(BlockKind::Para);
+    let path = obj(doc, m, PARENTS)
         .map(|p| hydrate(doc, &p))
-        .and_then(|p| p.as_array().cloned())
+        .and_then(|p| match p {
+            Value::Array(a) => Some(a),
+            _ => None,
+        })
         .unwrap_or_default()
         .into_iter()
-        .filter(|p| p.is_string())
+        .filter_map(|p| match p {
+            Value::String(s) => Some(s),
+            _ => None,
+        })
         .collect();
-    if !path.is_empty() {
-        b.insert("path".into(), Value::Array(path));
-    }
-    Value::Object(b)
+    Block { id: id_of(m), kind, path }
 }
 
 /// The container record `m`, `None` where its kind and attrs are not a
 /// container's.
-pub(crate) fn container_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
-    let (kind, attrs) = (get_str(doc, m, TYPE)?, attrs_json(doc, m));
-    wire::container_kind_from(&kind, &attrs).ok()?;
-    let mut c = json!({ "id": id_of(m), "kind": kind });
-    if !attrs.is_empty() {
-        c["attrs"] = Value::Object(attrs);
-    }
-    Some(c)
+fn container_of(doc: &AutoCommit, m: &ObjId) -> Option<Container> {
+    let kind = wire::container_kind_from(&get_str(doc, m, TYPE)?, &attrs_json(doc, m)).ok()?;
+    Some(Container { id: id_of(m), kind })
 }
 
 /// The island `m`, `None` where its type is not one a build reads.
-pub(crate) fn island_json(doc: &AutoCommit, m: &ObjId) -> Option<Value> {
-    let ty = get_str(doc, m, TYPE).filter(|t| IslandType::parse(t).is_some())?;
+fn island_of(doc: &AutoCommit, m: &ObjId) -> Option<RawIsland> {
+    let island_type = get_str(doc, m, TYPE).and_then(|t| IslandType::parse(&t))?;
     let props = obj(doc, m, PROPS)
         .map(|p| hydrate(doc, &p))
         .filter(Value::is_object)
         .unwrap_or_else(|| json!({}));
-    let slots: Map<String, Value> = obj(doc, m, SLOTS)
+    let slots = obj(doc, m, SLOTS)
         .map(|s| {
             doc.keys(&s)
                 .filter_map(|k| Some((k.clone(), read(doc, &obj(doc, &s, &k)?))))
                 .collect()
         })
         .unwrap_or_default();
-    Some(json!({ "type": ty, "props": props, "slots": slots }))
+    Some(RawIsland { island_type, props, slots })
 }

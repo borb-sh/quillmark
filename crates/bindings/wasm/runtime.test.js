@@ -1134,11 +1134,11 @@ main:
         typst: {
           load: async () => {
             const real = await import('../../../pkg/render/wasm.js')
-            const borrowedDocument = new Proxy(real.Document, {
+            const borrowedSnapshot = new Proxy(real.Snapshot, {
               get(target, prop, receiver) {
-                if (prop === 'fromStored') {
+                if (prop === 'fromJson') {
                   return (json) => {
-                    const doc = target.fromStored(json)
+                    const doc = target.fromJson(json)
                     const free = doc.free.bind(doc)
                     doc.free = () => {
                       free()
@@ -1157,7 +1157,7 @@ main:
             }
             return new Proxy(real, {
               get(target, prop, receiver) {
-                if (prop === 'Document') return borrowedDocument
+                if (prop === 'Snapshot') return borrowedSnapshot
                 if (prop === 'Engine') return TrappingEngine
                 return Reflect.get(target, prop, receiver)
               },
@@ -1225,15 +1225,16 @@ main:
     // stand-in Document: both caller handles are checked before the clone runs
     // (see "handles from another copy" below), so they have to be real. Same
     // Proxy-over-the-real-module shape as fromTreeCountingEngine, so the quill
-    // clone left cached is a real backend quill and only `fromStored` misbehaves.
+    // clone left cached is a real backend quill and only `Snapshot.fromJson`
+    // misbehaves.
     const engine = new Engine({
       backends: {
         typst: {
           load: async () => {
             const real = await import('../../../pkg/render/wasm.js')
-            const refusingDocument = new Proxy(real.Document, {
+            const refusingSnapshot = new Proxy(real.Snapshot, {
               get(target, prop, receiver) {
-                if (prop === 'fromStored') {
+                if (prop === 'fromJson') {
                   return () => {
                     throw new Error('doc clone refused')
                   }
@@ -1243,7 +1244,7 @@ main:
             })
             return new Proxy(real, {
               get(target, prop, receiver) {
-                if (prop === 'Document') return refusingDocument
+                if (prop === 'Snapshot') return refusingSnapshot
                 return Reflect.get(target, prop, receiver)
               },
             })
@@ -1271,7 +1272,7 @@ main:
 // the built core artifact on disk, which is a genuinely different class over a
 // different linear memory.
 describe('@quillmark/wasm: handles from another copy (duplicate install)', () => {
-  const foreignDoc = (doc) => ({ toStored: () => doc.toStored() })
+  const foreignDoc = (doc) => ({ snapshotJson: () => doc.snapshotJson(), toStored: () => doc.toStored() })
   const foreignQuill = (quill) => ({
     toTree: () => quill.toTree(),
     backendId: quill.backendId,

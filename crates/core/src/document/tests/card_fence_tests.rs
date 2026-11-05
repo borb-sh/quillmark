@@ -32,7 +32,7 @@ fn shorter_tilde_run_does_not_close_a_longer_fence() {
     let doc = Document::parse(src).unwrap().document;
     assert_eq!(doc.cards().len(), 1);
     assert_eq!(
-        doc.cards()[0].payload().get("body").unwrap().as_str(),
+        doc.cards()[0].payload().get("body").unwrap().to_value().as_str(),
         Some("a ~~~ b")
     );
 }
@@ -165,7 +165,7 @@ The body.
 ";
     let doc = Document::parse(src).unwrap().document;
     assert_eq!(
-        doc.main().payload().get("snippet").unwrap().as_str(),
+        doc.main().payload().get("snippet").unwrap().to_value().as_str(),
         Some("Here is code:\n~~~\nlet x = 1;\n~~~\ndone\n"),
         "block scalar must keep the embedded tilde fence intact"
     );

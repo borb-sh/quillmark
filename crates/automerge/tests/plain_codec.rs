@@ -137,13 +137,13 @@ mod properties {
 fn a_field_written_plain_reads_back_plain() {
     use quillmark_automerge::model::cards;
     for text in ["", "a \\*b\\*"] {
-        let main = cards::Card { fields: vec![("memo".into(), from_markdown(text).unwrap().content.to_value())], ..Default::default() };
+        let main = cards::Card { fields: vec![("memo".into(), cards::Field::Data(from_markdown(text).unwrap().content.to_value()))], ..Default::default() };
         let mut d = cards::build(&main, &[]);
         let at = d.main();
-        cards::put_field(&mut d, &at, "memo", &plain("a \\*b\\* c").to_value());
+        cards::put_field(&mut d, &at, "memo", &cards::Field::Data(plain("a \\*b\\* c").to_value()));
         d.commit();
         let (read, _) = cards::read(&d).unwrap();
-        let memo = Content::from_value(&read.fields[0].1).unwrap();
+        let cards::Field::Content(memo) = &read.fields[0].1 else { panic!("the field reads as content") };
         assert_eq!((memo.codec, memo.text.as_str()), (Codec::Plain, "a \\*b\\* c"));
     }
 }

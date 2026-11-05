@@ -14,7 +14,7 @@ use super::edit::EditError;
 use super::emit::{canonical_content, emit_payload_fields};
 use quillmark_automerge::content::anchors::anchor_contexts;
 use quillmark_automerge::content::model::Content as ContentModel;
-use super::{Card, Document, Heads, Parsed, Revising, dropped_constructs};
+use super::{Card, FieldValue, Snapshot, Document, Heads, Revising, dropped_constructs};
 use crate::error::{Diagnostic, ParseError, Severity};
 use crate::path::DocPath;
 use crate::value::QuillValue;
@@ -86,19 +86,11 @@ impl Document {
     /// [`revise`](Self::revise) from `revising`, whose cards hold the `$id`
     /// each spells or none, as [`Document::parse_revising`] leaves them.
     pub(crate) fn revise_parsed(&mut self, revising: Revising) -> DocumentRevised {
-        let Revising {
-            parsed:
-                Parsed {
-                    document: incoming,
-                    mut warnings,
-                },
-            bodies,
-        } = revising;
+        let Revising { cards: Snapshot { main, cards }, mut warnings, bodies } = revising;
         let before = self.heads();
-        let Document { main, cards, .. } = incoming;
         let mut bodies = bodies.into_iter();
 
-        let pairs = align_cards(&self.cards, &cards);
+        let pairs = align_cards(&self.view.cards, &cards);
         let same_kinds = self
             .cards
             .iter()
@@ -109,7 +101,7 @@ impl Document {
         let mut moves = Moves::new();
 
         let main = revise_card(
-            &self.main,
+            &self.view.main,
             main,
             bodies.next().as_deref(),
             (&DocPath::main(), &DocPath::main()),
@@ -118,7 +110,7 @@ impl Document {
             &mut moves,
         );
         drop_report(
-            &self.main,
+            &self.view.main,
             Some(&main),
             &DocPath::main(),
             &moves,
@@ -132,14 +124,14 @@ impl Document {
             .map(str::to_string)
             .collect();
         let mut revised_cards = Vec::with_capacity(cards.len());
-        let mut kept = vec![None; self.cards.len()];
+        let mut kept = vec![None; self.view.cards.len()];
         for (j, mut card) in cards.into_iter().enumerate() {
             let at = DocPath::card(card.kind(), j);
             let body = bodies.next();
             let card = match pairs[j] {
                 Some((i, pairing)) => {
                     kept[i] = Some(j);
-                    let stored = &self.cards[i];
+                    let stored = &self.view.cards[i];
                     match stored.id() {
                         Some(id) => card.payload_mut().set_id(id),
                         None => card.payload_mut().remove_id(),
@@ -173,7 +165,7 @@ impl Document {
             revised_cards.push(card);
         }
         settle_reporting(&mut revised_cards, &stored_ids, &mut warnings);
-        for (i, stored) in self.cards.iter().enumerate() {
+        for (i, stored) in self.view.cards.iter().enumerate() {
             let at = DocPath::card(stored.kind(), i);
             let revised = kept[i].map(|j| &revised_cards[j]);
             drop_report(stored, revised, &at, &moves, &mut dropped_anchors);
@@ -266,13 +258,15 @@ fn revise_card(
     for (name, value) in incoming.payload_mut().fields_mut() {
         if let Some(stored) = stored.payload().get(name) {
             let places = (&at.field(name), &from.field(name));
+            let mut revised = value.to_value().into_owned();
             revise_value(
-                stored.as_json(),
-                value.as_json_mut(),
+                stored.to_value().as_json(),
+                revised.as_json_mut(),
                 places,
                 warnings,
                 moves,
             );
+            *value = revised.into();
         }
     }
 
@@ -448,10 +442,8 @@ fn drop_report(
     out: &mut Vec<AnchorSelector>,
 ) {
     for (name, value) in stored.payload().iter() {
-        let revised = revised
-            .and_then(|card| card.payload().get(name))
-            .map(QuillValue::as_json);
-        drop_value(value.as_json(), revised, &at.field(name), moves, out);
+        let revised = revised.and_then(|card| card.payload().get(name)).map(FieldValue::to_value);
+        drop_value(value.to_value().as_json(), revised.as_deref().map(QuillValue::as_json), &at.field(name), moves, out);
     }
     drop_content(stored.body(), revised.map(Card::body), &at.body(), out);
 }

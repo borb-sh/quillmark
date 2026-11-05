@@ -23,7 +23,6 @@ use super::payload::{MetaKey, Payload, PayloadItem, trim_comment_text};
 use super::prescan::NestedComment;
 use super::{Card, Document};
 use crate::value::PathSegment;
-use crate::value::QuillValue;
 use crate::version::QuillReference;
 
 /// The storage version tag every save writes: each body a content-model
@@ -33,7 +32,7 @@ use crate::version::QuillReference;
 /// field schema: it is the serde tag [`StoredDocument`] dispatches on, and
 /// retagging it would break the versioning it exists to serve.
 ///
-/// It shares [`STORAGE_V0_134_0`]'s tree and adds the `codec` key to a
+/// It shares its tree with [`STORAGE_V0_134_0`] and adds the `codec` key to a
 /// content value, which a `0.134` reader does not decode.
 pub const STORAGE_V0_135_0: &str = "quillmark/document@0.135.0";
 
@@ -67,7 +66,7 @@ pub fn peek_storage_version(json: &str) -> Option<String> {
 #[non_exhaustive]
 pub enum StoredDocument {
     #[serde(rename = "quillmark/document@0.135.0")]
-    V0_135_0(DocumentV0_134_0),
+    V0_135_0(DocumentV0_135_0),
     #[serde(rename = "quillmark/document@0.134.0")]
     V0_134_0(DocumentV0_134_0),
 }
@@ -105,22 +104,26 @@ impl std::fmt::Display for StorageError {
 
 impl std::error::Error for StorageError {}
 
-/// Frozen `0.134.0` representation of a [`Document`], each body a
+/// The `0.134.0` tree: the `0.135.0` tree, read until the two shapes
+/// diverge.
+pub type DocumentV0_134_0 = DocumentV0_135_0;
+
+/// Frozen `0.135.0` representation of a [`Document`], each body a
 /// content-model value (see [`StoredContent`]). A document, card, payload or
 /// payload item carrying a key its type does not name fails the load.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DocumentV0_134_0 {
-    main: CardV0_134_0,
+pub struct DocumentV0_135_0 {
+    main: CardV0_135_0,
     #[serde(default)]
-    cards: Vec<CardV0_134_0>,
+    cards: Vec<CardV0_135_0>,
 }
 
-/// Frozen `0.134.0` representation of a [`Card`].
+/// Frozen `0.135.0` representation of a [`Card`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CardV0_134_0 {
-    payload: PayloadV0_134_0,
+pub struct CardV0_135_0 {
+    payload: PayloadV0_135_0,
     body: StoredContent,
 }
 
@@ -168,21 +171,21 @@ impl<'de> Deserialize<'de> for StoredContent {
     }
 }
 
-/// Frozen `0.134.0` representation of a [`Payload`].
+/// Frozen `0.135.0` representation of a [`Payload`].
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PayloadV0_134_0 {
+pub struct PayloadV0_135_0 {
     #[serde(default)]
-    items: Vec<PayloadItemV0_134_0>,
+    items: Vec<PayloadItemV0_135_0>,
     #[serde(default)]
-    nested_comments: Vec<NestedCommentV0_134_0>,
+    nested_comments: Vec<NestedCommentV0_135_0>,
 }
 
-/// Frozen `0.134.0` representation of a unified payload item. An item carrying
+/// Frozen `0.135.0` representation of a unified payload item. An item carrying
 /// a key its variant does not name fails the load.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
-pub enum PayloadItemV0_134_0 {
+pub enum PayloadItemV0_135_0 {
     /// `$quill` system metadata: the quill reference string.
     Quill { value: String },
     /// `$kind` system metadata.
@@ -212,25 +215,25 @@ pub enum PayloadItemV0_134_0 {
     },
 }
 
-/// Frozen `0.134.0` representation of a [`NestedComment`].
+/// Frozen `0.135.0` representation of a [`NestedComment`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NestedCommentV0_134_0 {
-    container_path: Vec<CommentPathSegmentV0_134_0>,
+pub struct NestedCommentV0_135_0 {
+    container_path: Vec<CommentPathSegmentV0_135_0>,
     position: usize,
     text: String,
     inline: bool,
 }
 
-/// Frozen `0.134.0` representation of a [`PathSegment`].
+/// Frozen `0.135.0` representation of a [`PathSegment`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum CommentPathSegmentV0_134_0 {
+pub enum CommentPathSegmentV0_135_0 {
     Key(String),
     Index(usize),
 }
 
 impl From<Document> for StoredDocument {
     fn from(doc: Document) -> Self {
-        StoredDocument::V0_135_0(DocumentV0_134_0::from(&doc))
+        StoredDocument::V0_135_0(DocumentV0_135_0::from(&doc))
     }
 }
 
@@ -238,25 +241,25 @@ impl From<Document> for StoredDocument {
 /// leaving the Automerge document it is held in untouched.
 impl Serialize for Document {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        StoredDocument::V0_135_0(DocumentV0_134_0::from(self)).serialize(serializer)
+        StoredDocument::V0_135_0(DocumentV0_135_0::from(self)).serialize(serializer)
     }
 }
 
-impl From<&Document> for DocumentV0_134_0 {
+impl From<&Document> for DocumentV0_135_0 {
     fn from(doc: &Document) -> Self {
-        DocumentV0_134_0 {
-            main: CardV0_134_0::from(doc.main()),
-            cards: doc.cards().iter().map(CardV0_134_0::from).collect(),
+        DocumentV0_135_0 {
+            main: CardV0_135_0::from(doc.main()),
+            cards: doc.cards().iter().map(CardV0_135_0::from).collect(),
         }
     }
 }
 
 /// A card stores each content part under its place, not the id a live
 /// document gave it, so a row is the same bytes whichever history wrote it.
-impl From<&Card> for CardV0_134_0 {
+impl From<&Card> for CardV0_135_0 {
     fn from(card: &Card) -> Self {
-        CardV0_134_0 {
-            payload: PayloadV0_134_0::from(&super::payload_by_place(card.payload())),
+        CardV0_135_0 {
+            payload: PayloadV0_135_0::from(&super::payload_by_place(card.payload())),
             body: StoredContent::from(card.body().by_place()),
         }
     }
@@ -291,33 +294,33 @@ fn canonicalize_field(value: &mut serde_json::Value) -> Result<bool, quillmark_a
     Ok(any)
 }
 
-impl From<&Payload> for PayloadV0_134_0 {
+impl From<&Payload> for PayloadV0_135_0 {
     fn from(payload: &Payload) -> Self {
-        PayloadV0_134_0 {
+        PayloadV0_135_0 {
             items: payload
                 .items()
                 .iter()
-                .map(PayloadItemV0_134_0::from)
+                .map(PayloadItemV0_135_0::from)
                 .collect(),
             nested_comments: payload
                 .nested_comments()
                 .iter()
-                .map(NestedCommentV0_134_0::from)
+                .map(NestedCommentV0_135_0::from)
                 .collect(),
         }
     }
 }
 
-impl From<&PayloadItem> for PayloadItemV0_134_0 {
+impl From<&PayloadItem> for PayloadItemV0_135_0 {
     fn from(item: &PayloadItem) -> Self {
         match item {
-            PayloadItem::Quill { reference } => PayloadItemV0_134_0::Quill {
+            PayloadItem::Quill { reference } => PayloadItemV0_135_0::Quill {
                 value: reference.to_string(),
             },
-            PayloadItem::Kind { value } => PayloadItemV0_134_0::Kind {
+            PayloadItem::Kind { value } => PayloadItemV0_135_0::Kind {
                 value: value.clone(),
             },
-            PayloadItem::Id { value } => PayloadItemV0_134_0::Id {
+            PayloadItem::Id { value } => PayloadItemV0_135_0::Id {
                 value: value.clone(),
             },
             // The DTO keeps `$ext` / `$seed` as explicit variants, so the live
@@ -326,20 +329,20 @@ impl From<&PayloadItem> for PayloadItemV0_134_0 {
             PayloadItem::Meta {
                 key: MetaKey::Ext,
                 value,
-            } => PayloadItemV0_134_0::Ext {
+            } => PayloadItemV0_135_0::Ext {
                 value: value.clone(),
             },
             PayloadItem::Meta {
                 key: MetaKey::Seed,
                 value,
-            } => PayloadItemV0_134_0::Seed {
+            } => PayloadItemV0_135_0::Seed {
                 value: value.clone(),
             },
-            PayloadItem::Field { key, value } => PayloadItemV0_134_0::Field {
+            PayloadItem::Field { key, value } => PayloadItemV0_135_0::Field {
                 key: key.clone(),
-                value: value.as_json().clone(),
+                value: value.to_value().into_owned().into_json(),
             },
-            PayloadItem::Comment { text, inline } => PayloadItemV0_134_0::Comment {
+            PayloadItem::Comment { text, inline } => PayloadItemV0_135_0::Comment {
                 text: text.clone(),
                 inline: *inline,
             },
@@ -347,13 +350,13 @@ impl From<&PayloadItem> for PayloadItemV0_134_0 {
     }
 }
 
-impl From<&NestedComment> for NestedCommentV0_134_0 {
+impl From<&NestedComment> for NestedCommentV0_135_0 {
     fn from(nc: &NestedComment) -> Self {
-        NestedCommentV0_134_0 {
+        NestedCommentV0_135_0 {
             container_path: nc
                 .container_path
                 .iter()
-                .map(CommentPathSegmentV0_134_0::from)
+                .map(CommentPathSegmentV0_135_0::from)
                 .collect(),
             position: nc.position,
             text: nc.text.clone(),
@@ -362,11 +365,11 @@ impl From<&NestedComment> for NestedCommentV0_134_0 {
     }
 }
 
-impl From<&PathSegment> for CommentPathSegmentV0_134_0 {
+impl From<&PathSegment> for CommentPathSegmentV0_135_0 {
     fn from(seg: &PathSegment) -> Self {
         match seg {
-            PathSegment::Key(k) => CommentPathSegmentV0_134_0::Key(k.clone()),
-            PathSegment::Index(i) => CommentPathSegmentV0_134_0::Index(*i),
+            PathSegment::Key(k) => CommentPathSegmentV0_135_0::Key(k.clone()),
+            PathSegment::Index(i) => CommentPathSegmentV0_135_0::Index(*i),
         }
     }
 }
@@ -379,10 +382,10 @@ impl TryFrom<StoredDocument> for Document {
     }
 }
 
-impl TryFrom<DocumentV0_134_0> for Document {
+impl TryFrom<DocumentV0_135_0> for Document {
     type Error = StorageError;
 
-    fn try_from(payload: DocumentV0_134_0) -> Result<Self, Self::Error> {
+    fn try_from(payload: DocumentV0_135_0) -> Result<Self, Self::Error> {
         document_from_stored(payload).map(|parsed| parsed.document)
     }
 }
@@ -396,7 +399,7 @@ pub fn from_stored(stored: StoredDocument) -> Result<super::Parsed, StorageError
     }
 }
 
-fn document_from_stored(payload: DocumentV0_134_0) -> Result<super::Parsed, StorageError> {
+fn document_from_stored(payload: DocumentV0_135_0) -> Result<super::Parsed, StorageError> {
     let mut warnings = Vec::new();
     let (mut main, rewritten) = card_from_stored(payload.main)?;
     warnings.extend(rewritten.warnings(&crate::path::DocPath::main()));
@@ -483,20 +486,20 @@ fn within_card_ceiling(doc: Document) -> Result<Document, StorageError> {
     Ok(doc)
 }
 
-impl TryFrom<CardV0_134_0> for Card {
+impl TryFrom<CardV0_135_0> for Card {
     type Error = StorageError;
 
-    fn try_from(card: CardV0_134_0) -> Result<Self, Self::Error> {
+    fn try_from(card: CardV0_135_0) -> Result<Self, Self::Error> {
         card_from_stored(card).map(|(card, _)| card)
     }
 }
 
 /// A stored card, with what of it the read rewrote to its canonical form: its
 /// body, and each field holding a content value spelled otherwise.
-fn card_from_stored(mut card: CardV0_134_0) -> Result<(Card, Rewritten), StorageError> {
+fn card_from_stored(mut card: CardV0_135_0) -> Result<(Card, Rewritten), StorageError> {
     let mut rewritten = Rewritten { body: card.body.rewritten, fields: Vec::new() };
     for item in &mut card.payload.items {
-        if let PayloadItemV0_134_0::Field { key, value } = item {
+        if let PayloadItemV0_135_0::Field { key, value } = item {
             let changed = canonicalize_field(value)
                 .map_err(|e| StorageError::Malformed(format!("field `{key}` holds content that does not read: {e}")))?;
             if changed {
@@ -525,10 +528,10 @@ impl Rewritten {
     }
 }
 
-impl TryFrom<PayloadV0_134_0> for Payload {
+impl TryFrom<PayloadV0_135_0> for Payload {
     type Error = StorageError;
 
-    fn try_from(p: PayloadV0_134_0) -> Result<Self, Self::Error> {
+    fn try_from(p: PayloadV0_135_0) -> Result<Self, Self::Error> {
         let mut items = Vec::with_capacity(p.items.len());
         for item in p.items {
             items.push(PayloadItem::try_from(item)?);
@@ -542,12 +545,12 @@ impl TryFrom<PayloadV0_134_0> for Payload {
     }
 }
 
-impl TryFrom<PayloadItemV0_134_0> for PayloadItem {
+impl TryFrom<PayloadItemV0_135_0> for PayloadItem {
     type Error = StorageError;
 
-    fn try_from(item: PayloadItemV0_134_0) -> Result<Self, Self::Error> {
+    fn try_from(item: PayloadItemV0_135_0) -> Result<Self, Self::Error> {
         Ok(match item {
-            PayloadItemV0_134_0::Quill { value } => {
+            PayloadItemV0_135_0::Quill { value } => {
                 let reference = QuillReference::from_str(&value).map_err(|reason| {
                     StorageError::InvalidQuillReference {
                         value: value.clone(),
@@ -556,25 +559,25 @@ impl TryFrom<PayloadItemV0_134_0> for PayloadItem {
                 })?;
                 PayloadItem::Quill { reference }
             }
-            PayloadItemV0_134_0::Kind { value } => PayloadItem::Kind { value },
-            PayloadItemV0_134_0::Id { value } => PayloadItem::Id { value },
-            PayloadItemV0_134_0::Ext { value } => PayloadItem::Meta {
+            PayloadItemV0_135_0::Kind { value } => PayloadItem::Kind { value },
+            PayloadItemV0_135_0::Id { value } => PayloadItem::Id { value },
+            PayloadItemV0_135_0::Ext { value } => PayloadItem::Meta {
                 key: MetaKey::Ext,
                 value: depth_check_meta_map(value, "$ext")?,
             },
-            PayloadItemV0_134_0::Seed { value } => PayloadItem::Meta {
+            PayloadItemV0_135_0::Seed { value } => PayloadItem::Meta {
                 key: MetaKey::Seed,
                 value: depth_check_meta_map(value, "$seed")?,
             },
-            PayloadItemV0_134_0::Field { key, value } => {
+            PayloadItemV0_135_0::Field { key, value } => {
                 super::edit::validate_field(&key, &value)
                     .map_err(|v| StorageError::Malformed(v.message(&key)))?;
                 PayloadItem::Field {
                     key,
-                    value: QuillValue::from_json(value),
+                    value: value.into(),
                 }
             }
-            PayloadItemV0_134_0::Comment { text, inline } => PayloadItem::Comment {
+            PayloadItemV0_135_0::Comment { text, inline } => PayloadItem::Comment {
                 text: trim_comment_text(text),
                 inline,
             },
@@ -595,8 +598,8 @@ fn depth_check_meta_map(
     })
 }
 
-impl From<NestedCommentV0_134_0> for NestedComment {
-    fn from(nc: NestedCommentV0_134_0) -> Self {
+impl From<NestedCommentV0_135_0> for NestedComment {
+    fn from(nc: NestedCommentV0_135_0) -> Self {
         NestedComment {
             container_path: nc
                 .container_path
@@ -610,11 +613,11 @@ impl From<NestedCommentV0_134_0> for NestedComment {
     }
 }
 
-impl From<CommentPathSegmentV0_134_0> for PathSegment {
-    fn from(seg: CommentPathSegmentV0_134_0) -> Self {
+impl From<CommentPathSegmentV0_135_0> for PathSegment {
+    fn from(seg: CommentPathSegmentV0_135_0) -> Self {
         match seg {
-            CommentPathSegmentV0_134_0::Key(k) => PathSegment::Key(k),
-            CommentPathSegmentV0_134_0::Index(i) => PathSegment::Index(i),
+            CommentPathSegmentV0_135_0::Key(k) => PathSegment::Key(k),
+            CommentPathSegmentV0_135_0::Index(i) => PathSegment::Index(i),
         }
     }
 }
@@ -656,6 +659,18 @@ This body and the metadata above are an indorsement card.
         )
         .unwrap()
         .document
+    }
+
+    #[test]
+    fn two_loads_of_one_row_hold_one_document() {
+        let mut doc = sample();
+        doc.main_mut().revise(crate::document::Target::Body, "The body, revised.", None).unwrap();
+        let row = serde_json::to_string(&doc).unwrap();
+        let mut one = Document::from_stored(&row).unwrap().document;
+        let mut two = Document::from_stored(&row).unwrap().document;
+        assert_eq!(one.save(), two.save());
+        assert_eq!(one.heads(), two.heads());
+        assert_eq!(serde_json::to_string(&one).unwrap(), row);
     }
 
     #[test]
@@ -1044,7 +1059,7 @@ title: Hi
         let second = serde_json::to_string(&restored).unwrap();
         assert_eq!(
             first, second,
-            "V0_134_0 serialize→deserialize is a byte-fixed point"
+            "V0_135_0 serialize→deserialize is a byte-fixed point"
         );
         assert_eq!(
             peek_storage_version(&first).as_deref(),
@@ -1073,8 +1088,8 @@ title: Hi
         let doc = parsed.document;
         assert_eq!(serde_json::from_str::<Document>(&json).unwrap(), doc);
         let canonical = ContentModel::from_value_lenient(&noncanonical).unwrap().content;
-        assert_eq!(doc.main().body(), &canonical);
-        assert_eq!(doc.main().payload().get("note").map(|v| v.as_json().clone()), Some(canonical.to_value()));
+        assert_eq!(doc.main().body().by_place(), canonical.by_place());
+        assert_eq!(doc.main().payload().get("note").map(|v| ContentModel::from_value(v.to_value().as_json()).unwrap().by_place()), Some(canonical.by_place()));
 
         let restored = serde_json::to_string(&doc).unwrap();
         let again = Document::from_stored(&restored).unwrap();
@@ -1165,7 +1180,7 @@ title: Hi
             .unwrap()
             .push(serde_json::json!({"type": "field", "key": "intro", "value": lines}));
         let loaded = serde_json::from_value::<Document>(in_field).unwrap();
-        assert!(loaded.main().payload().get("intro").unwrap().as_json().get("lines").is_some());
+        assert!(loaded.main().payload().get("intro").unwrap().to_value().as_json().get("lines").is_some());
     }
 
     /// A stored card naming no `$kind` fails the load.

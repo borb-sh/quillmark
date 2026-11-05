@@ -16,19 +16,19 @@ fn block_scalar_with_markdown_headings_round_trips() {
 
     let doc = Document::parse(src).unwrap().document;
     assert_eq!(
-        doc.main().payload().get("bio").and_then(|v| v.as_str()),
+        doc.main().payload().get("bio").and_then(|v| v.data()?.as_str()),
         Some("## About me\n\n- first point\nPlain line."),
         "markdown heading / bullet / plain lines inside a block scalar must survive parse",
     );
     assert_eq!(
-        doc.main().payload().get("title").and_then(|v| v.as_str()),
+        doc.main().payload().get("title").and_then(|v| v.data()?.as_str()),
         Some("Resume"),
     );
 
     let emitted = doc.to_markdown();
     let doc2 = Document::parse(&emitted).unwrap().document;
     assert_eq!(
-        doc2.main().payload().get("bio").and_then(|v| v.as_str()),
+        doc2.main().payload().get("bio").and_then(|v| v.data()?.as_str()),
         Some("## About me\n\n- first point\nPlain line."),
         "block-scalar content must survive a full round-trip\nGot:\n{}",
         emitted
@@ -45,7 +45,7 @@ fn block_scalar_sequence_items_round_trip() {
         .main()
         .payload()
         .get("sections")
-        .and_then(|v| v.as_array())
+        .and_then(|v| v.data()?.as_array())
         .expect("sections array");
     assert_eq!(arr.len(), 2);
     assert_eq!(arr[0].as_str(), Some("## First\nbody one"));
@@ -64,11 +64,8 @@ fn block_scalar_on_a_dash_line_key_holds_its_markdown() {
         !emitted.contains("\n    # Heading"),
         "no phantom comment\nGot:\n{emitted}"
     );
-    let job = &doc
-        .main()
-        .payload()
-        .get("jobs")
-        .unwrap()
+    let jobs = doc.main().payload().get("jobs").unwrap().to_value();
+    let job = &jobs
         .as_array()
         .unwrap()[0];
     assert_eq!(job["details"].as_str(), Some("# Heading\n- a\nb: c\n"));
@@ -91,7 +88,7 @@ fn unknown_tag_warns_and_is_not_emitted() {
             .main()
             .payload()
             .get("memo_from")
-            .and_then(|v| v.as_str()),
+            .and_then(|v| v.data()?.as_str()),
         Some("value.txt")
     );
     let emitted = out.document.to_markdown();
@@ -118,7 +115,7 @@ fn a_tag_keeps_its_value_and_warns_at_its_path() {
             .payload()
             .get(k)
             .unwrap()
-            .as_json()
+            .to_value().as_json()
             .clone()
     };
     assert_eq!(get("subject"), "Example");
@@ -138,7 +135,7 @@ fn a_tag_keeps_its_value_and_warns_at_its_path() {
             .payload()
             .get("subject")
             .unwrap()
-            .as_json(),
+            .to_value().as_json(),
         "Example"
     );
     let tagged = [
@@ -231,7 +228,7 @@ fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
             .payload()
             .get(k)
             .unwrap()
-            .as_json()
+            .to_value().as_json()
             .clone()
     };
     assert_eq!(get("b"), "kept");
@@ -630,7 +627,7 @@ fn a_hash_inside_a_quoted_value_behind_a_tag_or_anchor_is_text() {
             .unwrap_or_else(|e| panic!("{src}\n{e}"))
             .document;
         assert_eq!(
-            doc.main().payload().get(key).unwrap().as_json(),
+            doc.main().payload().get(key).unwrap().to_value().as_json(),
             &value,
             "{src}"
         );
@@ -655,7 +652,7 @@ fn a_block_scalar_behind_a_tag_or_anchor_is_text() {
             .payload()
             .get(k)
             .unwrap()
-            .as_json()
+            .to_value().as_json()
             .clone()
     };
     assert_eq!(
@@ -727,7 +724,7 @@ fn tag_text_inside_a_scalar_is_text() {
                 .main()
                 .payload()
                 .get("note")
-                .and_then(|v| v.as_str()),
+                .and_then(|v| v.data()?.as_str()),
             Some(value),
             "scalar must keep the tag text verbatim\nSource:\n{}",
             src
@@ -768,7 +765,7 @@ fn quoting_normalises_to_canonical_form_with_type_fidelity() {
         ("numeric_str", "01234"),
     ] {
         assert_eq!(
-            doc2.main().payload().get(key).and_then(|v| v.as_str()),
+            doc2.main().payload().get(key).and_then(|v| v.data()?.as_str()),
             Some(expected),
             "field {key} must round-trip as string {expected:?}",
         );
@@ -831,7 +828,7 @@ fn a_field_named_null_round_trips() {
         .document;
     for (key, value) in [("null", "x"), ("NULL", "y")] {
         assert_eq!(
-            back.main().payload().get(key).and_then(|v| v.as_str()),
+            back.main().payload().get(key).and_then(|v| v.data()?.as_str()),
             Some(value)
         );
     }
@@ -855,7 +852,7 @@ fn orphan_inline_after_remove_degrades_to_own_line() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\nfield: value # tail\nother: 2\n~~~\n";
 
     let mut doc = Document::parse(src).unwrap().document;
-    doc.main_card_mut().payload_mut().remove("field");
+    doc.edit_card(None, |c| c.payload_mut().remove("field"));
 
     let emitted = doc.to_markdown();
     assert!(
@@ -922,11 +919,11 @@ fn a_comment_after_a_kept_block_scalar_adds_no_line_to_it() {
         let doc = Document::parse(&src).unwrap().document;
         let fm = doc.main().payload();
         assert_eq!(
-            fm.get("bio").unwrap().as_str(),
+            fm.get("bio").unwrap().to_value().as_str(),
             Some("text\n"),
             "`{marker}` keeps only the newlines the source held"
         );
-        assert_eq!(fm.get("next").unwrap().as_str(), Some("x"));
+        assert_eq!(fm.get("next").unwrap().to_value().as_str(), Some("x"));
         assert!(
             doc.to_markdown().contains("# after"),
             "the comment survives\nGot:\n{}",

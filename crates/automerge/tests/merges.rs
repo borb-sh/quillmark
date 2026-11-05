@@ -231,19 +231,19 @@ fn a_reword_merges_with_typing_elsewhere() {
 fn nested_rich_text_both_sides_rewrote_merges_as_text() {
     use quillmark_automerge::model::{Doc, cards};
     let c = |md: &str| from_markdown(md).unwrap().content.to_value();
-    let main = cards::Card { fields: vec![("refs".into(), json!([c("*first* ref"), c("second")]))], ..Default::default() };
+    let main = cards::Card { fields: vec![("refs".into(), cards::Field::Data(json!([c("*first* ref"), c("second")])))], ..Default::default() };
     let origin = cards::build(&main, &[]).save();
     let wrote = |md: &str| {
         let mut d = Doc::load(&origin).unwrap();
         let (was, _) = cards::read(&d).unwrap();
-        let mut refs = was.fields[0].1.clone();
+        let cards::Field::Data(mut refs) = was.fields[0].1.clone() else { panic!("the field reads as data") };
         let mut element = Content::from_value(&refs[0]).unwrap();
         let typed = from_markdown(md).unwrap().content;
         element.text = typed.text;
         element.marks = typed.marks;
         refs[0] = element.to_value();
         let main = d.main();
-        cards::put_field(&mut d, &main, "refs", &refs);
+        cards::put_field(&mut d, &main, "refs", &cards::Field::Data(refs));
         d.commit();
         d
     };
@@ -252,7 +252,8 @@ fn nested_rich_text_both_sides_rewrote_merges_as_text() {
     for (d, other) in [(&mut a, &sb), (&mut b, &sa)] {
         d.merge(other).unwrap();
         let (read, _) = cards::read(d).unwrap();
-        let refs = read.fields[0].1.as_array().unwrap();
+        let cards::Field::Data(refs) = &read.fields[0].1 else { panic!("the field reads as data") };
+        let refs = refs.as_array().unwrap();
         let first = Content::from_value(&refs[0]).unwrap();
         assert_eq!(first.text, "A first ref and more");
         assert_eq!(marked(&first, "emph"), "first");

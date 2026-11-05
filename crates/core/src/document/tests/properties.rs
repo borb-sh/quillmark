@@ -218,7 +218,7 @@ proptest! {
             _ => json!(word),
         };
         let payload = doc.main().payload();
-        let read = |key: &str| payload.get(key).map(|v| v.as_json().clone());
+        let read = |key: &str| payload.get(key).map(|v| v.to_value().as_json().clone());
         prop_assert_eq!(read("v"), Some(want.clone()));
         prop_assert_eq!(read("list"), Some(json!([want.clone()])));
         prop_assert_eq!(read("map"), Some(json!({ "k": want })));
@@ -294,7 +294,7 @@ proptest! {
             doc.unchecked().store_field(None, key, QuillValue::from_json(value)).expect("stored");
         }
         let ext = json!({ "meta": { k.clone(): text } });
-        doc.main_card_mut().payload_mut().set_ext(ext.as_object().unwrap().clone());
+        doc.edit_card(None, |c| c.payload_mut().set_ext(ext.as_object().unwrap().clone()));
 
         let emitted = doc.to_markdown();
         let back = Document::parse(&emitted)

@@ -201,9 +201,9 @@ Text deleted under a range anchor shrinks it to what survives. An anchor whose t
 
 ## Live state and merge
 
-A document holds its cards in one Automerge document (`quillmark-automerge`, `model::Doc`), and the cards a reader sees are a view of it. `Document::load` holds one from the start; a parse, `Document::new` or a stored row holds one from its first write, save or sync, and until then its cards are its state, so a document read only to render builds none.
+A document is one Automerge document (`quillmark-automerge`, `model::Doc`) from construction, and the cards a reader sees are a view of it. A parse, `Document::new` and a load each build or read one before they answer, so a document has one state. A field whose whole value is content holds it in the view as the `Content` it reads as (`FieldValue::Content`), and any other value as its JSON (`FieldValue::Data`); a read lowers it when it asks for another form.
 
-Once held, every card edit, a typed writer's `set` included, is an Automerge write of the parts it changed, the layout, a field, `$ext`/`$seed`, the nested comments or the body, each value written in place, and a whole-document revise writes each value that differs.
+Every card edit, a typed writer's `set` included, is an Automerge write of the parts it changed, the layout, a field, `$ext`/`$seed`, the nested comments or the body, each value written in place, and a whole-document revise writes each value that differs.
 
 The view then takes Automerge's patches since the edit, as it does a peer's from `merge` and `receiveSyncMessage`: a body or content field the patches only splice is followed over the value the view held, and every other part they reach is read again, nothing else. How the document lays out cards, fields and values is [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)'s; how a value is held, a change lowered and a write isolated at earlier heads is the `quillmark-automerge` rustdoc's.
 
@@ -339,10 +339,11 @@ A heading's hard break becomes a space as a splice rewrites it, so a range ancho
 
 ## What markdown keeps
 
-Markdown is a projection of a value, not its storage, so `from_markdown(to_markdown(c))` is `c` only where `c` is itself a cold import of markdown. This is the one list of what the round trip loses; the other pages point here.
+Markdown is a projection of a value, not its storage, so `from_markdown(to_markdown(c))` is `c` only where `c` is itself a cold import of markdown and `to_markdown_checked` names no loss of it. This is the one list of what the round trip loses; the other pages point here.
 
 - **Anchors.** The plain export spells none and a cold import mints none. The annotated read spells each one as a `qm-anchor` tag and each island it cannot write as a `qm-island` token, and a revise reads both back; a cold import drops the tags and reports each token ([markdown-spec.md](../references/markdown-spec.md) §6.4).
 - **Ids.** A cold import mints every block, container, island, row, column and slot id positionally (§ Ids), so a value whose ids a live session or an earlier revise minted reads back under others. A revise keeps the ids of what it kept.
+- **A mark no delimiter can bound.** A mark whose text opens with punctuation a letter stands before, or closes with punctuation a letter follows, drops (`Loss::Mark`). A cold import can still read one: `_*a_***_***` holds a strong `_` after a letter.
 - **What markdown cannot spell.** An empty paragraph; a hard break beside a block break or at a slot's edge (`Loss::SlotBreaks`); an `x-` block, which reads back as a paragraph, and an `x-` mark, which drops (`Loss::ExtBlock`, `Loss::ExtMark`); a covered cell's alignment; a table or cell key Quillmark does not name; a table that shares its block's line, which the export breaks onto a line of its own. The annotated read spells an island that would lose a key as its token.
 - **Spelling.** The export canonicalizes mark nesting, escaping, trailing whitespace and a table's pipe or HTML form, so the markdown a writer sent does not come back byte for byte.
 

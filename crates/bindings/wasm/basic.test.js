@@ -1,7 +1,7 @@
 /**
  * The Document API over the canonical flow:
  * `Quill.fromTree(tree)` → `Document.parse(markdown)` →
- * `engine.render(quill, doc, opts)`, against the Typst backend build.
+ * `engine.render(quill, doc.snapshot(), opts)`, against the Typst backend build.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -158,7 +158,7 @@ describe('Quill.fromTree + engine.render', () => {
     const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
     const doc = Document.parse(TEST_MARKDOWN)
     for (const { opts, mimeType } of RENDER_FORMAT_CASES) {
-      const result = opts === undefined ? engine.render(quill, doc) : engine.render(quill, doc, opts)
+      const result = opts === undefined ? engine.render(quill, doc.snapshot()) : engine.render(quill, doc.snapshot(), opts)
       expect(result.artifacts[0].bytes).toBeInstanceOf(Uint8Array)
       expect(result.artifacts[0].bytes.length).toBeGreaterThan(0)
       expect(result.artifacts[0].mimeType).toBe(mimeType)
@@ -201,7 +201,7 @@ main:
     expect(loaded.args).not.toBeInstanceOf(Map)
     expect(loaded.args.field).toBe('notes')
 
-    const result = engine.render(quill, doc, { format: 'svg' })
+    const result = engine.render(quill, doc.snapshot(), { format: 'svg' })
     expect(result.artifacts.length).toBeGreaterThan(0)
     expect(result.warnings.map((d) => d.code)).not.toContain('conform::field_decode')
     const declined = result.warnings.find((d) => d.code === 'backend::declined_construct')
@@ -214,7 +214,7 @@ main:
     const engine = new Engine()
     const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
     const doc = Document.parse(TEST_MARKDOWN.replace('test_quill', 'other_quill'))
-    expectEditCode(() => engine.render(quill, doc, { format: 'pdf' }), 'quill::name_mismatch')
+    expectEditCode(() => engine.render(quill, doc.snapshot(), { format: 'pdf' }), 'quill::name_mismatch')
   })
 })
 
@@ -1219,7 +1219,7 @@ describe('quill.open + session.render', () => {
     const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
     const doc = Document.parse(TEST_MARKDOWN)
 
-    const session = engine.open(quill, doc)
+    const session = engine.open(quill, doc.snapshot())
     expect(typeof session.pageCount).toBe('number')
     expect(session.pageCount).toBeGreaterThan(0)
 
@@ -1239,7 +1239,7 @@ describe('quill.open + session.render', () => {
   it('refuses an out-of-bounds page and a page selection on PDF', () => {
     const engine = new Engine()
     const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
-    const session = engine.open(quill, Document.parse(TEST_MARKDOWN))
+    const session = engine.open(quill, Document.parse(TEST_MARKDOWN).snapshot())
     expect(() => session.render({ format: 'png', ppi: 80, pages: [0, session.pageCount + 10] })).toThrow()
     expect(() => session.render({ format: 'pdf', pages: [0] })).toThrow()
   })
@@ -1502,7 +1502,7 @@ title:
 
 # Body
 `
-    const result = engine.render(quill, Document.parse(md), { format: 'svg' })
+    const result = engine.render(quill, Document.parse(md).snapshot(), { format: 'svg' })
     expect(result.artifacts.length).toBeGreaterThan(0)
   })
 })

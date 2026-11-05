@@ -2124,7 +2124,7 @@ fn a_stored_line_break_in_one_line_text_renders_folded_and_stays_stored() {
     let conformed = quill.conform(&mut doc).expect("conforms");
     assert!(has_code(&conformed, "conform::field_not_single_line"));
     assert_eq!(
-        doc.main().payload().get("address").and_then(|v| v.as_str()),
+        doc.main().payload().get("address").and_then(|v| v.data()?.as_str()),
         Some("123 ABW/CC\n100 Main St")
     );
 }

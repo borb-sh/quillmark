@@ -19,7 +19,6 @@ use super::payload::{MetaKey, Payload, PayloadItem, trim_comment_text};
 use super::{Card, EditError};
 use crate::error::diag_args;
 use crate::error::{Diagnostic, Severity};
-use crate::value::QuillValue;
 use crate::version::QuillReference;
 
 /// One entry in a [`CardWire`]'s `payload_items`: a user field or a comment.
@@ -163,7 +162,7 @@ impl From<&Card> for CardWire {
                 PayloadItem::Field { key, value } => {
                     wire.payload_items.push(PayloadItemWire::Field {
                         key: key.clone(),
-                        value: value.as_json().clone(),
+                        value: value.to_value().into_owned().into_json(),
                     })
                 }
                 PayloadItem::Comment { text, inline } => {
@@ -193,7 +192,7 @@ impl TryFrom<CardWire> for Card {
                     let value = super::edit::canonical_field(&key, value)?;
                     Ok(PayloadItem::Field {
                         key,
-                        value: QuillValue::from_json(value),
+                        value: value.into(),
                     })
                 }
                 PayloadItemWire::Comment { text, inline } => Ok(PayloadItem::Comment {
@@ -252,6 +251,7 @@ fn body_from_wire(body: &JsonValue) -> Result<quillmark_automerge::content::mode
 mod tests {
     use super::*;
     use crate::document::Codec;
+    use crate::value::QuillValue;
     use serde_json::json;
 
     /// A content object rides the wire structurally and losslessly, so an

@@ -348,7 +348,7 @@ pub(super) fn emit_payload_fields(out: &mut String, payload: &Payload) {
             project_content: true,
             ..EmitCtx::EMPTY
         };
-        emit_field_at(out, key, value.as_json(), KeyPos::Line(0), ctx, None);
+        emit_field_at(out, key, value.to_value().as_json(), KeyPos::Line(0), ctx, None);
     }
 }
 
@@ -386,7 +386,7 @@ fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &
                 emit_field_at(
                     out,
                     key,
-                    value.as_json(),
+                    value.to_value().as_json(),
                     KeyPos::Line(0),
                     EmitCtx {
                         comments: comments_of(key),
@@ -867,7 +867,8 @@ mod tests {
                 )
             })
             .document;
-        let parsed = doc.main().payload().get("v").expect("field 'v'").as_json();
+        let parsed = doc.main().payload().get("v").expect("field 'v'").to_value();
+        let parsed = parsed.as_json();
         assert_eq!(
             parsed, &value,
             "scalar round-trip mismatch for {:?}: emitted as {:?}",
@@ -952,7 +953,7 @@ mod tests {
             .document;
         assert_eq!(doc.to_markdown(), src);
         assert_eq!(
-            doc.main().payload().get("rows").expect("rows").as_json()[0],
+            doc.main().payload().get("rows").expect("rows").to_value().as_json()[0],
             serde_json::json!({"key": {"a": 1}, "next": 1})
         );
     }
@@ -1075,7 +1076,7 @@ mod tests {
         let payload = Payload::from_items_with_nested(
             vec![PayloadItem::Field {
                 key: "list".to_string(),
-                value: QuillValue::from_json(serde_json::json!(["a", "b"])),
+                value: serde_json::json!(["a", "b"]).into(),
             }],
             vec![
                 inline(0, "trailer"),

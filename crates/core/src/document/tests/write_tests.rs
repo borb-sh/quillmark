@@ -346,7 +346,8 @@ fn a_field_takes_a_change_from_empty() {
     let mut doc = parse(SOURCE);
     let insert = Change::new(vec![Step::Splice(Splice::new(0, String::new(), "Hello".to_string()))]);
     doc.main_mut().apply(Target::Field("subject"), &insert, None).unwrap();
-    let stored = doc.main().payload().get("subject").unwrap().as_json();
+    let stored = doc.main().payload().get("subject").unwrap().to_value();
+    let stored = stored.as_json();
     let id = doc.main().read(Target::Field("subject")).unwrap().blocks[0].id.clone();
     assert_eq!(stored, &serde_json::json!({"text": "Hello", "blocks": [{"id": id, "kind": "para"}]}));
     assert_eq!(doc.main().read(Target::Field("subject")).unwrap().text, "Hello");

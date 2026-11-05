@@ -372,7 +372,7 @@ Conclusion content.
             .payload()
             .get("heading")
             .or_else(|| card.payload().get("name"))
-            .and_then(|v| v.as_str())
+            .and_then(|v| v.data()?.as_str())
             .unwrap_or_else(|| panic!("{kind} card carries its label field"));
         assert_eq!(
             (card.kind(), got_label, card.body_markdown().as_str()),
@@ -392,7 +392,7 @@ fn test_payload_and_body_split() {
     let keys: Vec<&str> = doc.main().payload().keys().map(|k| k.as_str()).collect();
     assert_eq!(keys, ["title", "description"]);
     assert_eq!(
-        doc.main().payload().get("description").unwrap().as_str(),
+        doc.main().payload().get("description").unwrap().to_value().as_str(),
         Some("after a blank line")
     );
 }
@@ -453,7 +453,7 @@ BODY: Test
             .payload()
             .get("BODY")
             .unwrap()
-            .as_str()
+            .to_value().as_str()
             .unwrap(),
         "Test"
     );
@@ -532,11 +532,11 @@ Body.";
     assert_eq!(doc.main().quill().unwrap().to_string(), "test_quill");
     assert_eq!(doc.main().kind(), Some("main"));
     assert_eq!(
-        doc.main().payload().get("title").unwrap().as_str(),
+        doc.main().payload().get("title").unwrap().to_value().as_str(),
         Some("First")
     );
     assert_eq!(
-        doc.main().payload().get("author").unwrap().as_str(),
+        doc.main().payload().get("author").unwrap().to_value().as_str(),
         Some("Bob")
     );
     assert!(doc.main().payload().get("$quill").is_none());
@@ -575,11 +575,11 @@ Card body.";
     let doc = decompose(markdown).unwrap();
     let main = doc.main().payload();
     assert_eq!(
-        main.get("title").unwrap().as_str().unwrap(),
+        main.get("title").unwrap().to_value().as_str().unwrap(),
         "Test <<with chevrons>>"
     );
     assert_eq!(
-        main.get("items").unwrap().as_array().unwrap()[0]
+        main.get("items").unwrap().to_value().as_array().unwrap()[0]
             .as_str()
             .unwrap(),
         "<<first>>"
@@ -587,7 +587,7 @@ Card body.";
     assert_eq!(
         main.get("metadata")
             .unwrap()
-            .as_object()
+            .to_value().as_object()
             .unwrap()
             .get("description")
             .unwrap()
@@ -600,7 +600,7 @@ Card body.";
             .payload()
             .get("description")
             .unwrap()
-            .as_str()
+            .to_value().as_str()
             .unwrap(),
         "<<card yaml>>"
     );
@@ -666,7 +666,7 @@ fn single_field_yaml_scalar_types() {
             .payload()
             .get(key)
             .unwrap_or_else(|| panic!("{label}: missing field {key:?}"));
-        assert_eq!(got.as_json(), &want, "{label}");
+        assert_eq!(got.to_value().as_json(), &want, "{label}");
     }
 }
 
@@ -702,7 +702,7 @@ for: ORG
 Card body here.
 ";
     let doc = Document::parse(markdown).unwrap().document;
-    let json = doc.to_plate_json_gated(true, None);
+    let json = doc.snapshot().to_plate_json_gated(true, None);
 
     assert_eq!(json["$quill"], "usaf_memo");
     assert_eq!(json["title"], "Test");
@@ -726,7 +726,7 @@ fn test_to_plate_json_quill_first() {
         Document::parse("~~~card-yaml\n$quill: my_quill\n$kind: main\nfoo: bar\nbaz: qux\n~~~\n")
             .unwrap()
             .document;
-    let json = doc.to_plate_json_gated(true, None);
+    let json = doc.snapshot().to_plate_json_gated(true, None);
     let obj = json.as_object().unwrap();
     let keys: Vec<&String> = obj.keys().collect();
     assert_eq!(keys[0], "$quill");
@@ -842,7 +842,7 @@ fn text_past_a_closed_root_value_refuses_at_its_line() {
         doc.cards()[0]
             .payload()
             .get("a")
-            .map(|v| v.as_json().clone()),
+            .map(|v| v.to_value().as_json().clone()),
         Some(serde_json::json!(1))
     );
 }

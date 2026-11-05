@@ -238,7 +238,7 @@ fn a_held_member_with_no_answers_rests_as_the_bare_tick() {
             .main()
             .payload()
             .get("qualifications")
-            .map(|v| crate::quill::plain_leaves(v.as_json()))
+            .map(|v| crate::quill::plain_leaves(v.to_value().as_json()))
             .unwrap(),
         json!({ "flight_cc": true, "dodin_ops": { "detail": "X" }, "cyber_200": false })
     );
@@ -257,7 +257,7 @@ fn a_held_member_with_no_answers_rests_as_the_bare_tick() {
             .payload()
             .get("qualifications")
             .unwrap()
-            .as_json(),
+            .to_value().as_json(),
         &json!({ "sq_cc_candidate": true, "flight_cc": true })
     );
 }

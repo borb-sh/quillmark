@@ -125,7 +125,8 @@ fn nested_map_keys_with_structural_chars_emit_valid_yaml() {
     let reparsed = Document::parse(&md)
         .unwrap_or_else(|e| panic!("emitted YAML must re-parse, got error {e}\n{md}"))
         .document;
-    let cfg = reparsed.main().payload().get("config").unwrap().as_json();
+    let cfg = reparsed.main().payload().get("config").unwrap().to_value();
+    let cfg = cfg.as_json();
     assert_eq!(cfg["a: b"], serde_json::json!(1));
     assert_eq!(cfg["*star"], serde_json::json!(2));
     assert_eq!(cfg["n"], serde_json::json!(3));
@@ -208,7 +209,7 @@ Body.
             .payload()
             .get("config")
             .unwrap()
-            .as_json(),
+            .to_value().as_json(),
         &serde_json::json!({"a b": "Example", "city": "Anytown"})
     );
     let paths: Vec<_> = out.warnings.iter().map(|w| w.path.as_deref()).collect();
@@ -232,7 +233,7 @@ fn an_indented_text_field_survives_emit_and_reparse() {
         .main()
         .payload()
         .get("sample")
-        .and_then(|v| v.as_str())
+        .and_then(|v| v.data()?.as_str())
         .expect("the field projected to a markdown string");
     assert_eq!(
         quillmark_automerge::content::lines::import::from_markdown(projected)

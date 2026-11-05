@@ -4,10 +4,13 @@
 
 ## TL;DR
 
-`Document` is the typed in-memory model of a Quillmark Markdown file, held in
-one Automerge document. A document persists as the **versioned JSON
-envelope**, `StoredDocument`, whose wire format is frozen per schema version:
-the row is the envelope, and a `0.134.0` row reads into a new document. The
+Automerge is the document; the envelope is its stored projection. A
+`Document` is the typed in-memory model of a Quillmark Markdown file, and
+every one holds its Automerge document from construction, whether parsed,
+built or loaded. A document persists as the **versioned JSON envelope**,
+`StoredDocument`, whose wire format is frozen per schema version: the row is
+the envelope, a history-free projection written only from the Automerge
+document and read only to build one (§ "The row is a projection"). The
 Automerge document's **bytes** are the form of a live editing session: the
 revision is the heads, a write's patch is its receipt, peers move changes as
 bytes and sync is Automerge's own (§ "The Automerge layout"). A session lasts
@@ -18,7 +21,7 @@ as long as its peers share one history; a reload from the row starts a new one.
 | Form | Round-trips? | Stable for storage? |
 |---|---|---|
 | Markdown (`Document::to_markdown`) | No: anchors and ids drop ([CONTENT.md](CONTENT.md) § "What markdown keeps") | No: syntax evolves |
-| `StoredDocument` JSON (`Document::to_stored`) | Yes: lossless but for history | Yes: the row, frozen per schema version |
+| `StoredDocument` JSON (`serde_json::to_string(&doc)`, `toStored`) | Yes: lossless but for history | Yes: the row, frozen per schema version |
 | Automerge bytes (`Document::save`) | Yes: lossless, history included | No: a live session's form; its root's `schema` names the layout |
 
 Store the JSON: it is the row a `Document` survives a process restart or a
@@ -40,12 +43,29 @@ never a row.
 The plate JSON a render hands a backend is a lossy, one-way export,
 crate-internal to `quillmark-core` and never a storage option.
 
+## The row is a projection
+
+The envelope holds no state of its own. The `Serialize` impl, and the
+bindings' `toStored` over it, write it from the cards the document reads as,
+the view every write and merge refreshes from the Automerge document, and no
+write reaches the envelope except through that document.
+`Document::from_stored`, the `Deserialize` impl and the bindings'
+`fromStored` read it only to build one: the cards it holds are written into a
+new Automerge document, and the loaded `Document` holds that document from
+then on.
+
+The build is deterministic. Its changes are written under one fixed actor at
+time 0, so two processes that load one row hold byte-identical documents
+(`save` answers the same bytes), share one origin, and sync from it without
+either re-sending what the row already gave both. A `0.134.0` row reads into
+a document the same way.
+
 ## Design Principles
 
 1. **Versioned envelope**: every blob carries a `schema` tag; readers
    dispatch on it and reject unknown versions.
 2. **Frozen DTO per version**: each schema version has its own standalone
-   type tree (`DocumentV0_134_0`, `CardV0_134_0`, …). These are never changed
+   type tree (`DocumentV0_135_0`, `CardV0_135_0`, …). These are never changed
    once shipped, and are internal to `dto.rs`: a host reads and writes the
    JSON, and `StoredDocument` is `#[non_exhaustive]`, so a new tag breaks no
    match.
@@ -589,10 +609,10 @@ The format is the *bytes*, not only the envelope: dropping a key or retiring a
 kind with the DTO tree untouched is a format change, because the writer emits
 different bytes for the same document.
 
-`0.134.0` stores each body as the content model (`DocumentV0_134_0`,
-`StoredContent`): a field item is `{type: field, key, value}`, and a document,
+`0.134.0` stores each body as the content model (`StoredContent`): a field item is `{type: field, key, value}`, and a document,
 card, payload or payload item carrying a key its type does not name fails the
-load. `0.135.0` shares that tree and adds the `codec` key to a content value,
+load. `0.135.0` shares that tree, `DocumentV0_135_0`, which `DocumentV0_134_0`
+names until the two shapes diverge, and adds the `codec` key to a content value,
 which a `0.134` reader does not decode, so a `0.134` build refuses the row as
 a newer version rather than reading a `text` field as rich text. Only the
 newest DTO converts to the live `Document`.
@@ -601,7 +621,9 @@ newest DTO converts to the live `Document`.
 
 When the `Document` wire format changes again:
 
-1. **Freeze** the current `DocumentV0_134_0` type tree: leave its struct
+1. **Freeze** the current `DocumentV0_135_0` type tree, and give the
+   `DocumentV0_134_0` alias it carries a tree of its own where the new shape
+   diverges from what a `0.134.0` row holds: leave its struct
    /enum definitions and serde derives untouched so existing rows still parse.
    Replace any field whose type tracks the live crate (`StoredContent` is
    the one) with raw `serde_json::Value`, or the frozen tree will *write* the
@@ -613,7 +635,7 @@ When the `Document` wire format changes again:
    plus its `From<&Document>` and `TryFrom<… for Document>` conversions.
 4. **Add** the `StoredDocument::V0_NN_0` variant, tagged
    `#[serde(rename = "quillmark/document@0.NN.0")]`.
-5. **Write the migration**: `From<DocumentV0_134_0> for DocumentV0_NN_0` if
+5. **Write the migration**: `From<DocumentV0_135_0> for DocumentV0_NN_0` if
    the mapping cannot fail, or `TryFrom` if it can reject, as a hop that
    decodes a raw body does for one that will not decode. This is the only real labor: it
    encodes how old fields map to the new model.
@@ -647,7 +669,7 @@ refuses, such as the lone major `memo@1` ([VERSIONING.md](VERSIONING.md)), or
 more cards than `MAX_CARD_COUNT`, the ceiling markdown parse and card
 placement both hold. Load measures no emitted size, since emission can
 outgrow the source a document parsed from.
-Migrations chain (`V0_134_0 → V0_NN_0 → …`); only the newest DTO
+Migrations chain (`V0_135_0 → V0_NN_0 → …`); only the newest DTO
 converts to the live `Document`, so each migration step stays small as versions
 accumulate. The cost is one frozen type tree per schema version plus one
 migration function per version bump.
@@ -676,7 +698,7 @@ is retired.
   `CARGO_PKG_VERSION`: bumping it is a deliberate act tied to a model change.
 - Unknown schema versions are rejected on read, never silently ignored.
 - DTO type names carry version suffixes with underscores
-  (`DocumentV0_134_0`); `non_camel_case_types` is allowed module-wide for this.
+  (`DocumentV0_135_0`); `non_camel_case_types` is allowed module-wide for this.
 - No file extension is part of the storage contract: the interchange forms
   are card-yaml markdown **text** and `StoredDocument` **JSON**.
 
@@ -685,4 +707,4 @@ is retired.
 - [ARCHITECTURE.md](ARCHITECTURE.md): `Document` in the core type overview
 - [markdown-spec.md](../references/markdown-spec.md): Markdown syntax and the in-memory data model
 - [VERSIONING.md](VERSIONING.md): quill version resolution (a separate concern)
-- `QuillValue` (`crates/core/src/value.rs` rustdoc): value type stored inside payload fields
+- `FieldValue` (`crates/core/src/document/payload.rs` rustdoc): a payload field's value, content as the `Content` it reads as and any other value as a `QuillValue` (`crates/core/src/value.rs`)

@@ -678,7 +678,7 @@ pub use dto::{
 pub use edit::{CardMut, EditError, Unchecked};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
 pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
-pub use payload::{MetaKey, Payload, PayloadItem};
+pub use payload::{FieldValue, MetaKey, Payload, PayloadItem};
 /// Returned by [`Document::reattach`], so nameable from here.
 pub use quillmark_automerge::content::anchors::Reattached;
 /// Answered by [`Card::annotated`] and the content crate's anchor reads, so nameable from here.
@@ -741,11 +741,12 @@ pub enum StoredError {
     Row(serde_json::Error),
 }
 
-/// A parse ahead of a revise: the [`Parsed`] document, its cards unsettled,
-/// and each body's markdown, the main card's first.
+/// A parse ahead of a revise: the cards, their ids unsettled, the parse's
+/// warnings, and each body's markdown, the main card's first.
 #[derive(Debug)]
 pub(crate) struct Revising {
-    pub parsed: Parsed,
+    pub cards: Snapshot,
+    pub warnings: Vec<Diagnostic>,
     pub bodies: Vec<String>,
 }
 
@@ -822,7 +823,7 @@ pub(super) fn payload_by_place(p: &Payload) -> Payload {
         .items()
         .iter()
         .map(|item| match item {
-            PayloadItem::Field { key, value } => PayloadItem::Field { key: key.clone(), value: crate::value::QuillValue::from_json(value_by_place(value.as_json())) },
+            PayloadItem::Field { key, value } => PayloadItem::Field { key: key.clone(), value: value_by_place(value.to_value().as_json()).into() },
             other => other.clone(),
         })
         .collect();
@@ -918,7 +919,7 @@ impl Card {
         name: &str,
         codec: Codec,
     ) -> Option<Result<Lines, ContentDecodeError>> {
-        Some(codec.decode_field(self.payload.get(name)?.as_json()))
+        Some(codec.decode_field(self.payload.get(name)?.to_value().as_json()))
     }
 
     /// The text projection of a content-valued field (`project ∘ decode`),
@@ -996,7 +997,8 @@ impl Serialize for SeedOverlay {
     }
 }
 
-/// A fully-parsed Quillmark document. Serde routes through [`StoredDocument`].
+/// A Quillmark document: one Automerge document, from construction on, and
+/// its cards read from it. Serde routes through [`StoredDocument`].
 ///
 /// Parse-time warnings are *not* document state: they ride out-of-band on
 /// [`Parsed`] from [`Document::parse`], the single owner. Equality and the
@@ -1004,11 +1006,149 @@ impl Serialize for SeedOverlay {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(try_from = "StoredDocument")]
 pub struct Document {
-    main: Card,
-    cards: Vec<Card>,
+    view: Snapshot,
     mints: card_id::ActorMints,
-    held: Bound,
+    held: Held,
     units: Units,
+}
+
+/// A document's cards: what its Automerge document reads as, read-only. A
+/// [`Document`] derefs to the one it holds, and
+/// [`snapshot`](Document::snapshot) copies it out, held in no Automerge
+/// document: the projection a render, a validation and a resolve read, and
+/// nothing writes back.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Snapshot {
+    pub(crate) main: Card,
+    pub(crate) cards: Vec<Card>,
+}
+
+impl Snapshot {
+    /// The snapshot of `main` and `cards`, as a document holding them reads:
+    /// `None` where `main` carries no `$quill` or a composable card no
+    /// `$kind`. A host rebuilds one this way from cards it read elsewhere,
+    /// such as the WASM runtime handing a document to its render build.
+    pub fn new(main: Card, cards: Vec<Card>) -> Option<Snapshot> {
+        (main.quill().is_some() && cards.iter().all(|c| c.kind().is_some())).then_some(Snapshot { main, cards })
+    }
+
+    pub fn main(&self) -> &Card {
+        &self.main
+    }
+
+    /// The root block's `$quill` reference, which parse validates present.
+    pub fn quill_reference(&self) -> QuillReference {
+        self.main
+            .quill()
+            .cloned()
+            .expect("root block's $quill is validated at parse time")
+    }
+
+    pub fn cards(&self) -> &[Card] {
+        &self.cards
+    }
+
+    /// A single composable card by index: the immutable twin of
+    /// [`Document::card_mut`]. `None` when out of range.
+    pub fn card(&self, index: usize) -> Option<&Card> {
+        self.cards.get(index)
+    }
+
+    /// The index of the composable card whose `$id` is `id`.
+    pub fn card_index(&self, id: &str) -> Option<usize> {
+        self.cards.iter().position(|card| card.id() == Some(id))
+    }
+
+    /// A composable card by its `$id`, which it keeps wherever it moves.
+    pub fn card_by_id(&self, id: &str) -> Option<&Card> {
+        self.card_index(id).map(|index| &self.cards[index])
+    }
+
+
+    /// Serialize to the JSON wire shape consumed by backend plates. This is
+    /// the **only** place in `quillmark-core` that produces this shape:
+    ///
+    /// ```json
+    /// {
+    ///   "$quill": "<ref>",
+    ///   "$body": { "text": "…", "blocks": [...], "containers": [...], "marks": [...], "islands": [...] },
+    ///   "$cards": [{ "$kind": "<tag>", "$body": <content>, "<field>": <value>, ... }],
+    ///   "<field>": <value>, ...
+    /// }
+    /// ```
+    ///
+    /// `$body` (global and per-card) is canonical Content-JSON: the content as
+    /// a nested object, not a markdown string. Richtext payload fields likewise
+    /// cross as content objects (committed at coercion time).
+    ///
+    /// `$`-prefixed keys carry document-level metadata (quill ref, body
+    /// text, card list, card kind). User payload fields stay flat at the
+    /// root: they cannot collide with `$` keys because user field names are
+    /// never `$`-prefixed (they match `[A-Za-z_][A-Za-z0-9_]*`).
+    ///
+    /// Body presence is the caller's decision: the root carries `$body` iff
+    /// `main_body`, and card *i* iff `card_bodies` is `None` (all present) or
+    /// `card_bodies[i]` holds. The schema-gated render plate
+    /// (`QuillConfig::compile_data`) passes the body-enabled bit it already
+    /// resolved per card, so a card whose kind enables no body carries no
+    /// `$body`, and the decision is never re-derived from the serialized plate.
+    /// A snapshot stays schema-free: it receives the decision, not a schema.
+    pub(crate) fn to_plate_json_gated(
+        &self,
+        main_body: bool,
+        card_bodies: Option<&[bool]>,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+
+        map.insert(
+            "$quill".to_string(),
+            serde_json::Value::String(self.main.quill().expect("the root carries `$quill`").to_string()),
+        );
+
+        // The seam carries the body as canonical Content-JSON: a nested content
+        // object, byte-identical to `to_canonical_json`, never a lossy markdown
+        // string. The markdown projection is `body_markdown`.
+        if main_body {
+            map.insert(
+                "$body".to_string(),
+                self.main.body().to_value(),
+            );
+        }
+
+        let cards_array: Vec<serde_json::Value> = self
+            .cards
+            .iter()
+            .enumerate()
+            .map(|(i, card)| {
+                let mut card_map = serde_json::Map::new();
+                if let Some(kind) = card.kind() {
+                    card_map.insert(
+                        "$kind".to_string(),
+                        serde_json::Value::String(kind.to_string()),
+                    );
+                }
+                // `$body` iff the caller's schema defines a body for this card.
+                if card_bodies.map_or(true, |f| f.get(i).copied().unwrap_or(true)) {
+                    card_map.insert(
+                        "$body".to_string(),
+                        card.body().to_value(),
+                    );
+                }
+                for (key, value) in card.payload.iter() {
+                    card_map.insert(key.clone(), value.to_value().into_owned().into_json());
+                }
+                serde_json::Value::Object(card_map)
+            })
+            .collect();
+
+        map.insert("$cards".to_string(), serde_json::Value::Array(cards_array));
+
+        for (key, value) in self.main.payload.iter() {
+            map.insert(key.clone(), value.to_value().into_owned().into_json());
+        }
+
+        serde_json::Value::Object(map)
+    }
 }
 
 /// The units the handle's host counts text offsets in. No part of what the
@@ -1028,64 +1168,41 @@ impl std::fmt::Debug for Units {
     }
 }
 
-/// The Automerge document a [`Document`] is held in, once it is; the cards
-/// are its view, re-read after each write. No part of what the document
-/// equals.
-#[derive(Clone, Default)]
-pub(crate) struct Bound(Option<quillmark_automerge::model::Doc>);
+/// The Automerge document a [`Document`] is; the cards are its view, read
+/// again after each write. No part of what the document equals.
+#[derive(Clone)]
+pub(crate) struct Held(quillmark_automerge::model::Doc);
 
-impl PartialEq for Bound {
+impl PartialEq for Held {
     fn eq(&self, _: &Self) -> bool {
         true
     }
 }
 
-impl std::fmt::Debug for Bound {
+impl std::fmt::Debug for Held {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Bound")
+        f.write_str("Held")
     }
 }
 
-/// One card of a [`Document`] under edit: a `&mut Card` whose edits are
-/// written into the document's Automerge document when it drops.
-pub(crate) struct CardEdit<'a> {
-    doc: &'a mut Document,
-    at: Option<usize>,
-    id: Option<String>,
-}
+/// A document reads as its cards: every read of [`Snapshot`] is a read of
+/// the view its Automerge document holds.
+impl std::ops::Deref for Document {
+    type Target = Snapshot;
 
-impl<'a> CardEdit<'a> {
-    fn new(doc: &'a mut Document, at: Option<usize>) -> Self {
-        let id = doc.begin_edit(at);
-        CardEdit { doc, at, id }
-    }
-}
-
-impl std::ops::Deref for CardEdit<'_> {
-    type Target = Card;
-
-    fn deref(&self) -> &Card {
-        self.doc.card_at(self.at)
-    }
-}
-
-impl std::ops::DerefMut for CardEdit<'_> {
-    fn deref_mut(&mut self) -> &mut Card {
-        self.doc.card_raw_mut(self.at)
-    }
-}
-
-impl Drop for CardEdit<'_> {
-    fn drop(&mut self) {
-        self.doc.end_edit(self.at, self.id.take());
+    fn deref(&self) -> &Snapshot {
+        &self.view
     }
 }
 
 impl Document {
-    /// A document holding `main` and `cards`, held in an Automerge
-    /// document from its first write, save or [`bind`](Self::bind) on.
+    /// A new Automerge document holding `main` and `cards`, each part read
+    /// back carrying the id that document gives it. Its first change is the
+    /// whole build, under one actor at time 0, so equal cards build equal
+    /// bytes in every process.
     pub(crate) fn assembled(main: Card, cards: Vec<Card>, mints: card_id::ActorMints) -> Self {
-        Self { main, cards, mints, held: Bound(None), units: Units::default() }
+        debug_assert!(cards.iter().all(|c| c.id().is_some()), "a document is built once its card ids are settled");
+        Self::read_from(held::build(&main, &cards), mints).expect("built cards read back")
     }
 
     /// The document `doc` holds, its cards read from it.
@@ -1094,7 +1211,14 @@ impl Document {
         if let Some(actor) = mints.actor() {
             doc.set_actor(actor);
         }
-        Ok(Self { main, cards, mints, held: Bound(Some(doc)), units: Units::default() })
+        Ok(Self { view: Snapshot { main, cards }, mints, held: Held(doc), units: Units::default() })
+    }
+
+    /// The cards this document reads as, copied out of it: a projection to
+    /// render, validate or hand to another thread, which carries no history
+    /// and writes nowhere.
+    pub fn snapshot(&self) -> Snapshot {
+        self.view.clone()
     }
 
     /// The actor this handle writes under, where one was set: each write's
@@ -1114,9 +1238,7 @@ impl Document {
             return Err(EditError::InvalidActor(actor.to_string()));
         }
         self.mints.set_actor(actor);
-        if let Some(doc) = self.held.0.as_mut() {
-            doc.set_actor(actor);
-        }
+        self.held.0.set_actor(actor);
         Ok(())
     }
 
@@ -1126,20 +1248,11 @@ impl Document {
     /// handles that both write must not share.
     pub fn fork(&self) -> Document {
         Document {
-            main: self.main.clone(),
-            cards: self.cards.clone(),
+            view: self.view.clone(),
             mints: card_id::ActorMints::default(),
-            held: Bound(self.held.0.as_ref().map(quillmark_automerge::model::Doc::fork)),
+            held: Held(self.held.0.fork()),
             units: self.units,
         }
-    }
-
-    /// This document's cards alone, held in no Automerge document: a copy
-    /// to read, render or store that carries no history.
-    pub fn snapshot(&self) -> Document {
-        let mut doc = Self::assembled(self.main.clone(), self.cards.clone(), self.mints.clone());
-        doc.units = self.units;
-        doc
     }
 
     /// The units this handle's host counts text offsets in: each write's
@@ -1156,36 +1269,18 @@ impl Document {
         self.units = Units(units);
     }
 
-    /// Holds the document in an Automerge document where it is not yet,
-    /// each part then read back carrying the id that document gives it.
-    pub(crate) fn bind(&mut self) {
-        if self.held.0.is_some() {
-            return;
-        }
-        debug_assert!(self.cards.iter().all(|c| c.id().is_some()), "a document binds once its card ids are settled");
-        let mut doc = held::build(&self.main, &self.cards);
-        if let Some(actor) = self.mints.actor() {
-            doc.set_actor(actor);
-        }
-        let (main, cards) = held::read(&doc).expect("built cards read back");
-        self.held = Bound(Some(doc));
-        self.main = main;
-        self.cards = cards;
-    }
-
-    /// The Automerge document the cards are read from, held from now on.
+    /// The Automerge document the cards are read from.
     pub(crate) fn doc(&mut self) -> &mut quillmark_automerge::model::Doc {
-        self.bind();
-        self.held.0.as_mut().expect("bound")
+        &mut self.held.0
     }
 
     /// Reads the card at `at`, the main card where `None`, again from the
     /// Automerge document.
     pub(crate) fn reread_at(&mut self, at: Option<usize>) {
-        let doc = self.held.0.as_ref().expect("bound");
+        let doc = &self.held.0;
         match at {
-            None => self.main = held::read_at(doc, None),
-            Some(i) => self.cards[i] = held::read_at(doc, Some(self.cards[i].id().expect("a held card has an id"))),
+            None => self.view.main = held::read_at(doc, None),
+            Some(i) => self.view.cards[i] = held::read_at(doc, Some(self.view.cards[i].id().expect("a held card has an id"))),
         }
     }
 
@@ -1194,8 +1289,8 @@ impl Document {
     /// [`CardMut`], which carry the edit into the Automerge document.
     fn card_raw_mut(&mut self, at: Option<usize>) -> &mut Card {
         match at {
-            None => &mut self.main,
-            Some(i) => &mut self.cards[i],
+            None => &mut self.view.main,
+            Some(i) => &mut self.view.cards[i],
         }
     }
 
@@ -1222,15 +1317,15 @@ impl Document {
     /// document carries them.
     fn end_edit(&mut self, at: Option<usize>, id: Option<String>) {
         let touched = self.card_raw_mut(at).take_touched();
-        let Some(doc) = self.held.0.as_mut() else { return };
+        let doc = &mut self.held.0;
         if touched.is_empty() {
             return;
         }
         doc.track();
         let before = Heads::from(doc.heads());
         let card = match at {
-            None => &self.main,
-            Some(i) => &self.cards[i],
+            None => &self.view.main,
+            Some(i) => &self.view.cards[i],
         };
         match (at, id.as_deref()) {
             (None, _) => held::write_parts(doc, None, card, &touched),
@@ -1239,57 +1334,50 @@ impl Document {
             (Some(_), None) => return,
         }
         doc.commit();
-        held::refresh(doc, &before, &mut self.main, &mut self.cards, false, self.units.0);
+        held::refresh(doc, &before, &mut self.view.main, &mut self.view.cards, false, self.units.0);
     }
 
     /// Places `card` at `index` among the composable cards.
     pub(crate) fn insert_card_at(&mut self, index: usize, card: Card) {
-        let card = match self.held.0.as_mut() {
-            Some(doc) => held::insert_card(doc, index, &card),
-            None => card,
-        };
-        self.cards.insert(index, card);
+        let card = held::insert_card(&mut self.held.0, index, &card);
+        self.view.cards.insert(index, card);
     }
 
     /// Takes the composable card at `index` out of the document.
     pub(crate) fn remove_card_at(&mut self, index: usize) -> Card {
-        let card = self.cards.remove(index);
-        if let (Some(doc), Some(id)) = (self.held.0.as_mut(), card.id()) {
-            held::remove_card(doc, id);
+        let card = self.view.cards.remove(index);
+        if let Some(id) = card.id() {
+            held::remove_card(&mut self.held.0, id);
         }
         card
     }
 
     /// Moves the composable card at `from` to `to`.
     pub(crate) fn move_card_at(&mut self, from: usize, to: usize) {
-        let card = self.cards.remove(from);
-        if let (Some(doc), Some(id)) = (self.held.0.as_mut(), card.id()) {
-            held::move_card(doc, id, to);
+        let card = self.view.cards.remove(from);
+        if let Some(id) = card.id() {
+            held::move_card(&mut self.held.0, id, to);
         }
-        self.cards.insert(to, card);
+        self.view.cards.insert(to, card);
     }
 
     /// Writes `main` and `cards` over the document's cards as one change,
     /// value by value.
     pub(crate) fn replace_cards(&mut self, main: Card, cards: Vec<Card>) {
-        let Some(doc) = self.held.0.as_mut() else {
-            self.main = main;
-            self.cards = cards;
-            return;
-        };
+        let doc = &mut self.held.0;
         doc.track();
         let before = Heads::from(doc.heads());
-        held::write_over(doc, (&self.main, &self.cards), (&main, &cards));
-        held::refresh(doc, &before, &mut self.main, &mut self.cards, true, self.units.0);
+        held::write_over(doc, (&self.view.main, &self.view.cards), (&main, &cards));
+        held::refresh(doc, &before, &mut self.view.main, &mut self.view.cards, true, self.units.0);
     }
 
-    /// This document with each id its Automerge document gave a content part
-    /// spelled as that part's place, so documents of other histories that
-    /// read alike compare and spell alike.
+    /// This document's cards with each id its Automerge document gave a
+    /// content part spelled as that part's place, so documents of other
+    /// histories that read alike compare and spell alike.
     #[cfg(test)]
-    pub(crate) fn by_place(&self) -> Document {
+    pub(crate) fn by_place(&self) -> Snapshot {
         let card = |c: &Card| Card::from_parts(payload_by_place(&c.payload), c.body.by_place());
-        Document::assembled(card(&self.main), self.cards.iter().map(card).collect(), self.mints.clone())
+        Snapshot { main: card(&self.view.main), cards: self.view.cards.iter().map(card).collect() }
     }
 
     /// Whether this document's history holds `heads`.
@@ -1298,8 +1386,8 @@ impl Document {
     }
 
     /// This document as it was at `heads`, read from its history: what a
-    /// writer that read then read. `None` where the history does not hold
-    /// `heads`.
+    /// writer that read then read, built as a new document. `None` where the
+    /// history does not hold `heads`.
     pub fn at(&mut self, heads: &Heads) -> Option<Document> {
         if !self.holds(heads) {
             return None;
@@ -1316,8 +1404,8 @@ impl Document {
         let doc = self.doc();
         let before = Heads::from(doc.heads());
         doc.isolated(heads.hashes(), |d| held::write_over(d, (&then.main, &then.cards), (&wanted.main, &wanted.cards)));
-        let doc = self.held.0.as_mut().expect("bound");
-        held::refresh(doc, &before, &mut self.main, &mut self.cards, true, self.units.0);
+        let doc = &mut self.held.0;
+        held::refresh(doc, &before, &mut self.view.main, &mut self.view.cards, true, self.units.0);
     }
 
     /// The document as Automerge bytes, its whole history: what a peer
@@ -1372,8 +1460,8 @@ impl Document {
     /// The receipt of the changes taken since `before`, each card part they
     /// reached followed or read again.
     fn took(&mut self, before: Heads) -> Receipt {
-        let doc = self.held.0.as_mut().expect("bound");
-        let patches = held::refresh(doc, &before, &mut self.main, &mut self.cards, true, self.units.0);
+        let doc = &mut self.held.0;
+        let patches = held::refresh(doc, &before, &mut self.view.main, &mut self.view.cards, true, self.units.0);
         let heads = Heads::from(doc.heads());
         Receipt { before, heads, patches, dropped_anchors: Vec::new(), repairs: Vec::new(), warnings: Vec::new() }
     }
@@ -1389,9 +1477,7 @@ impl Document {
         // Parsed main cards always carry `$kind: main` (the parser normalizes
         // it in); match that shape so a blank document round-trips equal.
         payload.set_kind("main");
-        let mut doc = Self::assembled(Card::from_parts(payload, Lines::empty()), Vec::new(), Default::default());
-        doc.bind();
-        doc
+        Self::assembled(Card::from_parts(payload, Lines::empty()), Vec::new(), Default::default())
     }
 
     /// Create a `Document` from a pre-built main card and composable cards.
@@ -1454,162 +1540,34 @@ impl Document {
     /// [`ParseError`] variants.
     #[doc(alias = "from_markdown")]
     pub fn parse(markdown: &str) -> Result<Parsed, ParseError> {
-        let mut parsed = Self::parse_unsettled(markdown)?;
-        let reserved = std::collections::HashSet::new();
-        card_id::settle_reporting(&mut parsed.document.cards, &reserved, &mut parsed.warnings);
-        parsed.document.bind();
-        Ok(parsed)
+        let (Snapshot { main, mut cards }, mut warnings, _) = assemble::decompose_with_warnings(markdown, import_markdown)?;
+        card_id::settle_reporting(&mut cards, &std::collections::HashSet::new(), &mut warnings);
+        Ok(Parsed { document: Self::assembled(main, cards, Default::default()), warnings })
     }
 
-    /// [`parse`](Self::parse) with each card holding the `$id` it spells, or
-    /// none, for a revise to settle against the ids it started from.
-    pub(crate) fn parse_unsettled(markdown: &str) -> Result<Parsed, ParseError> {
-        assemble::decompose_with_warnings(markdown, import_markdown)
-            .map(|(document, warnings, _)| Parsed { document, warnings })
-    }
-
-    /// [`parse_unsettled`](Self::parse_unsettled) for a revise: each body's
-    /// `qm-island` tokens drop silently, the revise resolving them against the
-    /// stored card it aligns the body's card to, and each body's markdown is
-    /// kept for it.
+    /// The cards of `markdown` for a revise, each holding the `$id` it
+    /// spells, or none: each body's `qm-island` tokens drop silently, the
+    /// revise resolving them against the stored card it aligns the body's
+    /// card to, and each body's markdown is kept for it.
     pub(crate) fn parse_revising(markdown: &str) -> Result<Revising, ParseError> {
-        let (document, warnings, bodies) = assemble::decompose_with_warnings(
+        let (cards, warnings, bodies) = assemble::decompose_with_warnings(
             markdown,
             quillmark_automerge::content::lines::import::from_markdown_unresolved,
         )?;
-        Ok(Revising {
-            parsed: Parsed { document, warnings },
-            bodies,
-        })
-    }
-
-    pub fn main(&self) -> &Card {
-        &self.main
+        Ok(Revising { cards, warnings, bodies })
     }
 
     pub fn main_mut(&mut self) -> CardMut<'_> {
         CardMut::new(self, None)
     }
 
-    /// The root block's `$quill` reference, which parse validates present.
-    pub fn quill_reference(&self) -> QuillReference {
-        self.main
-            .quill()
-            .cloned()
-            .expect("root block's $quill is validated at parse time")
-    }
-
-    pub fn cards(&self) -> &[Card] {
-        &self.cards
-    }
-
-    /// A single composable card by index: the immutable twin of
-    /// [`card_mut`](Document::card_mut). `None` when out of range.
-    pub fn card(&self, index: usize) -> Option<&Card> {
-        self.cards.get(index)
-    }
-
-    /// The index of the composable card whose `$id` is `id`.
-    pub fn card_index(&self, id: &str) -> Option<usize> {
-        self.cards.iter().position(|card| card.id() == Some(id))
-    }
-
-    /// A composable card by its `$id`, which it keeps wherever it moves.
-    pub fn card_by_id(&self, id: &str) -> Option<&Card> {
-        self.card_index(id).map(|index| &self.cards[index])
-    }
-
-    pub(crate) fn main_card_mut(&mut self) -> CardEdit<'_> {
-        CardEdit::new(self, None)
-    }
-
-    /// The composable card at `index` to edit, `None` where none is.
-    pub(crate) fn card_edit(&mut self, index: usize) -> Option<CardEdit<'_>> {
-        (index < self.cards.len()).then(|| CardEdit::new(self, Some(index)))
-    }
-
-    /// Serialize to the JSON wire shape consumed by backend plates. This is
-    /// the **only** place in `quillmark-core` that produces this shape:
-    ///
-    /// ```json
-    /// {
-    ///   "$quill": "<ref>",
-    ///   "$body": { "text": "…", "blocks": [...], "containers": [...], "marks": [...], "islands": [...] },
-    ///   "$cards": [{ "$kind": "<tag>", "$body": <content>, "<field>": <value>, ... }],
-    ///   "<field>": <value>, ...
-    /// }
-    /// ```
-    ///
-    /// `$body` (global and per-card) is canonical Content-JSON: the content as
-    /// a nested object, not a markdown string. Richtext payload fields likewise
-    /// cross as content objects (committed at coercion time).
-    ///
-    /// `$`-prefixed keys carry document-level metadata (quill ref, body
-    /// text, card list, card kind). User payload fields stay flat at the
-    /// root: they cannot collide with `$` keys because user field names are
-    /// never `$`-prefixed (they match `[A-Za-z_][A-Za-z0-9_]*`).
-    ///
-    /// Body presence is the caller's decision: the root carries `$body` iff
-    /// `main_body`, and card *i* iff `card_bodies` is `None` (all present) or
-    /// `card_bodies[i]` holds. The schema-gated render plate
-    /// (`QuillConfig::compile_data`) passes the body-enabled bit it already
-    /// resolved per card, so a card whose kind enables no body carries no
-    /// `$body`, and the decision is never re-derived from the serialized plate.
-    /// `Document` stays schema-free: it receives the decision, not a schema.
-    pub(crate) fn to_plate_json_gated(
-        &self,
-        main_body: bool,
-        card_bodies: Option<&[bool]>,
-    ) -> serde_json::Value {
-        let mut map = serde_json::Map::new();
-
-        map.insert(
-            "$quill".to_string(),
-            serde_json::Value::String(self.quill_reference().to_string()),
-        );
-
-        // The seam carries the body as canonical Content-JSON: a nested content
-        // object, byte-identical to `to_canonical_json`, never a lossy markdown
-        // string. The markdown projection is `body_markdown`.
-        if main_body {
-            map.insert(
-                "$body".to_string(),
-                self.main.body().to_value(),
-            );
+    /// [`edit_card`](Self::edit_card) on the composable card at `index`,
+    /// [`EditError::IndexOutOfRange`] where none is.
+    pub(crate) fn edit_card_at<R>(&mut self, index: usize, f: impl FnOnce(&mut Card) -> R) -> Result<R, EditError> {
+        let len = self.view.cards.len();
+        if index >= len {
+            return Err(EditError::IndexOutOfRange { index, len });
         }
-
-        let cards_array: Vec<serde_json::Value> = self
-            .cards
-            .iter()
-            .enumerate()
-            .map(|(i, card)| {
-                let mut card_map = serde_json::Map::new();
-                if let Some(kind) = card.kind() {
-                    card_map.insert(
-                        "$kind".to_string(),
-                        serde_json::Value::String(kind.to_string()),
-                    );
-                }
-                // `$body` iff the caller's schema defines a body for this card.
-                if card_bodies.map_or(true, |f| f.get(i).copied().unwrap_or(true)) {
-                    card_map.insert(
-                        "$body".to_string(),
-                        card.body().to_value(),
-                    );
-                }
-                for (key, value) in card.payload.iter() {
-                    card_map.insert(key.clone(), value.as_json().clone());
-                }
-                serde_json::Value::Object(card_map)
-            })
-            .collect();
-
-        map.insert("$cards".to_string(), serde_json::Value::Array(cards_array));
-
-        for (key, value) in self.main.payload.iter() {
-            map.insert(key.clone(), value.as_json().clone());
-        }
-
-        serde_json::Value::Object(map)
+        Ok(self.edit_card(Some(index), f))
     }
 }

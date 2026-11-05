@@ -114,7 +114,7 @@ fn arb_field_value() -> impl Strategy<Value = (&'static str, serde_json::Value)>
 fn rest(doc: &Document) -> Vec<Option<serde_json::Value>> {
     CONTENT_FIELDS
         .iter()
-        .map(|name| doc.by_place().main().payload().get(name).map(|v| v.as_json().clone()))
+        .map(|name| doc.by_place().main().payload().get(name).map(|v| v.to_value().as_json().clone()))
         .collect()
 }
 
@@ -159,7 +159,7 @@ proptest! {
             // Not conform's business: the typed write stays its canonicalizer.
             prop_assert!(diags.is_empty(), "{diags:?}");
             prop_assert_eq!(
-                conformed.main().payload().get(name).map(|v| v.as_json().clone()),
+                conformed.main().payload().get(name).map(|v| v.to_value().as_json().clone()),
                 Some(value),
             );
             return Ok(());
@@ -172,7 +172,7 @@ proptest! {
             }
             Err(_) => {
                 prop_assert_eq!(
-                    conformed.main().payload().get(name).map(|v| v.as_json().clone()),
+                    conformed.main().payload().get(name).map(|v| v.to_value().as_json().clone()),
                     Some(value),
                 );
                 prop_assert!(

@@ -11,7 +11,7 @@ use quillmark_automerge::content::model::Content;
 use quillmark_automerge::content::units::is_content_value;
 use serde_json::Value as JsonValue;
 
-use super::{Card, Document};
+use super::{Card, Document, FieldValue};
 use crate::path::{DocPath, DocSeg};
 
 /// A prose anchor's context at its address: the selector a host stores beside
@@ -221,8 +221,8 @@ impl Document {
     /// content: what a [whole](AnchorSelector::is_whole) selector attaches to.
     fn holds_whole(&self, path: &DocPath) -> bool {
         let card = match path.segs().first() {
-            Some(DocSeg::Main) => &self.main,
-            Some(DocSeg::Card { kind, index }) => match self.cards.get(*index) {
+            Some(DocSeg::Main) => &self.view.main,
+            Some(DocSeg::Card { kind, index }) => match self.view.cards.get(*index) {
                 Some(card) if card.kind() == kind.as_deref() => card,
                 _ => return false,
             },
@@ -234,6 +234,7 @@ impl Document {
         let Some(value) = card.payload().get(name) else {
             return false;
         };
+        let value = value.to_value();
         let leaf = tail.iter().try_fold(value.as_json(), |value, seg| match seg {
             DocSeg::Field { name } => value.as_object()?.get(name),
             DocSeg::Index { index } => value.as_array()?.get(*index),
@@ -246,7 +247,7 @@ impl Document {
     /// or a path naming no card.
     pub(crate) fn card_id_at(&self, path: &DocPath) -> Option<&str> {
         match path.segs().first()? {
-            DocSeg::Card { index, .. } => self.cards.get(*index)?.id(),
+            DocSeg::Card { index, .. } => self.view.cards.get(*index)?.id(),
             _ => None,
         }
     }
@@ -261,7 +262,7 @@ impl Document {
             return None;
         };
         let index = self.card_index(card_id)?;
-        if self.cards[index].kind() != kind.as_deref() {
+        if self.view.cards[index].kind() != kind.as_deref() {
             return None;
         }
         selector.path.with_card_index(index)
@@ -281,7 +282,7 @@ impl Document {
         let (at, rest) = match path.segs() {
             [DocSeg::Main, rest @ ..] => (None, rest),
             [DocSeg::Card { kind, index }, rest @ ..] => {
-                if self.cards.get(*index)?.kind() != kind.as_deref() {
+                if self.view.cards.get(*index)?.kind() != kind.as_deref() {
                     return None;
                 }
                 (Some(*index), rest)
@@ -302,9 +303,14 @@ impl Document {
                     .payload_mut()
                     .fields_mut()
                     .find(|(key, _)| *key == name)?;
+                let data = match value {
+                    FieldValue::Content(content) if tail.is_empty() => return Some(f(content)),
+                    FieldValue::Content(_) => return None,
+                    FieldValue::Data(data) => data,
+                };
                 let leaf = tail
                     .iter()
-                    .try_fold(value.as_json_mut(), |value, seg| match seg {
+                    .try_fold(data.as_json_mut(), |value, seg| match seg {
                         DocSeg::Field { name } => value.as_object_mut()?.get_mut(name),
                         DocSeg::Index { index } => value.as_array_mut()?.get_mut(*index),
                         _ => None,
@@ -314,6 +320,7 @@ impl Document {
                 let out = f(&mut content);
                 if content != before {
                     *leaf = content.to_value();
+                    value.settle();
                 }
                 Some(out)
             }
@@ -324,8 +331,8 @@ impl Document {
     /// `visit` each body and content value with its path, in the order
     /// [`anchor_contexts`](Self::anchor_contexts) lists them.
     fn each_content(&self, visit: &mut Visit<'_>) {
-        let roots = std::iter::once((DocPath::main(), &self.main)).chain(
-            self.cards
+        let roots = std::iter::once((DocPath::main(), &self.view.main)).chain(
+            self.view.cards
                 .iter()
                 .enumerate()
                 .map(|(i, card)| (DocPath::card(card.kind(), i), card)),
@@ -342,7 +349,10 @@ type Visit<'a> = dyn FnMut(&DocPath, &Content) -> ControlFlow<()> + 'a;
 
 fn each_in_card(card: &Card, at: &DocPath, visit: &mut Visit<'_>) -> ControlFlow<()> {
     for (name, value) in card.payload().iter() {
-        each_in_value(value.as_json(), &at.field(name), visit)?;
+        match value {
+            FieldValue::Content(content) => visit(&at.field(name), content)?,
+            FieldValue::Data(data) => each_in_value(data.as_json(), &at.field(name), visit)?,
+        }
     }
     visit(&at.body(), card.body())
 }
