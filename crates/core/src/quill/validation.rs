@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::document::{Document, Payload};
+use crate::document::{Card, Payload};
 use crate::error::{Diagnostic, Severity, diag_args};
 use crate::path::DocPath;
 use crate::quill::formats::{format_grammar, is_valid_date, is_valid_datetime};
@@ -355,16 +355,16 @@ fn yaml_scalar_type(value: &serde_json::Value) -> &'static str {
 /// on the import the render floor runs, at the string's path.
 pub(crate) fn validate_document_values(
     config: &QuillConfig,
-    doc: &Document,
+    (main, cards): (&Card, &[Card]),
     drops: &mut Vec<Diagnostic>,
 ) -> Vec<ValidationError> {
     let mut errors =
-        validate_fields_for_card(&config.main, doc.main().payload(), &DocPath::main(), drops);
+        validate_fields_for_card(&config.main, main.payload(), &DocPath::main(), drops);
 
     // A card no declared kind claims has no field to judge, and a body under
     // `body.enabled: false` no place to fill: both render without the input
     // and warn from `Quill::validate` instead.
-    for (index, card) in doc.cards().iter().enumerate() {
+    for (index, card) in cards.iter().enumerate() {
         let Some((kind, card_schema)) = card
             .kind()
             .and_then(|kind| config.card_kind(kind).map(|schema| (kind, schema)))
@@ -1164,7 +1164,7 @@ main:
             let md = format!("~~~\n$quill: native_validation@1.0.0\npti: {yaml_value}~~~\n");
             let doc = Document::parse(&md).expect("parses").document;
             let mut drops = Vec::new();
-            let errors = validate_document_values(&config, &doc, &mut drops);
+            let errors = validate_document_values(&config, (doc.main(), doc.cards()), &mut drops);
             assert!(
                 errors.is_empty() && drops.is_empty(),
                 "{errors:?} {drops:?}"

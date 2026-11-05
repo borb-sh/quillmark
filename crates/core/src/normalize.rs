@@ -1,9 +1,9 @@
-//! Post-parse normalization of a [`Document`](crate::document::Document):
+//! Normalization of a document's cards on their way to a render:
 //! payload field names to Unicode NFC, so composed `"café"` and decomposed
 //! `"cafe\u{0301}"` compare equal. Field *values* pass through verbatim, and
 //! bodies are already normalized at import.
 
-use crate::document::Card;
+use crate::document::{Card, Snapshot};
 use unicode_normalization::UnicodeNormalization;
 
 /// Normalize a field name to Unicode NFC, so visually identical keys compare
@@ -14,13 +14,8 @@ pub fn normalize_field_name(name: &str) -> String {
 
 /// Normalize every card's payload field names to Unicode NFC. Values and
 /// bodies carry through unchanged. Idempotent.
-pub fn normalize_document(doc: crate::document::Document) -> crate::document::Document {
-    use crate::document::Document;
-
-    let main = normalize_card(doc.main());
-    let normalized_cards: Vec<Card> = doc.cards().iter().map(normalize_card).collect();
-
-    Document::from_main_and_cards(main, normalized_cards)
+pub(crate) fn normalize_cards(cards: Snapshot) -> Snapshot {
+    Snapshot { main: normalize_card(&cards.main), cards: cards.cards.iter().map(normalize_card).collect() }
 }
 
 fn normalize_card(card: &Card) -> Card {
@@ -45,7 +40,7 @@ fn normalize_card(card: &Card) -> Card {
 
 #[cfg(test)]
 mod tests {
-    use crate::document::{Card, Document, Payload};
+    use crate::document::{Card, Snapshot, Payload};
     use crate::value::QuillValue;
 
     #[test]
@@ -65,8 +60,7 @@ mod tests {
             }
             Card::from_parts(payload, quillmark_automerge::content::lines::model::Lines::empty())
         };
-        let doc = Document::from_main_and_cards(card("main"), vec![card("note")]);
-        let normalized = super::normalize_document(doc);
+        let normalized = super::normalize_cards(Snapshot { main: card("main"), cards: vec![card("note")] });
         for card in std::iter::once(normalized.main()).chain(normalized.cards()) {
             let keys: Vec<&str> = card.payload().keys().map(String::as_str).collect();
             assert_eq!(keys, ["a", "caf\u{e9}", "z"]);

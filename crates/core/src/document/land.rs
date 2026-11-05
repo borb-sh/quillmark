@@ -32,8 +32,8 @@ fn removed_by(change: &Change, out: &mut Vec<String>) {
 impl Document {
     pub(crate) fn card_at(&self, at: Option<usize>) -> &Card {
         match at {
-            None => &self.main,
-            Some(i) => &self.cards[i],
+            None => &self.view.main,
+            Some(i) => &self.view.cards[i],
         }
     }
 
@@ -41,7 +41,6 @@ impl Document {
     /// where it holds its content as JSON or holds nothing; `true` with it
     /// where the field was absent and is put now.
     fn value_obj(&mut self, at: Option<usize>, target: Target<'_>) -> Result<(ValueId, bool), EditError> {
-        self.bind();
         let mut put = false;
         if let Target::Field(name) = target
             && self.card_at(at).payload().get(name).is_none()
@@ -55,15 +54,15 @@ impl Document {
             return Err(EditError::IndexOutOfRange { index: i, len: 0 });
         }
         let card = match at {
-            None => &self.main,
-            Some(i) => &self.cards[i],
+            None => &self.view.main,
+            Some(i) => &self.view.cards[i],
         };
-        let doc = self.held.0.as_mut().expect("bound");
+        let doc = &mut self.held.0;
         let before = Heads::from(doc.heads());
         let (v, written) = cards::value_at(doc, at.and(id.as_deref()), target.field(), || card.read(target))?
-            .expect("a bound card is held");
+            .expect("each card is held");
         if written {
-            super::held::refresh(doc, &before, &mut self.main, &mut self.cards, false, self.units.0);
+            super::held::refresh(doc, &before, &mut self.view.main, &mut self.view.cards, false, self.units.0);
         }
         Ok((v, put))
     }

@@ -702,7 +702,7 @@ for: ORG
 Card body here.
 ";
     let doc = Document::parse(markdown).unwrap().document;
-    let json = doc.to_plate_json_gated(true, None);
+    let json = doc.snapshot().to_plate_json_gated(true, None);
 
     assert_eq!(json["$quill"], "usaf_memo");
     assert_eq!(json["title"], "Test");
@@ -726,7 +726,7 @@ fn test_to_plate_json_quill_first() {
         Document::parse("~~~card-yaml\n$quill: my_quill\n$kind: main\nfoo: bar\nbaz: qux\n~~~\n")
             .unwrap()
             .document;
-    let json = doc.to_plate_json_gated(true, None);
+    let json = doc.snapshot().to_plate_json_gated(true, None);
     let obj = json.as_object().unwrap();
     let keys: Vec<&String> = obj.keys().collect();
     assert_eq!(keys[0], "$quill");

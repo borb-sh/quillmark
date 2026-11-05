@@ -378,7 +378,7 @@ impl QuillConfig {
         &self,
         doc: &crate::document::Document,
     ) -> Result<(), Vec<super::validation::ValidationError>> {
-        let errors = super::validation::validate_document_values(self, doc, &mut Vec::new());
+        let errors = super::validation::validate_document_values(self, (doc.main(), doc.cards()), &mut Vec::new());
         if errors.is_empty() {
             Ok(())
         } else {

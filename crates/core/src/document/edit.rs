@@ -811,7 +811,7 @@ pub(crate) fn committed_text(name: &str, body: String, schema: &FieldSchema) -> 
 /// [`Card::store_seed_overlay`]) run when a card is placed or edited, not when
 /// one is assigned over another. Handing out a `&mut Card` would make
 /// `*doc.card_mut(0).unwrap() = doc.main().clone()` a legal write past all of
-/// them, and [`Document::quill_reference`] reads the root's `$quill` without
+/// them, and [`Snapshot::quill_reference`](super::Snapshot::quill_reference) reads the root's `$quill` without
 /// re-checking. A card built before placement is an ordinary `Card`, so the
 /// verbs stay there and this only withholds the assignment.
 pub struct CardMut<'a> {
@@ -994,7 +994,7 @@ impl Document {
     }
 
     pub fn card_mut(&mut self, index: usize) -> Option<CardMut<'_>> {
-        (index < self.cards.len()).then(|| CardMut::new(self, Some(index)))
+        (index < self.view.cards.len()).then(|| CardMut::new(self, Some(index)))
     }
 
     /// The writes no quill schema checks: [`Unchecked`].

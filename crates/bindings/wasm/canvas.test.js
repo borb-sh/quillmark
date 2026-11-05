@@ -92,7 +92,7 @@ function openQuill() {
 
 function openSession() {
   const { engine, quill } = openQuill()
-  return engine.open(quill, Document.parse(TEST_MARKDOWN))
+  return engine.open(quill, Document.parse(TEST_MARKDOWN).snapshot())
 }
 
 // An `array<richtext>` field: the backend regions each element on its
@@ -134,7 +134,7 @@ function arrayElementSession() {
   const quill = Quill.fromTree(
     makeQuill({ name: 'array_quill', plate: ARRAY_PLATE, quillYaml: ARRAY_QUILL_YAML }),
   )
-  return engine.open(quill, Document.parse(ARRAY_MARKDOWN))
+  return engine.open(quill, Document.parse(ARRAY_MARKDOWN).snapshot())
 }
 
 /** Asserts a captured `putImageData` call's RGBA buffer carries both visible
@@ -190,10 +190,10 @@ describe('LiveSession canvas preview', () => {
     const { engine, quill } = openQuill()
     const doc = Document.parse(TEST_MARKDOWN.replace('# Hello canvas', 'Alpha 😀😀 beta gamma.'))
     const text = doc.read({}).text
-    const session = engine.open(quill, doc)
+    const session = engine.open(quill, doc.snapshot())
     const region = session.regions().find((r) => r.field === 'main.body' && r.span)
     expect(region.span).toEqual([0, text.length])
-    const rendered = engine.render(quill, doc, { format: 'svg', regions: true })
+    const rendered = engine.render(quill, doc.snapshot(), { format: 'svg', regions: true })
     expect(rendered.regions.find((r) => r.field === 'main.body' && r.span).span).toEqual(region.span)
 
     const at = text.indexOf('beta')
@@ -318,7 +318,7 @@ describe('LiveSession canvas preview (acroform backend)', () => {
   it('paint sizes the canvas at scale and bakes field-value ink into the raster', () => {
     const session = new Engine().open(
       Quill.fromTree(makeSampleFormQuill()),
-      Document.parse(SAMPLE_FORM_MARKDOWN),
+      Document.parse(SAMPLE_FORM_MARKDOWN).snapshot(),
     )
     const { widthPt, heightPt } = session.pageSize(0)
     const scale = 1.5
@@ -347,11 +347,11 @@ describe('LiveSession canvas preview (acroform backend)', () => {
 describe('LiveSession.update', () => {
   it('recompiles in place and reports the dirty page set', () => {
     const { engine, quill } = openQuill()
-    const session = engine.open(quill, Document.parse(TEST_MARKDOWN))
+    const session = engine.open(quill, Document.parse(TEST_MARKDOWN).snapshot())
     const before = session.pageCount
 
     const cs = session.update(
-      Document.parse(TEST_MARKDOWN.replace('Canvas Test', 'Edited Title'))
+      Document.parse(TEST_MARKDOWN.replace('Canvas Test', 'Edited Title')).snapshot()
     )
     expect(cs.pageCount).toBe(before)
     expect(cs.pageCount).toBe(session.pageCount)
@@ -359,7 +359,7 @@ describe('LiveSession.update', () => {
 
     // Identical re-update → nothing dirty.
     const cs2 = session.update(
-      Document.parse(TEST_MARKDOWN.replace('Canvas Test', 'Edited Title'))
+      Document.parse(TEST_MARKDOWN.replace('Canvas Test', 'Edited Title')).snapshot()
     )
     expect(cs2.dirtyPages).toEqual([])
     session.free()
@@ -367,14 +367,14 @@ describe('LiveSession.update', () => {
 
   it('keeps the last-good compile when update throws, and recovers', () => {
     const { engine, quill } = openQuill()
-    const session = engine.open(quill, Document.parse(TEST_MARKDOWN))
+    const session = engine.open(quill, Document.parse(TEST_MARKDOWN).snapshot())
     const before = session.pageCount
 
     // A document for the wrong quill fails the $quill reference check.
     const wrong = Document.parse(
       TEST_MARKDOWN.replace('$quill: test_quill', '$quill: other_quill')
     )
-    expect(() => session.update(wrong)).toThrow()
+    expect(() => session.update(wrong.snapshot())).toThrow()
 
     // Every read still serves the last-good compile.
     expect(session.pageCount).toBe(before)
@@ -385,7 +385,7 @@ describe('LiveSession.update', () => {
 
     // The session recovers on the next good update.
     const cs = session.update(
-      Document.parse(TEST_MARKDOWN.replace('Canvas Test', 'Recovered'))
+      Document.parse(TEST_MARKDOWN.replace('Canvas Test', 'Recovered')).snapshot()
     )
     expect(cs.pageCount).toBe(session.pageCount)
     session.free()

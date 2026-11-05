@@ -14,7 +14,7 @@ use super::edit::EditError;
 use super::emit::{canonical_content, emit_payload_fields};
 use quillmark_automerge::content::anchors::anchor_contexts;
 use quillmark_automerge::content::model::Content as ContentModel;
-use super::{Card, Document, Heads, Parsed, Revising, dropped_constructs};
+use super::{Card, Snapshot, Document, Heads, Revising, dropped_constructs};
 use crate::error::{Diagnostic, ParseError, Severity};
 use crate::path::DocPath;
 use crate::value::QuillValue;
@@ -86,19 +86,11 @@ impl Document {
     /// [`revise`](Self::revise) from `revising`, whose cards hold the `$id`
     /// each spells or none, as [`Document::parse_revising`] leaves them.
     pub(crate) fn revise_parsed(&mut self, revising: Revising) -> DocumentRevised {
-        let Revising {
-            parsed:
-                Parsed {
-                    document: incoming,
-                    mut warnings,
-                },
-            bodies,
-        } = revising;
+        let Revising { cards: Snapshot { main, cards }, mut warnings, bodies } = revising;
         let before = self.heads();
-        let Document { main, cards, .. } = incoming;
         let mut bodies = bodies.into_iter();
 
-        let pairs = align_cards(&self.cards, &cards);
+        let pairs = align_cards(&self.view.cards, &cards);
         let same_kinds = self
             .cards
             .iter()
@@ -109,7 +101,7 @@ impl Document {
         let mut moves = Moves::new();
 
         let main = revise_card(
-            &self.main,
+            &self.view.main,
             main,
             bodies.next().as_deref(),
             (&DocPath::main(), &DocPath::main()),
@@ -118,7 +110,7 @@ impl Document {
             &mut moves,
         );
         drop_report(
-            &self.main,
+            &self.view.main,
             Some(&main),
             &DocPath::main(),
             &moves,
@@ -132,14 +124,14 @@ impl Document {
             .map(str::to_string)
             .collect();
         let mut revised_cards = Vec::with_capacity(cards.len());
-        let mut kept = vec![None; self.cards.len()];
+        let mut kept = vec![None; self.view.cards.len()];
         for (j, mut card) in cards.into_iter().enumerate() {
             let at = DocPath::card(card.kind(), j);
             let body = bodies.next();
             let card = match pairs[j] {
                 Some((i, pairing)) => {
                     kept[i] = Some(j);
-                    let stored = &self.cards[i];
+                    let stored = &self.view.cards[i];
                     match stored.id() {
                         Some(id) => card.payload_mut().set_id(id),
                         None => card.payload_mut().remove_id(),
@@ -173,7 +165,7 @@ impl Document {
             revised_cards.push(card);
         }
         settle_reporting(&mut revised_cards, &stored_ids, &mut warnings);
-        for (i, stored) in self.cards.iter().enumerate() {
+        for (i, stored) in self.view.cards.iter().enumerate() {
             let at = DocPath::card(stored.kind(), i);
             let revised = kept[i].map(|j| &revised_cards[j]);
             drop_report(stored, revised, &at, &moves, &mut dropped_anchors);

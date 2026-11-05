@@ -460,7 +460,7 @@ pub struct LiveSession {
 }
 
 #[cfg(feature = "render")]
-fn card_kinds_of(doc: &quillmark_core::document::Document) -> Vec<Option<String>> {
+fn card_kinds_of(doc: &quillmark_core::document::Snapshot) -> Vec<Option<String>> {
     doc.cards()
         .iter()
         .map(|c| c.kind().map(String::from))
@@ -471,6 +471,50 @@ fn card_kinds_of(doc: &quillmark_core::document::Document) -> Vec<Option<String>
 pub struct Document {
     inner: quillmark_core::document::Document,
     parse_warnings: Vec<quillmark_core::error::Diagnostic>,
+}
+
+/// A document's cards, held in no Automerge document: what the render
+/// build's `Engine` and `LiveSession` read. The runtime hands one from a
+/// document's build to the render build as `toJson` and `fromJson`; it is
+/// internal to the package.
+#[cfg(feature = "render")]
+#[wasm_bindgen(skip_typescript)]
+pub struct Snapshot {
+    inner: quillmark_core::document::Snapshot,
+}
+
+/// A [`Snapshot`]'s spelling across two builds: each card as the card wire.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SnapshotWire {
+    main: quillmark_core::document::CardWire,
+    cards: Vec<quillmark_core::document::CardWire>,
+}
+
+impl SnapshotWire {
+    fn spell(snapshot: &quillmark_core::document::Snapshot) -> String {
+        let wire = SnapshotWire {
+            main: snapshot.main().into(),
+            cards: snapshot.cards().iter().map(Into::into).collect(),
+        };
+        serde_json::to_string(&wire).expect("a snapshot serializes")
+    }
+}
+
+#[cfg(feature = "render")]
+#[wasm_bindgen]
+impl Snapshot {
+    /// The snapshot `json`, a `snapshotJson` of a document, spells.
+    #[wasm_bindgen(js_name = fromJson)]
+    pub fn from_json(json: &str) -> Result<Snapshot, JsValue> {
+        let refused = |e: String| WasmError::from(format!("Snapshot.fromJson: {e}")).to_js_value();
+        let wire: SnapshotWire = serde_json::from_str(json).map_err(|e| refused(e.to_string()))?;
+        let card = |w| quillmark_core::document::Card::try_from(w).map_err(|e: quillmark_core::document::WireError| refused(e.to_string()));
+        let main = card(wire.main)?;
+        let cards = wire.cards.into_iter().map(card).collect::<Result<Vec<_>, _>>()?;
+        quillmark_core::document::Snapshot::new(main, cards)
+            .map(|inner| Snapshot { inner })
+            .ok_or_else(|| refused("the main card names no `$quill`, or a card no `$kind`".to_string()))
+    }
 }
 
 impl Document {
@@ -572,7 +616,7 @@ impl Engine {
     pub fn open(
         &self,
         quill: &Quill,
-        doc: &Document,
+        doc: &Snapshot,
         today: Option<String>,
     ) -> Result<LiveSession, JsValue> {
         let today = render_date(today)?;
@@ -596,7 +640,7 @@ impl Engine {
     pub fn render(
         &self,
         quill: &Quill,
-        doc: &Document,
+        doc: &Snapshot,
         opts: Option<Ts<RenderOptions>>,
         today: Option<String>,
     ) -> Result<Ts<RenderResult>, JsValue> {
@@ -1084,6 +1128,21 @@ impl Document {
     pub fn to_stored(&self) -> String {
         // Infallible: derived `Serialize` into a `String` buffer, no `io::Write`.
         serde_json::to_string(&self.inner).expect("Document serialization is infallible")
+    }
+
+    /// The document's cards, held in no Automerge document: what the render
+    /// build's `Engine` and `LiveSession` read. Internal to the package.
+    #[cfg(feature = "render")]
+    #[wasm_bindgen(skip_typescript)]
+    pub fn snapshot(&self) -> Snapshot {
+        Snapshot { inner: self.inner.snapshot() }
+    }
+
+    /// The document's cards as the JSON a render build's `Snapshot.fromJson`
+    /// reads. Internal to the package.
+    #[wasm_bindgen(js_name = snapshotJson, skip_typescript)]
+    pub fn snapshot_json(&self) -> String {
+        SnapshotWire::spell(&self.inner)
     }
 
     /// A new handle on this document as a new peer: its history, a random
@@ -2724,7 +2783,7 @@ impl LiveSession {
     /// Distinct from [`apply`](Document::apply), which edits a document's
     /// content; this recompiles a document the caller already mutated.
     #[wasm_bindgen(js_name = update)]
-    pub fn update(&mut self, doc: &Document) -> Result<Ts<ChangeSet>, JsValue> {
+    pub fn update(&mut self, doc: &Snapshot) -> Result<Ts<ChangeSet>, JsValue> {
         let cs = self.inner.update(&doc.inner).map_err(js_err)?;
         self.card_kinds = card_kinds_of(&doc.inner);
         to_ts_or_throw(&ChangeSet {

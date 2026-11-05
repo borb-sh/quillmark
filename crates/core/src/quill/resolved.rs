@@ -10,7 +10,7 @@ use serde::Serialize;
 use super::compose::resolve_card_sourced;
 use super::{CalendarDate, CardSchema, Quill, QuillConfig};
 use crate::{
-    document::{Card, Document},
+    document::{Card, Snapshot},
     value::QuillValue,
 };
 
@@ -101,7 +101,7 @@ impl Quill {
     /// `today` is the render date, as [`compile_data`] takes it.
     ///
     /// [`compile_data`]: Quill::compile_data
-    pub fn resolve(&self, doc: &Document, today: CalendarDate) -> Resolved {
+    pub fn resolve(&self, doc: &Snapshot, today: CalendarDate) -> Resolved {
         resolve_document(self.config(), doc, today)
     }
 }
@@ -110,7 +110,7 @@ impl Quill {
 /// [`TypedReader::resolve`](crate::reader::TypedReader::resolve).
 pub(crate) fn resolve_document(
     config: &QuillConfig,
-    doc: &Document,
+    doc: &Snapshot,
     today: CalendarDate,
 ) -> Resolved {
     let (fields, body) = resolve_card_fields(&config.main, doc.main(), today);

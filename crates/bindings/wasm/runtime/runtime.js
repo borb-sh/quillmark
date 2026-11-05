@@ -189,16 +189,26 @@ function backendTrap(err) {
 }
 
 /**
- * Run `fn` on a transient clone of `docJson` in `mod`'s memory, then free it. A
- * call that throws can leave the clone borrowed, so its `free()` throws too, and
- * the error in flight is the one that propagates.
+ * `doc`'s cards as the JSON its snapshot spells: what crosses into a render
+ * build's memory, where no Automerge document is built from it.
+ * @param {Document} doc
+ * @returns {string}
+ */
+function snapshotJson(doc) {
+	return doc.snapshotJson();
+}
+
+/**
+ * Run `fn` on a transient snapshot of `docJson` in `mod`'s memory, then free
+ * it. A call that throws can leave the snapshot borrowed, so its `free()` throws
+ * too, and the error in flight is the one that propagates.
  * @param {any} mod
  * @param {string} docJson
  * @param {(doc: any) => any} fn
  * @returns {any}
  */
 function withDocClone(mod, docJson, fn) {
-	const backendDoc = mod.Document.fromStored(docJson);
+	const backendDoc = mod.Snapshot.fromJson(docJson);
 	let result;
 	try {
 		result = fn(backendDoc);
@@ -572,7 +582,7 @@ export class Engine {
 	 * memory and run `fn` against the backend. Only `render`/`open` call
 	 * this, so `doc` is always present.
 	 *
-	 * OWNERSHIP WINDOW: both caller handles are snapshotted (`doc.toStored()`,
+	 * OWNERSHIP WINDOW: both caller handles are snapshotted (`snapshotJson(doc)`,
 	 * and `quill.toTree()` on a clone-cache miss) BEFORE the first await. The backend load below is a real suspension point, so reading the
 	 * handles after it would race a caller that `free()`s them as soon as this
 	 * call returns its promise ("null pointer passed to rust").
@@ -590,7 +600,7 @@ export class Engine {
 	async #withClones(method, quill, doc, fn) {
 		const backendId = this.#backendOf(quill, method);
 		requireLocalDoc(doc, method);
-		const docJson = doc.toStored();
+		const docJson = snapshotJson(doc);
 		const quillTree = this.#quillClones.get(this.#descriptorFor(backendId).load)?.has(quill)
 			? null
 			: quill.toTree();
@@ -694,7 +704,7 @@ export class Engine {
 export class LiveSession {
 	/**
 	 * @param {object} inner the render build's LiveSession, whose members the delegations below name
-	 * @param {{ Document: { fromStored(json: string): any } }} mod the session's backend build, used to materialize `update` documents in its linear memory
+	 * @param {{ Snapshot: { fromJson(json: string): any } }} mod the session's backend build, used to materialize `update` snapshots in its linear memory
 	 */
 	constructor(inner, mod) {
 		this.#inner = inner;
@@ -709,7 +719,7 @@ export class LiveSession {
 	 */
 	update(doc) {
 		requireLocalDoc(doc, 'session.update(doc)');
-		const docJson = doc.toStored();
+		const docJson = snapshotJson(doc);
 		try {
 			return withDocClone(this.#mod, docJson, (backendDoc) => this.#inner.update(backendDoc));
 		} catch (err) {

@@ -1073,8 +1073,8 @@ title: Hi
         let doc = parsed.document;
         assert_eq!(serde_json::from_str::<Document>(&json).unwrap(), doc);
         let canonical = ContentModel::from_value_lenient(&noncanonical).unwrap().content;
-        assert_eq!(doc.main().body(), &canonical);
-        assert_eq!(doc.main().payload().get("note").map(|v| v.as_json().clone()), Some(canonical.to_value()));
+        assert_eq!(doc.main().body().by_place(), canonical.by_place());
+        assert_eq!(doc.main().payload().get("note").map(|v| ContentModel::from_value(v.as_json()).unwrap().by_place()), Some(canonical.by_place()));
 
         let restored = serde_json::to_string(&doc).unwrap();
         let again = Document::from_stored(&restored).unwrap();

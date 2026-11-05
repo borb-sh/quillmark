@@ -1,6 +1,6 @@
 use quillmark_core::{
     backend::{Backend, FontFace},
-    document::Document,
+    document::Snapshot,
     error::{RenderError, RenderResult, Severity},
     quill::{CalendarDate, Quill},
     session::LiveSession,
@@ -94,7 +94,7 @@ impl Engine {
     pub fn open(
         &self,
         quill: &Quill,
-        doc: &Document,
+        doc: &Snapshot,
         today: CalendarDate,
     ) -> Result<LiveSession, RenderError> {
         let backend = self.resolve_backend(quill)?;
@@ -111,7 +111,7 @@ impl Engine {
     pub fn render(
         &self,
         quill: &Quill,
-        doc: &Document,
+        doc: &Snapshot,
         today: CalendarDate,
         opts: &RenderOptions,
     ) -> Result<RenderResult, RenderError> {
@@ -123,7 +123,7 @@ impl Engine {
     pub fn render_in(
         &self,
         quill: &Quill,
-        doc: &Document,
+        doc: &Snapshot,
         today: CalendarDate,
         opts: &RenderOptions,
         u: impl Units,

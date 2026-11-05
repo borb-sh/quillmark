@@ -100,7 +100,7 @@ impl QuillConfig {
     /// [`Quill::conform`] over the schema alone, for a door that holds only the
     /// config.
     pub(crate) fn conform(&self, doc: &mut Document) -> Result<Vec<Diagnostic>, RenderError> {
-        self.check_quill_reference(doc)?;
+        self.check_quill_reference(&doc.quill_reference())?;
         let mut diags = Vec::new();
         conform_card(&self.main, &mut doc.main_card_mut(), &DocPath::main(), &mut diags);
         for index in 0..doc.cards().len() {

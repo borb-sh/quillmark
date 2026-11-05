@@ -4,6 +4,16 @@
 
 Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
 
+- refactor(core)!: **a document is its Automerge document from
+  construction.** A parse, `Document::new`, a load and a stored row each
+  build or read the Automerge document before they answer, so a `Document`
+  has one state and its cards are a view of it: a `Snapshot`, which the
+  document derefs to and `Document::snapshot` copies out. `Engine::render`,
+  `open`, `LiveSession::update`, `Quill::compile_data`, `dry_run`,
+  `validate`, `advisories` and `resolve` take `&Snapshot`, so a `&Document`
+  still passes, and a render builds no Automerge document. The WASM runtime
+  hands a document to its render build as a snapshot.
+  `normalize::normalize_document` is gone.
 - feat!: **the actor belongs to the document handle.** `doc.actor` reads
   it and `doc.setActor(actor)` (`set_actor` in Rust and Python) sets it, and
   every write and card placement through the handle writes under it.

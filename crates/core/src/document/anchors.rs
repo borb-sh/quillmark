@@ -221,8 +221,8 @@ impl Document {
     /// content: what a [whole](AnchorSelector::is_whole) selector attaches to.
     fn holds_whole(&self, path: &DocPath) -> bool {
         let card = match path.segs().first() {
-            Some(DocSeg::Main) => &self.main,
-            Some(DocSeg::Card { kind, index }) => match self.cards.get(*index) {
+            Some(DocSeg::Main) => &self.view.main,
+            Some(DocSeg::Card { kind, index }) => match self.view.cards.get(*index) {
                 Some(card) if card.kind() == kind.as_deref() => card,
                 _ => return false,
             },
@@ -246,7 +246,7 @@ impl Document {
     /// or a path naming no card.
     pub(crate) fn card_id_at(&self, path: &DocPath) -> Option<&str> {
         match path.segs().first()? {
-            DocSeg::Card { index, .. } => self.cards.get(*index)?.id(),
+            DocSeg::Card { index, .. } => self.view.cards.get(*index)?.id(),
             _ => None,
         }
     }
@@ -261,7 +261,7 @@ impl Document {
             return None;
         };
         let index = self.card_index(card_id)?;
-        if self.cards[index].kind() != kind.as_deref() {
+        if self.view.cards[index].kind() != kind.as_deref() {
             return None;
         }
         selector.path.with_card_index(index)
@@ -281,7 +281,7 @@ impl Document {
         let (at, rest) = match path.segs() {
             [DocSeg::Main, rest @ ..] => (None, rest),
             [DocSeg::Card { kind, index }, rest @ ..] => {
-                if self.cards.get(*index)?.kind() != kind.as_deref() {
+                if self.view.cards.get(*index)?.kind() != kind.as_deref() {
                     return None;
                 }
                 (Some(*index), rest)
@@ -324,8 +324,8 @@ impl Document {
     /// `visit` each body and content value with its path, in the order
     /// [`anchor_contexts`](Self::anchor_contexts) lists them.
     fn each_content(&self, visit: &mut Visit<'_>) {
-        let roots = std::iter::once((DocPath::main(), &self.main)).chain(
-            self.cards
+        let roots = std::iter::once((DocPath::main(), &self.view.main)).chain(
+            self.view.cards
                 .iter()
                 .enumerate()
                 .map(|(i, card)| (DocPath::card(card.kind(), i), card)),

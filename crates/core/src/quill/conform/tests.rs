@@ -65,7 +65,7 @@ fn quill() -> Quill {
 }
 
 fn bytes(doc: &Document) -> String {
-    serde_json::to_string(&StoredDocument::from(doc.by_place())).expect("storage DTO serializes")
+    serde_json::to_string(&StoredDocument::from(doc.clone())).expect("storage DTO serializes")
 }
 
 fn parse_bound(quill: &Quill, md: &str) -> (Document, Vec<crate::error::Diagnostic>) {
@@ -530,18 +530,7 @@ fn revise_document_revises_then_conforms() {
         "the revised card keeps its id"
     );
     assert_ne!(doc.cards()[0].id(), Some(stored_id.as_str()));
-    let without_ids = |doc: &Document| {
-        let cards: Vec<crate::document::Card> = doc
-            .cards()
-            .iter()
-            .map(|card| {
-                let mut card = card.clone();
-                card.payload_mut().remove_id();
-                card
-            })
-            .collect();
-        Document::assembled(doc.main().clone(), cards, Default::default()).to_markdown()
-    };
+    let without_ids = |doc: &Document| doc.to_markdown().lines().filter(|l| !l.starts_with("$id:")).collect::<Vec<_>>().join("\n");
     assert_eq!(without_ids(&doc), without_ids(&expected));
     let anchored = doc.cards()[1]
         .field_content("prose", crate::document::Codec::Richtext)

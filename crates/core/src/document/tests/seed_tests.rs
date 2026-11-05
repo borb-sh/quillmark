@@ -229,7 +229,7 @@ title: Hi
 ~~~
 ",
     );
-    let plate = doc.to_plate_json_gated(true, None);
+    let plate = doc.snapshot().to_plate_json_gated(true, None);
     let obj = plate.as_object().expect("plate is an object");
     for key in ["$ext", "ext", "$seed", "seed"] {
         assert!(!obj.contains_key(key), "plate carries `{key}`: {plate}");

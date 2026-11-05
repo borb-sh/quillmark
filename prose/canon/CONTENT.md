@@ -201,9 +201,9 @@ Text deleted under a range anchor shrinks it to what survives. An anchor whose t
 
 ## Live state and merge
 
-A document holds its cards in one Automerge document (`quillmark-automerge`, `model::Doc`), and the cards a reader sees are a view of it. `Document::load` holds one from the start; a parse, `Document::new` or a stored row holds one from its first write, save or sync, and until then its cards are its state, so a document read only to render builds none.
+A document is one Automerge document (`quillmark-automerge`, `model::Doc`) from construction, and the cards a reader sees are a view of it. A parse, `Document::new` and a load each build or read one before they answer, so a document has one state.
 
-Once held, every card edit, a typed writer's `set` included, is an Automerge write of the parts it changed, the layout, a field, `$ext`/`$seed`, the nested comments or the body, each value written in place, and a whole-document revise writes each value that differs.
+Every card edit, a typed writer's `set` included, is an Automerge write of the parts it changed, the layout, a field, `$ext`/`$seed`, the nested comments or the body, each value written in place, and a whole-document revise writes each value that differs.
 
 The view then takes Automerge's patches since the edit, as it does a peer's from `merge` and `receiveSyncMessage`: a body or content field the patches only splice is followed over the value the view held, and every other part they reach is read again, nothing else. How the document lays out cards, fields and values is [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)'s; how a value is held, a change lowered and a write isolated at earlier heads is the `quillmark-automerge` rustdoc's.
 

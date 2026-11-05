@@ -1,4 +1,4 @@
-//! Assembly of card-yaml blocks into a [`Document`]: the top-level parsing glue
+//! Assembly of card-yaml blocks into a [`Snapshot`](super::Snapshot): the top-level parsing glue
 //! over the fence scanner, the YAML payload parse, and `$` metadata extraction.
 //!
 //! Both `$` system metadata and user fields become [`PayloadItem`] variants in
@@ -15,7 +15,7 @@ use super::meta::{extract_meta_items, meta_key, yaml_type_name};
 use super::payload::{MetaKey, Payload, PayloadItem};
 
 use super::prescan::{NestedComment, PreItem, Refusal, prescan_fence_content};
-use super::{Card, Document};
+use super::Card;
 use quillmark_automerge::content::lines::import::{ImportError, Imported};
 
 /// A `MissingQuill` message naming the specific malformation. LLM authors hit a
@@ -323,7 +323,7 @@ pub(super) fn build_block(
     })
 }
 
-/// Decompose markdown into a typed [`Document`], its non-fatal warnings (the
+/// Decompose markdown into its [`Snapshot`](super::Snapshot), its non-fatal warnings (the
 /// fence scan's, then each card's YAML-tag and body-import warnings in card
 /// order) and each body's markdown, the main card's first, every body read
 /// through `import`. Each card holds the `$id` it spells, or none: the caller
@@ -331,7 +331,7 @@ pub(super) fn build_block(
 pub(super) fn decompose_with_warnings(
     markdown: &str,
     import: Import,
-) -> Result<(Document, Vec<Diagnostic>, Vec<String>), crate::error::ParseError> {
+) -> Result<(super::Snapshot, Vec<Diagnostic>, Vec<String>), crate::error::ParseError> {
     let markdown = markdown.strip_prefix('\u{FEFF}').unwrap_or(markdown);
 
     if markdown.trim().is_empty() {
@@ -511,7 +511,7 @@ pub(super) fn decompose_with_warnings(
         cards.push(Card::from_parts(card_payload, card_body));
     }
 
-    Ok((Document::assembled(main, cards, Default::default()), warnings, bodies))
+    Ok((super::Snapshot { main, cards }, warnings, bodies))
 }
 
 /// Validate a user field entering the payload from the parse path, mapping a

@@ -178,7 +178,7 @@ impl<'a> TypedWriter<'a> {
 
     fn revise_parsed(&mut self, revising: Revising) -> Result<DocumentRevised, BoundParseError> {
         self.config
-            .check_quill_reference(&revising.parsed.document)?;
+            .check_quill_reference(revising.cards.main().quill().expect("a parse validates the root's `$quill`"))?;
         let mut revised = self.doc.revise_parsed(revising);
         revised.warnings.extend(
             self.config
