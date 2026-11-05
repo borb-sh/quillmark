@@ -153,7 +153,7 @@ fn test_document_new_blank_canvas() {
     assert!(doc.cards().is_empty());
     assert_eq!(doc.main().body_markdown(), "");
 
-    doc.main_card_mut().store_fields([("title", "Hello")]).unwrap();
+    doc.edit_card(None, |c| c.store_fields([("title", "Hello")])).unwrap();
     let mut card = Card::new("note").unwrap();
     card.store_field("qty", 3).unwrap();
     doc.unchecked().insert_card(None, card).unwrap();
@@ -963,8 +963,7 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
     let max = crate::error::MAX_FIELD_COUNT;
     let names: Vec<String> = (0..max).map(|i| format!("f{i}")).collect();
     let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
-    doc.main_card_mut()
-        .store_fields(names.iter().map(|n| (n.as_str(), qv("v"))))
+    doc.edit_card(None, |c| c.store_fields(names.iter().map(|n| (n.as_str(), qv("v")))))
         .expect("a batch that fills the card exactly to the cap lands");
     assert_eq!(doc.main().payload().len(), max);
 
@@ -980,7 +979,7 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
             .unwrap_err(),
     );
     refused.push(
-        commit_richtext(&mut doc.main_card_mut(), "late", &serde_json::json!("v"), false).unwrap_err(),
+        doc.edit_card(None, |c| commit_richtext(c, "late", &serde_json::json!("v"), false)).unwrap_err(),
     );
     for err in refused {
         assert_eq!(err.code(), "edit::invalid_payload");
@@ -1006,18 +1005,11 @@ fn a_batch_past_the_count_names_its_overflowing_tail() {
     let max = crate::error::MAX_FIELD_COUNT;
     let names: Vec<String> = (0..max - 1).map(|i| format!("f{i}")).collect();
     let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
-    doc.main_card_mut()
-        .store_fields(names.iter().map(|n| (n.as_str(), qv("v"))))
+    doc.edit_card(None, |c| c.store_fields(names.iter().map(|n| (n.as_str(), qv("v")))))
         .expect("one slot short of the cap");
 
     let errs = doc
-        .main_card_mut()
-        .store_fields([
-            ("f0", qv("replaced")),
-            ("a", qv("v")),
-            ("b", qv("v")),
-            ("c", qv("v")),
-        ])
+        .edit_card(None, |c| c.store_fields([("f0", qv("replaced")), ("a", qv("v")), ("b", qv("v")), ("c", qv("v"))]))
         .unwrap_err();
     assert_eq!(
         errs.iter()

@@ -991,7 +991,7 @@ impl std::ops::Deref for CardMut<'_> {
 
 impl Document {
     pub fn set_quill_ref(&mut self, reference: QuillReference) {
-        self.main_card_mut().payload_mut().set_quill(reference);
+        self.edit_card(None, |c| c.payload_mut().set_quill(reference));
     }
 
     pub fn card_mut(&mut self, index: usize) -> Option<CardMut<'_>> {
@@ -1087,12 +1087,7 @@ impl Document {
     ) -> Result<(), EditError> {
         let new_kind = new_kind.into();
         check_kind(&new_kind)?;
-        let len = self.cards().len();
-        let mut card = self
-            .card_edit(index)
-            .ok_or(EditError::IndexOutOfRange { index, len })?;
-        card.payload_mut().set_kind(new_kind);
-        Ok(())
+        self.edit_card_at(index, |c| c.payload_mut().set_kind(new_kind))
     }
 
     /// Move card at `from` to position `to`. No-op when `from == to`.
@@ -1131,12 +1126,10 @@ impl Unchecked<'_> {
         name: &str,
         value: impl Into<QuillValue>,
     ) -> Result<(), EditError> {
-        let len = self.0.cards().len();
-        let mut card = match card {
-            None => self.0.main_card_mut(),
-            Some(index) => self.0.card_edit(index).ok_or(EditError::IndexOutOfRange { index, len })?,
-        };
-        card.store_field(name, value)
+        match card {
+            None => self.0.edit_card(None, |c| c.store_field(name, value)),
+            Some(index) => self.0.edit_card_at(index, |c| c.store_field(name, value))?,
+        }
     }
 
     /// Place a composable card at `at` (`None` appends; past the last card

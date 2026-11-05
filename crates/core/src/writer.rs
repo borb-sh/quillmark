@@ -72,13 +72,7 @@ impl<'a> TypedWriter<'a> {
         value: impl Into<QuillValue>,
     ) -> Result<Vec<Diagnostic>, EditError> {
         let schema = Some(&self.config.main.fields);
-        commit_impl(
-            &mut self.doc.main_card_mut(),
-            schema,
-            name,
-            value,
-            &DocPath::main(),
-        )
+        self.doc.edit_card(None, |c| commit_impl(c, schema, name, value, &DocPath::main()))
     }
 
     /// Write several main-card fields atomically, the typed twin of
@@ -100,7 +94,7 @@ impl<'a> TypedWriter<'a> {
         I: IntoIterator<Item = (K, V)>,
     {
         let schema = Some(&self.config.main.fields);
-        set_all_impl(&mut self.doc.main_card_mut(), schema, fields, &DocPath::main())
+        self.doc.edit_card(None, |c| set_all_impl(c, schema, fields, &DocPath::main()))
     }
 
     /// Revise the main card's body or a content field from authored text:
@@ -272,9 +266,9 @@ impl<'a> CardWriter<'a> {
             .expect("bound in range, and cards cannot move while this cursor holds the document")
     }
 
-    fn card_mut(&mut self) -> crate::document::CardEdit<'_> {
+    fn edit<R>(&mut self, f: impl FnOnce(&mut Card) -> R) -> R {
         self.doc
-            .card_edit(self.index)
+            .edit_card_at(self.index, f)
             .expect("bound in range, and cards cannot move while this cursor holds the document")
     }
 
@@ -306,7 +300,7 @@ impl<'a> CardWriter<'a> {
     ) -> Result<Vec<Diagnostic>, EditError> {
         let schema = self.fields_schema();
         let base = self.base();
-        commit_impl(&mut self.card_mut(), schema, name, value, &base)
+        self.edit(|c| commit_impl(c, schema, name, value, &base))
     }
 
     /// The card twin of [`TypedWriter::revise`], resolved against the card's
@@ -336,7 +330,7 @@ impl<'a> CardWriter<'a> {
     {
         let schema = self.fields_schema();
         let base = self.base();
-        set_all_impl(&mut self.card_mut(), schema, fields, &base)
+        self.edit(|c| set_all_impl(c, schema, fields, &base))
     }
 }
 

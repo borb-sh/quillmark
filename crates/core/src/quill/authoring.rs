@@ -86,7 +86,7 @@ impl Quill {
                 ));
             }
         }
-        fill_card(&mut document.main_card_mut(), root, &DocPath::main(), "", &mut errors, &mut warnings);
+        document.edit_card(None, |c| fill_card(c, root, &DocPath::main(), "", &mut errors, &mut warnings));
 
         let cards = match root.get("cards") {
             None | Some(JsonValue::Null) => &[][..],

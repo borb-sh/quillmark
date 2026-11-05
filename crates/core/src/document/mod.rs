@@ -1185,41 +1185,6 @@ impl std::fmt::Debug for Held {
     }
 }
 
-/// One card of a [`Document`] under edit: a `&mut Card` whose edits are
-/// written into the document's Automerge document when it drops.
-pub(crate) struct CardEdit<'a> {
-    doc: &'a mut Document,
-    at: Option<usize>,
-    id: Option<String>,
-}
-
-impl<'a> CardEdit<'a> {
-    fn new(doc: &'a mut Document, at: Option<usize>) -> Self {
-        let id = doc.begin_edit(at);
-        CardEdit { doc, at, id }
-    }
-}
-
-impl std::ops::Deref for CardEdit<'_> {
-    type Target = Card;
-
-    fn deref(&self) -> &Card {
-        self.doc.card_at(self.at)
-    }
-}
-
-impl std::ops::DerefMut for CardEdit<'_> {
-    fn deref_mut(&mut self) -> &mut Card {
-        self.doc.card_raw_mut(self.at)
-    }
-}
-
-impl Drop for CardEdit<'_> {
-    fn drop(&mut self) {
-        self.doc.end_edit(self.at, self.id.take());
-    }
-}
-
 /// A document reads as its cards: every read of [`Snapshot`] is a read of
 /// the view its Automerge document holds.
 impl std::ops::Deref for Document {
@@ -1596,12 +1561,13 @@ impl Document {
         CardMut::new(self, None)
     }
 
-    pub(crate) fn main_card_mut(&mut self) -> CardEdit<'_> {
-        CardEdit::new(self, None)
-    }
-
-    /// The composable card at `index` to edit, `None` where none is.
-    pub(crate) fn card_edit(&mut self, index: usize) -> Option<CardEdit<'_>> {
-        (index < self.view.cards.len()).then(|| CardEdit::new(self, Some(index)))
+    /// [`edit_card`](Self::edit_card) on the composable card at `index`,
+    /// [`EditError::IndexOutOfRange`] where none is.
+    pub(crate) fn edit_card_at<R>(&mut self, index: usize, f: impl FnOnce(&mut Card) -> R) -> Result<R, EditError> {
+        let len = self.view.cards.len();
+        if index >= len {
+            return Err(EditError::IndexOutOfRange { index, len });
+        }
+        Ok(self.edit_card(Some(index), f))
     }
 }
