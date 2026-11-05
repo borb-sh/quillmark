@@ -15,7 +15,7 @@ use quillmark_content::lines::import::ImportError;
 #[cfg(test)]
 use quillmark_content::lines::model::Lines;
 
-use crate::document::base::{Base, BaseError};
+use crate::document::base::BaseError;
 use crate::document::meta::{CardKindError, validate_composable_kind};
 use crate::document::payload::MetaKey;
 use crate::document::{Card, Codec, ContentDecodeError, Document, Payload, PayloadItem};
@@ -247,7 +247,7 @@ pub enum EditError {
     #[error("invalid actor '{0}': must be 1 to 57 of [A-Za-z0-9_-], opening with a letter or digit")]
     InvalidActor(String),
 
-    /// A revise's [`Base`] refused the write.
+    /// A write's base no longer names the value: `edit::stale_base`.
     #[error(transparent)]
     Base(BaseError),
 }
@@ -965,7 +965,7 @@ impl<'a> CardMut<'a> {
     pub fn revise_field_checked_against(
         &mut self,
         name: &str,
-        base: Base<'_>,
+        base: &str,
         body: impl Into<String>,
         schema: &FieldSchema,
     ) -> Result<super::Receipt, EditError> {
@@ -1489,17 +1489,11 @@ impl Card {
     /// [`revise`](Self::revise) builds it, landed nowhere.
     fn revision(
         &self,
-        target: super::Target<'_>,
         before: &quillmark_content::model::Content,
         markdown: &str,
     ) -> Result<quillmark_content::diff::Revision, EditError> {
         quillmark_content::diff::revise(before, markdown).map_err(|e| match e {
             quillmark_content::diff::ReviseError::Import(e) => EditError::import(e),
-            quillmark_content::diff::ReviseError::Conflict(c) => EditError::Base(super::BaseError::rebase_conflict(
-                super::content_hash(before),
-                target.field().map(str::to_string),
-                &c,
-            )),
             quillmark_content::diff::ReviseError::Refused(e) => EditError::change(e),
         })
     }
@@ -1530,14 +1524,14 @@ impl Card {
                 Some(v) => Codec::Text.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Text, e))?,
             };
             before.codec = Codec::Text.content();
-            let revised = self.revision(target, &before, &text)?;
+            let revised = self.revision(&before, &text)?;
             let stored = QuillValue::from_json(revised.content.to_value());
             return self.revising(target, Vec::new(), |card| {
                 card.payload_mut().insert(name.to_string(), stored).map(|_| ()).map_err(EditError::InvalidPayload)
             });
         }
         let before = self.richtext_value(name)?;
-        let revised = self.revision(target, &before, &body.into())?;
+        let revised = self.revision(&before, &body.into())?;
         super::write::keeps_ext_islands(&before, &revised.content)?;
         let (stored, _) = resolve_field_write(
             name,

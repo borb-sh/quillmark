@@ -98,30 +98,13 @@ peer of the render-path namespaces. Identity is the code, never message text:
 routing coercion-vs-undeclared is `edit::field_coercion_failed` vs.
 `edit::unknown_field`, read off `diagnostics[0].code`.
 
-A revise guarded by what its writer read (a `Base`) refuses under two more:
-`edit::stale_base` when the value no longer hashes to the writer's
-`baseHash` and the card's change log no longer reaches it (a whole document
-always, since it keeps no log; a body or field rebases while the log reaches
-the base), and `edit::rebase_conflict` when the writer's edit of its base and the
-change made since touch the same text or record. A whole
-document under `baseStored` refuses only where no merge can stand (a side
-reordered the cards, or both changed a card's `$quill`, `$seed` or `$ext`
-apart); a place both changed is not an error but an entry in the receipt's
-`conflicts`, its value now kept. Both refusals carry
-`current`, the hash of the value now: a writer reads the value again, checks
-that read against `current`, and writes from it. Retrying the same markdown
-under `current` lands the revert the base refused. A refusal on a field
-anchors at the field. The whole-document revise raises them through
-`BoundParseError::Base`, as it raises a parse failure, before any mutation.
+A write guarded by what its writer read refuses under one more: `edit::stale_base` when the value no longer hashes to the writer's base, the hash it read. The content writes (`apply`, `revise`, `replace`) take it as `base`, the writer's revise and whole-document revise as `baseHash`. Core is single-writer, so a base is a precondition and never merges:
 
-The content writes (`apply`, `revise`, `replace`) take a
-`base` hash. A base the value has moved on from rebases the write over the
-change since, and a write that conflicts with it refuses under
-`edit::rebase_conflict`, carrying `current`, the `step` of the writer's change
-that conflicts, and the `reason` (`deleted`, `changed`, `missing`, `refused`).
-A base the document no longer holds the change since for refuses under
-`edit::stale_base`, carrying `current`. The pure `rebase` raises the same
-conflict, its `current` the hash of the value `since` left. A change that does not apply to the value, or would leave it
+- The refusal writes nothing and carries `current`, the hash of the value now. A writer reads the value again, checks that read against `current`, and writes from it; retrying the same write under `current` lands the revert the base refused.
+- A refusal on a field anchors at the field. The whole-document revise raises it through `BoundParseError::Base`, as it raises a parse failure, before any mutation.
+- Writers that answer late and must merge with what landed since go through `@quillmark/collab`.
+
+A change that does not apply to the value, or would leave it
 invalid, is `edit::content_apply`, and writes nothing; its `reason` names the refusal (`stale`, `unknown_block`, `unknown_container`, `container_kind`, `container_in_use`, `unknown_anchor`, `anchor_held`, `unknown_island`, `unknown_slot`, `bad_step`, `invalid`), with the `step` it refuses at for `stale` and `bad_step` ([CONTENT.md](CONTENT.md)); the whole-document revise reports it as a warning at the value it leaves as stored.
 Four bounds refuse under codes of their own, each carrying the `max` it
 passed ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content
@@ -243,7 +226,7 @@ families:
   `revise_document`) carries the parse's warnings, then each revised content
   field's at the field, on `DocumentRevised.warnings`. `add_card` returns it
   at the placed card's body, on `CardAdded.warnings` beside the card's `id`,
-  WASM `importMarkdown` and `rebase` beside the content with no `path`.
+  WASM `importMarkdown` beside the content with no `path`.
   Python's `add_card` returns them under its dict's `warnings`, beside `id`,
   and its `revise` / `revise_document` under the dict receipt's
   `warnings`, as `Diagnostic` objects. A typed `set` / `set_all` returns
@@ -600,7 +583,6 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::too_many_anchors` | `count`, `max` | structured |
 | `edit::invalid_payload` | — | fallback |
 | `edit::stale_base` | `current` | structured |
-| `edit::rebase_conflict` | `current`, `step`?, `reason`? | structured |
 | `edit::drops_ext_island` | `island`, `type` | structured |
 | `edit::invalid_actor` | `actor` | structured |
 | `conform::invalid_field_name` | `field` | structured |

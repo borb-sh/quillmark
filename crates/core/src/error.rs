@@ -819,12 +819,6 @@ mod args_canon {
                 current: "h".into(),
                 field: None,
             }),
-            EditError::Base(crate::document::BaseError::Conflict {
-                current: "h".into(),
-                field: None,
-                step: Some(1),
-                reason: Some("deleted"),
-            }),
             EditError::DropsExtIsland {
                 island: "isl-x".into(),
                 kind: "x-chart".into(),

@@ -451,8 +451,8 @@ from the ids involved ([CONTENT.md](CONTENT.md) § "Merge repair").
 A markdown revise keeps the ids of what it kept (`diff::align`), an island
 equal to a stored one or named by a `qm-island` tag keeping its id, and mints
 every other part past the highest id the value held, so none takes a dropped
-part's id. How a revise or replace mints over a stale base, reading values and
-never the change log, is CONTENT.md § "Writing a value".
+part's id. How a revise or replace mints, reading the value and the write
+alone, is CONTENT.md § "Writing a value".
 
 Re-landing a dropped part is not a mint: the delete freed the id and it travels
 back with its part in the inverse, so restoring a deletion restores the bytes.

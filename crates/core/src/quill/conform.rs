@@ -32,8 +32,8 @@ pub enum BoundParseError {
     /// (`quill::name_mismatch` / `quill::version_mismatch`).
     #[error(transparent)]
     Mismatch(#[from] RenderError),
-    /// A guarded revise's [`Base`](crate::document::Base) refused the write
-    /// (`edit::stale_base` / `edit::rebase_conflict`).
+    /// A guarded revise's base no longer names the document
+    /// (`edit::stale_base`).
     #[error(transparent)]
     Base(#[from] crate::document::BaseError),
 }

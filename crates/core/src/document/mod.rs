@@ -661,7 +661,6 @@ pub mod dto;
 pub mod edit;
 pub mod emit;
 pub mod fences;
-pub mod merge;
 pub mod meta;
 pub mod payload;
 pub(crate) mod prescan;
@@ -671,14 +670,13 @@ pub mod write;
 pub(crate) mod yaml_hints;
 
 pub use anchors::AnchorSelector;
-pub use base::{Base, BaseError, DocumentBase, HASH_TAG, content_hash, value_hash};
+pub use base::{BaseError, HASH_TAG, content_hash, value_hash};
 pub use dto::{
     STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, STORAGE_V0_135_0, StorageError,
     StoredDocument, peek_storage_version,
 };
 pub use edit::{CardMut, EditError, Unchecked};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
-pub use merge::MergeConflict;
 pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
 pub use payload::{MetaKey, Payload, PayloadItem};
 /// Returned by [`Document::reattach`], so nameable from here.
@@ -693,7 +691,7 @@ pub use revise::DocumentRevised;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};
-pub use write::{Edit, LOG_STEPS, Located, MAX_CHANGE_STEPS, Receipt, Target, WriteOptions, check_change, check_content_value};
+pub use write::{Edit, Located, MAX_CHANGE_STEPS, Receipt, Target, WriteOptions, check_change, check_content_value};
 
 /// Where Quillmark Markdown departs from plain Markdown and YAML, as rules
 /// surfaced verbatim to LLM/MCP consumers and to the bindings. The single
@@ -743,7 +741,6 @@ pub struct Card {
     /// `body` lowered to the line form the codecs and renderers read, made
     /// when first read.
     lines: Lowered,
-    log: write::ChangeLog,
     hashes: Hashes,
 }
 
@@ -819,7 +816,7 @@ impl Card {
     /// Create a `Card` from its parts without validation.
     pub(crate) fn from_parts(payload: Payload, body: impl IntoBody) -> Self {
         let body = body.into_body();
-        Self { payload, body, lines: Lowered::default(), log: write::ChangeLog::default(), hashes: Hashes::default() }
+        Self { payload, body, lines: Lowered::default(), hashes: Hashes::default() }
     }
 
     pub fn quill(&self) -> Option<&QuillReference> {

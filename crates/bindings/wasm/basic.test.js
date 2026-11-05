@@ -731,29 +731,25 @@ describe('Document apply: the write primitive', () => {
     const receipt = doc.apply({}, { steps: [{ splice: { at: 0, delete: 'Body', insert: 'Text' } }] }, { base })
     expect(receipt.hash).toBe(doc.hash({}))
     expect(receipt.applied.steps).toHaveLength(1)
-    expect(doc.apply({}, { steps: [] }, { base }).rebased).toBe(true)
-    expectEditCode(() => doc.apply({}, { steps: [] }, { base: 'never-read' }), 'edit::stale_base')
+    const stale = expectEditCode(() => doc.apply({}, { steps: [] }, { base }), 'edit::stale_base')
+    expect(stale.diagnostics[0].args).toEqual({ current: receipt.hash })
     expect(() => doc.apply({}, { steps: [] }, { baseMarkdown: 'Body.' })).toThrow(/unknown key `baseMarkdown`/)
 
     doc.apply({}, invert(receipt.applied, before), { base: receipt.hash })
     expect(doc.read({})).toEqual(before)
   })
 
-  it('a stale base rebases a write over the change since, offsets in UTF-16 as the writer read them', () => {
+  it('a stale base refuses a write with the hash now, under which it lands, offsets in UTF-16', () => {
     const doc = blankDoc()
     doc.replace({}, importMarkdown('😀 hello world').content)
     const base = doc.hash({})
     doc.apply({}, { steps: [{ splice: { at: 0, delete: '', insert: '🎉 ' } }] })
-    const anchor = { steps: [{ anchor: { id: 'a1', start: 9, end: 14, quote: 'world' } }] }
-    const receipt = doc.apply({}, anchor, { base })
-    expect(receipt.rebased).toBe(true)
-    expect(receipt.applied.steps[0].anchor).toMatchObject({ start: 12, end: 17 })
+    const held = doc.read({})
+    const err = expectEditCode(() => doc.apply({}, { steps: [{ anchor: { id: 'a1', start: 9, end: 14, quote: 'world' } }] }, { base }), 'edit::stale_base')
+    expect(err.diagnostics[0].args).toEqual({ current: doc.hash({}) })
+    expect(doc.read({})).toEqual(held)
+    doc.apply({}, { steps: [{ anchor: { id: 'a1', start: 12, end: 17, quote: 'world' } }] }, { base: err.diagnostics[0].args.current })
     expect(doc.read({}).anchors).toEqual([{ id: 'a1', start: 12, end: 17 }])
-
-    const reworded = { steps: [{ splice: { at: 9, delete: 'world', insert: 'there' } }] }
-    doc.apply({}, { steps: [{ splice: { at: 14, delete: 'r', insert: 'R' } }] })
-    const err = expectEditCode(() => doc.apply({}, reworded, { base }), 'edit::rebase_conflict')
-    expect(err.diagnostics[0].args).toMatchObject({ current: doc.hash({}), step: 0, reason: 'changed' })
   })
 
   it('a quoted step refuses text its writer did not read, offsets in UTF-16', () => {
@@ -814,8 +810,8 @@ describe('Document apply: the write primitive', () => {
     expect(split.applied.steps[0].splice.at).toBe(4)
     expect(split.minted).toEqual({ '?0': 'ann:b0' })
     expect(doc.read({}).text).toBe('😀 a\nb\none\ntwo')
-    const stale = doc.splitBlock({}, 1 + 2, { base, actor: 'bo', id: 'mine' })
-    expect(stale.rebased).toBe(true)
+    expectEditCode(() => doc.splitBlock({}, 1 + 2, { base, actor: 'bo', id: 'mine' }), 'edit::stale_base')
+    doc.splitBlock({}, 1 + 2, { base: split.hash, actor: 'bo', id: 'mine' })
     expect(doc.read({}).text).toBe('😀 \na\nb\none\ntwo')
     doc.joinBlocks({}, 'mine')
     doc.joinBlocks({}, 'ann:b0')
@@ -863,13 +859,12 @@ describe('Document apply: the write primitive', () => {
     const doc = blankDoc()
     doc.replace({}, importMarkdown('one').content)
     const base = doc.hash({})
-    doc.apply({}, { steps: [{ splice: { at: 3, insert: ' more' } }] })
     const change = { steps: [
       { splice: { at: 3, insert: '\nnew', blocks: [{ id: '?n', kind: 'para' }] } },
       { setBlock: { id: '?n', kind: 'heading', attrs: { level: 2 } } },
     ] }
     const receipt = doc.apply({}, change, { base, actor: 'ann' })
-    expect(receipt).toMatchObject({ rebased: true, minted: { '?n': 'ann:b0' } })
+    expect(receipt.minted).toEqual({ '?n': 'ann:b0' })
     expect(doc.read({}).blocks[1]).toEqual({ id: 'ann:b0', kind: 'heading', attrs: { level: 2 } })
   })
 

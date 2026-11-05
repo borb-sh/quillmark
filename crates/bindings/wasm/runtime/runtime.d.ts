@@ -155,7 +155,6 @@ export type {
 	DocumentBaseOptions,
 	DocumentRevised,
 	CardAdded,
-	MergeConflict,
 	AnnotatedMarkdown,
 	AnnotatedExport,
 	DocumentAnchor,
@@ -735,7 +734,7 @@ export declare class DocumentWriter {
 	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**
 	 * Revise the body or content field at `addr` from authored text: anchors
-	 * rebase, and the write answers the `Receipt` a content write does,
+	 * ride the diff, and the write answers the `Receipt` a content write does,
 	 * `applied` the change from the value before, its warnings at the value,
 	 * and the anchors the write dropped or moved. A bare string is `Addr`
 	 * shorthand for `{ field }`; an absent `addr.field` is the body, an absent
@@ -748,30 +747,25 @@ export declare class DocumentWriter {
 	 * field's result is schema-conformed (a one-paragraph `richtext` rejects a
 	 * multi-block result), and an undeclared name throws `UnknownField`.
 	 *
-	 * `opts` names what the writer read: its `baseHash` (from {@link hashAt})
-	 * or its `baseContent` (the `Content` `doc.read` returned). A value that has
-	 * moved on rebases the write over the change since and sets `rebased`,
-	 * throwing `edit::rebase_conflict` where the two touch; a `baseHash` throws
-	 * `edit::stale_base` where the log no longer reaches it.
+	 * `opts.baseHash` names what the writer read, the hash {@link hashAt}
+	 * answered. A value that hashes otherwise throws `edit::stale_base`,
+	 * carrying `current`, and writes nothing.
 	 */
 	revise(addr: Addr | string, text: string, opts?: BaseOptions): Receipt;
 	/**
 	 * Replace the bound document with `markdown`, then conform it. Composable
 	 * cards align to the stored ones by `$kind` and text similarity, an aligned
-	 * card's body and stored content fields revise, their anchors rebasing as
-	 * {@link revise}'s do, and every declared content field lands in its stored form.
+	 * card's body and stored content fields revise, their anchors riding the diff
+	 * as {@link revise}'s do, and every declared content field lands in its stored form.
 	 * Returns the `DocumentRevised` receipt, its `from` naming the stored card
 	 * each composable card revises and its `warnings` ending with the
 	 * `conform::*` ones, and clears `doc.warnings`. Throws when `markdown`
 	 * declares a `$quill` this quill does not answer to, or does not parse,
 	 * leaving the document unchanged.
 	 *
-	 * `opts` names what the writer read: `baseHash` is {@link hash}, and
-	 * `baseStored` the `doc.toStored()` row it read. A stale hash throws before
-	 * any mutation. A stored base merges the write onto what changed since,
-	 * card by card and field by field: each place both changed keeps its value
-	 * now and is named in the receipt's `conflicts`, and the write throws
-	 * `edit::rebase_conflict` only where no merge can stand.
+	 * `opts.baseHash` names what the writer read, the hash {@link hash}
+	 * answered. A document that hashes otherwise throws `edit::stale_base`
+	 * before any mutation.
 	 */
 	reviseDocument(markdown: string, opts?: DocumentBaseOptions): DocumentRevised;
 	/**

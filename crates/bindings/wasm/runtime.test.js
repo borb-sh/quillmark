@@ -156,9 +156,8 @@ card_kinds:
     const doc = blankDoc()
     const ed = quill.writer(doc)
     const receipt = ed.revise({}, 'New **body**.')
-    expect(Object.keys(receipt).sort()).toEqual(['applied', 'droppedAnchors', 'hash', 'minted', 'movedAnchors', 'rebased', 'warnings'])
+    expect(Object.keys(receipt).sort()).toEqual(['applied', 'droppedAnchors', 'hash', 'minted', 'movedAnchors', 'warnings'])
     expect(receipt.hash).toBe(doc.hashAt({}))
-    expect(receipt.rebased).toBe(false)
     expect(doc.toMarkdown({})).toBe('New **body**.')
     const { warnings } = ed.revise('subject', 'Q3 <kbd>**results**</kbd>')
     expect(warnings.map((w) => [w.code, w.path])).toEqual([
@@ -200,40 +199,24 @@ card_kinds:
     ])
   })
 
-  it('a stale baseHash or baseContent rebases a revise, an unknown hash refuses, and a baseStored merges a document', () => {
+  it('a revise or a document revise lands under the hash now and refuses a stale one', () => {
     const doc = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nAlpha.\n\nBeta.\n\nGamma.')
     const ed = buildQuill().writer(doc)
-    const read = doc.toMarkdown(undefined, { annotated: true }).markdown
-    const stored = doc.toStored()
-    const base = doc.read({})
-    ed.revise({}, 'Alpha, edited.\n\nBeta.\n\nGamma.')
-    const long = 'Alpha one two three.\n\nBeta four five six.'
-    ed.revise({}, long)
-    const longHash = doc.hashAt({})
-    ed.revise({}, 'Alpha one two three, edited.\n\nBeta four five six.')
-    expect(ed.revise({}, 'Alpha one two three.\n\nBeta four five six, mine.', { baseHash: longHash }).rebased).toBe(true)
-    expect(doc.toMarkdown({})).toBe('Alpha one two three, edited.\n\nBeta four five six, mine.')
-    ed.revise({}, 'Alpha, edited.\n\nBeta.\n\nGamma.')
-    expect(() => ed.revise({}, 'Other.', { baseHash: 'never-read' })).toThrow(
-      expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base', args: { current: doc.hashAt({}) } })] }),
+    const read = doc.toMarkdown()
+    const hash = doc.hashAt({})
+    const whole = ed.hash()
+    const { hash: next } = ed.revise({}, 'Alpha, edited.\n\nBeta.\n\nGamma.', { baseHash: hash })
+    expect(next).toBe(doc.hashAt({}))
+    const held = doc.toStored()
+    expect(() => ed.revise({}, 'Alpha.\n\nBeta, mine.\n\nGamma.', { baseHash: hash })).toThrow(
+      expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base', args: { current: next } })] }),
     )
-    ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { baseStored: stored })
-    expect(doc.toMarkdown({})).toBe('Alpha, edited.\n\nBeta.\n\nGamma, rewritten.')
-    expect(ed.reviseDocument(read.replace('Alpha.', 'Alpha, mine.'), { baseStored: stored }).conflicts).toEqual([
-      {
-        path: 'main.body',
-        base: 'Alpha.\n\nBeta.\n\nGamma.',
-        current: 'Alpha, edited.\n\nBeta.\n\nGamma, rewritten.',
-        proposed: 'Alpha, mine.\n\nBeta.\n\nGamma.',
-      },
-    ])
-    expect(ed.revise({}, 'Alpha.\n\nBeta, mine.\n\nGamma.', { baseContent: base }).rebased).toBe(true)
-    expect(doc.toMarkdown({})).toBe('Alpha, edited.\n\nBeta, mine.\n\nGamma, rewritten.')
-    expectEditCode(
-      () => ed.revise({}, 'Alph!\n\nBeta.\n\nGamma.', { baseContent: base }),
-      'edit::rebase_conflict',
-    )
-    expect(() => ed.reviseDocument(read, { baseHash: 'x', baseStored: stored })).toThrow(/not both/)
+    expectEditCode(() => ed.reviseDocument(read.replace('Gamma.', 'Gamma, mine.'), { baseHash: whole }), 'edit::stale_base')
+    expect(doc.toStored()).toBe(held)
+    ed.reviseDocument(doc.toMarkdown().replace('Gamma.', 'Gamma, mine.'), { baseHash: ed.hash() })
+    expect(doc.toMarkdown({})).toBe('Alpha, edited.\n\nBeta.\n\nGamma, mine.')
+    expect(() => ed.revise({}, 'x', { baseContent: doc.read({}) })).toThrow(/unknown option `baseContent`/)
+    expect(() => ed.reviseDocument(read, { baseStored: held })).toThrow(/unknown option `baseStored`/)
     expect(() => ed.revise({}, 'x', { baseHash: undefined })).toThrow(/baseHash must be given a value/)
   })
 
@@ -293,7 +276,7 @@ card_kinds:
     const receipt = ed.reviseDocument(
       '~~~card-yaml\n$quill: editor_test\nsubject: Q3 **results**\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nprose: fresh\n~~~\n\n~~~card-yaml\n$kind: note\nprose: kept\n~~~\n',
     )
-    expect(Object.keys(receipt).sort()).toEqual(['conflicts', 'droppedAnchors', 'from', 'warnings'])
+    expect(Object.keys(receipt).sort()).toEqual(['droppedAnchors', 'from', 'warnings'])
     expect(receipt.from).toEqual([null, 0])
     expect(receipt.droppedAnchors).toEqual([])
     expect(receipt.warnings).toEqual([])
@@ -494,7 +477,7 @@ card_kinds:
     expect(read.markdown).toBe('# Plan\n\nMain <qm-anchor ref="c1"></qm-anchor>**body**.')
     expect(read.anchors).toEqual([{ id: 'c1', path: 'main.body', line: 'Main body.' }])
     expect(doc.toMarkdown('subject', { annotated: true })).toEqual({ markdown: 'Q3 **results**', anchors: [] })
-    const receipt = quill.writer(doc).revise({}, read.markdown.replace('Main', 'The main'), { baseContent: doc.read({}) })
+    const receipt = quill.writer(doc).revise({}, read.markdown.replace('Main', 'The main'), { baseHash: doc.hashAt({}) })
     expect(receipt.droppedAnchors).toEqual([])
     expect(doc.anchorContext('c1')).toMatchObject({ quote: 'body' })
   })

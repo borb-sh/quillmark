@@ -28,7 +28,7 @@
 use indexmap::IndexMap;
 
 use crate::document::edit::{overflow_errors, resolve_field_write};
-use crate::document::{Base, Card, Document, DocumentBase, DocumentRevised, EditError, Receipt, Revising, Target};
+use crate::document::{BaseError, Card, Document, DocumentRevised, EditError, Receipt, Revising, Target};
 use crate::error::Diagnostic;
 use crate::path::DocPath;
 use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
@@ -116,15 +116,13 @@ impl<'a> TypedWriter<'a> {
     /// carrying escapes is a byte no-op, and its [`Receipt`]'s change is one
     /// splice over the literal text.
     ///
-    /// A `base` names what the writer read, its hash
-    /// [`hash_of`](Self::hash_of) or its [`Content`](crate::Content): a value
-    /// that has moved on rebases the write over the change since, refused
-    /// where the two touch.
+    /// A `base` is the hash the writer read, [`hash_of`](Self::hash_of): a
+    /// value that hashes otherwise refuses the write with `edit::stale_base`.
     pub fn revise<'t>(
         &mut self,
         target: impl Into<Target<'t>>,
         text: &str,
-        base: Option<Base<'_>>,
+        base: Option<&str>,
     ) -> Result<Receipt, EditError> {
         let schema = Some(&self.config.main.fields);
         revise_impl(self.doc.main_card_mut(), schema, target.into(), base, text)
@@ -143,24 +141,23 @@ impl<'a> TypedWriter<'a> {
         self.revise_parsed(revising)
     }
 
-    /// [`revise_document`](Self::revise_document) under `base`: the hash is
-    /// [`hash`](Self::hash), and a stored read is the document the writer
-    /// read. Each side is conformed and emitted before the merge. A stale or
-    /// conflicting write fails as [`BoundParseError::Base`] before any
-    /// mutation.
+    /// [`revise_document`](Self::revise_document) while the document hashes
+    /// to `base`, its [`hash`](Self::hash). A document that hashes otherwise
+    /// fails as [`BoundParseError::Base`] before any mutation.
     pub fn revise_document_against(
         &mut self,
-        base: DocumentBase<'_>,
+        base: &str,
         markdown: &str,
     ) -> Result<DocumentRevised, BoundParseError> {
-        let (parsed, conflicts) =
-            crate::document::base::parse_against(self.config, self.doc, base, markdown)?;
-        let mut revised = self.revise_parsed(parsed)?;
-        revised.conflicts = conflicts;
-        Ok(revised)
+        let current = self.hash()?;
+        if current != base {
+            return Err(BaseError::Stale { current, field: None }.into());
+        }
+        let revising = Document::parse_revising(markdown)?;
+        self.revise_parsed(revising)
     }
 
-    /// The hash of the document as this quill conforms it: the [`Base::Hash`]
+    /// The hash of the document as this quill conforms it: the base
     /// [`revise_document_against`](Self::revise_document_against) checks. A
     /// document loaded without its quill hashes as its conformed self, so a
     /// conform between the read and the write does not stale the base. Fails
@@ -171,7 +168,7 @@ impl<'a> TypedWriter<'a> {
     }
 
     /// The hash of the main card's body or a field through its schema: the
-    /// [`Base::Hash`] [`revise`](Self::revise) checks. A `richtext` or `text`
+    /// base [`revise`](Self::revise) checks. A `richtext` or `text`
     /// field hashes its content however it is stored, ids and anchors
     /// included, any other type its stored value. An undeclared name fails
     /// with [`EditError::UnknownField`].
@@ -322,7 +319,7 @@ impl<'a> CardWriter<'a> {
         &mut self,
         target: impl Into<Target<'t>>,
         text: &str,
-        base: Option<Base<'_>>,
+        base: Option<&str>,
     ) -> Result<Receipt, EditError> {
         let schema = self.fields_schema();
         revise_impl(self.card_mut(), schema, target.into(), base, text)
@@ -374,7 +371,7 @@ fn revise_impl(
     card: &mut Card,
     fields_schema: Option<&IndexMap<String, FieldSchema>>,
     target: Target<'_>,
-    base: Option<Base<'_>>,
+    base: Option<&str>,
     text: &str,
 ) -> Result<Receipt, EditError> {
     let name = match target {

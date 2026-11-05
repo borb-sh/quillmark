@@ -177,8 +177,7 @@ export type Step =
  * its text or the eight characters either side read otherwise.
  * `warnings` holds a `parse::dropped_construct` per construct a revise's
  * markdown dropped.
- * `rebased` says the write's `base` was a value the field had moved on from,
- * and the write was rebased over what changed since. `minted` maps each
+ * `minted` maps each
  * placeholder the change gave a record it put to the id the write minted for
  * it; a structural edit's own are `"?0"`, `"?1"` and on, in the order it puts them.
  */
@@ -188,7 +187,6 @@ export interface Receipt {
     droppedAnchors: DroppedAnchor[];
     movedAnchors: MovedAnchor[];
     warnings: Diagnostic[];
-    rebased: boolean;
     minted: Record<string, string>;
 }
 
@@ -210,11 +208,9 @@ export interface DroppedAnchor extends AnchorContext {
     slot?: string;
 }
 
-/** `base` is the hash a writer read. A value that has changed since rebases
- *  the write over the change, refusing it with `edit::rebase_conflict` where
- *  the two touch the same text or record, and with `edit::stale_base` where
- *  the document no longer holds the change since. Pass it: a write without one
- *  lands over whatever the value now holds.
+/** `base` is the hash a writer read. A value that hashes otherwise refuses
+ *  the write with `edit::stale_base`, its `args.current` the hash now. Pass it:
+ *  a write without one lands over whatever the value now holds.
  *
  *  `actor` names the writer, one per live session: each id the write mints
  *  is `{actor}:{prefix}{n}`, so two clients writing from one value never mint
@@ -328,7 +324,6 @@ pub(super) struct ReceiptJs {
     dropped_anchors: Vec<DroppedAnchorJs>,
     moved_anchors: Vec<MovedJs>,
     warnings: Vec<Diagnostic>,
-    rebased: bool,
     minted: std::collections::BTreeMap<String, String>,
 }
 
@@ -389,7 +384,7 @@ impl WriteOpts {
     }
 
     fn as_ref(&self) -> WriteOptions<'_> {
-        WriteOptions { base: self.base.as_deref().map(quillmark_core::document::Base::Hash), actor: self.actor.as_deref() }
+        WriteOptions { base: self.base.as_deref(), actor: self.actor.as_deref() }
     }
 }
 
@@ -557,7 +552,6 @@ pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath,
             .map(|m| MovedJs { id: m.id, before: m.before, after: m.after, reason: m.reason.name() })
             .collect(),
         warnings,
-        rebased: receipt.rebased,
         minted: receipt.minted,
     }
 }
@@ -582,12 +576,9 @@ impl Document {
 
     /// **Apply** `change` to the value at `addr`, all its steps or none, and
     /// answer the `Receipt`. `opts.base` is the hash the writer read
-    /// (`hash(addr)`), and the change's offsets are into the value it names:
-    /// one the value has moved on from rebases the change over the change
-    /// since, throwing `edit::rebase_conflict` where they touch the same text or
-    /// record and `edit::stale_base` where the document no longer holds the change
-    /// since. A refused change throws `edit::content_apply` and writes
-    /// nothing.
+    /// (`hash(addr)`), and the change's offsets are into that value: a value
+    /// that hashes otherwise throws `edit::stale_base`. A refused change throws
+    /// `edit::content_apply` and writes nothing.
     #[wasm_bindgen(js_name = apply, unchecked_return_type = "Receipt")]
     pub fn apply(
         &mut self,
@@ -604,8 +595,8 @@ impl Document {
 
     /// Rewrite the value at `addr` as `markdown`, an edit of the read
     /// `toMarkdown(addr, { annotated: true })` gives: the anchors and islands
-    /// whose `qm-*` tags it keeps stay put, what the read does not spell rides
-    /// back in, and the rest keeps what a word-aligned diff keeps. Answers the
+    /// whose `qm-*` tags it keeps stay put, and the rest keeps what a
+    /// word-aligned diff keeps; what markdown does not spell is gone. Answers the
     /// `Receipt`, its `warnings` the import's. Throws as `apply`, and on an
     /// over-nested markdown input.
     #[wasm_bindgen(js_name = revise, unchecked_return_type = "Receipt")]

@@ -226,10 +226,6 @@ class Receipt(TypedDict):
     dropped_anchors: list[ReceiptDroppedAnchor]
     moved_anchors: list[MovedAnchor]
     warnings: list[Diagnostic]
-    # The base was a value the field had moved on from, and the write was
-    # rebased over what changed since, or, for a writer's revise under its
-    # markdown read, merged with it.
-    rebased: bool
     # Each placeholder id the change gave a record it put, and the id the
     # write minted for it.
     minted: dict[str, str]
@@ -288,12 +284,6 @@ class Reattached(TypedDict):
     reattached: list[AnchorContext]
     orphaned: list[AnchorContext]
 
-class MergeConflict(TypedDict):
-    path: str
-    base: Any
-    current: Any
-    proposed: Any
-
 class CardAdded(TypedDict):
     id: str
     warnings: list[Diagnostic]
@@ -304,7 +294,6 @@ DocumentRevised = TypedDict(
         "dropped_anchors": list[AnchorContext],
         "warnings": list[Diagnostic],
         "from": list[int | None],
-        "conflicts": list[MergeConflict],
     },
 )
 
@@ -364,14 +353,12 @@ class Writer:
         card: int | str | None = None,
         *,
         base_hash: str | None = None,
-        base_content: dict[str, Any] | None = None,
     ) -> Receipt: ...
     def revise_document(
         self,
         markdown: str,
         *,
         base_hash: str | None = None,
-        base_stored: str | None = None,
     ) -> DocumentRevised: ...
     def add_card(
         self,
