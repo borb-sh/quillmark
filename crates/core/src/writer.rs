@@ -28,7 +28,7 @@
 use indexmap::IndexMap;
 
 use crate::document::edit::{overflow_errors, resolve_field_write};
-use crate::document::{BaseError, Card, Document, DocumentRevised, EditError, Receipt, Revising, Target};
+use crate::document::{Card, Document, DocumentRevised, EditError, Receipt, Revising, StaleBase, Target};
 use crate::error::Diagnostic;
 use crate::path::DocPath;
 use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
@@ -143,7 +143,7 @@ impl<'a> TypedWriter<'a> {
 
     /// [`revise_document`](Self::revise_document) while the document hashes
     /// to `base`, its [`hash`](Self::hash). A document that hashes otherwise
-    /// fails as [`BoundParseError::Base`] before any mutation.
+    /// fails as [`BoundParseError::StaleBase`] before any mutation.
     pub fn revise_document_against(
         &mut self,
         base: &str,
@@ -151,7 +151,7 @@ impl<'a> TypedWriter<'a> {
     ) -> Result<DocumentRevised, BoundParseError> {
         let current = self.hash()?;
         if current != base {
-            return Err(BaseError::Stale { current, field: None }.into());
+            return Err(StaleBase { current, field: None }.into());
         }
         let revising = Document::parse_revising(markdown)?;
         self.revise_parsed(revising)

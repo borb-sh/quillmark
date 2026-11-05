@@ -1,7 +1,7 @@
 //! The precondition on a write: the hash of what its writer read.
 //!
 //! Core is single-writer. A write that names a base lands only while the value
-//! still hashes to it, and is refused with [`BaseError::Stale`] otherwise,
+//! still hashes to it, and is refused with [`StaleBase`] otherwise,
 //! carrying the hash now, so the writer reads again and writes from that.
 //! Writers that answer late and must merge with what landed since go through
 //! `@quillmark/collab`.
@@ -23,34 +23,21 @@ use crate::quill::{BoundParseError, FieldSchema, FieldType, QuillConfig};
 /// its next read against; retrying the same write under it would land the
 /// revert the base refused.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[non_exhaustive]
-pub enum BaseError {
-    #[error("the value changed since the writer read it")]
-    Stale {
-        current: String,
-        /// The field written, for the diagnostic's anchor; `None` for a body
-        /// or a document.
-        field: Option<String>,
-    },
+#[error("the value changed since the writer read it")]
+pub struct StaleBase {
+    pub current: String,
+    /// The field written, for the diagnostic's anchor; `None` for a body or a
+    /// document.
+    pub field: Option<String>,
 }
 
-impl BaseError {
+impl StaleBase {
     pub fn code(&self) -> &'static str {
-        match self {
-            BaseError::Stale { .. } => "edit::stale_base",
-        }
+        "edit::stale_base"
     }
 
     pub fn args(&self) -> BTreeMap<String, JsonValue> {
-        match self {
-            BaseError::Stale { current, .. } => diag_args! { "current" => current },
-        }
-    }
-
-    pub(crate) fn field(&self) -> Option<&str> {
-        match self {
-            BaseError::Stale { field, .. } => field.as_deref(),
-        }
+        diag_args! { "current" => &self.current }
     }
 
     pub fn to_diagnostic(&self) -> Diagnostic {
@@ -67,7 +54,7 @@ pub(crate) fn check_base(base: Option<&str>, current: impl FnOnce() -> Result<St
     if base == current {
         return Ok(());
     }
-    Err(EditError::Base(BaseError::Stale { current, field: field.map(str::to_string) }))
+    Err(EditError::StaleBase(StaleBase { current, field: field.map(str::to_string) }))
 }
 
 /// The tag [`value_hash`] prefixes, versioning the hash scheme itself: the

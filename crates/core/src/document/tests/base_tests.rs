@@ -1,4 +1,4 @@
-use crate::document::{BaseError, Card, EditError, Target, content_hash, value_hash};
+use crate::document::{Card, EditError, StaleBase, Target, content_hash, value_hash};
 use crate::quill::{BoundParseError, QuillConfig};
 use crate::writer::TypedWriter;
 use serde_json::json;
@@ -35,7 +35,7 @@ fn card_with_body(markdown: &str) -> Card {
 
 fn current_of(err: EditError) -> String {
     match err {
-        EditError::Base(BaseError::Stale { current, .. }) => current,
+        EditError::StaleBase(StaleBase { current, .. }) => current,
         other => panic!("not a base refusal: {other:?}"),
     }
 }
@@ -154,7 +154,7 @@ fn a_document_revise_lands_under_the_hash_now_and_refuses_a_stale_one() {
         .revise_document_against(&hash, &read.replace("Beta two.", "Beta two, edited."))
         .unwrap_err();
     assert!(
-        matches!(&err, BoundParseError::Base(BaseError::Stale { .. })),
+        matches!(&err, BoundParseError::StaleBase(StaleBase { .. })),
         "{err:?}"
     );
     assert_eq!(

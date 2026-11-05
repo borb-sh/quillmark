@@ -273,11 +273,11 @@ A single step cannot break the model, but two valid concurrent edits can merge i
 
 Its `Change` takes the merged text to the value's: each character a rule deletes, inserts or rewrites as a splice, a slot's edits as a `nested` step, and a table's slots a rule removed or added as a props step. A position mapped through it lands where repair puts an anchor there, which a law holds (`tests/repair_laws.rs`), so a peer maps its caret, or lowers an exact change into the merged state's coordinates, through it.
 
-Repair is how a merged state reads: it is total and deterministic, so peers holding one merged state compute one value without writing anything. Writing a repair back into the shared state is optional, and who may write it back depends on what it writes:
+Repair is how a merged state reads: it is total and deterministic, so peers holding one merged state compute one value without writing anything. Writing a repair back into the shared state is the session's to decide; what core says is which write-backs are idempotent:
 
 - A repair whose rules only delete or set an attribute may be written back by any peer. Two peers writing back one repair delete the same characters and records and set the same values, so their merge is one write-back, and it reads as the merged state did. A record minted for a `\n` that holds none, a split run's container and a re-minted id are sets too, each under an id derived from the ids involved.
-- A rule that inserts, `Repair::inserts` (`inserts: true` on the wire), is written back by no peer, a server included, since a session cannot tell one writer from two: a split block's `\n` and record, the space a heading's hard break becomes, the hard break a cell's paragraph break becomes, and a missing cell's empty slot. Two peers inserting at once each insert their own: text lands twice and stays, since the extra copy is valid, and a cell minted twice keeps one peer's slot under its id.
-- Every peer reads the merged state through repair for the session's life and maps through its change, and a peer writes back a report only when none of its repairs inserts. A save stores the repaired value, so the stored document holds what an inserting repair made.
+- A rule that inserts, `Repair::inserts` (`inserts: true` on the wire), is not idempotent: a split block's `\n` and record, the space a heading's hard break becomes, the hard break a cell's paragraph break becomes, and a missing cell's empty slot. Two peers inserting at once each insert their own: text lands twice and stays, since the extra copy is valid, and a cell minted twice keeps one peer's slot under its id. A session writes one back from one peer only; `@quillmark/collab` names that peer.
+- Every peer reads the merged state through repair until a write-back lands, and maps through its change. A save stores the repaired value, so the stored document holds what an inserting repair made.
 
 | Merged state | How it arises | Repair |
 |---|---|---|

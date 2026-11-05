@@ -101,7 +101,7 @@ routing coercion-vs-undeclared is `edit::field_coercion_failed` vs.
 A write guarded by what its writer read refuses under one more: `edit::stale_base` when the value no longer hashes to the writer's base, the hash it read. The content writes (`apply`, `revise`, `replace`) take it as `base`, the writer's revise and whole-document revise as `baseHash`. Core is single-writer, so a base is a precondition and never merges:
 
 - The refusal writes nothing and carries `current`, the hash of the value now. A writer reads the value again, checks that read against `current`, and writes from it; retrying the same write under `current` lands the revert the base refused.
-- A refusal on a field anchors at the field. The whole-document revise raises it through `BoundParseError::Base`, as it raises a parse failure, before any mutation.
+- A refusal on a field anchors at the field. The whole-document revise raises it through `BoundParseError::StaleBase`, as it raises a parse failure, before any mutation.
 - Writers that answer late and must merge with what landed since go through `@quillmark/collab`.
 
 A change that does not apply to the value, or would leave it

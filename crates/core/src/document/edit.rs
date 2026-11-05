@@ -15,7 +15,7 @@ use quillmark_content::lines::import::ImportError;
 #[cfg(test)]
 use quillmark_content::lines::model::Lines;
 
-use crate::document::base::BaseError;
+use crate::document::base::StaleBase;
 use crate::document::meta::{CardKindError, validate_composable_kind};
 use crate::document::payload::MetaKey;
 use crate::document::{Card, Codec, ContentDecodeError, Document, Payload, PayloadItem};
@@ -249,7 +249,7 @@ pub enum EditError {
 
     /// A write's base no longer names the value: `edit::stale_base`.
     #[error(transparent)]
-    Base(BaseError),
+    StaleBase(StaleBase),
 }
 
 impl EditError {
@@ -318,7 +318,7 @@ impl EditError {
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
             EditError::InvalidActor(_) => "edit::invalid_actor",
-            EditError::Base(e) => e.code(),
+            EditError::StaleBase(e) => e.code(),
         }
     }
 
@@ -388,7 +388,7 @@ impl EditError {
                 "type" => kind,
             },
             EditError::InvalidActor(actor) => diag_args! { "actor" => actor },
-            EditError::Base(e) => e.args(),
+            EditError::StaleBase(e) => e.args(),
         }
     }
 
@@ -425,7 +425,7 @@ impl EditError {
             | EditError::FieldNotSingleLine { field: f, .. }
             | EditError::FieldCoercionFailed { field: f, .. } => Some(base.field(f)),
             EditError::IndexOutOfRange { index, .. } => Some(DocPath::card(None, *index)),
-            EditError::Base(e) if e.field().is_some() => e.field().map(|f| base.field(f)),
+            EditError::StaleBase(StaleBase { field: Some(f), .. }) => Some(base.field(f)),
             _ => (!base.segs().is_empty()).then(|| base.clone()),
         }
     }

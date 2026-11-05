@@ -14,6 +14,8 @@ write does, so a constructed document cannot be invalid. There is no bypass:
 and a placed card is reached as a `CardMut`, never a `&mut Card`. This is the
 authoring surface for programs (database row → rendered PDF).
 
+One writer writes a `Document` at a time. A program that reads, works, and writes later passes the hash it read as the write's base, and a value that moved since is refused with `edit::stale_base` carrying the hash now, so it reads again; a writer that must merge with edits made meanwhile goes through `@quillmark/collab` ([CONTENT.md](CONTENT.md) § "Writing a value").
+
 ## Three authoring surfaces, one model
 
 | Surface | Consumer | Entry |

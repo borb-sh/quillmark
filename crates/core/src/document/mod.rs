@@ -670,7 +670,7 @@ pub mod write;
 pub(crate) mod yaml_hints;
 
 pub use anchors::AnchorSelector;
-pub use base::{BaseError, HASH_TAG, content_hash, value_hash};
+pub use base::{HASH_TAG, StaleBase, content_hash, value_hash};
 pub use dto::{
     STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, STORAGE_V0_135_0, StorageError,
     StoredDocument, peek_storage_version,
