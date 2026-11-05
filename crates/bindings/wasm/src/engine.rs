@@ -478,7 +478,7 @@ pub struct Document {
 /// document's build to the render build as `toJson` and `fromJson`; it is
 /// internal to the package.
 #[cfg(feature = "render")]
-#[wasm_bindgen(skip_typescript)]
+#[wasm_bindgen]
 pub struct Snapshot {
     inner: quillmark_core::document::Snapshot,
 }
