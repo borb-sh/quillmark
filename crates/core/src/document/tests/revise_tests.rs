@@ -157,7 +157,7 @@ fn everything_else_lands_as_the_markdown_spells_it() {
     let _ = doc.revise(incoming).unwrap();
     assert_eq!(doc.quill_reference().to_string(), "other@1.2");
     assert_eq!(
-        doc.main().payload().get("qty").unwrap().as_json(),
+        doc.main().payload().get("qty").unwrap().to_value().as_json(),
         &serde_json::json!(4)
     );
     assert!(doc.cards().is_empty());
@@ -245,7 +245,7 @@ fn an_anchor_in_a_fields_list_item_survives_an_edit_to_its_item() {
         .payload()
         .get("items")
         .unwrap()
-        .as_json()
+        .to_value().as_json()
         .clone();
     let item = quillmark_automerge::content::migrate::lines_from_value(&items[1]).unwrap();
     assert_eq!(item.text, "an edited item to flag");
@@ -461,7 +461,7 @@ fn an_item_inserted_ahead_keeps_each_anchor_on_its_own_item() {
         .payload()
         .get("items")
         .unwrap()
-        .as_json()
+        .to_value().as_json()
         .clone();
     assert_eq!(items[0], "a new first item");
     let item = quillmark_automerge::content::migrate::lines_from_value(&items[2]).unwrap();

@@ -179,14 +179,14 @@ fn a_text_field_merges_its_literal_text() {
     let _ = w
         .revise(crate::document::Target::from("note"), "a *b*\n\nc\n\nd, too", Some(&at))
         .unwrap();
-    let note = doc.main().payload().get("note").unwrap().as_json().clone();
+    let note = doc.main().payload().get("note").unwrap().to_value().as_json().clone();
     assert_eq!(crate::quill::text_of(&note), "a *b*, edited\n\nc\n\nd, too");
 
     let read = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w.revise(crate::document::Target::from("note"), "x", None).unwrap();
     let _ = w.revise(crate::document::Target::from("note"), "y", Some(&read)).unwrap();
-    let note = doc.main().payload().get("note").unwrap().as_json().clone();
+    let note = doc.main().payload().get("note").unwrap().to_value().as_json().clone();
     assert_eq!(crate::quill::text_of(&note), "yx");
 
     let mut w = TypedWriter::new(&config, &mut doc);
@@ -273,7 +273,7 @@ fn a_field_both_sides_wrote_takes_the_later_write_and_warnings_follow_their_card
         .unwrap();
     assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     assert_eq!(
-        crate::quill::text_of(doc.main().payload().get("note").unwrap().as_json()),
+        crate::quill::text_of(doc.main().payload().get("note").unwrap().to_value().as_json()),
         "mine"
     );
     assert_eq!(doc.main().body_markdown(), "Body, mine.");
@@ -452,7 +452,7 @@ fn a_token_survives_a_merge() {
 }
 
 fn jobs(doc: &Document) -> serde_json::Value {
-    crate::quill::plain_leaves(doc.main().payload().get("jobs").unwrap().as_json())
+    crate::quill::plain_leaves(doc.main().payload().get("jobs").unwrap().to_value().as_json())
 }
 
 /// The person edits one row while the writer edits another: both land.

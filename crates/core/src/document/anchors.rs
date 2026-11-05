@@ -11,7 +11,7 @@ use quillmark_automerge::content::model::Content;
 use quillmark_automerge::content::units::is_content_value;
 use serde_json::Value as JsonValue;
 
-use super::{Card, Document};
+use super::{Card, Document, FieldValue};
 use crate::path::{DocPath, DocSeg};
 
 /// A prose anchor's context at its address: the selector a host stores beside
@@ -234,6 +234,7 @@ impl Document {
         let Some(value) = card.payload().get(name) else {
             return false;
         };
+        let value = value.to_value();
         let leaf = tail.iter().try_fold(value.as_json(), |value, seg| match seg {
             DocSeg::Field { name } => value.as_object()?.get(name),
             DocSeg::Index { index } => value.as_array()?.get(*index),
@@ -302,9 +303,14 @@ impl Document {
                     .payload_mut()
                     .fields_mut()
                     .find(|(key, _)| *key == name)?;
+                let data = match value {
+                    FieldValue::Content(content) if tail.is_empty() => return Some(f(content)),
+                    FieldValue::Content(_) => return None,
+                    FieldValue::Data(data) => data,
+                };
                 let leaf = tail
                     .iter()
-                    .try_fold(value.as_json_mut(), |value, seg| match seg {
+                    .try_fold(data.as_json_mut(), |value, seg| match seg {
                         DocSeg::Field { name } => value.as_object_mut()?.get_mut(name),
                         DocSeg::Index { index } => value.as_array_mut()?.get_mut(*index),
                         _ => None,
@@ -314,6 +320,7 @@ impl Document {
                 let out = f(&mut content);
                 if content != before {
                     *leaf = content.to_value();
+                    value.settle();
                 }
                 Some(out)
             }
@@ -342,7 +349,10 @@ type Visit<'a> = dyn FnMut(&DocPath, &Content) -> ControlFlow<()> + 'a;
 
 fn each_in_card(card: &Card, at: &DocPath, visit: &mut Visit<'_>) -> ControlFlow<()> {
     for (name, value) in card.payload().iter() {
-        each_in_value(value.as_json(), &at.field(name), visit)?;
+        match value {
+            FieldValue::Content(content) => visit(&at.field(name), content)?,
+            FieldValue::Data(data) => each_in_value(data.as_json(), &at.field(name), visit)?,
+        }
     }
     visit(&at.body(), card.body())
 }

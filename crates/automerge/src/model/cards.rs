@@ -14,7 +14,7 @@ use crate::content::model::Content;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::json::{hydrate, hydrate_field, json_scalar, write_field_at, write_json_at};
+use super::json::{hydrate, hydrate_field, json_scalar, write_content_at, write_field_at, write_json_at};
 use super::{BODY, Doc, EXT, FIELDS, LAYOUT, NESTED, ORDER, SEED, value};
 
 /// One entry of a card's `layout`: a payload item in source order, a field
@@ -52,12 +52,20 @@ pub enum PathStep {
     Index(usize),
 }
 
-/// A card as its map holds it. `fields` holds each field's value by key, a
-/// content value as its JSON: the shape a card is placed in and read as.
+/// A field's value as a card holds it: a value whose whole is a content
+/// value as the content it reads as, and any other value as its JSON.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Field {
+    Content(Content),
+    Data(Value),
+}
+
+/// A card as its map holds it. `fields` holds each field's value by key:
+/// the shape a card is placed in and read as.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Card {
     pub layout: Vec<LayoutItem>,
-    pub fields: Vec<(String, Value)>,
+    pub fields: Vec<(String, Field)>,
     pub ext: Map<String, Value>,
     pub seed: Map<String, Value>,
     pub nested: Vec<NestedComment>,
@@ -268,9 +276,12 @@ pub fn put_layout(d: &mut Doc, c: &ObjId, layout: &[LayoutItem]) {
 
 /// Puts `want` at field `key` of the card map `c`, each content value in it a
 /// text value written in place over the one held there.
-pub fn put_field(d: &mut Doc, c: &ObjId, key: &str, want: &Value) {
+pub fn put_field(d: &mut Doc, c: &ObjId, key: &str, want: &Field) {
     let fields = value::obj(&d.doc, c, FIELDS).expect("a card holds its fields");
-    write_field_at(&mut d.doc, &fields, key, want);
+    match want {
+        Field::Content(content) => write_content_at(&mut d.doc, &fields, key, content),
+        Field::Data(want) => write_field_at(&mut d.doc, &fields, key, want),
+    }
 }
 
 /// Takes field `key` out of the card map `c`.
@@ -374,7 +385,7 @@ pub struct Reread {
     /// payload past its fields' values; `fields` and `body` are empty.
     pub payload: Option<Card>,
     /// Each field a patch reached, `None` where it is gone.
-    pub fields: Vec<(String, Option<Value>)>,
+    pub fields: Vec<(String, Option<Field>)>,
     pub body: Option<Content>,
 }
 
@@ -475,7 +486,7 @@ pub fn refresh(d: &mut Doc, before: &super::Heads, held: impl Fn(Option<&str>, O
                 }
                 Part::Field(k) => {
                     let v = match done.remove(&(card.clone(), Part::Field(k.clone()))) {
-                        Some(content) => Some(content.to_value()),
+                        Some(content) => Some(Field::Content(content)),
                         None => read_field(d, &c, &k),
                     };
                     r.fields.push((k, v));
@@ -489,10 +500,11 @@ pub fn refresh(d: &mut Doc, before: &super::Heads, held: impl Fn(Option<&str>, O
 }
 
 /// Field `key` of the card map `c` as it reads, `None` where it holds none.
-fn read_field(d: &Doc, c: &ObjId, key: &str) -> Option<Value> {
+fn read_field(d: &Doc, c: &ObjId, key: &str) -> Option<Field> {
     let f = value::obj(&d.doc, c, FIELDS)?;
     match d.doc.get(&f, key).ok().flatten()? {
-        (AmValue::Object(_), o) => Some(hydrate_field(&d.doc, &o)),
-        (AmValue::Scalar(s), _) => Some(json_scalar(&s)),
+        (AmValue::Object(_), o) if value::text(&d.doc, &o).is_some() => Some(Field::Content(value::view(&d.doc, &o))),
+        (AmValue::Object(_), o) => Some(Field::Data(hydrate_field(&d.doc, &o))),
+        (AmValue::Scalar(s), _) => Some(Field::Data(json_scalar(&s))),
     }
 }

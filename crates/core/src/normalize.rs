@@ -65,7 +65,7 @@ mod tests {
             let keys: Vec<&str> = card.payload().keys().map(String::as_str).collect();
             assert_eq!(keys, ["a", "caf\u{e9}", "z"]);
             assert_eq!(
-                card.payload().get("caf\u{e9}").unwrap().as_str(),
+                card.payload().get("caf\u{e9}").unwrap().to_value().as_str(),
                 Some("hot")
             );
         }

@@ -10,7 +10,7 @@ use quillmark_automerge::model::cards::{self, LayoutItem, NestedComment as HeldC
 use quillmark_automerge::content::model::Content;
 use quillmark_automerge::content::units::Units;
 
-use super::payload::{MetaKey, PayloadItem, Touched, trim_comment_text};
+use super::payload::{FieldValue, MetaKey, PayloadItem, Touched, trim_comment_text};
 use super::prescan::NestedComment;
 use super::{Card, Payload};
 use crate::value::{PathSegment, QuillValue};
@@ -51,11 +51,25 @@ fn nested(payload: &Payload) -> Vec<HeldComment> {
         .collect()
 }
 
+fn to_field(v: &FieldValue) -> cards::Field {
+    match v {
+        FieldValue::Content(c) => cards::Field::Content(c.clone()),
+        FieldValue::Data(v) => cards::Field::Data(v.as_json().clone()),
+    }
+}
+
+fn from_field(f: cards::Field) -> FieldValue {
+    match f {
+        cards::Field::Content(c) => FieldValue::Content(c),
+        cards::Field::Data(v) => FieldValue::Data(QuillValue::from_json(v)),
+    }
+}
+
 fn to_model(card: &Card) -> cards::Card {
     let payload = card.payload();
     cards::Card {
         layout: layout(payload),
-        fields: payload.iter().map(|(k, v)| (k.clone(), v.as_json().clone())).collect(),
+        fields: payload.iter().map(|(k, v)| (k.clone(), to_field(v))).collect(),
         ext: payload.ext().cloned().unwrap_or_default(),
         seed: payload.seed().cloned().unwrap_or_default(),
         nested: nested(payload),
@@ -89,14 +103,14 @@ fn payload(c: cards::Card) -> Payload {
                 if !seen.insert(key.clone()) {
                     continue;
                 }
-                PayloadItem::Field { key: key.clone(), value: QuillValue::from_json(v) }
+                PayloadItem::Field { key: key.clone(), value: from_field(v) }
             }
             LayoutItem::Comment { text, inline } => PayloadItem::Comment { text: text.clone(), inline: *inline },
         });
     }
     for (key, v) in &c.fields {
         if seen.insert(key.clone()) {
-            items.push(PayloadItem::Field { key: key.clone(), value: QuillValue::from_json(v.clone()) });
+            items.push(PayloadItem::Field { key: key.clone(), value: from_field(v.clone()) });
         }
     }
     let nested = c
@@ -140,7 +154,7 @@ pub(crate) fn write_parts(d: &mut Doc, id: Option<&str>, card: &Card, touched: &
     }
     for key in &touched.fields {
         match payload.get(key) {
-            Some(v) => cards::put_field(d, &c, key, v.as_json()),
+            Some(v) => cards::put_field(d, &c, key, &to_field(v)),
             None => cards::remove_field(d, &c, key),
         }
     }
@@ -237,7 +251,7 @@ pub(crate) fn refresh(d: &mut Doc, before: &super::Heads, main: &mut Card, all: 
             };
             match field {
                 None => Some(card.body().clone()),
-                Some(key) => card.payload().get(key).filter(|v| quillmark_automerge::content::units::is_content_value(v.as_json())).and_then(|v| Content::from_value(v.as_json()).ok()),
+                Some(key) => card.payload().get(key).and_then(FieldValue::content).cloned(),
             }
         };
         cards::refresh(d, before, held, u)
@@ -277,10 +291,10 @@ pub(crate) fn refresh(d: &mut Doc, before: &super::Heads, main: &mut Card, all: 
 /// Takes what a stretch of changes left of a card's parts into `c`: the
 /// rest of its payload where `payload_now` reads it, and each field in
 /// `fields`.
-fn apply(c: &mut Card, payload_now: Option<cards::Card>, fields: Vec<(String, Option<serde_json::Value>)>, body: Option<Content>) {
+fn apply(c: &mut Card, payload_now: Option<cards::Card>, fields: Vec<(String, Option<cards::Field>)>, body: Option<Content>) {
     match payload_now {
         Some(mut p) => {
-            p.fields = c.payload().iter().map(|(k, v)| (k.clone(), v.as_json().clone())).collect();
+            p.fields = c.payload().iter().map(|(k, v)| (k.clone(), to_field(v))).collect();
             for (key, v) in fields {
                 let at = p.fields.iter().position(|(k, _)| *k == key);
                 match (at, v) {
@@ -296,7 +310,7 @@ fn apply(c: &mut Card, payload_now: Option<cards::Card>, fields: Vec<(String, Op
         }
         None => {
             for (key, v) in fields {
-                c.payload_mut().refresh_field(&key, v.map(QuillValue::from_json));
+                c.payload_mut().refresh_field(&key, v.map(from_field));
             }
         }
     }

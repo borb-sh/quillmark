@@ -89,7 +89,7 @@ impl Document {
         match target {
             Target::Body => card.set_body(after.clone()),
             Target::Field(name) => {
-                card.payload_mut().insert(name.to_string(), QuillValue::from_json(after.to_value())).expect("a held field takes its value");
+                card.payload_mut().insert(name.to_string(), after.clone()).expect("a held field takes its value");
             }
         }
         #[cfg(debug_assertions)]

@@ -115,6 +115,17 @@ pub fn write_field_at(doc: &mut AutoCommit, parent: &ObjId, key: &str, want: &Va
     write_at(doc, parent, key, want, true)
 }
 
+/// Writes `content` at `key` of `parent` as a text value, in place over the
+/// one held there.
+pub fn write_content_at(doc: &mut AutoCommit, parent: &ObjId, key: &str, content: &crate::content::model::Content) {
+    match held(doc, parent, key, true) {
+        Some((Held::Text, id)) => value::rewrite(doc, &id, content),
+        _ => {
+            value::create(doc, parent, key, content);
+        }
+    }
+}
+
 /// The object `doc` holds at `prop` of `parent`, as `texts` sees it: a text
 /// value apart from every other map.
 fn held(doc: &AutoCommit, parent: &ObjId, prop: impl Into<automerge::Prop>, texts: bool) -> Option<(Held, ObjId)> {

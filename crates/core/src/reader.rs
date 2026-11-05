@@ -32,7 +32,7 @@ use indexmap::IndexMap;
 use quillmark_automerge::content::model::Content;
 
 use crate::document::edit::field_decode;
-use crate::document::{Card, Document, EditError, Target};
+use crate::document::{Card, Document, EditError, FieldValue, Target};
 use crate::quill::{
     CalendarDate, CardSchema, FieldSchema, FieldType, QuillConfig, Resolved, resolve_document,
 };
@@ -202,7 +202,7 @@ fn read_field(
     };
     let projected = project_value(
         name,
-        value.as_json(),
+        value.to_value().as_json(),
         schema,
         Leaves::Decode,
         &mut Vec::new(),
@@ -236,11 +236,8 @@ fn read_content(
             at: at.to_vec(),
             declared: leaf.r#type.as_str().to_string(),
         })?;
-    let Some(value) = card
-        .payload()
-        .get(name)
-        .and_then(|v| value_at(v.as_json(), at))
-    else {
+    let value = card.payload().get(name).map(FieldValue::to_value);
+    let Some(value) = value.as_deref().and_then(|v| value_at(v.as_json(), at)) else {
         return Ok(None);
     };
     codec

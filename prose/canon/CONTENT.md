@@ -201,7 +201,7 @@ Text deleted under a range anchor shrinks it to what survives. An anchor whose t
 
 ## Live state and merge
 
-A document is one Automerge document (`quillmark-automerge`, `model::Doc`) from construction, and the cards a reader sees are a view of it. A parse, `Document::new` and a load each build or read one before they answer, so a document has one state.
+A document is one Automerge document (`quillmark-automerge`, `model::Doc`) from construction, and the cards a reader sees are a view of it. A parse, `Document::new` and a load each build or read one before they answer, so a document has one state. A field whose whole value is content holds it in the view as the `Content` it reads as (`FieldValue::Content`), and any other value as its JSON (`FieldValue::Data`); a read lowers it when it asks for another form.
 
 Every card edit, a typed writer's `set` included, is an Automerge write of the parts it changed, the layout, a field, `$ext`/`$seed`, the nested comments or the body, each value written in place, and a whole-document revise writes each value that differs.
 

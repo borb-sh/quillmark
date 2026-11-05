@@ -136,9 +136,10 @@ fn conform_card(schema: &CardSchema, card: &mut Card, base: &DocPath, diags: &mu
         if !field_contains_content(field) {
             continue;
         }
-        match resolve_field_write(name, value, field, base) {
+        let current = value.to_value();
+        match resolve_field_write(name, &current, field, base) {
             Ok((conformed, drops)) => {
-                if &conformed != value {
+                if conformed != *current {
                     diags.extend(drops);
                     updates.push((name.clone(), conformed));
                 }

@@ -678,7 +678,7 @@ pub use dto::{
 pub use edit::{CardMut, EditError, Unchecked};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
 pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
-pub use payload::{MetaKey, Payload, PayloadItem};
+pub use payload::{FieldValue, MetaKey, Payload, PayloadItem};
 /// Returned by [`Document::reattach`], so nameable from here.
 pub use quillmark_automerge::content::anchors::Reattached;
 /// Answered by [`Card::annotated`] and the content crate's anchor reads, so nameable from here.
@@ -823,7 +823,7 @@ pub(super) fn payload_by_place(p: &Payload) -> Payload {
         .items()
         .iter()
         .map(|item| match item {
-            PayloadItem::Field { key, value } => PayloadItem::Field { key: key.clone(), value: crate::value::QuillValue::from_json(value_by_place(value.as_json())) },
+            PayloadItem::Field { key, value } => PayloadItem::Field { key: key.clone(), value: value_by_place(value.to_value().as_json()).into() },
             other => other.clone(),
         })
         .collect();
@@ -919,7 +919,7 @@ impl Card {
         name: &str,
         codec: Codec,
     ) -> Option<Result<Lines, ContentDecodeError>> {
-        Some(codec.decode_field(self.payload.get(name)?.as_json()))
+        Some(codec.decode_field(self.payload.get(name)?.to_value().as_json()))
     }
 
     /// The text projection of a content-valued field (`project ∘ decode`),
@@ -1135,7 +1135,7 @@ impl Snapshot {
                     );
                 }
                 for (key, value) in card.payload.iter() {
-                    card_map.insert(key.clone(), value.as_json().clone());
+                    card_map.insert(key.clone(), value.to_value().into_owned().into_json());
                 }
                 serde_json::Value::Object(card_map)
             })
@@ -1144,7 +1144,7 @@ impl Snapshot {
         map.insert("$cards".to_string(), serde_json::Value::Array(cards_array));
 
         for (key, value) in self.main.payload.iter() {
-            map.insert(key.clone(), value.as_json().clone());
+            map.insert(key.clone(), value.to_value().into_owned().into_json());
         }
 
         serde_json::Value::Object(map)

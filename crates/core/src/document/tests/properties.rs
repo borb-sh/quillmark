@@ -218,7 +218,7 @@ proptest! {
             _ => json!(word),
         };
         let payload = doc.main().payload();
-        let read = |key: &str| payload.get(key).map(|v| v.as_json().clone());
+        let read = |key: &str| payload.get(key).map(|v| v.to_value().as_json().clone());
         prop_assert_eq!(read("v"), Some(want.clone()));
         prop_assert_eq!(read("list"), Some(json!([want.clone()])));
         prop_assert_eq!(read("map"), Some(json!({ "k": want })));

@@ -8,7 +8,7 @@
 use crate::error::ParseError;
 use crate::error::{Diagnostic, Severity};
 use crate::path::DocPath;
-use crate::value::{PathSegment, QuillValue};
+use crate::value::PathSegment;
 
 use super::fences::{UnclosedRoot, find_metadata_blocks};
 use super::meta::{extract_meta_items, meta_key, yaml_type_name};
@@ -594,7 +594,7 @@ fn build_payload(
                     validate_parsed_field(&key, &value)?;
                     items.push(PayloadItem::Field {
                         key,
-                        value: QuillValue::from_json(value),
+                        value: value.into(),
                     });
                 }
             }
@@ -609,7 +609,7 @@ fn build_payload(
         validate_parsed_field(&key, &value)?;
         items.push(PayloadItem::Field {
             key,
-            value: QuillValue::from_json(value),
+            value: value.into(),
         });
     }
 

@@ -247,7 +247,7 @@ fn null_is_absent_and_the_quill_reference_is_the_quills() {
     assert_eq!(imported.quill_reference().to_string(), "q@1.0");
     assert!(imported.main().payload().get("subject").is_none());
     assert_eq!(
-        &crate::quill::plain_leaves(imported.main().payload().get("from").unwrap().as_json()),
+        &crate::quill::plain_leaves(imported.main().payload().get("from").unwrap().to_value().as_json()),
         &json!("Ops")
     );
     assert_eq!(imported.cards()[0].kind(), Some("stamp"));

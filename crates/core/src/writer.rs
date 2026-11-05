@@ -473,7 +473,7 @@ card_kinds:
         ed.set("qty", "3").unwrap();
         ed.set("subject", "Hello").unwrap();
         assert_eq!(
-            doc.main().payload().get("qty").unwrap().as_json(),
+            doc.main().payload().get("qty").unwrap().to_value().as_json(),
             &serde_json::json!(3)
         );
         assert_eq!(
@@ -525,7 +525,7 @@ card_kinds:
         let mut ed = TypedWriter::new(&config, &mut doc);
         ed.set_all([("qty", "5"), ("subject", "ok")]).unwrap();
         assert_eq!(
-            doc.main().payload().get("qty").unwrap().as_json(),
+            doc.main().payload().get("qty").unwrap().to_value().as_json(),
             &serde_json::json!(5)
         );
     }

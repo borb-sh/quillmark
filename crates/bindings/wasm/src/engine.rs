@@ -1198,7 +1198,7 @@ impl Document {
             None => content::content_out(card.body(), "getStored"),
             Some(field) => match card.payload().get(field) {
                 Some(v) => {
-                    let mut v = v.as_json().clone();
+                    let mut v = v.to_value().into_owned().into_json();
                     content::payload_out(&mut v);
                     serialize_or_throw(&v, "getStored")
                 }

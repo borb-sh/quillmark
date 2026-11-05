@@ -64,7 +64,7 @@ fn load(sections: &str, extra: &[(&str, &[u8])]) -> Quill {
 fn field(card: &crate::document::Card, name: &str) -> serde_json::Value {
     card.payload()
         .get(name)
-        .map(|v| crate::quill::plain_leaves(v.as_json()))
+        .map(|v| crate::quill::plain_leaves(v.to_value().as_json()))
         .unwrap_or(serde_json::Value::Null)
 }
 

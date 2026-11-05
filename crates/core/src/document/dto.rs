@@ -23,7 +23,6 @@ use super::payload::{MetaKey, Payload, PayloadItem, trim_comment_text};
 use super::prescan::NestedComment;
 use super::{Card, Document};
 use crate::value::PathSegment;
-use crate::value::QuillValue;
 use crate::version::QuillReference;
 
 /// The storage version tag every save writes: each body a content-model
@@ -341,7 +340,7 @@ impl From<&PayloadItem> for PayloadItemV0_135_0 {
             },
             PayloadItem::Field { key, value } => PayloadItemV0_135_0::Field {
                 key: key.clone(),
-                value: value.as_json().clone(),
+                value: value.to_value().into_owned().into_json(),
             },
             PayloadItem::Comment { text, inline } => PayloadItemV0_135_0::Comment {
                 text: text.clone(),
@@ -575,7 +574,7 @@ impl TryFrom<PayloadItemV0_135_0> for PayloadItem {
                     .map_err(|v| StorageError::Malformed(v.message(&key)))?;
                 PayloadItem::Field {
                     key,
-                    value: QuillValue::from_json(value),
+                    value: value.into(),
                 }
             }
             PayloadItemV0_135_0::Comment { text, inline } => PayloadItem::Comment {
@@ -1090,7 +1089,7 @@ title: Hi
         assert_eq!(serde_json::from_str::<Document>(&json).unwrap(), doc);
         let canonical = ContentModel::from_value_lenient(&noncanonical).unwrap().content;
         assert_eq!(doc.main().body().by_place(), canonical.by_place());
-        assert_eq!(doc.main().payload().get("note").map(|v| ContentModel::from_value(v.as_json()).unwrap().by_place()), Some(canonical.by_place()));
+        assert_eq!(doc.main().payload().get("note").map(|v| ContentModel::from_value(v.to_value().as_json()).unwrap().by_place()), Some(canonical.by_place()));
 
         let restored = serde_json::to_string(&doc).unwrap();
         let again = Document::from_stored(&restored).unwrap();
@@ -1181,7 +1180,7 @@ title: Hi
             .unwrap()
             .push(serde_json::json!({"type": "field", "key": "intro", "value": lines}));
         let loaded = serde_json::from_value::<Document>(in_field).unwrap();
-        assert!(loaded.main().payload().get("intro").unwrap().as_json().get("lines").is_some());
+        assert!(loaded.main().payload().get("intro").unwrap().to_value().as_json().get("lines").is_some());
     }
 
     /// A stored card naming no `$kind` fails the load.

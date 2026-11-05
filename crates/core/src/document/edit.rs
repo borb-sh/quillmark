@@ -23,6 +23,7 @@ use crate::error::diag_args;
 use crate::path::DocPath;
 use crate::quill::{CoercionError, FieldSchema, FieldType, Leniency, QuillConfig};
 use crate::value::{PathSegment, QuillValue};
+use super::payload::FieldValue;
 use crate::version::QuillReference;
 
 /// A field plus its in-field path, rendered through
@@ -1246,7 +1247,7 @@ impl Card {
     /// validation as [`Card::store_field`].
     pub fn remove_field(&mut self, name: &str) -> Result<Option<QuillValue>, EditError> {
         check_field_name(name)?;
-        Ok(self.payload_mut().remove(name))
+        Ok(self.payload_mut().remove(name).map(FieldValue::into_value))
     }
 
     /// Replace the card's opaque `$ext` map wholesale, inserting it at the
@@ -1394,7 +1395,8 @@ impl Card {
     /// `name` on a full card is [`EditError::InvalidPayload`].
     #[cfg(test)]
     fn store_field_content(&mut self, name: &str, content: &Lines) -> Result<(), EditError> {
-        let stored = self.payload.get(name).map(QuillValue::as_json).filter(|v| v.is_object());
+        let stored = self.payload.get(name).map(FieldValue::to_value);
+        let stored = stored.as_deref().map(QuillValue::as_json).filter(|v| v.is_object());
         if stored.map_or(Codec::Richtext, Codec::of_object) == Codec::Text && !content.is_plain() {
             return Err(field_decode(
                 name,
@@ -1405,7 +1407,7 @@ impl Card {
                 ),
             ));
         }
-        let canonical = super::stored_over(self.payload.get(name).map(QuillValue::as_json), content);
+        let canonical = super::stored_over(stored, content);
         self.payload_mut()
             .insert(name.to_string(), QuillValue::from_json(canonical))
             .map(|_| ())
@@ -1477,7 +1479,8 @@ impl Card {
         check_field_name(name)?;
         match self.payload.get(name) {
             None => Ok(quillmark_automerge::content::model::Content::empty()),
-            Some(v) => Codec::Richtext.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Richtext, e)),
+            Some(FieldValue::Content(c)) => Ok(c.clone()),
+            Some(FieldValue::Data(v)) => Codec::Richtext.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Richtext, e)),
         }
     }
 
@@ -1506,7 +1509,8 @@ impl Card {
             let text = committed_text(name, body, schema)?;
             let mut before = match self.payload.get(name) {
                 None => quillmark_automerge::content::model::Content::empty(),
-                Some(v) => Codec::Text.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Text, e))?,
+                Some(FieldValue::Content(c)) => c.clone(),
+                Some(FieldValue::Data(v)) => Codec::Text.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Text, e))?,
             };
             before.codec = Codec::Text.content();
             let revised = self.revision(&before, &text)?;

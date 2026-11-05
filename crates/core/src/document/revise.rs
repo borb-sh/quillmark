@@ -14,7 +14,7 @@ use super::edit::EditError;
 use super::emit::{canonical_content, emit_payload_fields};
 use quillmark_automerge::content::anchors::anchor_contexts;
 use quillmark_automerge::content::model::Content as ContentModel;
-use super::{Card, Snapshot, Document, Heads, Revising, dropped_constructs};
+use super::{Card, FieldValue, Snapshot, Document, Heads, Revising, dropped_constructs};
 use crate::error::{Diagnostic, ParseError, Severity};
 use crate::path::DocPath;
 use crate::value::QuillValue;
@@ -258,13 +258,15 @@ fn revise_card(
     for (name, value) in incoming.payload_mut().fields_mut() {
         if let Some(stored) = stored.payload().get(name) {
             let places = (&at.field(name), &from.field(name));
+            let mut revised = value.to_value().into_owned();
             revise_value(
-                stored.as_json(),
-                value.as_json_mut(),
+                stored.to_value().as_json(),
+                revised.as_json_mut(),
                 places,
                 warnings,
                 moves,
             );
+            *value = revised.into();
         }
     }
 
@@ -440,10 +442,8 @@ fn drop_report(
     out: &mut Vec<AnchorSelector>,
 ) {
     for (name, value) in stored.payload().iter() {
-        let revised = revised
-            .and_then(|card| card.payload().get(name))
-            .map(QuillValue::as_json);
-        drop_value(value.as_json(), revised, &at.field(name), moves, out);
+        let revised = revised.and_then(|card| card.payload().get(name)).map(FieldValue::to_value);
+        drop_value(value.to_value().as_json(), revised.as_deref().map(QuillValue::as_json), &at.field(name), moves, out);
     }
     drop_content(stored.body(), revised.map(Card::body), &at.body(), out);
 }

@@ -187,7 +187,7 @@ proptest! {
 fn commit_once(schema: &FieldSchema, value: serde_json::Value) -> Result<QuillValue, EditError> {
     let mut card = Card::new("note").expect("valid card kind");
     card.commit_field("f", QuillValue::from_json(value), schema)?;
-    Ok(card.payload().get("f").expect("field stored").clone())
+    Ok(card.payload().get("f").expect("field stored").to_value().into_owned())
 }
 
 proptest! {

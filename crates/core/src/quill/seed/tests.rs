@@ -136,7 +136,7 @@ fn overlay_fills_fields_and_body_and_ignores_non_schema_keys() {
     let ov = overlay(json!({ "tag": "pinned", "$body": "Overlay body.", "bogus": "drop me" }));
     let card = quill.seed_card("note", Some(&ov)).expect("known kind");
     assert_eq!(
-        card.payload().get("tag").map(|v| crate::quill::plain_leaves(v.as_json())).as_ref().and_then(|v| v.as_str()),
+        card.payload().get("tag").map(|v| crate::quill::plain_leaves(v.to_value().as_json())).as_ref().and_then(|v| v.as_str()),
         Some("pinned")
     );
     assert!(card.payload().get("author").is_none());
@@ -289,7 +289,7 @@ card_kinds:
         card.payload()
             .get("classification")
             .expect("seeded classification")
-            .as_json()["value"],
+            .to_value().as_json()["value"],
         json!("CUI"),
     );
 }
@@ -326,7 +326,7 @@ card_kinds:
         .payload()
         .get("classification")
         .expect("an overlay cell commits without a discriminant to name its world")
-        .as_json()
+        .to_value().as_json()
         .clone();
     assert!(
         classification.get("note").is_some(),
@@ -337,7 +337,7 @@ card_kinds:
         "a `default:` discriminant stays deferred to the render floor: {classification}"
     );
     assert_eq!(
-        card.payload().get("other").map(|v| crate::quill::plain_leaves(v.as_json())).as_ref().and_then(|v| v.as_str()),
+        card.payload().get("other").map(|v| crate::quill::plain_leaves(v.to_value().as_json())).as_ref().and_then(|v| v.as_str()),
         Some("kept"),
         "the sibling field commits as it always did"
     );
@@ -377,7 +377,7 @@ card_kinds:
 #[test]
 fn a_document_overlay_replaces_the_kind_seed_whole() {
     let quill = quill_from_yaml(KIND_SEED_QUILL);
-    let field = |card: &crate::document::Card, name: &str| card.payload().get(name).map(|v| crate::quill::plain_leaves(v.as_json()));
+    let field = |card: &crate::document::Card, name: &str| card.payload().get(name).map(|v| crate::quill::plain_leaves(v.to_value().as_json()));
 
     let bare = quill.seed_card("note", None).expect("known kind");
     assert_eq!(

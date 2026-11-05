@@ -14,6 +14,13 @@ Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
   still passes, and a render builds no Automerge document. The WASM runtime
   hands a document to its render build as a snapshot.
   `normalize::normalize_document` is gone.
+- refactor(core)!: **a content field holds its content.** A payload
+  field's value is a `FieldValue`: `Content` where its whole value is
+  content, held as the document reads it, and `Data` for any other value.
+  `Payload::get` and `Payload::iter` answer `&FieldValue`, and
+  `PayloadItem::Field` carries one; `FieldValue::to_value` spells either as
+  JSON. A keystroke in a long rich text field no longer round-trips the
+  field through JSON.
 - feat!: **the actor belongs to the document handle.** `doc.actor` reads
   it and `doc.setActor(actor)` (`set_actor` in Rust and Python) sets it, and
   every write and card placement through the handle writes under it.

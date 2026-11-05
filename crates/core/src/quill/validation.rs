@@ -398,7 +398,7 @@ fn validate_fields_for_card(
         if let Some(value) = fields.get(field_name) {
             errors.extend(validate_value(
                 schema,
-                value,
+                &value.to_value(),
                 &path,
                 ValueContext::Document,
                 drops,

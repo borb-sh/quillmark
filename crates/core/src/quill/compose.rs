@@ -865,11 +865,12 @@ fn validate_unclaimed(config: &QuillConfig, doc: &Snapshot) -> Vec<Diagnostic> {
             diags.push(body_disabled_warning(&path.body(), &schema.name));
         }
         let declared: Declared = schema.fields.iter().map(|(n, f)| (n.as_str(), f)).collect();
-        let authored: Vec<(&str, &serde_json::Value)> = card
+        let values: Vec<(&str, std::borrow::Cow<'_, QuillValue>)> = card
             .payload()
             .iter()
-            .map(|(k, v)| (k.as_str(), v.as_json()))
+            .map(|(k, v)| (k.as_str(), v.to_value()))
             .collect();
+        let authored: Vec<(&str, &serde_json::Value)> = values.iter().map(|(k, v)| (*k, v.as_json())).collect();
         collect_unknown_keys(&declared, &authored, &path, &mut diags);
     }
     diags
@@ -1309,10 +1310,10 @@ fn collect_variant_diags(
 ) {
     let payload = card.payload();
     for (name, field) in &schema.fields {
-        let Some(json) = payload.get(name).map(|v| v.as_json()) else {
+        let Some(value) = payload.get(name).map(|v| v.to_value()) else {
             continue;
         };
-        collect_stranded(field, json, &base.field(name), out);
+        collect_stranded(field, value.as_json(), &base.field(name), out);
     }
 }
 
@@ -1402,7 +1403,7 @@ fn validate_cardinality(config: &QuillConfig, doc: &Snapshot) -> Vec<Diagnostic>
         let payload = card.payload();
         for (name, field) in &schema.fields {
             if let Some(value) = payload.get(name) {
-                collect_cardinality_diags(field, value.as_json(), &path.field(name), &mut diags);
+                collect_cardinality_diags(field, value.to_value().as_json(), &path.field(name), &mut diags);
             }
         }
     }

@@ -13,7 +13,7 @@ use super::*;
 pub(super) fn loses_in_markdown(doc: &Document) -> bool {
     let lossy = |c: &Content| c.codec == Codec::Rich && !to_markdown_checked(c).losses.is_empty();
     std::iter::once(doc.main()).chain(doc.cards()).any(|card| {
-        lossy(card.body()) || card.payload().iter().any(|(_, v)| Content::from_value(v.as_json()).is_ok_and(|c| lossy(&c)))
+        lossy(card.body()) || card.payload().iter().any(|(_, v)| Content::from_value(v.to_value().as_json()).is_ok_and(|c| lossy(&c)))
     })
 }
 

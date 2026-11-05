@@ -133,24 +133,27 @@ fn rest_is_per_codec_at_every_depth() {
     let (doc, _) = parse_bound(&quill, MD);
     let payload = doc.main().payload();
 
-    assert!(payload.get("subject").unwrap().as_json().is_object());
+    assert!(payload.get("subject").unwrap().to_value().as_json().is_object());
     assert_eq!(
-        crate::quill::text_of(payload.get("note").unwrap().as_json()),
+        crate::quill::text_of(payload.get("note").unwrap().to_value().as_json()),
         "a *literal* line",
         "text rests as a plain content, its text literal"
     );
-    assert_eq!(payload.get("qty").unwrap().as_json(), &json!(3));
+    assert_eq!(payload.get("qty").unwrap().to_value().as_json(), &json!(3));
 
-    let tags = payload.get("tags").unwrap().as_json();
+    let tags = payload.get("tags").unwrap().to_value();
+
+    let tags = tags.as_json();
     assert!(tags.as_array().unwrap().iter().all(|e| e.is_object()));
-    let meta = payload.get("meta").unwrap().as_json();
+    let meta = payload.get("meta").unwrap().to_value();
+    let meta = meta.as_json();
     assert_eq!(crate::quill::text_of(meta.get("label").unwrap()), "keep *this*");
     assert!(meta.get("blurb").unwrap().is_object());
 
     let card = &doc.cards()[0];
-    assert!(card.payload().get("prose").unwrap().as_json().is_object());
+    assert!(card.payload().get("prose").unwrap().to_value().as_json().is_object());
     assert_eq!(
-        crate::quill::text_of(card.payload().get("caption").unwrap().as_json()),
+        crate::quill::text_of(card.payload().get("caption").unwrap().to_value().as_json()),
         "raw *text*"
     );
 }
@@ -236,7 +239,7 @@ fn non_conforming_value_rests_authored_with_a_diagnostic() {
     assert_eq!(diag.code.as_deref(), Some("conform::field_decode"));
     assert_eq!(diag.path.as_deref(), Some("main.subject"));
     assert_eq!(
-        doc.main().payload().get("subject").unwrap().as_json(),
+        doc.main().payload().get("subject").unwrap().to_value().as_json(),
         &json!(42),
         "the value stays authored: no silent retype"
     );
@@ -285,7 +288,7 @@ fn conform_is_a_no_op_on_seeds() {
         .seed_card("entry", Some(&overlay))
         .expect("kind exists");
     assert_eq!(
-        crate::quill::text_of(card.payload().get("caption").unwrap().as_json()),
+        crate::quill::text_of(card.payload().get("caption").unwrap().to_value().as_json()),
         "overlaid *text*"
     );
     assert_eq!(card.body_markdown(), "overlaid **body**");
@@ -335,7 +338,7 @@ card_kinds:
         .payload()
         .get("classification")
         .expect("seeded classification")
-        .as_json()
+        .to_value().as_json()
         .clone();
     assert!(
         value["note"].is_object(),
@@ -416,7 +419,7 @@ Body.
         .revise(crate::document::Target::from("note"), r"a \*b\* line, revised", None)
         .expect("revise");
     assert_eq!(
-        crate::quill::text_of(doc.main().payload().get("note").unwrap().as_json()),
+        crate::quill::text_of(doc.main().payload().get("note").unwrap().to_value().as_json()),
         r"a \*b\* line, revised",
         "and an edit rests as plain content, escapes intact"
     );
@@ -462,7 +465,7 @@ fn a_0_134_0_row_converges() {
             .payload()
             .get("subject")
             .unwrap()
-            .as_json()
+            .to_value().as_json()
             .is_string()
     );
 

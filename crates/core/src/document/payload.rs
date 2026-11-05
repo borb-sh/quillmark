@@ -20,6 +20,8 @@ use super::edit::PayloadViolation;
 use super::prescan::NestedComment;
 use crate::error::MAX_FIELD_COUNT;
 use crate::value::{PathSegment, QuillValue};
+use quillmark_automerge::content::model::Content;
+use std::borrow::Cow;
 use crate::version::QuillReference;
 
 /// Which out-of-band system-metadata map a [`PayloadItem::Meta`] carries.
@@ -66,6 +68,99 @@ impl MetaKey {
     }
 }
 
+/// A field's value: content, held as the view a read of it answers, or any
+/// other value. A value whose whole is a content value (an object holding a
+/// `text` string and a `blocks` array that decodes as content) is held as
+/// [`Content`](FieldValue::Content), as the document reads it back; any
+/// other value, including one that holds content deeper in, is
+/// [`Data`](FieldValue::Data). Two values are equal when they spell one JSON
+/// value.
+#[derive(Debug, Clone)]
+pub enum FieldValue {
+    /// A content value: a `richtext` or `text` field in its stored form.
+    Content(Content),
+    /// Any other value.
+    Data(QuillValue),
+}
+
+impl FieldValue {
+    /// The content, where this is one.
+    pub fn content(&self) -> Option<&Content> {
+        match self {
+            FieldValue::Content(c) => Some(c),
+            FieldValue::Data(_) => None,
+        }
+    }
+
+    /// The value, where it is not content.
+    pub fn data(&self) -> Option<&QuillValue> {
+        match self {
+            FieldValue::Content(_) => None,
+            FieldValue::Data(v) => Some(v),
+        }
+    }
+
+    /// The value as its JSON spelling.
+    pub fn to_value(&self) -> Cow<'_, QuillValue> {
+        match self {
+            FieldValue::Content(c) => Cow::Owned(QuillValue::from_json(c.to_value())),
+            FieldValue::Data(v) => Cow::Borrowed(v),
+        }
+    }
+
+    /// Holds a value written as data as content where its whole is one.
+    pub(crate) fn settle(&mut self) {
+        if let FieldValue::Data(v) = self
+            && quillmark_automerge::content::units::is_content_value(v.as_json())
+        {
+            *self = std::mem::replace(v, QuillValue::from_json(serde_json::Value::Null)).into();
+        }
+    }
+
+    /// [`to_value`](Self::to_value), owned.
+    pub fn into_value(self) -> QuillValue {
+        match self {
+            FieldValue::Content(c) => QuillValue::from_json(c.to_value()),
+            FieldValue::Data(v) => v,
+        }
+    }
+}
+
+impl From<QuillValue> for FieldValue {
+    fn from(value: QuillValue) -> Self {
+        let json = value.as_json();
+        if !quillmark_automerge::content::units::is_content_value(json) {
+            return FieldValue::Data(value);
+        }
+        match Content::from_value(json) {
+            Ok(c) => FieldValue::Content(c),
+            Err(_) => FieldValue::Data(value),
+        }
+    }
+}
+
+impl From<serde_json::Value> for FieldValue {
+    fn from(value: serde_json::Value) -> Self {
+        QuillValue::from_json(value).into()
+    }
+}
+
+impl From<Content> for FieldValue {
+    fn from(content: Content) -> Self {
+        FieldValue::Content(content)
+    }
+}
+
+impl PartialEq for FieldValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (FieldValue::Content(a), FieldValue::Content(b)) => a == b,
+            (FieldValue::Data(a), FieldValue::Data(b)) => a == b,
+            _ => self.to_value() == other.to_value(),
+        }
+    }
+}
+
 /// One entry in a [`Payload`]: a typed `$` system metadata entry, a user field,
 /// or a comment line.
 ///
@@ -87,7 +182,7 @@ pub enum PayloadItem {
         value: JsonMap<String, JsonValue>,
     },
     /// A user-defined YAML field.
-    Field { key: String, value: QuillValue },
+    Field { key: String, value: FieldValue },
     /// A YAML comment. Text excludes the leading `#`, one optional space and
     /// the whitespace ending the line.
     ///
@@ -102,7 +197,7 @@ impl PayloadItem {
     pub(crate) fn field(key: impl Into<String>, value: QuillValue) -> Self {
         PayloadItem::Field {
             key: key.into(),
-            value,
+            value: value.into(),
         }
     }
 
@@ -217,7 +312,7 @@ impl Payload {
     pub(crate) fn from_index_map(map: IndexMap<String, QuillValue>) -> Self {
         let items = map
             .into_iter()
-            .map(|(key, value)| PayloadItem::Field { key, value })
+            .map(|(key, value)| PayloadItem::Field { key, value: value.into() })
             .collect();
         Self::from_items(items)
     }
@@ -275,7 +370,7 @@ impl Payload {
     /// Sets field `key` to `value`, appending it where absent, or takes it
     /// out where `value` is none, as the document reads it after a change
     /// that landed there: nothing is touched.
-    pub(crate) fn refresh_field(&mut self, key: &str, value: Option<QuillValue>) {
+    pub(crate) fn refresh_field(&mut self, key: &str, value: Option<FieldValue>) {
         let at = self.items.iter().position(|i| matches!(i, PayloadItem::Field { key: k, .. } if k == key));
         match (at, value) {
             (Some(at), Some(value)) => self.items[at] = PayloadItem::Field { key: key.to_string(), value },
@@ -298,8 +393,9 @@ impl Payload {
         }) else {
             return;
         };
-        *slot = value;
-        let value = slot.as_json().clone();
+        let json = value.as_json().clone();
+        *slot = value.into();
+        let value = json;
         let had = self.nested_comments.len();
         self.nested_comments.retain(|nc| match nc.container_path.split_first() {
             Some((PathSegment::Key(k), rest)) if k == key => holds_container(&value, rest),
@@ -494,7 +590,7 @@ impl Payload {
 
     /// Iterator over user `(key, &value)` pairs. Excludes `$` entries and
     /// comments; preserves source order.
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &QuillValue)> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &FieldValue)> + '_ {
         self.items.iter().filter_map(|item| match item {
             PayloadItem::Field { key, value, .. } => Some((key, value)),
             _ => None,
@@ -524,7 +620,7 @@ impl Payload {
     /// Look up a user-field value by key. `$` entries are invisible here: use
     /// [`quill`](Self::quill) / [`kind`](Self::kind) / [`ext`](Self::ext) /
     /// [`seed`](Self::seed).
-    pub fn get(&self, key: &str) -> Option<&QuillValue> {
+    pub fn get(&self, key: &str) -> Option<&FieldValue> {
         self.items.iter().find_map(|item| match item {
             PayloadItem::Field { key: k, value, .. } if k == key => Some(value),
             _ => None,
@@ -543,9 +639,9 @@ impl Payload {
     pub(crate) fn insert(
         &mut self,
         key: impl Into<String>,
-        value: QuillValue,
-    ) -> Result<Option<QuillValue>, PayloadViolation> {
-        self.insert_item(key.into(), value)
+        value: impl Into<FieldValue>,
+    ) -> Result<Option<FieldValue>, PayloadViolation> {
+        self.insert_item(key.into(), value.into())
     }
 
     /// The `names` an insert would land past [`MAX_FIELD_COUNT`], and the count
@@ -575,7 +671,7 @@ impl Payload {
 
     /// Each field, its value open to an edit that keeps the comments nested
     /// inside it: the caller keeps every container those comments name.
-    pub(crate) fn fields_mut(&mut self) -> impl Iterator<Item = (&String, &mut QuillValue)> + '_ {
+    pub(crate) fn fields_mut(&mut self) -> impl Iterator<Item = (&String, &mut FieldValue)> + '_ {
         let keys: Vec<String> = self.keys().cloned().collect();
         self.touched.fields.extend(keys);
         self.items.iter_mut().filter_map(|item| match item {
@@ -589,8 +685,8 @@ impl Payload {
     fn insert_item(
         &mut self,
         key: String,
-        value: QuillValue,
-    ) -> Result<Option<QuillValue>, PayloadViolation> {
+        value: FieldValue,
+    ) -> Result<Option<FieldValue>, PayloadViolation> {
         for item in self.items.iter_mut() {
             if let PayloadItem::Field { key: k, value: v } = item
                 && k == &key
@@ -617,7 +713,7 @@ impl Payload {
     /// Remove a user field by key, returning its value. Its inline trailer
     /// stays as an own-line comment; other comments and `$` entries are
     /// untouched.
-    pub(crate) fn remove(&mut self, key: &str) -> Option<QuillValue> {
+    pub(crate) fn remove(&mut self, key: &str) -> Option<FieldValue> {
         match self
             .take_item(|item| matches!(item, PayloadItem::Field { key: k, .. } if k == key))?
         {
@@ -632,7 +728,7 @@ impl Payload {
         let mut map = IndexMap::new();
         for item in &self.items {
             if let PayloadItem::Field { key, value, .. } = item {
-                map.insert(key.clone(), value.clone());
+                map.insert(key.clone(), value.to_value().into_owned());
             }
         }
         map
@@ -665,7 +761,7 @@ mod tests {
         fm.insert("a", qv("updated")).unwrap();
         let keys: Vec<&String> = fm.keys().collect();
         assert_eq!(keys, vec!["a", "b"]);
-        assert_eq!(fm.get("a").unwrap().as_str(), Some("updated"));
+        assert_eq!(fm.get("a").unwrap().to_value().as_str(), Some("updated"));
     }
 
     #[test]
@@ -687,7 +783,7 @@ mod tests {
         let fm = Payload::from_items(items_with_comment);
         let pairs: Vec<(String, String)> = fm
             .iter()
-            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or_default().to_string()))
+            .map(|(k, v)| (k.clone(), v.to_value().as_str().unwrap_or_default().to_string()))
             .collect();
         assert_eq!(pairs, vec![("title".to_string(), "Hello".to_string())]);
         assert_eq!(fm.kind(), Some("main"));
@@ -753,7 +849,7 @@ mod tests {
             PayloadItem::field("b", qv("2")),
         ]);
         let removed = fm.remove("a").unwrap();
-        assert_eq!(removed.as_str(), Some("1"));
+        assert_eq!(removed.to_value().as_str(), Some("1"));
         assert!(matches!(fm.items()[0], PayloadItem::Quill { .. }));
         assert!(matches!(fm.items()[1], PayloadItem::Kind { .. }));
         let comments: Vec<&str> = fm

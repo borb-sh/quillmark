@@ -33,7 +33,7 @@ fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, L
             let value = seed?.fields.get(name).filter(|v| !v.as_json().is_null())?;
             Some(PayloadItem::Field {
                 key: name.clone(),
-                value: seeded_rest(name, value, field),
+                value: seeded_rest(name, value, field).into(),
             })
         })
         .collect();

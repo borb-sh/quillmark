@@ -147,8 +147,9 @@ fn authoring_card(card: &Card, schema: Option<&CardSchema>) -> JsonMap<String, J
     for (name, value) in card
         .payload()
         .iter()
-        .filter(|(_, v)| !v.as_json().is_null())
+        .filter(|(_, v)| v.content().is_some() || !v.to_value().as_json().is_null())
     {
+        let value = value.to_value();
         let value = match schema.and_then(|s| s.fields.get(name)) {
             Some(field) => project_value(
                 name,

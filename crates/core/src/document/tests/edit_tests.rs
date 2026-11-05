@@ -126,7 +126,7 @@ fn test_set_card_kind_renames_in_place() {
     doc.set_card_kind(0, "annotation").unwrap();
     assert_eq!(doc.cards()[0].kind(), Some("annotation"));
     assert_eq!(
-        doc.cards()[0].payload().get("foo").unwrap().as_str(),
+        doc.cards()[0].payload().get("foo").unwrap().to_value().as_str(),
         Some("bar")
     );
     assert_eq!(doc.cards()[1].kind(), Some("summary"));
@@ -169,7 +169,7 @@ fn test_card_store_fields_inserts_in_iterator_order() {
         .unwrap();
     let keys: Vec<&String> = card.payload().iter().map(|(k, _)| k).collect();
     assert_eq!(keys, ["b", "a"]);
-    assert_eq!(card.payload().get("a").unwrap().as_str(), Some("one"));
+    assert_eq!(card.payload().get("a").unwrap().to_value().as_str(), Some("one"));
 }
 
 #[test]
@@ -191,7 +191,7 @@ fn test_card_store_fields_collects_every_violation_and_applies_none() {
             .all(|(n, e)| *e == EditError::InvalidFieldName(n.clone()))
     );
     assert_eq!(
-        card.payload().get("existing").unwrap().as_str(),
+        card.payload().get("existing").unwrap().to_value().as_str(),
         Some("old")
     );
 }
@@ -205,7 +205,7 @@ fn test_card_store_fields_repeated_name_last_wins() {
         ("title".to_string(), qv("final")),
     ])
     .unwrap();
-    assert_eq!(card.payload().get("title").unwrap().as_str(), Some("final"));
+    assert_eq!(card.payload().get("title").unwrap().to_value().as_str(), Some("final"));
 }
 
 #[test]
@@ -218,11 +218,11 @@ fn test_store_field_scalar_conversions() {
     card.store_field("tags", serde_json::json!(["a", "b"]))
         .unwrap();
     card.store_fields([("count", 1), ("total", 2)]).unwrap();
-    assert_eq!(card.payload().get("name").unwrap().as_str(), Some("Alice"));
-    assert_eq!(card.payload().get("qty").unwrap().as_i64(), Some(3));
-    assert_eq!(card.payload().get("price").unwrap().as_f64(), Some(2.5));
-    assert_eq!(card.payload().get("active").unwrap().as_bool(), Some(true));
-    assert_eq!(card.payload().get("total").unwrap().as_i64(), Some(2));
+    assert_eq!(card.payload().get("name").unwrap().to_value().as_str(), Some("Alice"));
+    assert_eq!(card.payload().get("qty").unwrap().to_value().as_i64(), Some(3));
+    assert_eq!(card.payload().get("price").unwrap().to_value().as_f64(), Some(2.5));
+    assert_eq!(card.payload().get("active").unwrap().to_value().as_bool(), Some(true));
+    assert_eq!(card.payload().get("total").unwrap().to_value().as_i64(), Some(2));
 }
 
 #[test]
@@ -424,7 +424,7 @@ fn test_commit_field_richtext_content_object_reads_back() {
     let mut card = Card::new("note").unwrap();
     commit_richtext(&mut card, "intro", &json, false).unwrap();
 
-    assert!(card.payload().get("intro").unwrap().as_json().is_object());
+    assert!(card.payload().get("intro").unwrap().to_value().as_json().is_object());
     let read = card
         .field_content("intro", Codec::Richtext)
         .unwrap()
@@ -449,7 +449,7 @@ fn test_commit_field_richtext_markdown_null_and_rejects_bad() {
     );
 
     commit_richtext(&mut card, "intro", &serde_json::Value::Null, false).unwrap();
-    assert!(card.payload().get("intro").unwrap().as_json().is_null());
+    assert!(card.payload().get("intro").unwrap().to_value().as_json().is_null());
     assert!(
         card.field_content("intro", Codec::Richtext)
             .unwrap()
@@ -549,7 +549,7 @@ fn test_commit_field_scalar_strict() {
     )
     .unwrap();
     assert_eq!(
-        card.payload().get("qty").unwrap().as_json(),
+        card.payload().get("qty").unwrap().to_value().as_json(),
         &serde_json::json!(3)
     );
 
@@ -573,7 +573,7 @@ fn test_commit_field_scalar_strict() {
         "edit::field_coercion_failed"
     );
     assert_eq!(
-        card.payload().get("qty").unwrap().as_json(),
+        card.payload().get("qty").unwrap().to_value().as_json(),
         &serde_json::json!(3)
     );
 
@@ -1032,7 +1032,7 @@ fn a_batch_past_the_count_names_its_overflowing_tail() {
     );
 
     assert_eq!(doc.main().payload().len(), max - 1);
-    assert_eq!(doc.main().payload().get("f0").unwrap().as_str(), Some("v"));
+    assert_eq!(doc.main().payload().get("f0").unwrap().to_value().as_str(), Some("v"));
 }
 
 /// [`CardMut`](crate::document::CardMut) is the whole mutable surface of a
@@ -1134,7 +1134,7 @@ fn a_field_write_holds_its_content_as_a_body_write_does() {
     let mut nested = make_doc();
     nested.unchecked().store_field(None, "rows", QuillValue::from_json(serde_json::json!([{ "f": shuffled }]))).unwrap();
     let by_place = quillmark_automerge::content::model::Content::from_value(&canonical).unwrap().by_place().to_value();
-    assert_eq!(nested.by_place().main().payload().get("rows").unwrap().as_json(), &serde_json::json!([{ "f": by_place }]));
+    assert_eq!(nested.by_place().main().payload().get("rows").unwrap().to_value().as_json(), &serde_json::json!([{ "f": by_place }]));
 
     let mut bad = canonical.clone();
     bad["anchors"][0]["end"] = 99.into();

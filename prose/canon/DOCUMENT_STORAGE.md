@@ -707,4 +707,4 @@ is retired.
 - [ARCHITECTURE.md](ARCHITECTURE.md): `Document` in the core type overview
 - [markdown-spec.md](../references/markdown-spec.md): Markdown syntax and the in-memory data model
 - [VERSIONING.md](VERSIONING.md): quill version resolution (a separate concern)
-- `QuillValue` (`crates/core/src/value.rs` rustdoc): value type stored inside payload fields
+- `FieldValue` (`crates/core/src/document/payload.rs` rustdoc): a payload field's value, content as the `Content` it reads as and any other value as a `QuillValue` (`crates/core/src/value.rs`)

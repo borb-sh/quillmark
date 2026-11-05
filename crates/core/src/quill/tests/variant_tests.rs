@@ -486,7 +486,7 @@ fn a_stranded_value_is_kept_and_warned_never_gated() {
             .payload()
             .get("classification")
             .unwrap()
-            .as_json()["controlled_by"],
+            .to_value().as_json()["controlled_by"],
         json!("SAF/AA")
     );
     // …and dropped from the wire.
@@ -717,7 +717,7 @@ fn a_nested_worlds_strand_names_the_path_through_the_dictionary() {
 
     // Kept in the document, as it is at card level: only the wire is strict.
     assert_eq!(
-        document.main().payload().get("header").unwrap().as_json()["classification"]["controlled_by"],
+        document.main().payload().get("header").unwrap().to_value().as_json()["classification"]["controlled_by"],
         json!("SAF/AA")
     );
 }
