@@ -243,7 +243,7 @@ impl<'m> Codegen<'m> {
         } else {
             emit_content
         };
-        match quillmark_content::migrate::lines_from_value(value) {
+        match quillmark_automerge::content::migrate::lines_from_value(value) {
             Ok(rt) if !rt.is_blank() => match emit(&rt) {
                 Ok(ec) => {
                     let id = self.content_block(path, ec, inline && rt.is_inline());
@@ -799,10 +799,10 @@ mod tests {
     }
 
     fn content(markdown: &str) -> serde_json::Value {
-        let rt = quillmark_content::lines::import::from_markdown(markdown)
+        let rt = quillmark_automerge::content::lines::import::from_markdown(markdown)
             .expect("import")
             .content;
-        quillmark_content::lines::serial::to_canonical_value(&rt)
+        quillmark_automerge::content::migrate::from_lines(&rt).to_value()
     }
 
     fn richtext_field() -> serde_json::Value {
@@ -870,11 +870,11 @@ mod tests {
     #[test]
     fn segment_maps_index_the_generated_lib_typ() {
         let meta = meta_from(serde_json::json!({ "properties": { "intro": richtext_field() } }));
-        let rt = quillmark_content::lines::import::from_markdown("Hello **bold**.\n\nSecond para.")
+        let rt = quillmark_automerge::content::lines::import::from_markdown("Hello **bold**.\n\nSecond para.")
             .expect("import")
             .content;
         let data =
-            serde_json::json!({ "intro": quillmark_content::lines::serial::to_canonical_value(&rt) });
+            serde_json::json!({ "intro": quillmark_automerge::content::migrate::from_lines(&rt).to_value() });
         let (lib, windows) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
 
         assert_eq!(windows.len(), 1);

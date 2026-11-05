@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { init } from '@quillmark-wasm/runtime'
+import { byPlace } from './test-helpers.js'
 
 const { Document, importMarkdown } = await init()
 
@@ -19,9 +20,6 @@ const FRONTMATTER = '~~~\n$quill: table_demo@0.1.0\n$kind: main\ntitle: Parity\n
 const dropped = (warnings) =>
   warnings.map((w) => ({ code: w.code, path: w.path, construct: w.args.construct, count: w.args.count }))
 
-// A write keeps the block records the value already holds, so `replace` lands
-// every part of `content` but its block ids.
-const unblocked = (c) => ({ ...c, blocks: c.blocks.map(({ id, ...block }) => block) })
 
 const expected = (signals, path) =>
   signals.import.map((s) => ({ code: 'parse::dropped_construct', path, ...s }))
@@ -36,7 +34,7 @@ describe('parity.json', () => {
           expect(dropped(imported.warnings)).toStrictEqual(expected(signals, undefined))
 
           const doc = Document.parse(`${FRONTMATTER}\n${markdown}\n`)
-          expect(doc.main.body).toStrictEqual(content)
+          expect(byPlace(doc.main.body)).toStrictEqual(byPlace(content))
           expect(dropped(doc.warnings)).toStrictEqual(expected(signals, 'main.body'))
         })
       }
@@ -44,13 +42,13 @@ describe('parity.json', () => {
       it('crosses in through replace and storage', () => {
         const doc = Document.parse(FRONTMATTER)
         doc.replace({}, content)
-        expect(unblocked(doc.read({}))).toStrictEqual(unblocked(content))
+        expect(byPlace(doc.read({}))).toStrictEqual(byPlace(content))
 
         const stored = JSON.parse(doc.toStored())
         stored.main.body = content
         const loaded = Document.fromStored(JSON.stringify(stored))
-        expect(loaded.main.body).toStrictEqual(content)
-        expect(Document.fromStored(loaded.toStored()).read({})).toStrictEqual(content)
+        expect(byPlace(loaded.main.body)).toStrictEqual(byPlace(content))
+        expect(byPlace(Document.fromStored(loaded.toStored()).read({}))).toStrictEqual(byPlace(content))
       })
     })
   }

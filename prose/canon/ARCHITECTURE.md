@@ -21,8 +21,8 @@ do the heavy compilation.
 ## Crate Structure
 
 Seven crates publish to crates.io: `quillmark-core`, `quillmark`,
-`quillmark-content`, `quillmark-pdf`, `quillmark-typst`, `quillmark-acroform`
-and `quillmark-cli`. The binding and fixture crates are `publish = false`:
+`quillmark-automerge`, `quillmark-pdf`,
+`quillmark-typst`, `quillmark-acroform` and `quillmark-cli`. The binding and fixture crates are `publish = false`:
 they path-depend on the core beside them and ship as one build.
 
 The published crates carry **no API stability promise before 1.0**. The
@@ -42,25 +42,44 @@ that dependency's ([ERROR.md](ERROR.md) on the YAML boundary).
 Foundation types and traits: the render contract (`Backend` / `LiveSession`),
 the `Document` and `Quill` model, and the `Diagnostic` currency; see the
 crate's rustdoc for the full surface, and [Core Interfaces](#core-interfaces)
-below for the ones carrying the contract. It depends on `quillmark-content` (the leaf rich-text
-primitive one layer below it) and on no backend; backends depend on it.
+below for the ones carrying the contract. It depends on `quillmark-automerge`
+(the Automerge document every `Document` is held in, and the content values
+its fields hold), and on no backend; backends depend on it. A `Document` is
+its Automerge document from construction, and its cards are a view of it,
+a `Snapshot` the document derefs to. A render, a validation and a resolve
+read a `Snapshot`, so a host renders `doc.snapshot()`, which carries no
+history and holds no Automerge document.
 
-### `quillmark-content`
+### `quillmark-automerge`
 
-The leaf rich-text primitive `quillmark-core` depends on: the content model
-(`model`: flat text, blocks and containers with ids, marks, anchors, and islands
-whose slots nest content; [CONTENT.md](CONTENT.md)), its canonical
-byte-deterministic wire form (`wire`, which storage and the binding seam carry),
-the `Change` that edits it (`change`) and the producers that build one (`diff`),
-merge repair (`repair`), and each host's offsets (`units`). Under `lines` sits
-the line form the renderers and markdown codecs read: the markdown⇄content
-import/export codecs with a table's HTML spelling, the `qm-*` carrier grammar,
-and the comment-anchor contexts and exact re-attachment
-([COMMENTS.md](COMMENTS.md)); `migrate` moves values between the two.
-The workspace's only markdown parser (`pulldown-cmark`) lives here, in
-`quillmark-content::lines::import`, run once at ingest. **Invariant:** the Markdown
-parser appears exactly once in the workspace; no render path parses markdown:
-backends lower the content.
+The leaf crate `quillmark-core` depends on, in two layers.
+
+`content` is the value a body or a rich field holds: the content model
+(`content::model`: flat text, blocks and containers with ids, marks, anchors,
+and islands whose slots nest content; [CONTENT.md](CONTENT.md)), its canonical
+byte-deterministic wire form (`content::wire`, which storage and the binding
+seam carry), the `Change` that edits it (`content::change`) and the producers
+that build one (`content::diff`), merge repair (`content::repair`), and each
+host's offsets (`content::units`). Under `content::lines` sits the line form
+the renderers and markdown codecs read: the markdown⇄content import/export
+codecs with a table's HTML spelling, the `qm-*` carrier grammar, and the
+comment-anchor contexts and exact re-attachment ([COMMENTS.md](COMMENTS.md));
+`content::migrate` moves values between the two. The workspace's only markdown
+parser (`pulldown-cmark`) lives here, in `content::lines::import`, run once at
+ingest. **Invariant:** the Markdown parser appears exactly once in the
+workspace; no render path parses markdown: backends lower the content.
+
+`model` is the Quillmark document held as one Automerge document
+(`model::Doc`): the root's cards, each card map's layout, fields, values and
+nested comments as plain data (`model::cards`, which core places and reads its
+cards in, writes each card edit into part by part, and refreshes its view from
+patches through), a change lowered into Automerge operations, at the
+document's heads or at earlier ones, and the read back through merge repair,
+so every peer holding one merged state reads one valid value. Bytes, heads,
+incremental saves and the sync protocol are Automerge's own. `revise_keeping`
+is the markdown revise that keeps what its read does not spell by a merge
+([CONTENT.md](CONTENT.md) § "Live state and merge"). It depends on `automerge`,
+pinned exactly with no default features.
 
 ### `quillmark` (orchestration)
 

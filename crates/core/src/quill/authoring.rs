@@ -86,8 +86,7 @@ impl Quill {
                 ));
             }
         }
-        let main = document.main_card_mut();
-        fill_card(main, root, &DocPath::main(), "", &mut errors, &mut warnings);
+        document.edit_card(None, |c| fill_card(c, root, &DocPath::main(), "", &mut errors, &mut warnings));
 
         let cards = match root.get("cards") {
             None | Some(JsonValue::Null) => &[][..],
@@ -126,7 +125,7 @@ impl Quill {
             };
             let base = DocPath::card(Some(kind), index);
             fill_card(&mut card, envelope, &base, &at, &mut errors, &mut warnings);
-            if let Err(e) = document.unchecked().insert_card(None, card, None) {
+            if let Err(e) = document.unchecked().insert_card(None, card) {
                 errors.push(edit_error(&e, &base));
             }
         }
@@ -148,8 +147,9 @@ fn authoring_card(card: &Card, schema: Option<&CardSchema>) -> JsonMap<String, J
     for (name, value) in card
         .payload()
         .iter()
-        .filter(|(_, v)| !v.as_json().is_null())
+        .filter(|(_, v)| v.content().is_some() || !v.to_value().as_json().is_null())
     {
+        let value = value.to_value();
         let value = match schema.and_then(|s| s.fields.get(name)) {
             Some(field) => project_value(
                 name,
@@ -202,7 +202,7 @@ fn fill_card(
         None | Some(JsonValue::Null) => {}
         Some(JsonValue::String(markdown)) => {
             match import_body_at(markdown, &base.body(), warnings) {
-                Ok(body) => card.set_body(quillmark_content::migrate::from_lines(&body)),
+                Ok(body) => card.set_body(quillmark_automerge::content::migrate::from_lines(&body)),
                 Err(e) => errors.push(
                     Diagnostic::new(Severity::Error, e.to_string())
                         .with_code("edit::import".to_string())

@@ -10,20 +10,19 @@
 
 // The instance types, so an annotation (`let q: Quill`) needs no await. Their
 // values are `CoreSurface`'s.
-export type { Quill, Document } from '../core/wasm.js';
+export type { Quill, Document, SyncState } from '../core/wasm.js';
 
 import type {
 	InitInput,
 	Quill as CoreQuill,
 	Document as CoreDocument,
+	SyncState as CoreSyncState,
 	importMarkdown,
 	exportMarkdown,
 	normalize,
-	invert,
 	diff,
 	diffRange,
 	inheritedMarks,
-	mapPos,
 	repair,
 	isInline,
 	isPlain,
@@ -42,14 +41,13 @@ import type {
 export interface CoreSurface {
 	Quill: typeof CoreQuill;
 	Document: typeof CoreDocument;
+	SyncState: typeof CoreSyncState;
 	importMarkdown: typeof importMarkdown;
 	exportMarkdown: typeof exportMarkdown;
 	normalize: typeof normalize;
-	invert: typeof invert;
 	diff: typeof diff;
 	diffRange: typeof diffRange;
 	inheritedMarks: typeof inheritedMarks;
-	mapPos: typeof mapPos;
 	repair: typeof repair;
 	isInline: typeof isInline;
 	isPlain: typeof isPlain;
@@ -144,6 +142,7 @@ export type {
 	Change,
 	Step,
 	Receipt,
+	Patch,
 	DroppedAnchor,
 	WriteOptions,
 	CardInput,
@@ -151,11 +150,8 @@ export type {
 	Addr,
 	CardAddr,
 	Delta,
-	BaseOptions,
-	DocumentBaseOptions,
 	DocumentRevised,
 	CardAdded,
-	MergeConflict,
 	AnnotatedMarkdown,
 	AnnotatedExport,
 	DocumentAnchor,
@@ -163,8 +159,6 @@ export type {
 	Reattached,
 	Imported,
 	DocPathSeg,
-	Pos,
-	MapResult,
 	WrapKind,
 	RawContent,
 	Repair,
@@ -678,16 +672,16 @@ export interface DocumentUnchecked {
 	 * Place a card whole and answer its `$id`: `at` omitted appends, a number
 	 * inserts at that index (`0..=cards.length`). Accepts any `CardInput`,
 	 * including a card read back out of a document. A card spelling no `id`
-	 * mints one, under `opts.actor` where one is given (`{actor}-{token}`), so
-	 * two live clients placing cards never mint one id; a card spelling one
-	 * keeps it, refused where it is no card id or another card holds it. Throws
-	 * on an invalid kind, an out-of-range `at`, an invalid actor, or a document
-	 * holding 1,000 cards.
+	 * mints one, under the document's `actor` where one is set
+	 * (`{actor}-{token}`), so two live clients placing cards never mint one
+	 * id; a card spelling one keeps it, refused where it is no card id or
+	 * another card holds it. Throws on an invalid kind, an out-of-range `at`,
+	 * or a document holding 1,000 cards.
 	 */
-	insertCard(card: CardInput, at?: number, opts?: PlaceOptions): string;
+	insertCard(card: CardInput, at?: number): string;
 }
 
-import type { Addr, BaseOptions, CardAdded, DocumentBaseOptions, CardInput, Content, DocumentRevised, PathStep, PlaceOptions, Receipt, Resolved } from '../core/wasm.js';
+import type { Addr, CardAdded, CardInput, Content, DocumentRevised, PathStep, Receipt, Resolved, WriteOptions } from '../core/wasm.js';
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
@@ -704,22 +698,6 @@ import type { Addr, BaseOptions, CardAdded, DocumentBaseOptions, CardInput, Cont
 export declare class DocumentWriter {
 	constructor(quill: Quill, doc: Document);
 	/**
-	 * The hash of the document as this quill conforms it: the `baseHash`
-	 * {@link reviseDocument} checks. A document loaded without its quill
-	 * hashes as its conformed self, so a conform between the read and the
-	 * write does not stale the base. Throws when the document declares a
-	 * `$quill` this quill does not answer to.
-	 */
-	hash(): string;
-	/**
-	 * The hash of the body or field at `addr` through its schema: the
-	 * `baseHash` {@link revise} checks. An absent `addr.field` hashes the body. A
-	 * `richtext` or `text` field hashes its content however it is stored, ids
-	 * and anchors included, any other type its stored value, an absent field as
-	 * `null`. Throws `UnknownField` for an undeclared name.
-	 */
-	hashAt(addr: Addr | string): string;
-	/**
 	 * Typed-commit one main-card field (strict coerce, mismatch throws now).
 	 * Throws `UnknownField` for a name the schema does not declare. Returns a
 	 * `parse::dropped_construct` warning per construct a `richtext` markdown
@@ -735,56 +713,55 @@ export declare class DocumentWriter {
 	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**
 	 * Revise the body or content field at `addr` from authored text: anchors
-	 * rebase, and the write answers the `Receipt` a content write does,
-	 * `applied` the change from the value before, its warnings at the value,
-	 * and the anchors the write dropped or moved. A bare string is `Addr`
+	 * ride their text, and the write answers the `Receipt` a content write does,
+	 * `{ before, heads, patches, droppedAnchors, repairs, warnings }`, its
+	 * warnings at the value. A bare string is `Addr`
 	 * shorthand for `{ field }`; an absent `addr.field` is the body, an absent
-	 * `addr.card` the main card.
+	 * `addr.card` the main card, and a composable card is named by its `$id`,
+	 * an index throwing.
 	 *
 	 * The codec comes from the declared type, the body's being `richtext`:
 	 * `richtext` diffs markdown, while `text` diffs the literal text and never
 	 * imports markdown, so a byte-identical revise of a value carrying escapes
-	 * is a byte no-op and its `applied` is one splice over the literal text. A
+	 * is a byte no-op and its patches are one splice over the literal text. A
 	 * field's result is schema-conformed (a one-paragraph `richtext` rejects a
 	 * multi-block result), and an undeclared name throws `UnknownField`.
 	 *
-	 * `opts` names what the writer read: its `baseHash` (from {@link hashAt})
-	 * or its `baseContent` (the `Content` `doc.read` returned). A value that has
-	 * moved on rebases the write over the change since and sets `rebased`,
-	 * throwing `edit::rebase_conflict` where the two touch; a `baseHash` throws
-	 * `edit::stale_base` where the log no longer reaches it.
+	 * `opts.heads` names the revision the writer read (`doc.heads()`): the
+	 * write lands there and merges with every change since as Automerge
+	 * merges (CONTENT.md § "Live state and merge"); heads the document's
+	 * history does not hold throw `edit::stale_base`.
 	 */
-	revise(addr: Addr | string, text: string, opts?: BaseOptions): Receipt;
+	revise(addr: Addr | string, text: string, opts?: WriteOptions): Receipt;
 	/**
 	 * Replace the bound document with `markdown`, then conform it. Composable
 	 * cards align to the stored ones by `$kind` and text similarity, an aligned
-	 * card's body and stored content fields revise, their anchors rebasing as
-	 * {@link revise}'s do, and every declared content field lands in its stored form.
+	 * card's body and stored content fields revise, their anchors riding their
+	 * text as {@link revise}'s do, and every declared content field lands in its stored form.
 	 * Returns the `DocumentRevised` receipt, its `from` naming the stored card
 	 * each composable card revises and its `warnings` ending with the
 	 * `conform::*` ones, and clears `doc.warnings`. Throws when `markdown`
 	 * declares a `$quill` this quill does not answer to, or does not parse,
 	 * leaving the document unchanged.
 	 *
-	 * `opts` names what the writer read: `baseHash` is {@link hash}, and
-	 * `baseStored` the `doc.toStored()` row it read. A stale hash throws before
-	 * any mutation. A stored base merges the write onto what changed since,
-	 * card by card and field by field: each place both changed keeps its value
-	 * now and is named in the receipt's `conflicts`, and the write throws
-	 * `edit::rebase_conflict` only where no merge can stand.
+	 * `opts.heads` names the revision the writer read (`doc.heads()`): the
+	 * writer's revise of the document as it was then lands at those heads,
+	 * merged with every change since as Automerge merges, a field both sides
+	 * set reading as the later write. Heads the history does not hold throw
+	 * `edit::stale_base` before any mutation.
 	 */
-	reviseDocument(markdown: string, opts?: DocumentBaseOptions): DocumentRevised;
+	reviseDocument(markdown: string, opts?: WriteOptions): DocumentRevised;
 	/**
 	 * Build a composable card of `kind`, typed-commit `fields` onto it, set its
 	 * body from optional markdown, and place it. `at` omitted appends, a number
 	 * inserts at that index. Transactional: a rejected field (throwing a per-field
 	 * diagnostic bundle) or an invalid kind, body, or position leaves the document
 	 * untouched. The card's `$id` mints as `doc.unchecked.insertCard` mints
-	 * one, under `opts.actor` where one is given. Returns that id and the
+	 * one, under the document's `actor` where one is set. Returns that id and the
 	 * fields' `parse::dropped_construct` warnings, then the body import's,
 	 * anchored under the placed card.
 	 */
-	addCard(kind: string, fields?: Record<string, unknown>, body?: string, at?: number, opts?: PlaceOptions): CardAdded;
+	addCard(kind: string, fields?: Record<string, unknown>, body?: string, at?: number): CardAdded;
 	/** Remove the composable card at `index`, returning it (or `undefined`). */
 	removeCard(index: number): Card | undefined;
 	/**
@@ -805,16 +782,17 @@ export declare class DocumentWriter {
  */
 export declare class CardWriter {
 	constructor(quill: Quill, doc: Document, index: number);
-	/** The card twin of {@link DocumentWriter.hashAt}; no `field` hashes the body. */
-	hashAt(addr?: { field?: string } | string): string;
 	set(name: string, value: unknown): Diagnostic[];
 	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**
 	 * The card twin of {@link DocumentWriter.revise}: no `field` revises the
-	 * card's body. Throws `UnknownField` for an undeclared name and
-	 * `IndexOutOfRange` for a bad bound index.
+	 * card's body, the card the bound index names at the call. Throws
+	 * `UnknownField` for an undeclared name and `IndexOutOfRange` for a bad
+	 * bound index. A revise at heads names its card by `$id`, which a cursor
+	 * holds none of, so `opts` naming heads throws: it goes through
+	 * `writer.revise({ card: id, field }, ...)`.
 	 */
-	revise(addr: { field?: string } | string, text: string, opts?: BaseOptions): Receipt;
+	revise(addr: { field?: string } | string, text: string, opts?: WriteOptions): Receipt;
 }
 
 /**

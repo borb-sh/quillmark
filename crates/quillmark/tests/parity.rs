@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use quillmark::{Diagnostic, Document, Engine, OutputFormat, Quill, RenderOptions};
 use quillmark_core::document::Target;
-use quillmark_content::{
+use quillmark_automerge::content::{
     change::apply,
     diff::diff,
     markdown::{ImportWarning, from_markdown, to_markdown, to_markdown_annotated},
@@ -204,7 +204,7 @@ fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
                 Ok(p) => p,
                 Err(e) => return [failures, vec![format!("a body does not parse: {e}")]].concat(),
             };
-            if parsed.document.main().body().to_value() != *value {
+            if parsed.document.main().body().by_place() != Content::from_value(value).expect("checked above").by_place() {
                 failures.push(format!("a body stores {}", parsed.document.main().body().to_value()));
             }
             let dropped = dropped_constructs(&parsed.warnings);
@@ -225,6 +225,14 @@ fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
     failures
 }
 
+/// `markdown` with each island ref `from` holds spelled as the island at its
+/// place in `to`, the value a write of `from` landed as.
+fn respelled(markdown: &str, from: &Content, to: &Content) -> String {
+    from.islands.iter().zip(&to.islands).fold(markdown.to_string(), |m, (a, b)| {
+        m.replace(&format!("ref=\"{}\"", a.id), &format!("ref=\"{}\"", b.id))
+    })
+}
+
 /// A document whose body holds `content`, written through `replace`.
 fn holding(content: &Content) -> Document {
     let mut doc = Document::parse(&frontmatter(QUILL))
@@ -233,7 +241,7 @@ fn holding(content: &Content) -> Document {
     doc.main_mut()
         .replace(Target::Body, content, None)
         .expect("a canonical content replaces the empty body");
-    assert_eq!(doc.main().body(), content, "a replace over the empty body lands the content");
+    assert_eq!(doc.main().body().by_place(), content.by_place(), "a replace over the empty body lands the content");
     doc
 }
 
@@ -324,8 +332,10 @@ fn check_revise(content: &Content, reimports: &Content, markdown: &str) -> Vec<S
     let mut expected = reimports.clone();
     expected.anchors = content.anchors.clone();
     let mut doc = holding(content);
-    match doc.main_mut().revise(Target::Body, markdown, None) {
-        Ok(revised) if *doc.main().body() == expected && revised.warnings.is_empty() => vec![],
+    let markdown = &respelled(markdown, content, doc.main().body());
+    let revised = doc.main_mut().revise(Target::Body, markdown, None);
+    match revised {
+        Ok(revised) if doc.main().body().by_place() == expected.by_place() && revised.warnings.is_empty() => vec![],
         Ok(revised) => vec![format!(
             "a revise lands {}, warning {:?}",
             doc.main().body().to_value(),
@@ -394,7 +404,7 @@ fn check_document(content: &Content, reimports: &Content, annotated: Option<&str
     let doc = holding(content);
     let read = doc.to_markdown_annotated();
     let mut failures: Vec<String> = match Document::parse(&doc.to_markdown()) {
-        Ok(p) if p.document.main().body() == reimports && p.warnings.is_empty() => vec![],
+        Ok(p) if p.document.main().body().by_place() == reimports.by_place() && p.warnings.is_empty() => vec![],
         Ok(p) => vec![format!(
             "the document parses to a body {}, warning {:?}",
             p.document.main().body().to_value(),
@@ -404,7 +414,7 @@ fn check_document(content: &Content, reimports: &Content, annotated: Option<&str
     };
     let mut revised = doc.clone();
     match revised.revise(&read.markdown) {
-        Ok(r) if revised.main().body() == content && r.warnings.is_empty() => {}
+        Ok(r) if revised.main().body().by_place() == content.by_place() && r.warnings.is_empty() => {}
         Ok(r) => failures.push(format!(
             "the annotated read revises to a body {}, warning {:?}",
             revised.main().body().to_value(),
@@ -422,7 +432,7 @@ fn check_document(content: &Content, reimports: &Content, annotated: Option<&str
     if listed != held {
         failures.push(format!("the annotated read lists {listed:?}"));
     }
-    if annotated.is_some_and(|a| !read.markdown.contains(a)) {
+    if annotated.is_some_and(|a| !read.markdown.contains(&respelled(a, content, doc.main().body()))) {
         failures.push(format!(
             "the annotated read does not spell annotated:\n{}",
             read.markdown

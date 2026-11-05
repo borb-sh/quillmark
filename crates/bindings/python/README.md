@@ -89,16 +89,17 @@ reference and owns neither: bind, write, discard.
 w = quill.writer(doc)
 w.set("title", "On Taro")                 # typed-commit one field (mismatch raises now)
 w.set_all({"title": "T", "author": "A"})  # atomic batch; one diagnostic per bad field
-w.revise("A **taro** essay.")             # body write: no field is the body (edit semantics, anchors rebase)
+w.revise("A **taro** essay.")             # body write: no field is the body (edit semantics, anchors ride their text)
 w.revise("make it **bold**", "bio")       # typed *and* anchor-preserving content write (codec by declared type)
 w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit + insert (at appends/inserts)
                                           # set and set_all return the parse::dropped_construct
                                           # warnings their markdown raised: [Diagnostic, ...]
                                           # add_card returns {"id", "warnings": [Diagnostic, ...]}
                                           # revise returns its receipt:
-                                          # {"delta", "warnings": [Diagnostic, ...], "dropped_anchors": [{"id", "line"}]}
-w.revise_document(markdown)               # whole-document write: cards align by $kind and text, anchors rebase,
-                                          # then conform; returns {"dropped_anchors": [{"id", "path", "line"}],
+                                          # {"before", "heads", "patches", "dropped_anchors",
+                                          #  "repairs", "warnings": [Diagnostic, ...]}
+w.revise_document(markdown)               # whole-document write: cards align by $kind and text, anchors ride their text,
+                                          # then conform; returns {"dropped_anchors": [AnchorContext, ...],
                                           # "warnings": [Diagnostic, ...], "from": [int | None]}, clears doc.warnings
 w.remove_card(0)
 w.set("author", "Issa", card=0)           # every verb takes card=: None is main, an int the composable card
@@ -116,7 +117,7 @@ field's `Content` as a dict whichever write stored it.
 v = quill.reader(doc)
 v.get("bio")                              # richtext → markdown str; scalar → as stored; absent or present-null → None
                                           # undeclared name raises UnknownField; undecodable content raises FieldDecode
-v.get_content("bio")                      # the `Content` dict {text, lines, marks, islands}; absent → None
+v.get_content("bio")                      # the `Content` dict {text, blocks, marks, islands, …}; absent → None
                                           # a type that is not a content leaf raises FieldNotContent
 v.get("author", card=0)                   # a card field, interpreted by its $kind schema
 doc.to_markdown_at(card=0)                # a card body's markdown, quill-free
@@ -166,7 +167,8 @@ doc.set_quill_ref("other@1.0")
 doc.unchecked.insert_card({"kind": "note", "body": "..."}, at=None)   # at appends/inserts; returns the $id
 doc.unchecked.insert_card({"kind": "note",                            # fields → payload items
                            "payload_items": [{"type": "field", "key": "x", "value": 1}]})
-doc.unchecked.insert_card({"kind": "note"}, actor="7")                # a live client's $id, minted under its actor
+doc.set_actor("7")
+doc.unchecked.insert_card({"kind": "note"})                # a live client's $id, minted under its actor
 doc.unchecked.store_field("title", "x", card=None)                    # no schema coercion; content stored canonical
 doc.remove_card(0)                               # returns the Card dict, or None
 doc.move_card(2, 0)

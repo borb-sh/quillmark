@@ -1,4 +1,4 @@
-//! Assembly of card-yaml blocks into a [`Document`]: the top-level parsing glue
+//! Assembly of card-yaml blocks into a [`Snapshot`](super::Snapshot): the top-level parsing glue
 //! over the fence scanner, the YAML payload parse, and `$` metadata extraction.
 //!
 //! Both `$` system metadata and user fields become [`PayloadItem`] variants in
@@ -8,15 +8,15 @@
 use crate::error::ParseError;
 use crate::error::{Diagnostic, Severity};
 use crate::path::DocPath;
-use crate::value::{PathSegment, QuillValue};
+use crate::value::PathSegment;
 
 use super::fences::{UnclosedRoot, find_metadata_blocks};
 use super::meta::{extract_meta_items, meta_key, yaml_type_name};
 use super::payload::{MetaKey, Payload, PayloadItem};
 
 use super::prescan::{NestedComment, PreItem, Refusal, prescan_fence_content};
-use super::{Card, Document};
-use quillmark_content::lines::import::{ImportError, Imported};
+use super::Card;
+use quillmark_automerge::content::lines::import::{ImportError, Imported};
 
 /// A `MissingQuill` message naming the specific malformation. LLM authors hit a
 /// few recurring shapes — a bare YAML mapping with no fences, an opener whose
@@ -149,7 +149,7 @@ fn import_card_body(
     at: &DocPath,
     import: Import,
     warnings: &mut Vec<Diagnostic>,
-) -> Result<quillmark_content::lines::model::Lines, ParseError> {
+) -> Result<quillmark_automerge::content::lines::model::Lines, ParseError> {
     let imported = import(body).map_err(|e| ParseError::BodyImport {
         path: at.to_string(),
         message: e.to_string(),
@@ -323,7 +323,7 @@ pub(super) fn build_block(
     })
 }
 
-/// Decompose markdown into a typed [`Document`], its non-fatal warnings (the
+/// Decompose markdown into its [`Snapshot`](super::Snapshot), its non-fatal warnings (the
 /// fence scan's, then each card's YAML-tag and body-import warnings in card
 /// order) and each body's markdown, the main card's first, every body read
 /// through `import`. Each card holds the `$id` it spells, or none: the caller
@@ -331,7 +331,7 @@ pub(super) fn build_block(
 pub(super) fn decompose_with_warnings(
     markdown: &str,
     import: Import,
-) -> Result<(Document, Vec<Diagnostic>, Vec<String>), crate::error::ParseError> {
+) -> Result<(super::Snapshot, Vec<Diagnostic>, Vec<String>), crate::error::ParseError> {
     let markdown = markdown.strip_prefix('\u{FEFF}').unwrap_or(markdown);
 
     if markdown.trim().is_empty() {
@@ -511,7 +511,7 @@ pub(super) fn decompose_with_warnings(
         cards.push(Card::from_parts(card_payload, card_body));
     }
 
-    Ok((Document { main, cards, mints: Default::default() }, warnings, bodies))
+    Ok((super::Snapshot { main, cards }, warnings, bodies))
 }
 
 /// Validate a user field entering the payload from the parse path, mapping a
@@ -594,7 +594,7 @@ fn build_payload(
                     validate_parsed_field(&key, &value)?;
                     items.push(PayloadItem::Field {
                         key,
-                        value: QuillValue::from_json(value),
+                        value: value.into(),
                     });
                 }
             }
@@ -609,7 +609,7 @@ fn build_payload(
         validate_parsed_field(&key, &value)?;
         items.push(PayloadItem::Field {
             key,
-            value: QuillValue::from_json(value),
+            value: value.into(),
         });
     }
 

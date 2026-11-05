@@ -3,8 +3,19 @@
 //! import is a fixed point.
 
 use proptest::prelude::*;
+use quillmark_automerge::content::markdown::to_markdown_checked;
+use quillmark_automerge::content::model::{Codec, Content};
 
 use super::*;
+
+/// Whether markdown names a loss of some rich text value of `doc`: a mark it
+/// cannot write, which a cold import of the export then does not hold.
+pub(super) fn loses_in_markdown(doc: &Document) -> bool {
+    let lossy = |c: &Content| c.codec == Codec::Rich && !to_markdown_checked(c).losses.is_empty();
+    std::iter::once(doc.main()).chain(doc.cards()).any(|card| {
+        lossy(card.body()) || card.payload().iter().any(|(_, v)| Content::from_value(v.to_value().as_json()).is_ok_and(|c| lossy(&c)))
+    })
+}
 
 fn arb_json(max_depth: u32) -> impl Strategy<Value = serde_json::Value> {
     let leaf = prop_oneof![
@@ -61,7 +72,9 @@ proptest! {
         };
         let exported = quill.to_authoring(&first.document);
         let second = quill.from_authoring(&exported).expect("an export imports");
-        prop_assert_eq!(&second.document, &first.document);
+        if !loses_in_markdown(&first.document) {
+            prop_assert_eq!(&second.document, &first.document);
+        }
         prop_assert_eq!(quill.to_authoring(&second.document), exported);
     }
 }

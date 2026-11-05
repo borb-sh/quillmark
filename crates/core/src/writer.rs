@@ -28,7 +28,7 @@
 use indexmap::IndexMap;
 
 use crate::document::edit::{overflow_errors, resolve_field_write};
-use crate::document::{Base, Card, Document, DocumentBase, DocumentRevised, EditError, Receipt, Revising, Target};
+use crate::document::{Card, Document, DocumentRevised, EditError, Receipt, Revising, Target, WriteOptions};
 use crate::error::Diagnostic;
 use crate::path::DocPath;
 use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
@@ -72,13 +72,7 @@ impl<'a> TypedWriter<'a> {
         value: impl Into<QuillValue>,
     ) -> Result<Vec<Diagnostic>, EditError> {
         let schema = Some(&self.config.main.fields);
-        commit_impl(
-            self.doc.main_card_mut(),
-            schema,
-            name,
-            value,
-            &DocPath::main(),
-        )
+        self.doc.edit_card(None, |c| commit_impl(c, schema, name, value, &DocPath::main()))
     }
 
     /// Write several main-card fields atomically, the typed twin of
@@ -100,7 +94,7 @@ impl<'a> TypedWriter<'a> {
         I: IntoIterator<Item = (K, V)>,
     {
         let schema = Some(&self.config.main.fields);
-        set_all_impl(self.doc.main_card_mut(), schema, fields, &DocPath::main())
+        self.doc.edit_card(None, |c| set_all_impl(c, schema, fields, &DocPath::main()))
     }
 
     /// Revise the main card's body or a content field from authored text:
@@ -116,18 +110,19 @@ impl<'a> TypedWriter<'a> {
     /// carrying escapes is a byte no-op, and its [`Receipt`]'s change is one
     /// splice over the literal text.
     ///
-    /// A `base` names what the writer read, its hash
-    /// [`hash_of`](Self::hash_of) or its [`Content`](crate::Content): a value
-    /// that has moved on rebases the write over the change since, refused
-    /// where the two touch.
-    pub fn revise<'t>(
+    /// `opts.heads` names the document's heads when the writer read, as
+    /// [`Document::heads`] answered them: a content field or the body is
+    /// revised as it read then, and the change lands at those heads, merged
+    /// with every change since as Automerge merges; heads the document's
+    /// history does not hold refuse with `edit::stale_base`.
+    pub fn revise<'t, 'o>(
         &mut self,
         target: impl Into<Target<'t>>,
         text: &str,
-        base: Option<Base<'_>>,
+        opts: impl Into<WriteOptions<'o>>,
     ) -> Result<Receipt, EditError> {
         let schema = Some(&self.config.main.fields);
-        revise_impl(self.doc.main_card_mut(), schema, target.into(), base, text)
+        revise_impl(self.doc.main_mut(), schema, target.into(), opts.into(), text)
     }
 
     /// Replace the document with `markdown` through [`Document::revise`], then
@@ -138,56 +133,53 @@ impl<'a> TypedWriter<'a> {
     /// A `$quill` this quill does not answer to fails as
     /// [`BoundParseError::Mismatch`] before any mutation, and a parse failure
     /// as [`BoundParseError::Parse`].
-    pub fn revise_document(&mut self, markdown: &str) -> Result<DocumentRevised, BoundParseError> {
-        let revising = Document::parse_revising(markdown)?;
-        self.revise_parsed(revising)
-    }
-
-    /// [`revise_document`](Self::revise_document) under `base`: the hash is
-    /// [`hash`](Self::hash), and a stored read is the document the writer
-    /// read. Each side is conformed and emitted before the merge. A stale or
-    /// conflicting write fails as [`BoundParseError::Base`] before any
-    /// mutation.
-    pub fn revise_document_against(
-        &mut self,
-        base: DocumentBase<'_>,
-        markdown: &str,
-    ) -> Result<DocumentRevised, BoundParseError> {
-        let (parsed, conflicts) =
-            crate::document::base::parse_against(self.config, self.doc, base, markdown)?;
-        let mut revised = self.revise_parsed(parsed)?;
-        revised.conflicts = conflicts;
+    ///
+    /// `opts.heads` names the document's heads when the writer read: the
+    /// writer's revise of the document as it was then lands as one Automerge
+    /// change at those heads, merged with every change since as Automerge
+    /// merges. A card both sides changed merges field by field, a field both
+    /// set reads as the later write, and text both edited keeps both edits.
+    /// Heads the document's history does not hold fail as
+    /// [`BoundParseError::Edit`] (`edit::stale_base`) before any mutation.
+    pub fn revise_document<'o>(&mut self, markdown: &str, opts: impl Into<WriteOptions<'o>>) -> Result<DocumentRevised, BoundParseError> {
+        let before = self.doc.heads();
+        let heads = match opts.into().heads {
+            Some(heads) if before != *heads => heads,
+            _ => return self.revise_parsed(Document::parse_revising(markdown)?),
+        };
+        let Some(then) = self.doc.at(heads) else {
+            return Err(EditError::StaleHeads { field: None }.into());
+        };
+        let mut wanted = then.clone();
+        let mut revised = TypedWriter::new(self.config, &mut wanted).revise_document(markdown, None)?;
+        self.doc.land_at(heads, &then, &wanted);
+        let recard = |path: &str| -> Option<String> {
+            let path: crate::path::DocPath = path.parse().ok()?;
+            let Some(crate::path::DocSeg::Card { index, .. }) = path.segs().first() else { return None };
+            let id = wanted.card(*index)?.id()?;
+            Some(path.with_card_index(self.doc.card_index(id)?)?.to_string())
+        };
+        for w in &mut revised.warnings {
+            if let Some(moved) = w.path.as_deref().and_then(recard) {
+                w.path = Some(moved);
+            }
+        }
+        revised.warnings.extend(self.config.conform(self.doc).expect("the landed document carries the checked `$quill`"));
+        revised.before = before;
+        revised.heads = self.doc.heads();
         Ok(revised)
-    }
-
-    /// The hash of the document as this quill conforms it: the [`Base::Hash`]
-    /// [`revise_document_against`](Self::revise_document_against) checks. A
-    /// document loaded without its quill hashes as its conformed self, so a
-    /// conform between the read and the write does not stale the base. Fails
-    /// as [`BoundParseError::Mismatch`] on a `$quill` this quill does not
-    /// answer to.
-    pub fn hash(&self) -> Result<String, BoundParseError> {
-        Ok(crate::document::base::conformed(self.config, self.doc)?.hash())
-    }
-
-    /// The hash of the main card's body or a field through its schema: the
-    /// [`Base::Hash`] [`revise`](Self::revise) checks. A `richtext` or `text`
-    /// field hashes its content however it is stored, ids and anchors
-    /// included, any other type its stored value. An undeclared name fails
-    /// with [`EditError::UnknownField`].
-    pub fn hash_of<'t>(&self, target: impl Into<Target<'t>>) -> Result<String, EditError> {
-        hash_impl(self.doc.main(), Some(&self.config.main.fields), target.into())
     }
 
     fn revise_parsed(&mut self, revising: Revising) -> Result<DocumentRevised, BoundParseError> {
         self.config
-            .check_quill_reference(&revising.parsed.document)?;
+            .check_quill_reference(revising.cards.main().quill().expect("a parse validates the root's `$quill`"))?;
         let mut revised = self.doc.revise_parsed(revising);
         revised.warnings.extend(
             self.config
                 .conform(self.doc)
                 .expect("the revised document carries the `$quill` checked above"),
         );
+        revised.heads = self.doc.heads();
         Ok(revised)
     }
 
@@ -201,7 +193,7 @@ impl<'a> TypedWriter<'a> {
     /// position, surfaces as a single-entry bundle keyed `$kind` / `$body`.
     ///
     /// The card's `$id` mints as [`Unchecked::insert_card`](crate::document::Unchecked::insert_card)
-    /// mints one, under `actor` where one is given. Returns that id and the
+    /// mints one, under the document's actor where one is set. Returns that id and the
     /// fields' `parse::dropped_construct` warnings, as [`set_all`](Self::set_all)
     /// returns them, then the body import's, all anchored under the placed
     /// card.
@@ -211,7 +203,6 @@ impl<'a> TypedWriter<'a> {
         fields: I,
         body: Option<&str>,
         at: Option<usize>,
-        actor: Option<&str>,
     ) -> Result<CardAdded, Vec<(String, EditError)>>
     where
         K: Into<String>,
@@ -223,15 +214,12 @@ impl<'a> TypedWriter<'a> {
         let base = DocPath::card(Some(kind), at.unwrap_or(self.doc.cards().len()));
         let mut warnings = set_all_impl(&mut card, schema, fields, &base)?;
         if let Some(md) = body {
-            warnings.extend(
-                card.revise_body(md)
-                    .map_err(|e| vec![("$body".to_string(), e)])?
-                    .diagnostics(Some(&base.body())),
-            );
+            let dropped = card.revise_body(md).map_err(|e| vec![("$body".to_string(), e)])?;
+            warnings.extend(crate::document::dropped_constructs(dropped, Some(&base.body())));
         }
         let id = self
             .doc
-            .place_card(at, card, actor)
+            .place_card(at, card)
             .map_err(|e| vec![("$kind".to_string(), e)])?;
         Ok(CardAdded { id, warnings })
     }
@@ -278,10 +266,9 @@ impl<'a> CardWriter<'a> {
             .expect("bound in range, and cards cannot move while this cursor holds the document")
     }
 
-    fn card_mut(&mut self) -> &mut Card {
+    fn edit<R>(&mut self, f: impl FnOnce(&mut Card) -> R) -> R {
         self.doc
-            .cards_vec_mut()
-            .get_mut(self.index)
+            .edit_card_at(self.index, f)
             .expect("bound in range, and cards cannot move while this cursor holds the document")
     }
 
@@ -313,24 +300,20 @@ impl<'a> CardWriter<'a> {
     ) -> Result<Vec<Diagnostic>, EditError> {
         let schema = self.fields_schema();
         let base = self.base();
-        commit_impl(self.card_mut(), schema, name, value, &base)
+        self.edit(|c| commit_impl(c, schema, name, value, &base))
     }
 
     /// The card twin of [`TypedWriter::revise`], resolved against the card's
     /// [`CardSchema`](crate::quill::CardSchema).
-    pub fn revise<'t>(
+    pub fn revise<'t, 'o>(
         &mut self,
         target: impl Into<Target<'t>>,
         text: &str,
-        base: Option<Base<'_>>,
+        opts: impl Into<WriteOptions<'o>>,
     ) -> Result<Receipt, EditError> {
         let schema = self.fields_schema();
-        revise_impl(self.card_mut(), schema, target.into(), base, text)
-    }
-
-    /// The card twin of [`TypedWriter::hash_of`].
-    pub fn hash_of<'t>(&self, target: impl Into<Target<'t>>) -> Result<String, EditError> {
-        hash_impl(self.card(), self.fields_schema(), target.into())
+        let card = self.doc.card_mut(self.index).expect("bound in range, and cards cannot move while this cursor holds the document");
+        revise_impl(card, schema, target.into(), opts.into(), text)
     }
 
     /// Write several fields on this card atomically; see
@@ -347,7 +330,7 @@ impl<'a> CardWriter<'a> {
     {
         let schema = self.fields_schema();
         let base = self.base();
-        set_all_impl(self.card_mut(), schema, fields, &base)
+        self.edit(|c| set_all_impl(c, schema, fields, &base))
     }
 }
 
@@ -371,43 +354,22 @@ fn commit_impl(
 /// The anchor-preserving twin of [`commit_impl`], shared by the writers'
 /// `revise`.
 fn revise_impl(
-    card: &mut Card,
+    mut card: crate::document::CardMut<'_>,
     fields_schema: Option<&IndexMap<String, FieldSchema>>,
     target: Target<'_>,
-    base: Option<Base<'_>>,
+    opts: WriteOptions<'_>,
     text: &str,
 ) -> Result<Receipt, EditError> {
     let name = match target {
         Target::Body => {
-            return match base {
-                None => card.revise_body(text),
-                Some(base) => card.revise_body_against(base, text),
-            };
+            return card.revise(Target::Body, text, opts);
         }
         Target::Field(name) => name,
     };
     let Some(schema) = fields_schema.and_then(|m| m.get(name)) else {
         return Err(EditError::unknown_field(name));
     };
-    match base {
-        None => card.revise_field_checked(name, text, schema),
-        Some(base) => card.revise_field_checked_against(name, base, text, schema),
-    }
-}
-
-fn hash_impl(
-    card: &Card,
-    fields_schema: Option<&IndexMap<String, FieldSchema>>,
-    target: Target<'_>,
-) -> Result<String, EditError> {
-    let name = match target {
-        Target::Body => return Ok(card.body_hash()),
-        Target::Field(name) => name,
-    };
-    match fields_schema.and_then(|m| m.get(name)) {
-        Some(schema) => card.field_hash_checked(name, schema),
-        None => Err(EditError::unknown_field(name)),
-    }
+    card.revise_field_checked(name, text, schema, opts)
 }
 
 /// All-or-nothing batched write shared by [`TypedWriter::set_all`] and
@@ -505,7 +467,7 @@ card_kinds:
         ed.set("qty", "3").unwrap();
         ed.set("subject", "Hello").unwrap();
         assert_eq!(
-            doc.main().payload().get("qty").unwrap().as_json(),
+            doc.main().payload().get("qty").unwrap().to_value().as_json(),
             &serde_json::json!(3)
         );
         assert_eq!(
@@ -557,7 +519,7 @@ card_kinds:
         let mut ed = TypedWriter::new(&config, &mut doc);
         ed.set_all([("qty", "5"), ("subject", "ok")]).unwrap();
         assert_eq!(
-            doc.main().payload().get("qty").unwrap().as_json(),
+            doc.main().payload().get("qty").unwrap().to_value().as_json(),
             &serde_json::json!(5)
         );
     }
@@ -609,7 +571,7 @@ card_kinds:
         let mut doc = blank_doc();
         let mut ed = TypedWriter::new(&config, &mut doc);
         let added = ed
-            .add_card("note", [("prose", "**hi**")], Some("card body"), None, None)
+            .add_card("note", [("prose", "**hi**")], Some("card body"), None)
             .unwrap();
         assert_eq!(doc.cards().len(), 1);
         assert_eq!(doc.cards()[0].id(), Some(added.id.as_str()));
@@ -630,9 +592,9 @@ card_kinds:
         let mut doc = blank_doc();
         {
             let mut ed = TypedWriter::new(&config, &mut doc);
-            ed.add_card("note", [("prose", "a")], None, None, None).unwrap();
-            ed.add_card("note", [("prose", "c")], None, None, None).unwrap();
-            ed.add_card("note", [("prose", "b")], None, Some(1), None)
+            ed.add_card("note", [("prose", "a")], None, None).unwrap();
+            ed.add_card("note", [("prose", "c")], None, None).unwrap();
+            ed.add_card("note", [("prose", "b")], None, Some(1))
                 .unwrap();
         }
         let bodies: Vec<String> = doc
@@ -646,7 +608,7 @@ card_kinds:
         {
             let mut ed = TypedWriter::new(&config, &mut doc);
             let errs = ed
-                .add_card("note", [("prose", "x")], None, Some(9), None)
+                .add_card("note", [("prose", "x")], None, Some(9))
                 .unwrap_err();
             assert_eq!(errs[0].0, "$kind");
         }
@@ -673,7 +635,7 @@ card_kinds:
         let mut doc = blank_doc();
         let mut ed = TypedWriter::new(&config, &mut doc);
         let errs = ed
-            .add_card("note", [("stray", "x")], None, None, None)
+            .add_card("note", [("stray", "x")], None, None)
             .unwrap_err();
         assert_eq!(errs[0].0, "stray");
         assert_eq!(errs[0].1.code(), "edit::unknown_field");
@@ -684,7 +646,7 @@ card_kinds:
     fn card_writer_resolves_card_kind_schema() {
         let config = config();
         let mut doc = blank_doc();
-        doc.unchecked().insert_card(None, Card::new("note").unwrap(), None).unwrap();
+        doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         let mut card_ed = ed.card(0).unwrap();
@@ -759,7 +721,7 @@ card_kinds:
     fn card_writer_revise_field_resolves_card_schema() {
         let config = config();
         let mut doc = blank_doc();
-        doc.unchecked().insert_card(None, Card::new("note").unwrap(), None).unwrap();
+        doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         let _ = ed.card(0).unwrap().revise(crate::document::Target::from("prose"), "**hi**", None).unwrap();
@@ -805,7 +767,7 @@ card_kinds:
         let unanchored = vec![(Some(crate::document::DROPPED_CONSTRUCT.to_string()), None)];
 
         let added = ed
-            .add_card("note", [("prose", "a")], Some("<span>x</span>"), None, None)
+            .add_card("note", [("prose", "a")], Some("<span>x</span>"), None)
             .unwrap();
         assert_eq!(anchors(&added.warnings), dropped("cards.note[0].body"));
         let revised = ed.revise(crate::document::Target::Body, "<kbd>x</kbd>", None).unwrap();
@@ -823,7 +785,7 @@ card_kinds:
         let revised = ed.card(0).unwrap().revise(crate::document::Target::from("blurb"), "plain", None).unwrap();
         assert!(revised.warnings.is_empty());
         let added = ed
-            .add_card("note", [("prose", "b")], Some("<span>y</span>"), Some(0), None)
+            .add_card("note", [("prose", "b")], Some("<span>y</span>"), Some(0))
             .unwrap();
         assert_eq!(anchors(&added.warnings), dropped("cards.note[0].body"));
         let set = ed.set("subject", "<kbd>x</kbd>").unwrap();
@@ -835,7 +797,7 @@ card_kinds:
             .unwrap();
         assert_eq!(anchors(&set), dropped("cards.note[1].blurb"));
         let added = ed
-            .add_card("note", [("blurb", "<em>z</em>")], None, None, None)
+            .add_card("note", [("blurb", "<em>z</em>")], None, None)
             .unwrap();
         assert_eq!(anchors(&added.warnings), dropped("cards.note[2].blurb"));
 
@@ -858,8 +820,7 @@ card_kinds:
         let receipt = ed
             .revise_document(
                 "~~~\n$quill: memo@1.0.0\nsubject: <kbd>Hello</kbd>\n~~~\n\n<span>Body</span>\n\n\
-                 ~~~\n$kind: note\nblurb: [42]\n~~~\n\n<em>Note</em>\n",
-            )
+                 ~~~\n$kind: note\nblurb: [42]\n~~~\n\n<em>Note</em>\n", None)
             .unwrap();
         let warnings: Vec<_> = receipt
             .warnings

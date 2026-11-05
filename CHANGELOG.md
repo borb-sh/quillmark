@@ -1,5 +1,144 @@
 # Changelog
 
+## Unreleased
+
+Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
+
+- refactor(core)!: **a document is its Automerge document from
+  construction.** A parse, `Document::new`, a load and a stored row each
+  build or read the Automerge document before they answer, so a `Document`
+  has one state and its cards are a view of it: a `Snapshot`, which the
+  document derefs to and `Document::snapshot` copies out. `Engine::render`,
+  `open`, `LiveSession::update`, `Quill::compile_data`, `dry_run`,
+  `validate`, `advisories` and `resolve` take `&Snapshot`, so a `&Document`
+  still passes, and a render builds no Automerge document. The WASM runtime
+  hands a document to its render build as a snapshot.
+  `normalize::normalize_document` is gone.
+- refactor(core)!: **a content field holds its content.** A payload
+  field's value is a `FieldValue`: `Content` where its whole value is
+  content, held as the document reads it, and `Data` for any other value.
+  `Payload::get` and `Payload::iter` answer `&FieldValue`, and
+  `PayloadItem::Field` carries one; `FieldValue::to_value` spells either as
+  JSON. A keystroke in a long rich text field no longer round-trips the
+  field through JSON.
+- feat!: **the actor belongs to the document handle.** `doc.actor` reads
+  it and `doc.setActor(actor)` (`set_actor` in Rust and Python) sets it, and
+  every write and card placement through the handle writes under it.
+  `WriteOptions.actor`, `PlaceOptions` and the `actor` argument of
+  `insert_card` and `add_card` are gone. `doc.clone()` (Rust
+  `Document::fork`) is a new peer, a random Automerge actor and no actor
+  set, whose writes merge back into its source. `mapPos` is gone from the
+  WASM surface.
+- refactor(core)!: **a document handle carries its host's units.**
+  `Document::set_units(HostUnits)` sets the units a handle's host counts
+  offsets in, scalars by default; every write, `undo`, `reattach`, `merge`
+  and `receive_sync_message` counts in them, and the WASM binding sets
+  UTF-16 on every handle. `CardMut::write_in` and `Document::reattach_in`
+  are gone.
+- feat(core)!: **a stored row names each record by place.** A content
+  value's blocks, containers and islands store as `p0`, `p1`, … rather than
+  the live document's Automerge object ids, so equal content stores as equal
+  bytes whichever actors wrote it.
+- refactor!: **`quillmark-content` folds into `quillmark-automerge`.** The
+  content model, its changes, repair and the markdown codecs are the
+  `content` module of `quillmark-automerge`, beside the Automerge document
+  that holds them, and the `quillmark-content` crate is no longer published.
+- feat(core)!: **a receipt carries Automerge's patches, and `undo` takes a
+  write back.** Every content write answers `{ before, heads, patches,
+  droppedAnchors, repairs, warnings }`: `patches` are Automerge's own
+  patches between the heads, spelled as automerge-js spells them, paths from
+  the document's root and text indexes in the host's units, a stale write's
+  merge included. `merge` and `receiveSyncMessage` answer the same receipt.
+  `applied`, `movedAnchors`, `minted` and `invert` are gone, with
+  `content::mapping`, `Pos` and the `automerge` re-export; `doc.undo(addr, receipt)` (`CardMut::undo`) lands the
+  value at `before` over the receipt's heads. `reattach` takes each path's
+  patches. The unbound `Card` write verbs are gone; a write goes through
+  `CardMut`.
+- feat(core)!: **a document is one Automerge document.** Every `Document`
+  holds its cards in one Automerge 0.12 document, and the cards are a view of
+  it: the root holds `schema`, `main`, `cards` by `$id` and `order`, a content
+  value is a text object, and any other value is maps, lists and scalars,
+  a content value nested in one read through repair.
+  Inside a document a block, container or island id is its record's
+  Automerge object id, minted by the write that puts it; a moved block or
+  island takes a new one.
+- feat(core)!: **heads are the only base, and a stale write merges as
+  Automerge merges.** A write names what its writer read by the document's
+  heads then, through one `opts: impl Into<WriteOptions>` (`WriteOptions {
+  heads }` or bare heads) on every write that takes them: `CardMut::apply`,
+  `revise`, `replace` and the structural edits, `TypedWriter::revise`,
+  `CardWriter::revise` and `TypedWriter::revise_document(md, opts)`.
+  The write lands as one change at those heads, concurrent with every change
+  since: text both sides edited interleaves, a record or field both set reads
+  as the later write, and an anchor or mark put at earlier heads takes in
+  text typed since at its start; a document revise at heads merges a card
+  both sides changed field by field. `edit::rebase_conflict`,
+  `DocumentRevised.conflicts` and `MergeConflict` are gone; `edit::stale_base`
+  names heads the document's history does not hold, every heads read before
+  a load from a stored row among them, and carries no args. The hash base is
+  gone with everything that served it: `Base`, `DocumentBase`, `BaseError`,
+  `Document::hash`, `Card::hash_of`, `body_hash`, `field_hash`,
+  `TypedWriter::hash`, `hash_of` and `revise_document_against`,
+  `content_hash`, `value_hash` and the `quillmark/hash@1` tag;
+  `Receipt.hash` and `rebased`; `Document::history`, `seen` and `held_heads`.
+  `Document::holds(heads)` says whether the history holds heads, and
+  `Document::at(heads)` reads the document as it was there.
+- feat(core)!: **bytes carry a live session; the row is the envelope.**
+  `Document::save` and `load` save and read the whole document with its
+  history; `heads`, `save_since` and `merge` move changes between peers;
+  `generate_sync_message` and `receive_sync_message` run Automerge's sync
+  protocol over the whole document, through `quillmark-automerge`'s `Heads`,
+  `SyncState` and `SyncMessage`, each with `encode` and `decode`, so no
+  `automerge` type crosses core's API. A session lasts as long as its peers
+  share one history: heads read anywhere in it resolve on every peer loaded
+  from its bytes. `StoredDocument` JSON (`to_stored` / `from_stored`) stays
+  the row: a reload from it starts a new session, in which no earlier heads
+  resolve, and every process loads one row to one origin. `edit::bad_live_bytes`
+  names bytes or a message that would leave the document outside its schema,
+  its `reason` `decode`, `shape`, `schema`, or `apply` for a sync message that
+  decodes and does not apply, and changes nothing; `load`, `merge` and
+  `receive_sync_message` answer it as an `EditError`.
+  `Document::from_stored_any` reads either carrier, telling Automerge bytes
+  by their leading bytes. The per-value `Card::save`, `load` and sync verbs
+  are gone, and a `0.134.0` row reads into a new document.
+- refactor(automerge)!: **one Automerge engine.** `merge3` merges two
+  changes in a `model::Doc`, as a write at earlier heads merges with the
+  writes since, and answers a `model::View`; an anchor or mark either side
+  put keeps its text, and text typed at its very edge lands inside or
+  outside it as Automerge orders the two sides' operations there. The
+  single-value engine is gone: `Held`, the crate-root `KEY`, `Read` and
+  `LoadError`, and `quillmark_content::change::Trace` and `apply_traced`.
+  A step naming an id whose actor part is not hex refuses as an unknown
+  id where it panicked, and a value a peer left holding a record, mark or
+  island no build reads reads as the nearest one the decoder takes.
+- feat(wasm)!: **a live session crosses as bytes, and every write takes
+  `heads`.** `doc.save()`, `Document.load(bytes)`, `doc.heads()`,
+  `doc.saveSince(heads)`, `doc.merge(bytes)`, and
+  `doc.generateSyncMessage(state)` / `doc.receiveSyncMessage(state, message)`
+  with the opaque `SyncState`. Every write, `writer.revise` and
+  `writer.reviseDocument` among them, takes `WriteOptions`, `{ heads }`;
+  `base`, `baseHash`, `baseContent`, `baseStored`, `BaseOptions` and
+  `DocumentBaseOptions` are gone, as are `doc.hash`, `doc.hashAt`,
+  `writer.hash` and `writer.hashAt`. The structural edits are `Document`
+  verbs, `indent` and `outdent` taking `first` and `last`.
+- feat(python)!: **the same in snake case**: `doc.save()`,
+  `Document.load`, `doc.heads()`, `doc.save_since`, `doc.merge`,
+  `doc.generate_sync_message(state)` and `doc.receive_sync_message(state,
+  message)`; `heads=` on `doc.apply`, `revise` and `replace`, on
+  `writer.revise` and on `writer.revise_document`, where `base=`,
+  `base_hash=`, `base_content=` and `base_stored=` were; `doc.hash`,
+  `doc.hash_at`, `writer.hash` and `writer.hash_at` are gone, and a receipt
+  dict holds no `hash` or `rebased`.
+- feat: **a receipt carries the heads either side of its write.**
+  `Receipt` and `DocumentRevised` carry `before` and `heads`, the
+  document's heads before and after the write, as `heads()` answers them,
+  `heads` the next write's. WASM and Python carry them as hex strings.
+- feat(bindings)!: **the writer's `revise` names its card by `$id`.** WASM
+  `writer.revise({ card })` and Python `writer.revise(card=)` take a
+  composable card's `$id` and throw on an index, as `apply`, `revise` and
+  `replace` do. The WASM card cursor's `revise` revises the card its index
+  names at the call and refuses `heads`.
+
 ## v0.134.1 - 2026-11-02
 
 - feat(wasm): **`repair(raw)` reads a merged state as a valid value.** It

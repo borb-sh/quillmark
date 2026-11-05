@@ -18,9 +18,9 @@ crate-type = ["cdylib", "rlib"]
 # version pin is needed. `typst` re-enables Typst via `quillmark/typst`.
 quillmark = { path = "../../quillmark", default-features = false }
 quillmark-core = { workspace = true }
-# The content model (importMarkdown / exportMarkdown / invert / diff) and the
+# The content model (importMarkdown / exportMarkdown / diff) and the
 # units the bindings convert offsets in.
-quillmark-content = { workspace = true }
+quillmark-automerge = { workspace = true }
 wasm-bindgen = { workspace = true }
 serde = { workspace = true }
 serde_bytes = "0.11"
@@ -29,9 +29,11 @@ serde-wasm-bindgen = "0.6"
 tsify = { version = "0.5.6", features = ["js"] }
 console_error_panic_hook = "0.1"
 js-sys = { workspace = true }
-# Selects the browser's `crypto.getRandomValues` for the Typst backend's
-# `getrandom`, which reads no backend of its own on wasm32-unknown-unknown.
-getrandom = { workspace = true, features = ["wasm_js"], optional = true }
+# Selects the browser's `crypto.getRandomValues` for `getrandom`, which reads
+# no backend of its own on wasm32-unknown-unknown. Automerge draws a random
+# actor id for each document it makes before the derived one replaces it, and
+# the Typst backend draws its own.
+getrandom = { workspace = true, features = ["wasm_js"] }
 web-sys = { version = "0.3", optional = true, features = [
     "CanvasRenderingContext2d",
     "HtmlCanvasElement",
@@ -48,7 +50,7 @@ default = ["render"]
 # backends. Strict API superset of core; Typst is nearly all of the
 # artifact. The canvas painter dispatches through the core `SessionHandle`
 # seam, so the binding depends on the backend crates only transitively.
-render = ["quillmark/typst", "quillmark/acroform", "dep:web-sys", "dep:getrandom"]
+render = ["quillmark/typst", "quillmark/acroform", "dep:web-sys"]
 # Core build = no features: Document + Quill (parse / load / validate / schema
 # / seed / authoring). No `Engine`, no Typst; `scripts/build-wasm.sh` enforces its
 # gzip ceiling.

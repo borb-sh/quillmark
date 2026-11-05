@@ -1,0 +1,8 @@
+Quillmark
+Copyright 2025-2026 Nibs
+
+The Typst backend embeds the Roboto typeface, Copyright 2011 The Roboto
+Project Authors, under the SIL Open Font License 1.1. Its license text ships
+as crates/backends/typst/src/fonts/OFL.txt in source, and in
+THIRD_PARTY_LICENSES.md beside this file in the npm package and the Python
+wheels, with the licenses and notices of the third-party crates they link.

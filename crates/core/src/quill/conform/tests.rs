@@ -133,24 +133,27 @@ fn rest_is_per_codec_at_every_depth() {
     let (doc, _) = parse_bound(&quill, MD);
     let payload = doc.main().payload();
 
-    assert!(payload.get("subject").unwrap().as_json().is_object());
+    assert!(payload.get("subject").unwrap().to_value().as_json().is_object());
     assert_eq!(
-        crate::quill::text_of(payload.get("note").unwrap().as_json()),
+        crate::quill::text_of(payload.get("note").unwrap().to_value().as_json()),
         "a *literal* line",
         "text rests as a plain content, its text literal"
     );
-    assert_eq!(payload.get("qty").unwrap().as_json(), &json!(3));
+    assert_eq!(payload.get("qty").unwrap().to_value().as_json(), &json!(3));
 
-    let tags = payload.get("tags").unwrap().as_json();
+    let tags = payload.get("tags").unwrap().to_value();
+
+    let tags = tags.as_json();
     assert!(tags.as_array().unwrap().iter().all(|e| e.is_object()));
-    let meta = payload.get("meta").unwrap().as_json();
+    let meta = payload.get("meta").unwrap().to_value();
+    let meta = meta.as_json();
     assert_eq!(crate::quill::text_of(meta.get("label").unwrap()), "keep *this*");
     assert!(meta.get("blurb").unwrap().is_object());
 
     let card = &doc.cards()[0];
-    assert!(card.payload().get("prose").unwrap().as_json().is_object());
+    assert!(card.payload().get("prose").unwrap().to_value().as_json().is_object());
     assert_eq!(
-        crate::quill::text_of(card.payload().get("caption").unwrap().as_json()),
+        crate::quill::text_of(card.payload().get("caption").unwrap().to_value().as_json()),
         "raw *text*"
     );
 }
@@ -236,7 +239,7 @@ fn non_conforming_value_rests_authored_with_a_diagnostic() {
     assert_eq!(diag.code.as_deref(), Some("conform::field_decode"));
     assert_eq!(diag.path.as_deref(), Some("main.subject"));
     assert_eq!(
-        doc.main().payload().get("subject").unwrap().as_json(),
+        doc.main().payload().get("subject").unwrap().to_value().as_json(),
         &json!(42),
         "the value stays authored: no silent retype"
     );
@@ -285,12 +288,12 @@ fn conform_is_a_no_op_on_seeds() {
         .seed_card("entry", Some(&overlay))
         .expect("kind exists");
     assert_eq!(
-        crate::quill::text_of(card.payload().get("caption").unwrap().as_json()),
+        crate::quill::text_of(card.payload().get("caption").unwrap().to_value().as_json()),
         "overlaid *text*"
     );
     assert_eq!(card.body_markdown(), "overlaid **body**");
     let mut doc2 = quill.seed_document();
-    doc2.unchecked().insert_card(None, card, None).unwrap();
+    doc2.unchecked().insert_card(None, card).unwrap();
     let before2 = bytes(&doc2);
     quill.conform(&mut doc2).expect("conform");
     assert_eq!(bytes(&doc2), before2, "seed_card is already at rest");
@@ -335,7 +338,7 @@ card_kinds:
         .payload()
         .get("classification")
         .expect("seeded classification")
-        .as_json()
+        .to_value().as_json()
         .clone();
     assert!(
         value["note"].is_object(),
@@ -344,7 +347,7 @@ card_kinds:
     );
 
     let mut doc = quill.seed_document();
-    doc.unchecked().insert_card(None, card, None).unwrap();
+    doc.unchecked().insert_card(None, card).unwrap();
     let before = bytes(&doc);
     let diags = quill.conform(&mut doc).expect("conform");
     assert!(diags.is_empty(), "{diags:?}");
@@ -362,6 +365,7 @@ fn the_plate_shape_for_text_is_unchanged() {
         let mut doc = Document::parse("~~~card-yaml\n$quill: conform_test@1.0.0\n~~~\n\nBody.")
             .expect("parse")
             .document;
+        doc.set_actor("w").unwrap();
         {
             let mut w = quill.writer(&mut doc);
             w.set("note", value).unwrap();
@@ -371,9 +375,9 @@ fn the_plate_shape_for_text_is_unchanged() {
     };
 
     let from_string = plate_note(json!("a *literal* line"));
-    let from_object = plate_note(json!(quillmark_content::lines::serial::to_canonical_value(
-        &quillmark_content::lines::import::from_plaintext("a *literal* line")
-    )));
+    let from_object = plate_note(json!(quillmark_automerge::content::migrate::from_lines(
+        &quillmark_automerge::content::lines::import::from_plaintext("a *literal* line")
+    ).to_value()));
     assert!(from_string.is_object(), "plate keeps the content object");
     assert_eq!(from_string, from_object, "both commit inputs, one plate");
     assert_eq!(from_string["text"], json!("a *literal* line"));
@@ -402,12 +406,12 @@ Body.
         .to_string();
     assert_eq!(text, r"a \*b\* line");
 
-    let applied = quill
+    let patches = quill
         .writer(&mut doc)
         .revise(crate::document::Target::from("note"), &text, None)
         .expect("revise")
-        .applied;
-    assert!(applied.steps.is_empty(), "a no-change revise changes nothing: {applied:?}");
+        .patches;
+    assert!(patches.is_empty(), "a no-change revise changes nothing: {patches:?}");
     assert_eq!(bytes(&doc), before, "a no-change revise moves no bytes");
 
     let _ = quill
@@ -415,28 +419,28 @@ Body.
         .revise(crate::document::Target::from("note"), r"a \*b\* line, revised", None)
         .expect("revise");
     assert_eq!(
-        crate::quill::text_of(doc.main().payload().get("note").unwrap().as_json()),
+        crate::quill::text_of(doc.main().payload().get("note").unwrap().to_value().as_json()),
         r"a \*b\* line, revised",
         "and an edit rests as plain content, escapes intact"
     );
 }
 
 #[test]
-fn a_0_124_0_row_migrates_then_converges() {
+fn a_0_134_0_row_converges() {
     let quill = quill();
     let body = |md: &str| {
-        quillmark_content::lines::serial::to_canonical_value(&crate::document::import_body(md).unwrap())
+        quillmark_automerge::content::migrate::from_lines(&crate::document::import_body(md).unwrap()).to_value()
     };
     let legacy = json!({
-        "schema": "quillmark/document@0.124.0",
+        "schema": "quillmark/document@0.134.0",
         "main": {
             "payload": { "items": [
                 { "type": "quill", "value": "conform_test@1.0.0" },
                 { "type": "kind", "value": "main" },
                 { "type": "field", "key": "subject", "value": "Q3 **results**" },
                 { "type": "field", "key": "note", "value":
-                    quillmark_content::lines::serial::to_canonical_value(
-                        &quillmark_content::lines::import::from_plaintext("a *literal* line")) },
+                    quillmark_automerge::content::migrate::from_lines(
+                        &quillmark_automerge::content::lines::import::from_plaintext("a *literal* line")).to_value() },
                 { "type": "field", "key": "qty", "value": 3 },
             ]},
             "body": body("Main **body**.")
@@ -452,23 +456,22 @@ fn a_0_124_0_row_migrates_then_converges() {
     .to_string();
 
     let mut doc = Document::try_from(
-        serde_json::from_str::<StoredDocument>(&legacy).expect("a 0.124.0 blob still loads"),
+        serde_json::from_str::<StoredDocument>(&legacy).expect("a 0.134.0 blob loads"),
     )
-    .expect("and migrates forward");
+    .expect("and reads forward");
     assert_eq!(doc.main().body_markdown(), "Main **body**.");
     assert!(
         doc.main()
             .payload()
             .get("subject")
             .unwrap()
-            .as_json()
+            .to_value().as_json()
             .is_string()
     );
 
     let diags = quill.conform(&mut doc).expect("the quill matches");
     assert!(diags.is_empty(), "{diags:?}");
 
-    let restored = bytes(&doc);
     let (authored, _) = parse_bound(
         &quill,
         "\
@@ -490,16 +493,12 @@ prose: card **body**
 Entry body.
 ",
     );
-    assert_eq!(
-        restored,
-        bytes(&authored),
-        "one document, two ingress routes"
-    );
+    assert_eq!(doc, authored, "one document, two ingress routes");
 }
 
 #[test]
 fn revise_document_revises_then_conforms() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
     let quill = quill();
     let (mut doc, _) = parse_bound(&quill, MD);
@@ -523,7 +522,7 @@ fn revise_document_revises_then_conforms() {
             "\n~~~card-yaml\n$kind: entry\nprose: a fresh card\n~~~\n\n~~~card-yaml\n$kind: entry\n",
         );
     let stored_id = doc.cards()[0].id().unwrap().to_string();
-    let receipt = quill.writer(&mut doc).revise_document(&md).expect("revise");
+    let receipt = quill.writer(&mut doc).revise_document(&md, None).expect("revise");
     let (expected, warnings) = parse_bound(&quill, &md);
 
     assert!(receipt.dropped_anchors.is_empty());
@@ -534,13 +533,7 @@ fn revise_document_revises_then_conforms() {
         "the revised card keeps its id"
     );
     assert_ne!(doc.cards()[0].id(), Some(stored_id.as_str()));
-    let without_ids = |doc: &Document| {
-        let mut doc = doc.clone();
-        for card in doc.cards_vec_mut() {
-            card.payload_mut().remove_id();
-        }
-        doc.to_markdown()
-    };
+    let without_ids = |doc: &Document| doc.to_markdown().lines().filter(|l| !l.starts_with("$id:")).collect::<Vec<_>>().join("\n");
     assert_eq!(without_ids(&doc), without_ids(&expected));
     let anchored = doc.cards()[1]
         .field_content("prose", crate::document::Codec::Richtext)
@@ -554,8 +547,8 @@ fn revise_document_revises_then_conforms() {
     );
     for name in ["subject", "note", "tags"] {
         assert_eq!(
-            doc.main().payload().get(name),
-            expected.main().payload().get(name),
+            doc.by_place().main().payload().get(name),
+            expected.by_place().main().payload().get(name),
             "{name} rests as the bound parse lands it"
         );
     }
@@ -563,7 +556,7 @@ fn revise_document_revises_then_conforms() {
     let before = bytes(&doc);
     let err = quill
         .writer(&mut doc)
-        .revise_document(&md.replace("conform_test@1.0.0", "other@1.0.0"))
+        .revise_document(&md.replace("conform_test@1.0.0", "other@1.0.0"), None)
         .unwrap_err();
     assert!(matches!(err, crate::quill::BoundParseError::Mismatch(_)));
     assert_eq!(bytes(&doc), before);

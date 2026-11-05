@@ -6,7 +6,7 @@ mod edit_tests;
 mod emit_tests;
 mod ext_tests;
 mod fence_conformance_tests;
-mod legacy_table_tests;
+mod held_tests;
 mod lossiness_tests;
 mod multibyte_tests;
 mod properties;
@@ -21,6 +21,25 @@ pub(super) fn parse(src: &str) -> super::Document {
     super::Document::parse(src)
         .expect("source should parse")
         .document
+}
+
+/// The id of each block and island of `after` that `before` holds
+/// none of, blocks first.
+pub(super) fn put_ids(before: &quillmark_automerge::content::model::Content, after: &quillmark_automerge::content::model::Content) -> Vec<String> {
+    let had: std::collections::HashSet<&str> = before.blocks.iter().map(|b| b.id.as_str()).chain(before.islands.iter().map(|i| i.id.as_str())).collect();
+    after.blocks.iter().map(|b| &b.id).chain(after.islands.iter().map(|i| &i.id)).filter(|id| !had.contains(id.as_str())).cloned().collect()
+}
+
+/// The id of each container of `after` that `before` holds no record of.
+pub(super) fn new_containers(before: &quillmark_automerge::content::model::Content, after: &quillmark_automerge::content::model::Content) -> Vec<String> {
+    after.containers.iter().filter(|c| !before.containers.iter().any(|k| k.id == c.id)).map(|c| c.id.clone()).collect()
+}
+
+/// A document holding `card` as its one card, which `card_mut(0)` writes.
+pub(super) fn placed(card: super::Card) -> super::Document {
+    let mut doc = parse("~~~\n$quill: q\n~~~\n");
+    doc.unchecked().insert_card(None, card).expect("the card places");
+    doc
 }
 
 /// `Document::parse` with the warnings dropped, for a test reading the

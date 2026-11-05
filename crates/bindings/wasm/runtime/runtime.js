@@ -13,14 +13,14 @@
 // patched onto the prototype below, and `instanceof` reads them directly. The
 // default import is the core build's generated instantiation entry; `init` is
 // the only thing that calls it.
-import initCore, { Quill, Document } from '../core/wasm.js';
+import initCore, { Quill, Document, SyncState } from '../core/wasm.js';
 // The wasm byte source, resolved per environment by package.json's `imports`
 // map: a pass-through in a browser (the glue fetches and streams the URL
 // itself), a `node:fs` read under Node, whose `fetch` rejects `file:` URLs.
 // Resolution-time, so `node:fs` never enters a browser graph.
 import { toModuleSource } from '#quillmark-env';
-import { importMarkdown, exportMarkdown, normalize, invert, diff, diffRange } from '../core/wasm.js';
-import { inheritedMarks, mapPos, repair } from '../core/wasm.js';
+import { importMarkdown, exportMarkdown, normalize, diff, diffRange } from '../core/wasm.js';
+import { inheritedMarks, repair } from '../core/wasm.js';
 import { isInline, isPlain } from '../core/wasm.js';
 import { parseDocPath, formatDocPath, formatDiagnostic } from '../core/wasm.js';
 
@@ -46,14 +46,13 @@ import { parseDocPath, formatDocPath, formatDiagnostic } from '../core/wasm.js';
 const CORE_SURFACE = Object.freeze({
 	Quill,
 	Document,
+	SyncState,
 	importMarkdown,
 	exportMarkdown,
 	normalize,
-	invert,
 	diff,
 	diffRange,
 	inheritedMarks,
-	mapPos,
 	repair,
 	isInline,
 	isPlain,
@@ -190,16 +189,26 @@ function backendTrap(err) {
 }
 
 /**
- * Run `fn` on a transient clone of `docJson` in `mod`'s memory, then free it. A
- * call that throws can leave the clone borrowed, so its `free()` throws too, and
- * the error in flight is the one that propagates.
+ * `doc`'s cards as the JSON its snapshot spells: what crosses into a render
+ * build's memory, where no Automerge document is built from it.
+ * @param {Document} doc
+ * @returns {string}
+ */
+function snapshotJson(doc) {
+	return doc.snapshotJson();
+}
+
+/**
+ * Run `fn` on a transient snapshot of `docJson` in `mod`'s memory, then free
+ * it. A call that throws can leave the snapshot borrowed, so its `free()` throws
+ * too, and the error in flight is the one that propagates.
  * @param {any} mod
  * @param {string} docJson
  * @param {(doc: any) => any} fn
  * @returns {any}
  */
 function withDocClone(mod, docJson, fn) {
-	const backendDoc = mod.Document.fromStored(docJson);
+	const backendDoc = mod.Snapshot.fromJson(docJson);
 	let result;
 	try {
 		result = fn(backendDoc);
@@ -573,7 +582,7 @@ export class Engine {
 	 * memory and run `fn` against the backend. Only `render`/`open` call
 	 * this, so `doc` is always present.
 	 *
-	 * OWNERSHIP WINDOW: both caller handles are snapshotted (`doc.toStored()`,
+	 * OWNERSHIP WINDOW: both caller handles are snapshotted (`snapshotJson(doc)`,
 	 * and `quill.toTree()` on a clone-cache miss) BEFORE the first await. The backend load below is a real suspension point, so reading the
 	 * handles after it would race a caller that `free()`s them as soon as this
 	 * call returns its promise ("null pointer passed to rust").
@@ -591,7 +600,7 @@ export class Engine {
 	async #withClones(method, quill, doc, fn) {
 		const backendId = this.#backendOf(quill, method);
 		requireLocalDoc(doc, method);
-		const docJson = doc.toStored();
+		const docJson = snapshotJson(doc);
 		const quillTree = this.#quillClones.get(this.#descriptorFor(backendId).load)?.has(quill)
 			? null
 			: quill.toTree();
@@ -695,7 +704,7 @@ export class Engine {
 export class LiveSession {
 	/**
 	 * @param {object} inner the render build's LiveSession, whose members the delegations below name
-	 * @param {{ Document: { fromStored(json: string): any } }} mod the session's backend build, used to materialize `update` documents in its linear memory
+	 * @param {{ Snapshot: { fromJson(json: string): any } }} mod the session's backend build, used to materialize `update` snapshots in its linear memory
 	 */
 	constructor(inner, mod) {
 		this.#inner = inner;
@@ -710,7 +719,7 @@ export class LiveSession {
 	 */
 	update(doc) {
 		requireLocalDoc(doc, 'session.update(doc)');
-		const docJson = doc.toStored();
+		const docJson = snapshotJson(doc);
 		try {
 			return withDocClone(this.#mod, docJson, (backendDoc) => this.#inner.update(backendDoc));
 		} catch (err) {
@@ -830,11 +839,10 @@ class DocumentUnchecked {
 	/**
 	 * @param {import('../core/wasm.js').CardInput} card
 	 * @param {number} [at] insertion index; appends when omitted
-	 * @param {import('../core/wasm.js').PlaceOptions} [opts]
 	 * @returns {string}
 	 */
-	insertCard(card, at, opts) {
-		return this.#doc._uncheckedInsertCard(card, at, opts);
+	insertCard(card, at) {
+		return this.#doc._uncheckedInsertCard(card, at);
 	}
 }
 
@@ -863,19 +871,6 @@ export class DocumentWriter {
 		this.#doc = doc;
 	}
 	/**
-	 * @returns {string}
-	 */
-	hash() {
-		return this.#doc._hash(this.#quill);
-	}
-	/**
-	 * @param {import('../core/wasm.js').Addr | string} addr
-	 * @returns {string}
-	 */
-	hashAt(addr) {
-		return this.#doc._hashAt(this.#quill, addr);
-	}
-	/**
 	 * @param {string} name
 	 * @param {unknown} value
 	 * @returns {import('../core/wasm.js').Diagnostic[]}
@@ -893,7 +888,7 @@ export class DocumentWriter {
 	/**
 	 * @param {import('../core/wasm.js').Addr | string} addr
 	 * @param {string} text
-	 * @param {import('../core/wasm.js').BaseOptions} [opts]
+	 * @param {import('../core/wasm.js').WriteOptions} [opts]
 	 * @returns {import('../core/wasm.js').Receipt}
 	 */
 	revise(addr, text, opts) {
@@ -901,7 +896,7 @@ export class DocumentWriter {
 	}
 	/**
 	 * @param {string} markdown
-	 * @param {import('../core/wasm.js').DocumentBaseOptions} [opts]
+	 * @param {import('../core/wasm.js').WriteOptions} [opts]
 	 * @returns {import('../core/wasm.js').DocumentRevised}
 	 */
 	reviseDocument(markdown, opts) {
@@ -912,11 +907,10 @@ export class DocumentWriter {
 	 * @param {Record<string, unknown>} [fields]
 	 * @param {string} [body]
 	 * @param {number} [at] insertion index; appends when omitted
-	 * @param {import('../core/wasm.js').PlaceOptions} [opts]
 	 * @returns {import('../core/wasm.js').Diagnostic[]}
 	 */
-	addCard(kind, fields, body, at, opts) {
-		return this.#doc._addCard(this.#quill, kind, fields, body, at, opts);
+	addCard(kind, fields, body, at) {
+		return this.#doc._addCard(this.#quill, kind, fields, body, at);
 	}
 	/**
 	 * @param {number} index
@@ -959,13 +953,6 @@ export class CardWriter {
 		this.#index = index;
 	}
 	/**
-	 * @param {{ field?: string } | string} [addr]
-	 * @returns {string}
-	 */
-	hashAt(addr) {
-		return this.#doc._hashAt(this.#quill, { card: this.#index, field: cardField(addr) });
-	}
-	/**
 	 * @param {string} name
 	 * @param {unknown} value
 	 * @returns {import('../core/wasm.js').Diagnostic[]}
@@ -983,11 +970,13 @@ export class CardWriter {
 	/**
 	 * @param {{ field?: string } | string} addr
 	 * @param {string} text
-	 * @param {import('../core/wasm.js').BaseOptions} [opts]
+	 * @param {import('../core/wasm.js').WriteOptions} [opts]
 	 * @returns {import('../core/wasm.js').Receipt}
 	 */
 	revise(addr, text, opts) {
-		return this.#doc._revise(this.#quill, { card: this.#index, field: cardField(addr) }, text, opts);
+		const based = opts != null && 'heads' in opts;
+		const card = based ? this.#index : this.#doc.card(this.#index).id;
+		return this.#doc._revise(this.#quill, { card, field: cardField(addr) }, text, opts);
 	}
 }
 

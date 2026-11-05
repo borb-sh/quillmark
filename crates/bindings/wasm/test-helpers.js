@@ -160,3 +160,44 @@ agree: true
 favorite_color: green
 ~~~
 `
+
+/** `content` with each block, container and island id named by its place,
+ * as `Content::by_place` names them, so values of other histories that read
+ * alike compare alike. */
+export function byPlace(content) {
+  const ids = [...(content.blocks ?? []), ...(content.containers ?? []), ...(content.islands ?? [])].map((r) => r.id)
+  const names = new Map()
+  ids.forEach((id, n) => names.has(id) || names.set(id, `p${n}`))
+  const name = (id) => names.get(id) ?? id
+  const out = { ...content }
+  if (out.blocks) out.blocks = out.blocks.map((b) => ({ ...b, id: name(b.id), ...(b.path ? { path: b.path.map(name) } : {}) }))
+  if (out.containers) out.containers = out.containers.map((c) => ({ ...c, id: name(c.id) }))
+  if (out.islands) {
+    out.islands = out.islands.map((i) => ({
+      ...i,
+      id: name(i.id),
+      ...(i.slots ? { slots: Object.fromEntries(Object.entries(i.slots).map(([k, v]) => [k, byPlace(v)])) } : {}),
+    }))
+  }
+  return out
+}
+
+/** `stored` with each minted id named by the order it first appears in,
+ * since two documents mint under different actors. */
+export function storedByPlace(stored) {
+  const names = new Map()
+  return stored.replace(/\d+@[0-9a-f]+/g, (id) => names.get(id) ?? (names.set(id, `#${names.size}`), names.get(id)))
+}
+
+/** The text `receipt`'s patches put in a value's own text, as `{ at, text }` at value offsets, a block marker as `\n`. */
+export const inserts = (receipt) =>
+  receipt.patches
+    .filter((p) => (p.action === 'splice' || p.action === 'insert') && p.path.at(-2) === 'text' && !p.path.includes('slots'))
+    .map((p) => ({ at: p.path.at(-1) - 1, text: p.action === 'splice' ? p.value : '\n'.repeat(p.values.length) }))
+
+/** The id of each block and island of the value `after` that `before` holds none of, blocks first. */
+export const putIds = (before, after) => {
+  const ids = (c) => [...c.blocks.map((b) => b.id), ...(c.islands ?? []).map((i) => i.id)]
+  const had = new Set(ids(before))
+  return ids(after).filter((id) => !had.has(id))
+}

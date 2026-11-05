@@ -37,9 +37,9 @@ pub use quillmark_core::{
     Content,
     backend::{Backend, FontFace},
     document::{
-        AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, Base, BaseError, Card, CardMut, Document,
-        DocumentAnchor, DocumentRevised, Edit, EditError, ImportError, Located, MergeConflict, Parsed,
-        Reattached, Receipt, Target, Unchecked, WriteOptions,
+        AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, Card, CardMut, Document,
+        DocumentAnchor, DocumentRevised, Edit, EditError, Heads, ImportError, Located, Parsed,
+        Reattached, Receipt, Snapshot, Target, Unchecked, WriteOptions,
     },
     error::{DOCUMENT_FILE, Diagnostic, Location, ParseError, RenderError, RenderResult, Severity},
     path::DocPath,
@@ -58,7 +58,7 @@ pub use quillmark_core::{
     writer::{CardAdded, TypedWriter},
 };
 
-pub use quillmark_content::change::{Change, Dropped, MoveReason, Moved};
+pub use quillmark_automerge::content::change::{Change, Dropped};
 
 mod load;
 mod orchestration;

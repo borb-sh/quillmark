@@ -47,7 +47,7 @@ fn a_today_cell_renders_the_supplied_date_at_every_depth() {
     assert_eq!(plate["revoked"], json!(null));
 
     assert_eq!(
-        doc.main().payload().get("signed").and_then(|v| v.as_str()),
+        doc.main().payload().get("signed").and_then(|v| v.data()?.as_str()),
         Some("today"),
         "the document keeps the keyword"
     );

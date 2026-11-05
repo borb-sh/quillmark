@@ -6,6 +6,7 @@ semantics in `core/src/quill/seed/tests.rs`. What is pyo3's is the crossing:
 each verb returns the right Python shape, and an error keeps its `code`.
 """
 
+import re
 import json
 import pytest
 
@@ -162,15 +163,23 @@ def test_parse_lands_both_codecs_at_rest(tmp_path):
     assert note["text"] == "a *literal* line", "plain content holds the literal"
 
 
+def by_place(stored):
+    """`stored` with each minted id named by the order it first appears in,
+    since two documents mint under different actors."""
+    names = {}
+    return re.sub(r"\d+@[0-9a-f]+", lambda m: names.setdefault(m.group(0), f"#{len(names)}"), stored)
+
+
 def test_conform_converges_a_transported_document(tmp_path):
     """conform is the same walk on a document that arrived any other way: it
-    returns a list, converges to the bound door's bytes, and is idempotent."""
+    returns a list, converges to what the bound door reads, place by place,
+    and is idempotent."""
     quill = make_quill(tmp_path, BOUND_QUILL_YAML)
     md = _bound_md("subject: Q3 **results**", "note: 'a *literal* line'")
     doc = Document.parse(md)
 
     assert quill.conform(doc) == []
-    assert doc.to_stored() == quill.parse(md).to_stored()
+    assert by_place(doc.to_stored()) == by_place(quill.parse(md).to_stored())
     assert quill.conform(doc) == []
 
 

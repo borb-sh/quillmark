@@ -73,11 +73,11 @@ Patching one card at a time is for a document that is no longer a pure projectio
 
 ## Scope note
 
-The typed writer is the recommended path in both bindings. Both also expose the content write on `Document`: `read` a body or richtext field, then write it with `apply` (a change of steps), `revise` (markdown) or `replace` (a whole value), passing the hash you read as `base` so a write over a newer value rebases over what changed since, refusing only where the two touch (`edit::rebase_conflict`), rather than reverting it. Both also expose a quill-free **opaque store** under `doc.unchecked` (`storeField` / `store_field` and `insertCard` / `insert_card`, schema coercion deferred to render, each content value stored in its canonical form), for storage and migration tooling holding no quill.
+The typed writer is the recommended path in both bindings. Both also expose the content write on `Document`: `read` a body or richtext field, then write it with `apply` (a change of steps), `revise` (markdown) or `replace` (a whole value), passing the `heads` you read at so a write over a newer value merges with what changed since as Automerge merges, rather than reverting it. Both also expose a quill-free **opaque store** under `doc.unchecked` (`storeField` / `store_field` and `insertCard` / `insert_card`, schema coercion deferred to render, each content value stored in its canonical form), for storage and migration tooling holding no quill.
 
 ```js
-const base = doc.hash({ field: 'summary' })
-const receipt = doc.revise({ field: 'summary' }, 'A **shorter** summary.', { base })
+const heads = doc.heads()
+const receipt = doc.revise({ field: 'summary' }, 'A **shorter** summary.', { heads })
 // receipt.droppedAnchors names each comment anchor whose text the rewrite removed
 ```
 

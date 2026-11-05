@@ -18,7 +18,7 @@ quillmark-core = { workspace = true }
 quillmark-pdf = { workspace = true }
 # Lower a richtext field's content JSON to plaintext (`Content.text` minus island
 # slots) for a form-field value; no markdown parser is linked.
-quillmark-content = { workspace = true }
+quillmark-automerge = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # The raster behind the canvas paint seam (`render_rgba`), over the stamped PDF.

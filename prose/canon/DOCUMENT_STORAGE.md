@@ -4,21 +4,36 @@
 
 ## TL;DR
 
-`Document` is the typed in-memory model of a Quillmark Markdown file. Its
-layout tracks the evolving Quillmark model and is **not** a stable interface.
-To persist documents (e.g. in a database) without storing Markdown (whose
-syntax also evolves), `Document` serializes to a **versioned JSON envelope**,
-`StoredDocument`, whose wire format is frozen per schema version.
+Automerge is the document; the envelope is its stored projection. A
+`Document` is the typed in-memory model of a Quillmark Markdown file, and
+every one holds its Automerge document from construction, whether parsed,
+built or loaded. A document persists as the **versioned JSON envelope**,
+`StoredDocument`, whose wire format is frozen per schema version: the row is
+the envelope, a history-free projection written only from the Automerge
+document and read only to build one (§ "The row is a projection"). The
+Automerge document's **bytes** are the form of a live editing session: the
+revision is the heads, a write's patch is its receipt, peers move changes as
+bytes and sync is Automerge's own (§ "The Automerge layout"). A session lasts
+as long as its peers share one history; a reload from the row starts a new one.
 
 ## When to use it
 
 | Form | Round-trips? | Stable for storage? |
 |---|---|---|
 | Markdown (`Document::to_markdown`) | No: anchors and ids drop ([CONTENT.md](CONTENT.md) § "What markdown keeps") | No: syntax evolves |
-| `StoredDocument` JSON | Yes: lossless | Yes: frozen per schema version |
+| `StoredDocument` JSON (`serde_json::to_string(&doc)`, `toStored`) | Yes: lossless but for history | Yes: the row, frozen per schema version |
+| Automerge bytes (`Document::save`) | Yes: lossless, history included | No: a live session's form; its root's `schema` names the layout |
 
-Use `StoredDocument` JSON whenever a `Document` must survive a process
-restart or a crate upgrade: database rows, caches, message payloads.
+Store the JSON: it is the row a `Document` survives a process restart or a
+crate upgrade as, and the form a reader holding no Automerge reads. Move the
+bytes within a live editing session: `Document::load` of a `save`, and a peer
+synced from it, hold every heads the saving document held, so a write at heads
+read anywhere in the session resolves (`WriteOptions.heads`, [CONTENT.md](CONTENT.md)
+§ "Live state and merge"). A reload from the row (`Document::from_stored`)
+starts a new session: no heads read before it resolve, and peers rejoin from
+the row, which every process loads to one origin, since a document's first
+change is written under one actor at time 0. History is session state, not a
+row's: a changelog serves live editing, and nothing in storage reads it.
 
 What a schema-bound read hands a consumer is the values form: the stored value
 with content as its codec's text, sparse, and carrying neither anchors nor
@@ -28,17 +43,37 @@ never a row.
 The plate JSON a render hands a backend is a lossy, one-way export,
 crate-internal to `quillmark-core` and never a storage option.
 
+## The row is a projection
+
+The envelope holds no state of its own. The `Serialize` impl, and the
+bindings' `toStored` over it, write it from the cards the document reads as,
+the view every write and merge refreshes from the Automerge document, and no
+write reaches the envelope except through that document.
+`Document::from_stored`, the `Deserialize` impl and the bindings'
+`fromStored` read it only to build one: the cards it holds are written into a
+new Automerge document, and the loaded `Document` holds that document from
+then on.
+
+The build is deterministic. Its changes are written under one fixed actor at
+time 0, so two processes that load one row hold byte-identical documents
+(`save` answers the same bytes), share one origin, and sync from it without
+either re-sending what the row already gave both. A `0.134.0` row reads into
+a document the same way.
+
 ## Design Principles
 
 1. **Versioned envelope**: every blob carries a `schema` tag; readers
    dispatch on it and reject unknown versions.
 2. **Frozen DTO per version**: each schema version has its own standalone
-   type tree (`DocumentV0_129_0`, `CardV0_129_0`, …). These are never changed
-   once shipped.
+   type tree (`DocumentV0_135_0`, `CardV0_135_0`, …). These are never changed
+   once shipped, and are internal to `dto.rs`: a host reads and writes the
+   JSON, and `StoredDocument` is `#[non_exhaustive]`, so a new tag breaks no
+   match.
 3. **Decoupled from the live model**: internal refactors of `Document` and
    its components only touch conversion code, never the wire format.
-4. **Transparent API**: `Document` serializes through the envelope via
-   `#[serde(into / try_from)]`; callers use `serde_json` directly.
+4. **Transparent API**: `Document` serializes to the envelope from its cards
+   and deserializes through `#[serde(try_from)]`; callers use `serde_json`
+   directly.
 
 ## The Format
 
@@ -51,6 +86,10 @@ the `$`/non-`$` boundary. A field item is `{type: field, key, value}`;
 `body` is the content-model value ([CONTENT.md](CONTENT.md)) embedded
 structurally (a nested object, not a markdown string), and a `richtext` field
 is stored as one inside its item's `value`; see Byte-stability.
+A stored value names its blocks, containers and islands by place, `p{n}`
+counted over its blocks, then its containers, then its islands, never by the
+Automerge object ids a live session holds them under, so a row's bytes are a
+function of its content and not of which actors wrote it.
 
 ```json
 {
@@ -65,7 +104,7 @@ is stored as one inside its item's `value`; see Byte-stability.
       ],
       "nested_comments": []
     },
-    "body": { "blocks": [ { "id": "b0", "kind": "para" } ], "text": "Hi" }
+    "body": { "blocks": [ { "id": "p0", "kind": "para" } ], "text": "Hi" }
   },
   "cards": [ ... ]
 }
@@ -86,32 +125,47 @@ document came through the bound input path) live on the `Parsed` record, not on
 their `Document` handle as session state and exclude them from `equals` and
 the DTO alike.
 
-### Legacy schemas (V0_124_0 to V0_131_0)
+### Earlier schemas
 
-The tags `0.124.0`, `0.129.0` and `0.131.0` hold the line form,
-the v1 content encoding ([CONTENT.md](CONTENT.md) § "The line form"). A row
-under one loads through the `0.134.0` hop: its body, and each field value
-that decodes as line-form content at any depth, migrates through
-`migrate::from_lines`, minting ids deterministically, so the same row
-always migrates to the same bytes. A `$seed` or `$ext` value stays as stored,
-and the decoders read a line-form value wherever they meet one. A row
-under `0.134.0` holding a line-form body or field loads the same way:
-`StoredContent` migrates a line-form body, and the load walks each field value
-as the hop does.
+A row under `0.134.0` reads through the current tree (§ Schema Versioning). It
+is the oldest tag read: a row under any earlier tag (`0.81.0` through
+`0.131.0`) fails as an unknown schema version, and the last release that
+reads it is the one to load and save it under a tag still read. A body
+spelled in the line form, the encoding those tags held, fails the load, and
+a field value in it loads as the plain value it spells, read as no content. A
+composable card naming no `$kind` fails the load.
 
-`0.124.0` carries the content vocabulary without the `footnote` and `math`
-islands, the `term` line kind or the `description` container. It is the oldest
-tag read: a row under any earlier tag (`0.81.0` through `0.116.0`) fails as an
-unknown schema version (§ Schema Versioning).
+## The Automerge layout
 
-A composable card naming no `$kind`, which an earlier parse accepted as a card and stored,
-folds on load, under any tag, into the body above it: its fields and comments
-as an untagged backtick code block, whose text is admitted as a body import
-admits it, then its own body. Its `$ext` drops, since `$ext` reaches no render
-and the body does. What the fold lands is new content: an island id the body
-above already holds is minted anew (§ Island-id determinism), and an anchor
-whose id it already holds drops whole, since Quillmark mints no anchor id
-(§ Anchor-id identity). Every later card moves up one index.
+The document's root holds `schema` (`quillmark/document@0.135.0`), `main`,
+`cards` and `order`: `cards` maps each composable card's `$id` to its card,
+and `order` lists the `$id`s in document order. A card holds `layout`, its
+payload items' order and comments; `fields`, each field by key; `ext`; `seed`;
+`nestedComments`; and `body`. A body, and each content value in a field (an
+object holding a `text` string and a `blocks` array, the one test every layer
+asks, `content::units::is_content_value`: a `richtext` or `text` field in its
+stored form, [SCHEMAS.md](SCHEMAS.md)
+§ "Content fields are stored per codec"), the field's whole value or one at
+any depth in it, an `array<richtext>` element or an object's content
+property, is an Automerge text object with its blocks as markers, maps keyed
+`type`, `attrs` and `parents`, its marks and anchors as Automerge marks, and
+its containers and islands as records named by their object ids, so it merges
+as a body does and each read takes it through repair. The rest of a field, a
+string as a `text` field holds before a schema-aware write, or any other JSON,
+is Automerge maps, lists and scalars, merged as data, a map's key order held
+in its `\u{1f}order` list, since an Automerge map holds none. `Document::load` refuses bytes whose
+root holds no document in this shape, or names a schema this build does not
+read (`edit::bad_live_bytes`). The root's `schema` tag names the layout
+version of the live document.
+
+Concurrent changes merge as Automerge merges them: a field, a card or a record
+two writers set reads as the later in Automerge's order, text both edited
+keeps both edits, and a card one writer removed while another edited it reads
+as Automerge leaves the two. A whole-value write over a body or content field
+diffs into its text object and never puts a new one: by the change between the
+value it reads as and the value written, and where that change does not lower,
+by Automerge's own diff of the text (`update_spans`), so text a concurrent
+writer typed into it keeps.
 
 ## Byte-stability
 
@@ -132,10 +186,8 @@ applied. Every `body` subtree, by contrast, is the recursively key-sorted
 to `Content::to_value` and independent of `preserve_order`, even in a
 consumer crate graph that lacks the feature. A `richtext` field's value is
 written through the same form. `Content::write_canonical` writes those bytes as it
-reads the value, building no `Value` tree, and the content hash
-(`quillmark/hash@1`, SHA-256 over the tag, a newline and these bytes)
-digests them as they are written; the bytes and the hash are the ones the
-tree serializes to, unchanged. Sortedness is semantic *inside* the content
+reads the value, building no `Value` tree; the bytes are the ones the tree
+serializes to, unchanged. Sortedness is semantic *inside* the content
 (mark, island and attribute order carry no meaning, so the serializer commits
 to one bit pattern); insertion order is semantic *outside* it (payload item
 order is source order, and matters).
@@ -187,8 +239,8 @@ then, once, and the stored row needs no migration.
 A comment's text is stored without the whitespace ending it, as a parse reads its
 line, so a stored row holding such text loads without it and rewrites once.
 
-**Migrated rows.** A row under an earlier tag migrates forward on read
-(§ Legacy schemas) and is stored under the current tag once rewritten. Rewriting it
+**Migrated rows.** A row under an earlier tag still read migrates forward on
+read (§ Earlier schemas) and is stored under the current tag once rewritten. Rewriting it
 once read (read-repair) is the same path `Quill::conform` uses: a row read
 through the bound input path converges to its stored form and is eligible for rewrite
 under the current tag. A population converges once and then holds.
@@ -227,13 +279,6 @@ an `x-` island as nothing. Steps may set and remove one. Containers hold
 no `x-` name: a container kind is a nesting rule (an item only after a list),
 and a reader cannot check a path through a container whose rule it does not
 know.
-
-Three names a line-form row may hold sit outside the sets: the `term` line
-kind, and the `description` and `element` containers, which earlier tags
-spelled for a definition list and a `qm-*` element. Each reads as what it
-held, so the row opens and its text stays, and the migration writes the row
-without them. A `term` line reads as a `para`, as the retired `island` line
-kind does.
 
 The consequence, and the point: **adding a built-in member to any of these
 vocabularies is a storage-version event.** An older reader refuses a row
@@ -387,8 +432,8 @@ Five rules bound the payload:
   `MAX_MARKDOWN_SIZE` (10 MiB), refused as `ImportError::TooLarge`
   (`edit::input_too_large`). The bindings refuse a content value whose text
   and its slots' texts pass the same 10 MiB before decoding it, and a change
-  of more than `MAX_CHANGE_STEPS` (16 384) steps, nested ones counted
-  (`edit::too_many_steps`); `Card::write` refuses such a change too. A
+  of more than `MAX_CHANGE_STEPS` steps, nested ones counted
+  (`edit::too_many_steps`); `CardMut::write` refuses such a change too. A
   footnote reference copies its note, so an import shares
   `MAX_NOTE_COPIES` (1 000 000) characters among every copy past each
   note's first; a reference past it stays as its `[^label]` text, warning
@@ -441,21 +486,21 @@ is therefore **uniqueness**, not `id == isl-{index}`.
 
 A step names the ids of what it lands, and the apply refuses one already live
 in its scope. A live client mints none of its own: a record it puts carries a
-placeholder the write fills, and the write mints under the client's actor,
-`{actor}:{prefix}{n}`, so two clients never mint one id
-([CONTENT.md](CONTENT.md) § Ids). A live document's bytes therefore depend on
-which actors wrote it, and its hash is stable from the moment it is stored
-rather than equal to a cold import's. Merge repair derives each id it mints
+placeholder the write fills with the record's object id, under the client's
+Automerge actor, so two clients never mint one id
+([CONTENT.md](CONTENT.md) § Ids). A live document's ids and Automerge bytes
+therefore depend on which actors wrote it; its stored row names each record
+by place, so equal content stores as equal bytes. Merge repair derives each id it mints
 from the ids involved ([CONTENT.md](CONTENT.md) § "Merge repair").
 
 A markdown revise keeps the ids of what it kept (`diff::align`), an island
 equal to a stored one or named by a `qm-island` tag keeping its id, and mints
 every other part past the highest id the value held, so none takes a dropped
-part's id. How a revise or replace mints over a stale base, reading values and
-never the change log, is CONTENT.md § "Writing a value".
+part's id. How a revise or replace mints over a stale base, reading values
+alone, is CONTENT.md § "Writing a value".
 
-Re-landing a dropped part is not a mint: the delete freed the id and it travels
-back with its part in the inverse, so restoring a deletion restores the bytes.
+Re-landing a dropped part is not a mint: outside a document an id travels
+with its part; inside one, `undo` puts the record again under a new object id.
 
 ## Anchor-id identity
 
@@ -515,18 +560,19 @@ is written, and never rewritten while its card lives.**
   letters of SHA-256 over `quillmark/card-id\n{n}`, the first `n` whose id no
   card holds (`card_id::Mint`). A parse, a load and a seed mint the token
   alone, positionally, so equal markdown parses to equal ids. A placement
-  under a writer's actor (`Unchecked::insert_card`, the writer's `add_card`)
-  mints `{actor}-{token}`: an actor ([CONTENT.md](CONTENT.md) § Ids) is short
+  through a handle with an actor set (`Document::set_actor`), by
+  `Unchecked::insert_card` or the writer's `add_card`, mints `{actor}-{token}`: an actor ([CONTENT.md](CONTENT.md) § Ids) is short
   enough that the id is a card id, no actor's id is a positional one
   and two actors never mint one id. A live client places each card it inserts
   under its actor and carries the `$id` the placement answers to its peers, so
   two replicas never mint two ids for one card. The mint is a function of the
   document and the writer's actor, so the never-ambient rule of § Island-id
-  determinism holds, narrowed as it is there: a live document's ids depend on
+  determinism holds, narrowed as it is there: a document's ids depend on
   which actors placed its cards. An actor's mint never reissues an id: each
   `Document` value holds, beside its cards and outside its equality and its
-  stored row, the index past the last token it minted under each actor since
-  its parse, load or seed, and that actor's next mint starts there, so an id
+  stored row, the index past the last token it minted under its actor since
+  its parse, load or seed or since its actor last changed, and its next mint
+  starts there, so an id
   an actor minted is never minted under it again in that value's life, though
   the card holding it is removed. A positional mint keeps no such record.
 - **Every input path normalizes the id.** A parse, a load and a placing edit each leave every
@@ -535,7 +581,7 @@ is written, and never rewritten while its card lives.**
   warns `parse::card_id_reminted` at the card. `insert_card` mints for a card
   spelling none, answering the id it placed, and refuses a bad or held one (`edit::invalid_card_id`,
   `edit::duplicate_card_id`). A load refuses a bad or duplicated stored id,
-  and mints for a row written before `0.134.0`.
+  and mints for a stored card naming none.
 - **Revise.** `Document::revise` pairs an incoming card spelling a stored
   card's `$id` with it, when both are of one `$kind`. Of several spelling one
   id, the one whose text most resembles the stored card's keeps it. Where the
@@ -563,26 +609,21 @@ The format is the *bytes*, not only the envelope: dropping a key or retiring a
 kind with the DTO tree untouched is a format change, because the writer emits
 different bytes for the same document.
 
-`0.124.0`, `0.129.0` and `0.131.0` share one tree over the line
-form: a field item is `{type: field, key, value}`, and a document, card,
-payload or payload item carrying a key its type does not name fails the load.
-`0.129.0` adds `footnote` and `math` to the island vocabulary, `term` to the
-line kinds and `description` to the containers. `0.131.0` adds `font_family`
-to the marks and a table's `head` and spans. `0.134.0` keeps the payload tree,
-adding the `id` payload item, and stores each body as the content model
-(`DocumentV0_134_0`, `StoredContent`). `0.135.0` shares that tree and adds
-the `codec` key to a content value, which a `0.134` reader does not decode,
-so a `0.134` build refuses the row as a newer version rather than reading a
-`text` field as rich text.
-
-The V0_124_0 → V0_129_0 hop decodes its raw `body`, and can reject for the same
-reason a load can. Only the newest DTO converts to the live `Document`.
+`0.134.0` stores each body as the content model (`StoredContent`): a field item is `{type: field, key, value}`, and a document,
+card, payload or payload item carrying a key its type does not name fails the
+load. `0.135.0` shares that tree, `DocumentV0_135_0`, which `DocumentV0_134_0`
+names until the two shapes diverge, and adds the `codec` key to a content value,
+which a `0.134` reader does not decode, so a `0.134` build refuses the row as
+a newer version rather than reading a `text` field as rich text. Only the
+newest DTO converts to the live `Document`.
 
 ## Adding a Schema Version
 
 When the `Document` wire format changes again:
 
-1. **Freeze** the current `DocumentV0_134_0` type tree: leave its struct
+1. **Freeze** the current `DocumentV0_135_0` type tree, and give the
+   `DocumentV0_134_0` alias it carries a tree of its own where the new shape
+   diverges from what a `0.134.0` row holds: leave its struct
    /enum definitions and serde derives untouched so existing rows still parse.
    Replace any field whose type tracks the live crate (`StoredContent` is
    the one) with raw `serde_json::Value`, or the frozen tree will *write* the
@@ -594,9 +635,9 @@ When the `Document` wire format changes again:
    plus its `From<&Document>` and `TryFrom<… for Document>` conversions.
 4. **Add** the `StoredDocument::V0_NN_0` variant, tagged
    `#[serde(rename = "quillmark/document@0.NN.0")]`.
-5. **Write the migration**: `From<DocumentV0_134_0> for DocumentV0_NN_0` if
-   the mapping cannot fail, or `TryFrom` if it can reject, as the V0_124_0 hop
-   does for a body that will not decode. This is the only real labor: it
+5. **Write the migration**: `From<DocumentV0_135_0> for DocumentV0_NN_0` if
+   the mapping cannot fail, or `TryFrom` if it can reject, as a hop that
+   decodes a raw body does for one that will not decode. This is the only real labor: it
    encodes how old fields map to the new model.
 6. **Extend** the reader. Each older blob migrates to the newest DTO through
    the chain of hops, every fallible arm threading `?`.
@@ -606,13 +647,11 @@ newest tree, and the reader matches both tags into it.
 
 **A migration reaches the body for certain, and a field value only by its
 shape.** Every other stored content sits inside an opaque payload value carrying
-no schema tag. The `0.134.0` hop migrates a field value that decodes as
-line-form content, but `$seed` and `$ext` are arbitrary by contract and a walk
-cannot tell content there from host data that merely looks like it. So a change
-to the *content* encoding has to stay readable too: the decoder reads the old
-spelling wherever it meets it, and the schema bump records that the writer
-moved. The reader that absorbs it is permanent, since the untagged half is
-reachable by no hop.
+no schema tag. A hop can migrate a field value by its shape, but `$seed` and
+`$ext` are arbitrary by contract and a walk cannot tell content there from host
+data that merely looks like it. So a change to the *content* encoding keeps its
+old spelling readable for as long as its tag is read, and once the tag retires
+a value still in that spelling reads as no content.
 
 A new frozen DTO can also reject at parse time through a custom
 `Deserialize` rather than through a `TryFrom` migration: `StoredContent`
@@ -630,18 +669,21 @@ refuses, such as the lone major `memo@1` ([VERSIONING.md](VERSIONING.md)), or
 more cards than `MAX_CARD_COUNT`, the ceiling markdown parse and card
 placement both hold. Load measures no emitted size, since emission can
 outgrow the source a document parsed from.
-Migrations chain (`V0_124_0 → V0_129_0 → V0_134_0 → …`); only the newest DTO
+Migrations chain (`V0_135_0 → V0_NN_0 → …`); only the newest DTO
 converts to the live `Document`, so each migration step stays small as versions
 accumulate. The cost is one frozen type tree per schema version plus one
 migration function per version bump.
 
 A legacy variant may be **retired**, its DTO tree, migration and tests
-deleted, only in a major release: Quillmark cannot count its hosts' rows, and
-one tag's rows span every release between its bump and the next. A row that
-later surfaces in a retired shape fails as an unknown version. Every tag from
-`0.81.0` through `0.116.0` is retired.
+deleted, only in a release that marks it a break: a major release, or, while
+pre-1.0, a minor carrying a `!`. Quillmark cannot count its hosts' rows, and
+one tag's rows span every release between its bump and the next, so that
+release's migration guide names the last release that reads the tag, where a
+host loads and saves each such row. A row that later surfaces in a retired
+shape fails as an unknown version. Every tag from `0.81.0` through `0.131.0`
+is retired.
 
-**What a row holds stays readable.** Within a major release:
+**What a row holds stays readable.** Between two releases that retire a tag:
 
 - The lenient stored read (`Content::from_value_lenient`) stays: a value a
   write would refuse as non-canonical reads as its canonical form, warning
@@ -649,9 +691,6 @@ later surfaces in a retired shape fails as an unknown version. Every tag from
 - The bounds a value is held to (`MAX_TABLE_CELLS`, `MAX_NESTING_DEPTH`,
   `MAX_JSON_DEPTH`, `max_marks`, `MAX_ANCHORS`, `MAX_CARD_COUNT`) only
   loosen, since a lowered bound makes a stored row unreadable.
-- A hash, `Document::hash`, a body's or a field's, holds within one storage
-  tag. `Document::hash` digests the tag, so a storage bump moves it for an
-  equal document; a host keeping such hashes across one reads them again.
 
 ## Gotchas
 
@@ -659,7 +698,7 @@ later surfaces in a retired shape fails as an unknown version. Every tag from
   `CARGO_PKG_VERSION`: bumping it is a deliberate act tied to a model change.
 - Unknown schema versions are rejected on read, never silently ignored.
 - DTO type names carry version suffixes with underscores
-  (`DocumentV0_124_0`); `non_camel_case_types` is allowed module-wide for this.
+  (`DocumentV0_135_0`); `non_camel_case_types` is allowed module-wide for this.
 - No file extension is part of the storage contract: the interchange forms
   are card-yaml markdown **text** and `StoredDocument` **JSON**.
 
@@ -668,4 +707,4 @@ later surfaces in a retired shape fails as an unknown version. Every tag from
 - [ARCHITECTURE.md](ARCHITECTURE.md): `Document` in the core type overview
 - [markdown-spec.md](../references/markdown-spec.md): Markdown syntax and the in-memory data model
 - [VERSIONING.md](VERSIONING.md): quill version resolution (a separate concern)
-- `QuillValue` (`crates/core/src/value.rs` rustdoc): value type stored inside payload fields
+- `FieldValue` (`crates/core/src/document/payload.rs` rustdoc): a payload field's value, content as the `Content` it reads as and any other value as a `QuillValue` (`crates/core/src/value.rs`)

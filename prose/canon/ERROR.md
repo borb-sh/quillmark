@@ -98,30 +98,21 @@ peer of the render-path namespaces. Identity is the code, never message text:
 routing coercion-vs-undeclared is `edit::field_coercion_failed` vs.
 `edit::unknown_field`, read off `diagnostics[0].code`.
 
-A revise guarded by what its writer read (a `Base`) refuses under two more:
-`edit::stale_base` when the value no longer hashes to the writer's
-`baseHash` and the card's change log no longer reaches it (a whole document
-always, since it keeps no log; a body or field rebases while the log reaches
-the base), and `edit::rebase_conflict` when the writer's edit of its base and the
-change made since touch the same text or record. A whole
-document under `baseStored` refuses only where no merge can stand (a side
-reordered the cards, or both changed a card's `$quill`, `$seed` or `$ext`
-apart); a place both changed is not an error but an entry in the receipt's
-`conflicts`, its value now kept. Both refusals carry
-`current`, the hash of the value now: a writer reads the value again, checks
-that read against `current`, and writes from it. Retrying the same markdown
-under `current` lands the revert the base refused. A refusal on a field
-anchors at the field. The whole-document revise raises them through
-`BoundParseError::Base`, as it raises a parse failure, before any mutation.
+A write at the heads its writer read refuses under one more:
+`edit::stale_base` when the document's history does not hold those heads
+(every heads read before the document was loaded from its stored row, which
+holds no history): a writer reads the document again and writes from it.
+Heads the history holds merge, as Automerge merges, and refuse nothing
+([CONTENT.md](CONTENT.md) § "Live state and merge"). A refusal on a field
+anchors at the field. The whole-document revise raises it through
+`BoundParseError::Edit`, as it raises a parse failure, before any mutation.
 
-The content writes (`apply`, `revise`, `replace`) take a
-`base` hash. A base the value has moved on from rebases the write over the
-change since, and a write that conflicts with it refuses under
-`edit::rebase_conflict`, carrying `current`, the `step` of the writer's change
-that conflicts, and the `reason` (`deleted`, `changed`, `missing`, `refused`).
-A base the document no longer holds the change since for refuses under
-`edit::stale_base`, carrying `current`. The pure `rebase` raises the same
-conflict, its `current` the hash of the value `since` left. A change that does not apply to the value, or would leave it
+The content writes (`apply`, `revise`, `replace`) take `heads`, which merge
+or stale as above. Bytes or a sync message the document cannot take
+are `edit::bad_live_bytes`, carrying the `reason` (`decode`, `shape`,
+`schema`, and `apply` for a sync message that decodes but does not apply);
+core's `Document::load`, `merge` and `receive_sync_message` answer it as
+the `EditError` the bindings throw. A change that does not apply to the value, or would leave it
 invalid, is `edit::content_apply`, and writes nothing; its `reason` names the refusal (`stale`, `unknown_block`, `unknown_container`, `container_kind`, `container_in_use`, `unknown_anchor`, `anchor_held`, `unknown_island`, `unknown_slot`, `bad_step`, `invalid`), with the `step` it refuses at for `stale` and `bad_step` ([CONTENT.md](CONTENT.md)); the whole-document revise reports it as a warning at the value it leaves as stored.
 Four bounds refuse under codes of their own, each carrying the `max` it
 passed ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content
@@ -140,10 +131,9 @@ any other verb refuses the same way. A content write's
 revise or replace whose change removes an `x-` island refuses under
 `edit::drops_ext_island`, carrying `island` and `type`: markdown cannot spell
 one, so its writer may not have seen it, and a change through `apply` removes
-one. The line-form revise verbs do not check. A content write whose `actor`
-is not an actor ([CONTENT.md](CONTENT.md) § Ids) refuses under
-`edit::invalid_actor`, carrying `actor`, as does a card placement under
-one.
+one. An actor that is not one ([CONTENT.md](CONTENT.md) § Ids), given to
+`Document::set_actor` (`setActor`, `set_actor`), refuses under
+`edit::invalid_actor`, carrying `actor`.
 
 Building a card from a `CardWire` (`unchecked.insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:
@@ -243,7 +233,7 @@ families:
   `revise_document`) carries the parse's warnings, then each revised content
   field's at the field, on `DocumentRevised.warnings`. `add_card` returns it
   at the placed card's body, on `CardAdded.warnings` beside the card's `id`,
-  WASM `importMarkdown` and `rebase` beside the content with no `path`.
+  WASM `importMarkdown` beside the content with no `path`.
   Python's `add_card` returns them under its dict's `warnings`, beside `id`,
   and its `revise` / `revise_document` under the dict receipt's
   `warnings`, as `Diagnostic` objects. A typed `set` / `set_all` returns
@@ -261,7 +251,7 @@ families:
   rides `doc.warnings` as a parse's do. 0.135 reads such a value; a later
   release refuses it, and the code goes with that window.
 - **`export::lost_construct` off a markdown export.** The receipt of an
-  export: `quillmark_content::export::to_markdown_checked` reads its markdown
+  export: `quillmark_automerge::content::markdown::to_markdown_checked` reads its markdown
   back and names each part of the content it does not carry, and
   `quillmark_core::document::lost_construct` mints one warning per part. The
   `construct` is a mark's wire type (`strong`, `link`, …) with its `start`
@@ -599,10 +589,10 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::too_many_marks` | `count`, `max` | structured |
 | `edit::too_many_anchors` | `count`, `max` | structured |
 | `edit::invalid_payload` | — | fallback |
-| `edit::stale_base` | `current` | structured |
-| `edit::rebase_conflict` | `current`, `step`?, `reason`? | structured |
+| `edit::stale_base` | — | structured |
 | `edit::drops_ext_island` | `island`, `type` | structured |
 | `edit::invalid_actor` | `actor` | structured |
+| `edit::bad_live_bytes` | `reason` | structured |
 | `conform::invalid_field_name` | `field` | structured |
 | `conform::value_too_deep` | `max` | structured |
 | `conform::field_not_single_line` | `field`, `codec` | structured |

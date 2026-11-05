@@ -47,7 +47,7 @@ fn typed_write_and_read_spell_through_the_facade() {
         let mut writer: TypedWriter = quill.writer(&mut doc);
         writer.set("subject", "Hello **world**").expect("richtext");
         writer
-            .add_card("note", [("prose", "a *card*")], None, None, None)
+            .add_card("note", [("prose", "a *card*")], None, None)
             .expect("note is a declared card kind");
     }
 
@@ -84,8 +84,8 @@ fn content_lane_spells_through_the_facade() {
     let _: Annotated = doc.main().annotated(quillmark::Target::Body).expect("the body reads");
 
     let revised: Result<Receipt, EditError> = doc.main_mut().revise(quillmark::Target::Body, "# Body", None);
-    let Receipt { applied, dropped_anchors, .. } = revised.expect("a heading imports");
-    let _: quillmark::Change = applied;
+    let Receipt { patches, dropped_anchors, .. } = revised.expect("a heading imports");
+    let _: Vec<serde_json::Value> = patches;
     let _: Vec<quillmark::Dropped> = dropped_anchors;
     let _: fn(ImportError) -> EditError = EditError::Import;
 
@@ -95,14 +95,14 @@ fn content_lane_spells_through_the_facade() {
     let markdown = doc.to_markdown();
     let revised: DocumentRevised = quill
         .writer(&mut doc)
-        .revise_document(&markdown)
+        .revise_document(&markdown, None)
         .expect("the document's own markdown revises");
     let _: &[AnchorSelector] = &revised.dropped_anchors;
     let _: &[Option<usize>] = &revised.from;
 
     let selectors: Vec<AnchorSelector> = doc.anchor_contexts();
     let _: Option<AnchorSelector> = doc.anchor_context("c1");
-    let changes: HashMap<DocPath, quillmark::Change> = HashMap::new();
+    let changes: HashMap<DocPath, Vec<serde_json::Value>> = HashMap::new();
     let Reattached {
         reattached,
         orphaned,

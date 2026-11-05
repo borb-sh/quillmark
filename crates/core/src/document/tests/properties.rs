@@ -86,11 +86,7 @@ proptest! {
     /// `schema` discriminator, where the interesting decoding is.
     #[test]
     fn storage_decode_never_panics_past_the_tag(main in arb_json(), cards in arb_json()) {
-        for schema in [
-            "quillmark/document@0.131.0",
-            "quillmark/document@0.129.0",
-            "quillmark/document@0.124.0",
-        ] {
+        for schema in ["quillmark/document@0.135.0", "quillmark/document@0.134.0"] {
             let blob = json!({ "schema": schema, "main": main, "cards": cards });
             let _ = serde_json::from_str::<Document>(&blob.to_string());
         }
@@ -222,7 +218,7 @@ proptest! {
             _ => json!(word),
         };
         let payload = doc.main().payload();
-        let read = |key: &str| payload.get(key).map(|v| v.as_json().clone());
+        let read = |key: &str| payload.get(key).map(|v| v.to_value().as_json().clone());
         prop_assert_eq!(read("v"), Some(want.clone()));
         prop_assert_eq!(read("list"), Some(json!([want.clone()])));
         prop_assert_eq!(read("map"), Some(json!({ "k": want })));
@@ -298,7 +294,7 @@ proptest! {
             doc.unchecked().store_field(None, key, QuillValue::from_json(value)).expect("stored");
         }
         let ext = json!({ "meta": { k.clone(): text } });
-        doc.main_mut().payload_mut().set_ext(ext.as_object().unwrap().clone());
+        doc.edit_card(None, |c| c.payload_mut().set_ext(ext.as_object().unwrap().clone()));
 
         let emitted = doc.to_markdown();
         let back = Document::parse(&emitted)

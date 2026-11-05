@@ -22,7 +22,7 @@ markdown, stored JSON, change, Typst lowering, validate and signal cells.
    quill, declaration or session.
 3. **Fixed point.** `from_markdown(to_markdown(c)) == c`, except for what
    markdown does not keep ([CONTENT.md](CONTENT.md) § "What markdown keeps"),
-   which a markdown write keeps by rebasing over it (`revise`), never by the
+   which a markdown write keeps by merging it back in (`revise`), never by the
    projection; the re-imported content is a fixed point.
 4. **No silent drop.** For every construct, quill and backend, the outcome is
    honored, inert with a signal, or refused at the write. The signal reaches
@@ -60,7 +60,7 @@ import meets. The columns:
 | Cell | Meaning |
 |---|---|
 | spells | the surface has a form for the construct and reads it back as written |
-| carries opaquely | the surface keeps the construct without reading it: an opaque carrier, or a markdown write through `revise` keeping an anchor by diff-rebase |
+| carries opaquely | the surface keeps the construct without reading it: an opaque carrier, or a markdown write through `revise` keeping an anchor by diff |
 | honors | the lowering draws it as CONVERT.md maps it |
 | declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render or `validate` under `backend::declined_construct` |
 | refuses | the surface rejects the write |

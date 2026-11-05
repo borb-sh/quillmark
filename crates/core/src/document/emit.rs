@@ -14,8 +14,8 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
-use quillmark_content::lines::export::to_markdown_annotated;
-use quillmark_content::lines::model::Lines;
+use quillmark_automerge::content::lines::export::to_markdown_annotated;
+use quillmark_automerge::content::lines::model::Lines;
 use serde_json::Value as JsonValue;
 use serde_saphyr::SerializerOptions;
 
@@ -129,7 +129,7 @@ impl Document {
 fn emit_card(out: &mut String, card: &Card, at: &DocPath, anchors: Option<&Anchors>) {
     emit_block(out, card, at, anchors);
     let body = match anchors {
-        None => quillmark_content::lines::export::to_markdown(card.body_lines()),
+        None => quillmark_automerge::content::lines::export::to_markdown(card.body_lines()),
         Some(anchors) => annotated(card.body_lines(), &at.body(), anchors),
     };
     append_body(out, &body);
@@ -145,9 +145,9 @@ fn annotated(content: &Lines, path: &DocPath, anchors: &Anchors) -> String {
 fn annotated_as(codec: super::Codec, content: &Lines, path: &DocPath, anchors: &Anchors) -> String {
     let read = match codec {
         super::Codec::Richtext => to_markdown_annotated(content),
-        super::Codec::Text => quillmark_content::markdown::to_text_annotated(&quillmark_content::model::Content {
-            codec: quillmark_content::model::Codec::Plain,
-            ..quillmark_content::migrate::from_lines(content)
+        super::Codec::Text => quillmark_automerge::content::markdown::to_text_annotated(&quillmark_automerge::content::model::Content {
+            codec: quillmark_automerge::content::model::Codec::Plain,
+            ..quillmark_automerge::content::migrate::from_lines(content)
         }),
     };
     anchors
@@ -341,12 +341,6 @@ fn emit_block(out: &mut String, card: &Card, at: &DocPath, anchors: Option<&Anch
     out.push_str("~~~\n");
 }
 
-/// Walk the unified item list and emit each entry. An `inline: true` comment
-/// immediately following a non-comment item is consumed as that item's trailer.
-pub(super) fn emit_payload_items(out: &mut String, payload: &Payload) {
-    emit_items(out, payload, None);
-}
-
 /// The payload's fields alone, without its comments or `$` keys.
 pub(super) fn emit_payload_fields(out: &mut String, payload: &Payload) {
     for (key, value) in payload.iter() {
@@ -354,12 +348,14 @@ pub(super) fn emit_payload_fields(out: &mut String, payload: &Payload) {
             project_content: true,
             ..EmitCtx::EMPTY
         };
-        emit_field_at(out, key, value.as_json(), KeyPos::Line(0), ctx, None);
+        emit_field_at(out, key, value.to_value().as_json(), KeyPos::Line(0), ctx, None);
     }
 }
 
-/// [`emit_payload_items`], each content field annotated with its anchors
-/// collected under the card at `annotate`'s path.
+/// Walk the unified item list and emit each entry, each content field
+/// annotated with its anchors collected under the card at `annotate`'s path.
+/// An `inline: true` comment immediately following a non-comment item is
+/// consumed as that item's trailer.
 fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &Anchors)>) {
     let items = payload.items();
     let comments = Comments::by_owner(payload.nested_comments());
@@ -390,7 +386,7 @@ fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &
                 emit_field_at(
                     out,
                     key,
-                    value.as_json(),
+                    value.to_value().as_json(),
                     KeyPos::Line(0),
                     EmitCtx {
                         comments: comments_of(key),
@@ -416,13 +412,12 @@ fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &
 /// value: a top-level field, an object property, an array element.
 ///
 /// Projecting keeps card-yaml markdown-clean rather than carrying a nested
-/// `{text, lines, marks, islands}` tree. It is lossy: island ids and
+/// content-model tree. It is lossy: island ids and
 /// content-only marks do not survive, and the storage DTO is the lossless
 /// carrier.
 ///
-/// The guard requires the object, its retired spellings respelled
-/// ([`respell_retired`](quillmark_content::lines::serial::respell_retired)), to
-/// serialize back to a **byte-identical** canonical content, so a user object
+/// The guard requires the object to serialize back to a **byte-identical**
+/// canonical content, so a user object
 /// that merely resembles one stays structural. The comparison is on the
 /// serialized *strings*: under `serde_json/preserve_order`, `Value`'s
 /// `PartialEq` is order-independent, so a `Value` guard would also project a
@@ -436,17 +431,9 @@ pub(super) fn canonical_content(value: &JsonValue) -> Option<Lines> {
     if !value.is_object() {
         return None;
     }
-    if quillmark_content::wire::is_v1(value) {
-        let rt = quillmark_content::lines::serial::from_canonical_value(value).ok()?;
-        let as_written =
-            serde_json::to_string(&quillmark_content::lines::serial::respell_retired(value)).ok()?;
-        let canonical =
-            serde_json::to_string(&quillmark_content::lines::serial::to_canonical_value(&rt)).ok()?;
-        return (as_written == canonical).then_some(rt);
-    }
-    let content = quillmark_content::model::Content::from_value(value).ok()?;
+    let content = quillmark_automerge::content::model::Content::from_value(value).ok()?;
     let as_written = serde_json::to_string(value).ok()?;
-    (as_written == content.to_json()).then(|| quillmark_content::migrate::to_lines(&content))
+    (as_written == content.to_json()).then(|| quillmark_automerge::content::migrate::to_lines(&content))
 }
 
 /// Ensure `out` ends with `\n\n` so the next fence has a blank line above it.
@@ -880,7 +867,8 @@ mod tests {
                 )
             })
             .document;
-        let parsed = doc.main().payload().get("v").expect("field 'v'").as_json();
+        let parsed = doc.main().payload().get("v").expect("field 'v'").to_value();
+        let parsed = parsed.as_json();
         assert_eq!(
             parsed, &value,
             "scalar round-trip mismatch for {:?}: emitted as {:?}",
@@ -965,7 +953,7 @@ mod tests {
             .document;
         assert_eq!(doc.to_markdown(), src);
         assert_eq!(
-            doc.main().payload().get("rows").expect("rows").as_json()[0],
+            doc.main().payload().get("rows").expect("rows").to_value().as_json()[0],
             serde_json::json!({"key": {"a": 1}, "next": 1})
         );
     }
@@ -1088,7 +1076,7 @@ mod tests {
         let payload = Payload::from_items_with_nested(
             vec![PayloadItem::Field {
                 key: "list".to_string(),
-                value: QuillValue::from_json(serde_json::json!(["a", "b"])),
+                value: serde_json::json!(["a", "b"]).into(),
             }],
             vec![
                 inline(0, "trailer"),
@@ -1098,7 +1086,7 @@ mod tests {
             ],
         );
         let mut out = String::new();
-        emit_payload_items(&mut out, &payload);
+        emit_items(&mut out, &payload, None);
         assert_eq!(
             out,
             "list:\n  # second at 0\n  - a # trailer\n  - b\n  # past the end\n  # at the end\n"

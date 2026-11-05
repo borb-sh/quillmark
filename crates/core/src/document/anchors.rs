@@ -5,13 +5,13 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 
-use quillmark_content::anchors::{AnchorContext, Reattached, anchor_context, anchor_contexts};
-use quillmark_content::change::{Change, inserted_spans};
-use quillmark_content::model::Content;
-use quillmark_content::units::{Scalars, Units};
+use quillmark_automerge::content::anchors::{AnchorContext, Reattached, anchor_context, anchor_contexts};
+use quillmark_automerge::model::patch;
+use quillmark_automerge::content::model::Content;
+use quillmark_automerge::content::units::is_content_value;
 use serde_json::Value as JsonValue;
 
-use super::{Card, Document};
+use super::{Card, Document, FieldValue};
 use crate::path::{DocPath, DocSeg};
 
 /// A prose anchor's context at its address: the selector a host stores beside
@@ -29,10 +29,10 @@ pub struct AnchorSelector {
     /// The anchored text as stored, island slots and line breaks included;
     /// empty for a point.
     pub quote: String,
-    /// Up to [`ANCHOR_CONTEXT_SCALARS`](quillmark_content::lines::anchor::ANCHOR_CONTEXT_SCALARS)
+    /// Up to [`ANCHOR_CONTEXT_SCALARS`](quillmark_automerge::content::lines::anchor::ANCHOR_CONTEXT_SCALARS)
     /// scalar values before the anchor, cut at the value's start.
     pub prefix: String,
-    /// Up to [`ANCHOR_CONTEXT_SCALARS`](quillmark_content::lines::anchor::ANCHOR_CONTEXT_SCALARS)
+    /// Up to [`ANCHOR_CONTEXT_SCALARS`](quillmark_automerge::content::lines::anchor::ANCHOR_CONTEXT_SCALARS)
     /// scalar values after the anchor, cut at the value's end.
     pub suffix: String,
 }
@@ -115,7 +115,7 @@ impl Document {
 
     /// Re-add dropped anchors, each at the path its selector names, where the
     /// quote is found under the exact rule of
-    /// [`locate_site`](quillmark_content::lines::anchor::locate_site): in the value's
+    /// [`locate_site`](quillmark_automerge::content::lines::anchor::locate_site): in the value's
     /// prose or one of its cells. Answers each selector in
     /// the order given, reattached with its selector as read after the write,
     /// or orphaned as given. Each value a selector names is read and written
@@ -137,25 +137,15 @@ impl Document {
     /// - An id live anywhere in the document, a cell's anchor included, is not
     ///   written: it is answered as reattached, with the selector the first
     ///   value holding it reads.
-    /// - `changes` holds a write's change, its receipt's `applied`, per path
-    ///   where the caller has one, and a match at that path must then overlap
-    ///   text the write inserted.
+    /// - `changes` holds a write's patches, its receipt's `patches` in the
+    ///   handle's units, per path where the caller has them, and a match at
+    ///   that path must then overlap text the write inserted.
     pub fn reattach(
         &mut self,
         selectors: &[AnchorSelector],
-        changes: &HashMap<DocPath, Change>,
+        changes: &HashMap<DocPath, Vec<serde_json::Value>>,
     ) -> Reattached<AnchorSelector> {
-        self.reattach_in(selectors, changes, Scalars)
-    }
-
-    /// [`reattach`](Self::reattach) with each change counted in `u`, as
-    /// [`Receipt::in_units`](super::Receipt::in_units) answers it.
-    pub fn reattach_in(
-        &mut self,
-        selectors: &[AnchorSelector],
-        changes: &HashMap<DocPath, Change>,
-        u: impl Units,
-    ) -> Reattached<AnchorSelector> {
+        let u = self.units();
         let mut answered = HashSet::new();
         let selectors: Vec<&AnchorSelector> = selectors
             .iter()
@@ -199,7 +189,7 @@ impl Document {
             let ctxs: Vec<AnchorContext> = at.iter().map(|&i| selectors[i].context()).collect();
             let change = changes.get(path);
             let Some(placed) = self.edit_content_at(path, |content| {
-                let inserted = change.map(|c| inserted_spans(c, &content.text, u));
+                let inserted = change.map(|c| patch::inserted_spans(c, u, &content.text));
                 content
                     .reattach(&ctxs, inserted.as_deref(), &HashSet::new())
                     .reattached
@@ -231,8 +221,8 @@ impl Document {
     /// content: what a [whole](AnchorSelector::is_whole) selector attaches to.
     fn holds_whole(&self, path: &DocPath) -> bool {
         let card = match path.segs().first() {
-            Some(DocSeg::Main) => &self.main,
-            Some(DocSeg::Card { kind, index }) => match self.cards.get(*index) {
+            Some(DocSeg::Main) => &self.view.main,
+            Some(DocSeg::Card { kind, index }) => match self.view.cards.get(*index) {
                 Some(card) if card.kind() == kind.as_deref() => card,
                 _ => return false,
             },
@@ -244,6 +234,7 @@ impl Document {
         let Some(value) = card.payload().get(name) else {
             return false;
         };
+        let value = value.to_value();
         let leaf = tail.iter().try_fold(value.as_json(), |value, seg| match seg {
             DocSeg::Field { name } => value.as_object()?.get(name),
             DocSeg::Index { index } => value.as_array()?.get(*index),
@@ -256,7 +247,7 @@ impl Document {
     /// or a path naming no card.
     pub(crate) fn card_id_at(&self, path: &DocPath) -> Option<&str> {
         match path.segs().first()? {
-            DocSeg::Card { index, .. } => self.cards.get(*index)?.id(),
+            DocSeg::Card { index, .. } => self.view.cards.get(*index)?.id(),
             _ => None,
         }
     }
@@ -271,7 +262,7 @@ impl Document {
             return None;
         };
         let index = self.card_index(card_id)?;
-        if self.cards[index].kind() != kind.as_deref() {
+        if self.view.cards[index].kind() != kind.as_deref() {
             return None;
         }
         selector.path.with_card_index(index)
@@ -280,7 +271,7 @@ impl Document {
     /// Run `f` on the body or content value `path` names, writing the value
     /// back where `f` changed it, or `None` where `path` names neither. A field
     /// value counts where it is an object
-    /// [`Content::from_value_lenient`](quillmark_content::model::Content::from_value_lenient) reads, the test the revise's drop report
+    /// [`Content::from_value_lenient`](quillmark_automerge::content::model::Content::from_value_lenient) reads, the test the revise's drop report
     /// applies, and lands back in canonical form in place, so the comments
     /// around it stay.
     pub(crate) fn edit_content_at<R>(
@@ -288,18 +279,17 @@ impl Document {
         path: &DocPath,
         f: impl FnOnce(&mut Content) -> R,
     ) -> Option<R> {
-        let (card, rest) = match path.segs() {
-            [DocSeg::Main, rest @ ..] => (&mut self.main, rest),
+        let (at, rest) = match path.segs() {
+            [DocSeg::Main, rest @ ..] => (None, rest),
             [DocSeg::Card { kind, index }, rest @ ..] => {
-                let card = self.cards.get_mut(*index)?;
-                if card.kind() != kind.as_deref() {
+                if self.view.cards.get(*index)?.kind() != kind.as_deref() {
                     return None;
                 }
-                (card, rest)
+                (Some(*index), rest)
             }
             _ => return None,
         };
-        match rest {
+        self.edit_card(at, |card| match rest {
             [DocSeg::Body] => {
                 let mut body = card.body().clone();
                 let out = f(&mut body);
@@ -313,9 +303,14 @@ impl Document {
                     .payload_mut()
                     .fields_mut()
                     .find(|(key, _)| *key == name)?;
+                let data = match value {
+                    FieldValue::Content(content) if tail.is_empty() => return Some(f(content)),
+                    FieldValue::Content(_) => return None,
+                    FieldValue::Data(data) => data,
+                };
                 let leaf = tail
                     .iter()
-                    .try_fold(value.as_json_mut(), |value, seg| match seg {
+                    .try_fold(data.as_json_mut(), |value, seg| match seg {
                         DocSeg::Field { name } => value.as_object_mut()?.get_mut(name),
                         DocSeg::Index { index } => value.as_array_mut()?.get_mut(*index),
                         _ => None,
@@ -325,18 +320,19 @@ impl Document {
                 let out = f(&mut content);
                 if content != before {
                     *leaf = content.to_value();
+                    value.settle();
                 }
                 Some(out)
             }
             _ => None,
-        }
+        })
     }
 
     /// `visit` each body and content value with its path, in the order
     /// [`anchor_contexts`](Self::anchor_contexts) lists them.
     fn each_content(&self, visit: &mut Visit<'_>) {
-        let roots = std::iter::once((DocPath::main(), &self.main)).chain(
-            self.cards
+        let roots = std::iter::once((DocPath::main(), &self.view.main)).chain(
+            self.view.cards
                 .iter()
                 .enumerate()
                 .map(|(i, card)| (DocPath::card(card.kind(), i), card)),
@@ -353,7 +349,10 @@ type Visit<'a> = dyn FnMut(&DocPath, &Content) -> ControlFlow<()> + 'a;
 
 fn each_in_card(card: &Card, at: &DocPath, visit: &mut Visit<'_>) -> ControlFlow<()> {
     for (name, value) in card.payload().iter() {
-        each_in_value(value.as_json(), &at.field(name), visit)?;
+        match value {
+            FieldValue::Content(content) => visit(&at.field(name), content)?,
+            FieldValue::Data(data) => each_in_value(data.as_json(), &at.field(name), visit)?,
+        }
     }
     visit(&at.body(), card.body())
 }
@@ -379,5 +378,5 @@ fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut Visit<'_>) -> Cont
 }
 
 fn content_of(value: &JsonValue) -> Option<Content> {
-    value.is_object().then(|| Content::from_value_lenient(value).ok()).flatten().map(|read| read.content)
+    is_content_value(value).then(|| Content::from_value_lenient(value).ok()).flatten().map(|read| read.content)
 }

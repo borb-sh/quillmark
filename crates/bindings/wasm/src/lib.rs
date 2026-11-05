@@ -10,7 +10,7 @@ mod engine;
 mod error;
 mod types;
 
-pub use engine::{Document, Quill};
+pub use engine::{Document, Quill, SyncState};
 #[cfg(feature = "render")]
 pub use engine::{Engine, LiveSession};
 pub use error::WasmError;

@@ -5,7 +5,7 @@ members = [
     "crates/quillmark-pdf",
     "crates/backends/typst",
     "crates/backends/acroform",
-    "crates/content",
+    "crates/automerge",
     "crates/fixtures",
     "crates/bindings/wasm",
     "crates/bindings/python",
@@ -80,7 +80,7 @@ typst-svg = "0.15.1"
 
 # Intra-project dependencies
 quillmark-core = { version = "0.134.1", path = "crates/core" }
-quillmark-content = { version = "0.134.1", path = "crates/content" }
+quillmark-automerge = { version = "0.134.1", path = "crates/automerge" }
 quillmark-pdf = { version = "0.134.1", path = "crates/quillmark-pdf" }
 quillmark-typst = { version = "0.134.1", path = "crates/backends/typst" }
 quillmark-acroform = { version = "0.134.1", path = "crates/backends/acroform" }
@@ -105,11 +105,21 @@ lopdf = "0.46"
 
 roxmltree = "0.21"
 
+# The live state each content value keeps beside it. Pinned exactly: its
+# encoding and its merge are the contract a stored Automerge document reads by.
+automerge = { version = "=0.12.0", default-features = false }
+
 [profile.dev]
 split-debuginfo = "unpacked" # Faster on macOS/Linux
 [profile.dev.package."*"]
 debug = false
 opt-level = 0
+# automerge 0.12's debug check that its fast and slow op seeks agree fails
+# for a cursor on a deleted element, where the fast seek, the one release
+# runs, is right.
+[profile.dev.package.automerge]
+debug-assertions = false
+opt-level = 2
 
 [profile.release]
 opt-level = 3

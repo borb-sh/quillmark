@@ -29,10 +29,10 @@
 //! boundary; those surfaces construct one per call from the quill handle.
 
 use indexmap::IndexMap;
-use quillmark_content::model::Content;
+use quillmark_automerge::content::model::Content;
 
 use crate::document::edit::field_decode;
-use crate::document::{Card, Document, EditError, Target};
+use crate::document::{Card, Document, EditError, FieldValue, Target};
 use crate::quill::{
     CalendarDate, CardSchema, FieldSchema, FieldType, QuillConfig, Resolved, resolve_document,
 };
@@ -202,7 +202,7 @@ fn read_field(
     };
     let projected = project_value(
         name,
-        value.as_json(),
+        value.to_value().as_json(),
         schema,
         Leaves::Decode,
         &mut Vec::new(),
@@ -236,11 +236,8 @@ fn read_content(
             at: at.to_vec(),
             declared: leaf.r#type.as_str().to_string(),
         })?;
-    let Some(value) = card
-        .payload()
-        .get(name)
-        .and_then(|v| value_at(v.as_json(), at))
-    else {
+    let value = card.payload().get(name).map(FieldValue::to_value);
+    let Some(value) = value.as_deref().and_then(|v| value_at(v.as_json(), at)) else {
         return Ok(None);
     };
     codec
@@ -517,7 +514,7 @@ card_kinds:
             let mut w = crate::writer::TypedWriter::new(config, &mut doc);
             w.set("subject", "Hello **world**").unwrap();
             w.set("qty", "3").unwrap();
-            w.add_card("note", [("prose", "a *card*")], None, None, None)
+            w.add_card("note", [("prose", "a *card*")], None, None)
                 .unwrap();
         }
         doc
@@ -654,13 +651,12 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         let text = serde_json::json!("a *literal* line");
-        {
-            let card = doc.main_card_mut();
+        doc.edit_card(None, |card| {
             card.store_field("subject", QuillValue::from_json(text.clone()))
                 .unwrap();
             card.store_field("note", QuillValue::from_json(text))
                 .unwrap();
-        }
+        });
         let view = TypedReader::new(&config, &doc);
         assert_eq!(
             view.get_content("subject").unwrap().unwrap().text,
@@ -702,8 +698,7 @@ card_kinds:
     fn element_read_spans_both_storage_forms() {
         let config = config();
         let mut doc = blank_doc();
-        {
-            let card = doc.main_card_mut();
+        doc.edit_card(None, |card| {
             card.store_field(
                 "recipients",
                 QuillValue::from_json(serde_json::json!(["a *literal* line"])),
@@ -714,7 +709,7 @@ card_kinds:
                 QuillValue::from_json(serde_json::json!(["Hello **world**"])),
             )
             .unwrap();
-        }
+        });
         let mut committed = blank_doc();
         {
             let mut w = crate::writer::TypedWriter::new(&config, &mut committed);
@@ -737,7 +732,7 @@ card_kinds:
                 .unwrap()
                 .unwrap();
             assert_eq!(authored.text, text, "{field} decodes at its declared codec");
-            assert_eq!(authored, rested, "{field} reads the same from either rest");
+            assert_eq!(authored.by_place(), rested.by_place(), "{field} reads the same from either rest");
         }
     }
 
@@ -745,8 +740,7 @@ card_kinds:
     fn element_read_reaches_object_and_nested_shapes() {
         let config = config();
         let mut doc = blank_doc();
-        {
-            let card = doc.main_card_mut();
+        doc.edit_card(None, |card| {
             card.store_field(
                 "letterhead",
                 QuillValue::from_json(serde_json::json!({"motto": "Fly **fight**", "code": "9"})),
@@ -757,7 +751,7 @@ card_kinds:
                 QuillValue::from_json(serde_json::json!([{}, {"notes": "a *note*"}])),
             )
             .unwrap();
-        }
+        });
         let view = TypedReader::new(&config, &doc);
         assert_eq!(
             view.get_content_at("letterhead", &key("motto"))

@@ -11,11 +11,10 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_content::lines::import::ImportError;
+use quillmark_automerge::content::lines::import::ImportError;
 #[cfg(test)]
-use quillmark_content::lines::model::Lines;
+use quillmark_automerge::content::lines::model::Lines;
 
-use crate::document::base::{Base, BaseError};
 use crate::document::meta::{CardKindError, validate_composable_kind};
 use crate::document::payload::MetaKey;
 use crate::document::{Card, Codec, ContentDecodeError, Document, Payload, PayloadItem};
@@ -24,6 +23,7 @@ use crate::error::diag_args;
 use crate::path::DocPath;
 use crate::quill::{CoercionError, FieldSchema, FieldType, Leniency, QuillConfig};
 use crate::value::{PathSegment, QuillValue};
+use super::payload::FieldValue;
 use crate::version::QuillReference;
 
 /// A field plus its in-field path, rendered through
@@ -127,7 +127,7 @@ pub enum EditError {
 
     /// Markdown import failed: the markdown codec rejected the input for a body
     /// *or* a field path (e.g. container nesting past
-    /// [`MAX_NESTING_DEPTH`](quillmark_content::MAX_NESTING_DEPTH)). Returned
+    /// [`MAX_NESTING_DEPTH`](quillmark_automerge::content::MAX_NESTING_DEPTH)). Returned
     /// instead of silently degrading the target to empty on a rejected import.
     #[error("markdown import failed: {0}")]
     Import(ImportError),
@@ -198,13 +198,13 @@ pub enum EditError {
         message: String,
     },
 
-    /// A content [`Change`](quillmark_content::change::Change) the value
+    /// A content [`Change`](quillmark_automerge::content::change::Change) the value
     /// refused; the value is as it was.
     #[error("content change refused: {0}")]
-    Change(quillmark_content::change::ApplyError),
+    Change(quillmark_automerge::content::change::ApplyError),
 
     /// Markdown a write imports past
-    /// [`MAX_MARKDOWN_SIZE`](quillmark_content::MAX_MARKDOWN_SIZE) bytes, or a
+    /// [`MAX_MARKDOWN_SIZE`](quillmark_automerge::content::MAX_MARKDOWN_SIZE) bytes, or a
     /// content value a binding takes whose text, its slots' included, is.
     #[error("an input of {size} bytes is past the limit of {max}")]
     InputTooLarge { size: usize, max: usize },
@@ -216,13 +216,13 @@ pub enum EditError {
     TooManySteps { count: usize, max: usize },
 
     /// A value whose text holds more marks than
-    /// [`max_marks`](quillmark_content::max_marks) of its length, or a change
+    /// [`max_marks`](quillmark_automerge::content::max_marks) of its length, or a change
     /// that would leave one.
     #[error("{count} marks over a text that holds at most {max}")]
     TooManyMarks { count: usize, max: usize },
 
     /// A value holding more than
-    /// [`MAX_ANCHORS`](quillmark_content::MAX_ANCHORS) anchors, or a change
+    /// [`MAX_ANCHORS`](quillmark_automerge::content::MAX_ANCHORS) anchors, or a change
     /// that would leave one.
     #[error("{count} anchors, past the limit of {max}")]
     TooManyAnchors { count: usize, max: usize },
@@ -238,28 +238,46 @@ pub enum EditError {
     /// A revise or replace whose change removes an `x-` island. Markdown
     /// cannot spell one, and a host's own model may hold none, so the writer
     /// may never have seen it; removing one takes a change of its own through
-    /// [`Card::apply`].
+    /// [`CardMut::apply`].
     #[error("the write removes the {kind} island '{island}', which its writer may not have seen; remove it with apply")]
     DropsExtIsland { island: String, kind: String },
 
-    /// A write's or a card placement's actor is not an
-    /// [actor](quillmark_content::ids::is_actor).
+    /// The actor [`Document::set_actor`](super::Document::set_actor) is given
+    /// is not an [actor](quillmark_automerge::content::ids::is_actor).
     #[error("invalid actor '{0}': must be 1 to 57 of [A-Za-z0-9_-], opening with a letter or digit")]
     InvalidActor(String),
 
-    /// A revise's [`Base`] refused the write.
-    #[error(transparent)]
-    Base(BaseError),
+    /// Bytes or a sync message the document's Automerge document does not
+    /// take: `reason` is the refusal's name, `decode` where they do not
+    /// decode, `shape` where the document they leave holds no Quillmark
+    /// document in the shape this build writes, `schema` where it names a
+    /// schema this build does not read, and `apply` where a sync message
+    /// decodes but does not apply.
+    #[error("the document refuses the bytes ({reason}): {detail}")]
+    BadLiveBytes { reason: &'static str, detail: String },
+
+    /// The write names heads the document's history does not hold: the
+    /// writer read in another session, before the document was loaded from
+    /// its stored row, or a card outside a document. A writer reads again
+    /// and writes from the document now. `field` is the field written, for
+    /// the diagnostic's anchor; `None` for a body or a document.
+    #[error("the document does not hold the heads the writer read")]
+    StaleHeads { field: Option<String> },
 }
 
 impl EditError {
     /// A refused change, as [`TooManyMarks`](Self::TooManyMarks) or
     /// [`TooManyAnchors`](Self::TooManyAnchors) where it passed a bound.
-    pub fn change(e: quillmark_content::change::ApplyError) -> Self {
+    pub fn change(e: quillmark_automerge::content::change::ApplyError) -> Self {
         match &e {
-            quillmark_content::change::ApplyError::Invalid(inv) => Self::bound(inv).unwrap_or(EditError::Change(e)),
+            quillmark_automerge::content::change::ApplyError::Invalid(inv) => Self::bound(inv).unwrap_or(EditError::Change(e)),
             _ => EditError::Change(e),
         }
+    }
+
+    /// The refusal of bytes or a sync message the document does not take.
+    pub fn bad_live_bytes(e: quillmark_automerge::model::LoadError) -> Self {
+        EditError::BadLiveBytes { reason: e.name(), detail: e.to_string() }
     }
 
     /// A refused import, as [`InputTooLarge`](Self::InputTooLarge) where its
@@ -273,8 +291,8 @@ impl EditError {
 
     /// The error a content bound `inv` names, `None` for an invariant that
     /// is not one.
-    pub fn bound(inv: &quillmark_content::model::Invariant) -> Option<Self> {
-        use quillmark_content::model::Invariant;
+    pub fn bound(inv: &quillmark_automerge::content::model::Invariant) -> Option<Self> {
+        use quillmark_automerge::content::model::Invariant;
         match *inv {
             Invariant::TooManyMarks { marks, max } => Some(EditError::TooManyMarks { count: marks, max }),
             Invariant::TooManyAnchors { anchors, max } => Some(EditError::TooManyAnchors { count: anchors, max }),
@@ -318,7 +336,8 @@ impl EditError {
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
             EditError::InvalidActor(_) => "edit::invalid_actor",
-            EditError::Base(e) => e.code(),
+            EditError::BadLiveBytes { .. } => "edit::bad_live_bytes",
+            EditError::StaleHeads { .. } => "edit::stale_base",
         }
     }
 
@@ -388,7 +407,8 @@ impl EditError {
                 "type" => kind,
             },
             EditError::InvalidActor(actor) => diag_args! { "actor" => actor },
-            EditError::Base(e) => e.args(),
+            EditError::BadLiveBytes { reason, .. } => diag_args! { "reason" => *reason },
+            EditError::StaleHeads { .. } => diag_args! {},
         }
     }
 
@@ -425,7 +445,7 @@ impl EditError {
             | EditError::FieldNotSingleLine { field: f, .. }
             | EditError::FieldCoercionFailed { field: f, .. } => Some(base.field(f)),
             EditError::IndexOutOfRange { index, .. } => Some(DocPath::card(None, *index)),
-            EditError::Base(e) if e.field().is_some() => e.field().map(|f| base.field(f)),
+            EditError::StaleHeads { field: Some(f) } => Some(base.field(f)),
             _ => (!base.segs().is_empty()).then(|| base.clone()),
         }
     }
@@ -442,7 +462,7 @@ impl EditError {
 pub enum FieldViolation {
     /// The field name does not match `[A-Za-z_][A-Za-z0-9_]*` (spec §3.4 / §10).
     InvalidName,
-    /// The value nests deeper than [`MAX_JSON_DEPTH`](quillmark_content::MAX_JSON_DEPTH)
+    /// The value nests deeper than [`MAX_JSON_DEPTH`](quillmark_automerge::content::MAX_JSON_DEPTH)
     /// (spec §8).
     TooDeep,
 }
@@ -465,7 +485,7 @@ impl std::fmt::Display for FieldViolation {
             FieldViolation::TooDeep => write!(
                 f,
                 "nests deeper than the maximum of {} levels",
-                quillmark_content::MAX_JSON_DEPTH
+                quillmark_automerge::content::MAX_JSON_DEPTH
             ),
         }
     }
@@ -518,7 +538,7 @@ pub(crate) fn edit_error_from_violation(name: &str, v: FieldViolation) -> EditEr
     match v {
         FieldViolation::InvalidName => EditError::InvalidFieldName(name.to_string()),
         FieldViolation::TooDeep => EditError::ValueTooDeep {
-            max: quillmark_content::MAX_JSON_DEPTH,
+            max: quillmark_automerge::content::MAX_JSON_DEPTH,
         },
     }
 }
@@ -537,7 +557,7 @@ fn check_field(name: &str, value: &serde_json::Value) -> Result<(), EditError> {
 
 /// `value` with each content value it holds, at any depth, decoded as a body
 /// write decodes one and held in its canonical form: a field's content
-/// validates, stores, compares and hashes as a body's does.
+/// validates, stores and compares as a body's does.
 /// [`EditError::FieldDecode`] at the first content value that does not
 /// decode.
 pub(crate) fn canonical_field(name: &str, mut value: serde_json::Value) -> Result<serde_json::Value, EditError> {
@@ -548,8 +568,8 @@ pub(crate) fn canonical_field(name: &str, mut value: serde_json::Value) -> Resul
 }
 
 fn canonicalize_contents(value: &mut serde_json::Value, at: &mut Vec<PathSegment>) -> Result<(), (Codec, String)> {
-    if quillmark_content::units::is_content_value(value) {
-        let content = quillmark_content::model::Content::from_value(value)
+    if quillmark_automerge::content::units::is_content_value(value) {
+        let content = quillmark_automerge::content::model::Content::from_value(value)
             .map_err(|e| (Codec::of_object(value), e.to_string()))?;
         *value = content.to_value();
         return Ok(());
@@ -606,7 +626,7 @@ pub(crate) fn field_decode(
 fn check_meta_depth<'v>(
     values: impl IntoIterator<Item = &'v serde_json::Value>,
 ) -> Result<(), EditError> {
-    let max = quillmark_content::MAX_JSON_DEPTH;
+    let max = quillmark_automerge::content::MAX_JSON_DEPTH;
     if values
         .into_iter()
         .any(|v| crate::value::json_depth_exceeds(v, max - 1))
@@ -621,7 +641,7 @@ pub fn validate_field(key: &str, value: &serde_json::Value) -> Result<(), FieldV
     if !is_valid_field_name(key) {
         return Err(FieldViolation::InvalidName);
     }
-    if crate::value::json_depth_exceeds(value, quillmark_content::MAX_JSON_DEPTH) {
+    if crate::value::json_depth_exceeds(value, quillmark_automerge::content::MAX_JSON_DEPTH) {
         return Err(FieldViolation::TooDeep);
     }
     Ok(())
@@ -792,185 +812,172 @@ pub(crate) fn committed_text(name: &str, body: String, schema: &FieldSchema) -> 
 /// [`Card::store_seed_overlay`]) run when a card is placed or edited, not when
 /// one is assigned over another. Handing out a `&mut Card` would make
 /// `*doc.card_mut(0).unwrap() = doc.main().clone()` a legal write past all of
-/// them, and [`Document::quill_reference`] reads the root's `$quill` without
+/// them, and [`Snapshot::quill_reference`](super::Snapshot::quill_reference) reads the root's `$quill` without
 /// re-checking. A card built before placement is an ordinary `Card`, so the
 /// verbs stay there and this only withholds the assignment.
-pub struct CardMut<'a>(&'a mut Card);
+pub struct CardMut<'a> {
+    doc: &'a mut Document,
+    at: Option<usize>,
+}
 
 impl<'a> CardMut<'a> {
-    pub(crate) fn new(card: &'a mut Card) -> Self {
-        Self(card)
+    pub(crate) fn new(doc: &'a mut Document, at: Option<usize>) -> Self {
+        Self { doc, at }
     }
 
-    pub(crate) fn payload_mut(&mut self) -> &mut Payload {
-        self.0.payload_mut()
+    fn edit<R>(&mut self, f: impl FnOnce(&mut Card) -> R) -> R {
+        self.doc.edit_card(self.at, f)
     }
 
     /// [`Card::remove_field`].
     pub fn remove_field(&mut self, name: &str) -> Result<Option<QuillValue>, EditError> {
-        self.0.remove_field(name)
+        self.edit(|c| c.remove_field(name))
     }
 
     /// [`Card::store_ext`].
-    pub fn store_ext(
-        &mut self,
-        value: serde_json::Map<String, serde_json::Value>,
-    ) -> Result<(), EditError> {
-        self.0.store_ext(value)
+    pub fn store_ext(&mut self, value: serde_json::Map<String, serde_json::Value>) -> Result<(), EditError> {
+        self.edit(|c| c.store_ext(value))
     }
 
     /// [`Card::remove_ext`].
     pub fn remove_ext(&mut self) -> Option<serde_json::Map<String, serde_json::Value>> {
-        self.0.remove_ext()
+        self.edit(|c| c.remove_ext())
     }
 
     /// [`Card::store_seed_overlay`].
-    pub fn store_seed_overlay(
-        &mut self,
-        card_kind: impl Into<String>,
-        value: serde_json::Value,
-    ) -> Result<(), EditError> {
-        self.0.store_seed_overlay(card_kind, value)
+    pub fn store_seed_overlay(&mut self, card_kind: impl Into<String>, value: serde_json::Value) -> Result<(), EditError> {
+        self.edit(|c| c.store_seed_overlay(card_kind, value))
     }
 
     /// [`Card::remove_seed_overlay`].
     pub fn remove_seed_overlay(&mut self, card_kind: &str) -> Option<serde_json::Value> {
-        self.0.remove_seed_overlay(card_kind)
+        self.edit(|c| c.remove_seed_overlay(card_kind))
     }
 
     /// [`Card::overwrite_body`].
     #[cfg(test)]
     pub(crate) fn overwrite_body(&mut self, content: impl Into<Lines>) {
-        self.0.overwrite_body(content)
+        self.edit(|c| c.overwrite_body(content))
     }
 
-    /// [`Card::apply`].
-    pub fn apply<'o>(
-        &mut self,
-        target: super::Target<'_>,
-        change: &quillmark_content::change::Change,
-        opts: impl Into<super::WriteOptions<'o>>,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.apply(target, change, opts)
+    /// [`write`](Self::write) of [`Edit::Apply`](super::Edit::Apply).
+    pub fn apply<'o>(&mut self, target: super::Target<'_>, change: &quillmark_automerge::content::change::Change, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.write(target, super::Edit::Apply(change.clone()), opts)
     }
 
-    /// [`Card::revise`].
+    /// [`write`](Self::write) of [`Edit::Revise`](super::Edit::Revise).
     pub fn revise<'o>(&mut self, target: super::Target<'_>, markdown: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.revise(target, markdown, opts)
+        self.write(target, super::Edit::Revise(markdown), opts)
     }
 
-    /// [`Card::replace`].
-    pub fn replace<'o>(
-        &mut self,
-        target: super::Target<'_>,
-        content: &quillmark_content::model::Content,
-        opts: impl Into<super::WriteOptions<'o>>,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.replace(target, content, opts)
+    /// The value at `target` as the writer that read at `heads` read it,
+    /// refused with `edit::stale_base` where the document's history does
+    /// not hold them.
+    pub fn read_at(&mut self, target: super::Target<'_>, heads: Option<&super::Heads>) -> Result<quillmark_automerge::content::model::Content, EditError> {
+        self.doc.read_under(self.at, target, heads)
     }
 
-    /// [`Card::split_block`].
+    /// [`write`](Self::write) of [`Edit::Replace`](super::Edit::Replace).
+    pub fn replace<'o>(&mut self, target: super::Target<'_>, content: &quillmark_automerge::content::model::Content, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.write(target, super::Edit::Replace(content.clone()), opts)
+    }
+
+    /// Splits the block at text offset `at` in two, the new block under `id` or a minted one.
     pub fn split_block<'o>(&mut self, target: super::Target<'_>, at: usize, id: Option<&str>, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.split_block(target, at, id, opts)
+        self.structural(target, quillmark_automerge::content::structural::StructuralEdit::SplitBlock { at, id: id.map(str::to_string) }, opts)
     }
 
-    /// [`Card::join_blocks`].
+    /// Joins the block `id` to the block before it.
     pub fn join_blocks<'o>(&mut self, target: super::Target<'_>, id: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.join_blocks(target, id, opts)
+        self.structural(target, quillmark_automerge::content::structural::StructuralEdit::JoinBlocks { id: id.to_string() }, opts)
     }
 
-    /// [`Card::delete_range`].
+    /// Deletes the text `start..end`, joining the blocks it spans.
     pub fn delete_range<'o>(&mut self, target: super::Target<'_>, start: usize, end: usize, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.delete_range(target, start, end, opts)
+        self.structural(target, quillmark_automerge::content::structural::StructuralEdit::DeleteRange { start, end }, opts)
     }
 
-    /// [`Card::indent`].
+    /// Indents the blocks `first..=last` one list level.
     pub fn indent<'o>(&mut self, target: super::Target<'_>, first: &str, last: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.indent(target, first, last, opts)
+        self.structural(target, quillmark_automerge::content::structural::StructuralEdit::Indent { first: first.to_string(), last: last.to_string() }, opts)
     }
 
-    /// [`Card::outdent`].
+    /// Outdents the blocks `first..=last` one list level.
     pub fn outdent<'o>(&mut self, target: super::Target<'_>, first: &str, last: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.outdent(target, first, last, opts)
+        self.structural(target, quillmark_automerge::content::structural::StructuralEdit::Outdent { first: first.to_string(), last: last.to_string() }, opts)
     }
 
-    /// [`Card::wrap`].
-    pub fn wrap<'o>(
-        &mut self,
-        target: super::Target<'_>,
-        first: &str,
-        last: &str,
-        with: quillmark_content::structural::Wrap,
-        opts: impl Into<super::WriteOptions<'o>>,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.wrap(target, first, last, with, opts)
+    /// Wraps the blocks `first..=last` in a new container `with`.
+    pub fn wrap<'o>(&mut self, target: super::Target<'_>, first: &str, last: &str, with: quillmark_automerge::content::structural::Wrap, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.structural(target, quillmark_automerge::content::structural::StructuralEdit::Wrap { first: first.to_string(), last: last.to_string(), with }, opts)
     }
 
-    /// [`Card::write`].
+    fn structural<'o>(&mut self, target: super::Target<'_>, edit: quillmark_automerge::content::structural::StructuralEdit, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.write(target, super::Edit::Structural(edit), opts)
+    }
+
+    /// Lands `edit` on the value at `target` in the document's Automerge
+    /// document, built against the value its base names: a base the value
+    /// has moved on from builds at the heads a write left it at, and the
+    /// write merges with every change since as Automerge merges.
     pub fn write<'o>(&mut self, target: super::Target<'_>, edit: super::Edit<'_>, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
-        self.0.write(target, edit, opts)
-    }
-
-    /// [`Card::write_in`].
-    pub fn write_in<'o>(
-        &mut self,
-        target: super::Target<'_>,
-        edit: super::Edit<'_>,
-        opts: impl Into<super::WriteOptions<'o>>,
-        u: impl quillmark_content::units::Units,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.write_in(target, edit, opts, u)
+        self.doc.write_at(self.at, target, edit, opts.into(), true, None)
     }
 
     /// [`Card::overwrite_field`].
     #[cfg(test)]
-    pub(crate) fn overwrite_field(
-        &mut self,
-        name: &str,
-        content: impl Into<Lines>,
-    ) -> Result<(), EditError> {
-        self.0.overwrite_field(name, content)
+    pub(crate) fn overwrite_field(&mut self, name: &str, content: impl Into<Lines>) -> Result<(), EditError> {
+        self.edit(|c| c.overwrite_field(name, content))
     }
 
     #[doc(hidden)]
-    pub fn commit_field(
-        &mut self,
-        name: &str,
-        value: impl Into<QuillValue>,
-        schema: &FieldSchema,
-    ) -> Result<(), EditError> {
-        self.0.commit_field(name, value, schema)
+    pub fn commit_field(&mut self, name: &str, value: impl Into<QuillValue>, schema: &FieldSchema) -> Result<(), EditError> {
+        self.edit(|c| c.commit_field(name, value, schema))
     }
 
+    /// The typed revise of field `name` under `schema`. With `opts.heads`,
+    /// a content field is revised as its writer read it then, and the change
+    /// from that read lands there, merged with every change since; a field
+    /// of another type, or a write with no heads, revises the value now.
     #[doc(hidden)]
-    pub fn revise_field_checked(
-        &mut self,
-        name: &str,
-        body: impl Into<String>,
-        schema: &FieldSchema,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.revise_field_checked(name, body, schema)
+    pub fn revise_field_checked<'o>(&mut self, name: &str, body: impl Into<String>, schema: &FieldSchema, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        let content = matches!(schema.r#type, FieldType::Text { .. } | FieldType::RichText { .. });
+        let heads = match opts.into().heads {
+            Some(heads) if content => heads,
+            _ => {
+                check_field_name(name)?;
+                let body = body.into();
+                return self.doc.landing(self.at, super::Target::Field(name), |card| card.revise_field_payload(name, body, schema));
+            }
+        };
+        let target = super::Target::Field(name);
+        let read = self.doc.read_under(self.at, target, Some(heads))?;
+        let mut scratch = Card::from_parts(Payload::new(), quillmark_automerge::content::model::Content::empty());
+        scratch.payload_mut().insert(name.to_string(), QuillValue::from_json(read.to_value())).map_err(EditError::InvalidPayload)?;
+        let warnings = scratch.revise_field_payload(name, body.into(), schema)?;
+        let wanted = scratch.read(target)?;
+        let change = quillmark_automerge::content::diff::diff(&read, &wanted).map_err(|e| EditError::change(e.into()))?;
+        let mut receipt = self.write(target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) })?;
+        receipt.warnings = warnings;
+        Ok(receipt)
     }
 
-    #[doc(hidden)]
-    pub fn field_hash_checked(
-        &self,
-        name: &str,
-        schema: &FieldSchema,
-    ) -> Result<String, EditError> {
-        self.0.field_hash_checked(name, schema)
+    /// Takes the value at `target` back to how it read at the receipt's
+    /// `before`, as one write at its `heads`: it merges with every change
+    /// since as any write there does, so it undoes the write and keeps what
+    /// others wrote after it.
+    pub fn undo(&mut self, target: super::Target<'_>, receipt: &super::Receipt) -> Result<super::Receipt, EditError> {
+        self.undo_between(target, &receipt.before, &receipt.heads)
     }
 
-    #[doc(hidden)]
-    pub fn revise_field_checked_against(
-        &mut self,
-        name: &str,
-        base: Base<'_>,
-        body: impl Into<String>,
-        schema: &FieldSchema,
-    ) -> Result<super::Receipt, EditError> {
-        self.0
-            .revise_field_checked_against(name, base, body, schema)
+    /// [`undo`](Self::undo) of the write that took the document from
+    /// `before` to `heads`, as a host that kept only its receipt's heads
+    /// names it.
+    pub fn undo_between(&mut self, target: super::Target<'_>, before: &super::Heads, heads: &super::Heads) -> Result<super::Receipt, EditError> {
+        let was = self.doc.read_under(self.at, target, Some(before))?;
+        let then = self.doc.read_under(self.at, target, Some(heads))?;
+        let change = quillmark_automerge::content::diff::replace(&then, &was).map_err(|e| EditError::change(e.into()))?;
+        self.doc.write_at(self.at, target, super::Edit::Apply(change), super::WriteOptions { heads: Some(heads) }, false, Some(then))
     }
 }
 
@@ -978,17 +985,17 @@ impl std::ops::Deref for CardMut<'_> {
     type Target = Card;
 
     fn deref(&self) -> &Card {
-        self.0
+        self.doc.card_at(self.at)
     }
 }
 
 impl Document {
     pub fn set_quill_ref(&mut self, reference: QuillReference) {
-        self.main_card_mut().payload_mut().set_quill(reference);
+        self.edit_card(None, |c| c.payload_mut().set_quill(reference));
     }
 
     pub fn card_mut(&mut self, index: usize) -> Option<CardMut<'_>> {
-        self.cards_vec_mut().get_mut(index).map(CardMut::new)
+        (index < self.view.cards.len()).then(|| CardMut::new(self, Some(index)))
     }
 
     /// The writes no quill schema checks: [`Unchecked`].
@@ -998,7 +1005,7 @@ impl Document {
 
     /// Place `card` at `at` (`None` appends), its `$id` as
     /// [`Unchecked::insert_card`] takes it, answering that id.
-    pub(crate) fn place_card(&mut self, at: Option<usize>, mut card: Card, actor: Option<&str>) -> Result<String, EditError> {
+    pub(crate) fn place_card(&mut self, at: Option<usize>, mut card: Card) -> Result<String, EditError> {
         let len = self.cards().len();
         let index = at.unwrap_or(len);
         if index > len {
@@ -1006,9 +1013,6 @@ impl Document {
         }
         Self::check_composable_placement(&card)?;
         self.check_card_room()?;
-        if let Some(actor) = actor.filter(|a| !quillmark_content::ids::is_actor(a)) {
-            return Err(EditError::InvalidActor(actor.to_string()));
-        }
         let held: std::collections::HashSet<String> = self
             .cards()
             .iter()
@@ -1024,15 +1028,12 @@ impl Document {
             }
             Some(id) => id.to_string(),
             None => {
-                let id = match actor {
-                    Some(actor) => self.mints.mint(held, actor),
-                    None => super::card_id::Mint::new(held).mint(),
-                };
+                let id = self.mints.mint(held);
                 card.payload_mut().set_id(id.clone());
                 id
             }
         };
-        self.cards_vec_mut().insert(index, card);
+        self.insert_card_at(index, card);
         Ok(id)
     }
 
@@ -1069,7 +1070,7 @@ impl Document {
         if index >= self.cards().len() {
             return None;
         }
-        Some(self.cards_vec_mut().remove(index))
+        Some(self.remove_card_at(index))
     }
 
     /// Replace the `$kind` of the composable card at `index`.
@@ -1086,12 +1087,7 @@ impl Document {
     ) -> Result<(), EditError> {
         let new_kind = new_kind.into();
         check_kind(&new_kind)?;
-        let len = self.cards().len();
-        let mut card = self
-            .card_mut(index)
-            .ok_or(EditError::IndexOutOfRange { index, len })?;
-        card.payload_mut().set_kind(new_kind);
-        Ok(())
+        self.edit_card_at(index, |c| c.payload_mut().set_kind(new_kind))
     }
 
     /// Move card at `from` to position `to`. No-op when `from == to`.
@@ -1107,8 +1103,7 @@ impl Document {
         if from == to {
             return Ok(());
         }
-        let card = self.cards_vec_mut().remove(from);
-        self.cards_vec_mut().insert(to, card);
+        self.move_card_at(from, to);
         Ok(())
     }
 }
@@ -1131,16 +1126,10 @@ impl Unchecked<'_> {
         name: &str,
         value: impl Into<QuillValue>,
     ) -> Result<(), EditError> {
-        let len = self.0.cards().len();
-        let card = match card {
-            None => self.0.main_card_mut(),
-            Some(index) => self
-                .0
-                .cards_vec_mut()
-                .get_mut(index)
-                .ok_or(EditError::IndexOutOfRange { index, len })?,
-        };
-        card.store_field(name, value)
+        match card {
+            None => self.0.edit_card(None, |c| c.store_field(name, value)),
+            Some(index) => self.0.edit_card_at(index, |c| c.store_field(name, value))?,
+        }
     }
 
     /// Place a composable card at `at` (`None` appends; past the last card
@@ -1151,11 +1140,11 @@ impl Unchecked<'_> {
     /// ([`EditError::TooManyCards`]). A card spelling an id keeps it, refused
     /// where it is no card id ([`EditError::InvalidCardId`]) or another card
     /// holds it ([`EditError::DuplicateCardId`]). A card spelling none mints
-    /// one: under `actor`, `{actor}-{token}`, so two writers placing cards
-    /// from one document never mint one id, and positionally with none. An
-    /// actor that cannot open a card id is [`EditError::InvalidActor`].
-    pub fn insert_card(&mut self, at: Option<usize>, card: Card, actor: Option<&str>) -> Result<String, EditError> {
-        self.0.place_card(at, card, actor)
+    /// one: under the document's [actor](Document::actor), `{actor}-{token}`,
+    /// so two writers placing cards from one document never mint one id, and
+    /// positionally with none.
+    pub fn insert_card(&mut self, at: Option<usize>, card: Card) -> Result<String, EditError> {
+        self.0.place_card(at, card)
     }
 }
 
@@ -1168,7 +1157,7 @@ impl Card {
         payload.set_kind(kind);
         Ok(Card::from_parts(
             payload,
-            quillmark_content::lines::model::Lines::empty(),
+            quillmark_automerge::content::lines::model::Lines::empty(),
         ))
     }
 
@@ -1251,7 +1240,7 @@ impl Card {
     /// validation as [`Card::store_field`].
     pub fn remove_field(&mut self, name: &str) -> Result<Option<QuillValue>, EditError> {
         check_field_name(name)?;
-        Ok(self.payload_mut().remove(name))
+        Ok(self.payload_mut().remove(name).map(FieldValue::into_value))
     }
 
     /// Replace the card's opaque `$ext` map wholesale, inserting it at the
@@ -1368,7 +1357,8 @@ impl Card {
     /// write is [`replace`](Self::replace).
     #[cfg(test)]
     pub(crate) fn overwrite_body(&mut self, content: impl Into<Lines>) {
-        self.set_body_lines(content.into());
+        let body = quillmark_automerge::content::diff::lift(self.body(), &content.into());
+        self.set_body(body);
     }
 
     /// Overwrite a content field's value with a line-form value: the
@@ -1398,18 +1388,19 @@ impl Card {
     /// `name` on a full card is [`EditError::InvalidPayload`].
     #[cfg(test)]
     fn store_field_content(&mut self, name: &str, content: &Lines) -> Result<(), EditError> {
-        let stored = self.payload.get(name).map(QuillValue::as_json).filter(|v| v.is_object());
+        let stored = self.payload.get(name).map(FieldValue::to_value);
+        let stored = stored.as_deref().map(QuillValue::as_json).filter(|v| v.is_object());
         if stored.map_or(Codec::Richtext, Codec::of_object) == Codec::Text && !content.is_plain() {
             return Err(field_decode(
                 name,
                 &[],
                 Codec::Text,
                 super::ContentDecodeError::NotContent(
-                    quillmark_content::model::Invariant::NotPlain.to_string(),
+                    quillmark_automerge::content::model::Invariant::NotPlain.to_string(),
                 ),
             ));
         }
-        let canonical = super::stored_over(self.payload.get(name).map(QuillValue::as_json), content);
+        let canonical = super::stored_over(stored, content);
         self.payload_mut()
             .insert(name.to_string(), QuillValue::from_json(canonical))
             .map(|_| ())
@@ -1467,95 +1458,70 @@ impl Card {
         Ok(drops)
     }
 
-    /// [`revise`](Self::revise) of the body with no base: the one revise at
-    /// [`Target::Body`](super::Target::Body), its receipt's `applied` counted
-    /// in scalars on the body it read, which
-    /// [`Receipt::in_units`](super::Receipt::in_units) converts.
-    pub(crate) fn revise_body(&mut self, body: impl Into<String>) -> Result<super::Receipt, EditError> {
-        self.revise_counted(super::Target::Body, &body.into())
+    /// The body revised by `body` as markdown, on the card alone; the
+    /// import's warnings.
+    pub(crate) fn revise_body(&mut self, body: &str) -> Result<Vec<quillmark_automerge::content::lines::import::ImportWarning>, EditError> {
+        let revised = self.revision(self.body(), body)?;
+        self.set_body(revised.content);
+        Ok(revised.warnings)
     }
 
     /// The field's current content value: a markdown string imports, an
     /// absent field is empty, and an object reads under the codec it names.
-    pub(crate) fn richtext_value(&self, name: &str) -> Result<quillmark_content::model::Content, EditError> {
+    pub(crate) fn richtext_value(&self, name: &str) -> Result<quillmark_automerge::content::model::Content, EditError> {
         check_field_name(name)?;
         match self.payload.get(name) {
-            None => Ok(quillmark_content::model::Content::empty()),
-            Some(v) => Codec::Richtext.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Richtext, e)),
+            None => Ok(quillmark_automerge::content::model::Content::empty()),
+            Some(FieldValue::Content(c)) => Ok(c.clone()),
+            Some(FieldValue::Data(v)) => Codec::Richtext.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Richtext, e)),
         }
     }
 
     /// The revise of `before`, the value at `target`, by `markdown`, as
-    /// [`revise`](Self::revise) builds it, landed nowhere.
+    /// [`CardMut::revise`](crate::document::CardMut::revise) builds it, landed nowhere.
     fn revision(
         &self,
-        target: super::Target<'_>,
-        before: &quillmark_content::model::Content,
+        before: &quillmark_automerge::content::model::Content,
         markdown: &str,
-    ) -> Result<quillmark_content::diff::Revision, EditError> {
-        quillmark_content::diff::revise(before, markdown).map_err(|e| match e {
-            quillmark_content::diff::ReviseError::Import(e) => EditError::import(e),
-            quillmark_content::diff::ReviseError::Conflict(c) => EditError::Base(super::BaseError::rebase_conflict(
-                super::content_hash(before),
-                target.field().map(str::to_string),
-                &c,
-            )),
-            quillmark_content::diff::ReviseError::Refused(e) => EditError::change(e),
+    ) -> Result<quillmark_automerge::content::diff::Revision, EditError> {
+        quillmark_automerge::revise(before, markdown).map_err(|e| match e {
+            quillmark_automerge::content::diff::ReviseError::Import(e) => EditError::import(e),
+            quillmark_automerge::content::diff::ReviseError::Refused(e) => EditError::change(e),
         })
     }
 
-    /// Revise a content field from authored text **with schema enforcement**:
-    /// [`revise`](Self::revise) of the field, read under the
-    /// codec `schema` declares, then the conform
-    /// [`commit_field`](Self::commit_field) runs. Returns the
-    /// [`Receipt`](super::Receipt), and leaves the field unchanged on any error. A
-    /// `text` field imports no markdown, so its receipt holds no warning.
-    ///
-    /// **Hidden** on the same terms as [`commit_field`](Self::commit_field): its
-    /// door is
-    /// [`TypedWriter::revise`](crate::writer::TypedWriter::revise).
-    #[doc(hidden)]
-    pub fn revise_field_checked(
-        &mut self,
-        name: &str,
-        body: impl Into<String>,
-        schema: &FieldSchema,
-    ) -> Result<super::Receipt, EditError> {
+    /// Revise a content field from authored text **with schema enforcement**,
+    /// on the card alone: the field revised as a revise of it builds it, read
+    /// under the codec `schema` declares, then the conform
+    /// [`commit_field`](Self::commit_field) runs. Answers the import's
+    /// warnings, and leaves the field unchanged on any error. A `text` field
+    /// imports no markdown, so it answers none.
+    pub(crate) fn revise_field_payload(&mut self, name: &str, body: String, schema: &FieldSchema) -> Result<Vec<quillmark_automerge::content::lines::import::ImportWarning>, EditError> {
         check_field_name(name)?;
-        let target = super::Target::Field(name);
         if matches!(schema.r#type, FieldType::Text { .. }) {
-            let text = committed_text(name, body.into(), schema)?;
+            let text = committed_text(name, body, schema)?;
             let mut before = match self.payload.get(name) {
-                None => quillmark_content::model::Content::empty(),
-                Some(v) => Codec::Text.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Text, e))?,
+                None => quillmark_automerge::content::model::Content::empty(),
+                Some(FieldValue::Content(c)) => c.clone(),
+                Some(FieldValue::Data(v)) => Codec::Text.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Text, e))?,
             };
             before.codec = Codec::Text.content();
-            let revised = self.revision(target, &before, &text)?;
+            let revised = self.revision(&before, &text)?;
             let stored = QuillValue::from_json(revised.content.to_value());
-            return self.revising(target, Vec::new(), |card| {
-                card.payload_mut().insert(name.to_string(), stored).map(|_| ()).map_err(EditError::InvalidPayload)
-            });
+            self.payload_mut().insert(name.to_string(), stored).map_err(EditError::InvalidPayload)?;
+            return Ok(Vec::new());
         }
         let before = self.richtext_value(name)?;
-        let revised = self.revision(target, &before, &body.into())?;
+        let revised = self.revision(&before, &body)?;
         super::write::keeps_ext_islands(&before, &revised.content)?;
-        let (stored, _) = resolve_field_write(
-            name,
-            &QuillValue::from_json(revised.content.to_value()),
-            schema,
-            &DocPath::new(),
-        )?;
-        self.revising(target, revised.warnings, |card| {
-            card.payload_mut()
-                .insert(name.to_string(), stored)
-                .map(|_| ())
-                .map_err(EditError::InvalidPayload)
-        })
+        let (stored, _) = resolve_field_write(name, &QuillValue::from_json(revised.content.to_value()), schema, &DocPath::new())?;
+        self.payload_mut().insert(name.to_string(), stored).map_err(EditError::InvalidPayload)?;
+        Ok(revised.warnings)
     }
 }
 
-fn apply_args(e: &quillmark_content::change::ApplyError) -> BTreeMap<String, serde_json::Value> {
-    use quillmark_content::change::ApplyError as A;
+fn apply_args(e: &quillmark_automerge::content::change::ApplyError) -> BTreeMap<String, serde_json::Value> {
+    use quillmark_automerge::content::change::ApplyError as A;
     let reason = match e {
         A::Stale { .. } => "stale",
         A::UnknownBlock { .. } => "unknown_block",

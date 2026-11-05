@@ -2,7 +2,7 @@
 //! card one. The policy is `prose/canon/DOCUMENT_STORAGE.md` § "The id
 //! handles".
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use sha2::{Digest, Sha256};
 
@@ -66,7 +66,7 @@ fn token(n: usize) -> String {
 /// holds. A positional id holds none, so no actor's id is a positional one.
 pub const CARD_ACTOR_SEP: char = '-';
 
-const _: () = assert!(quillmark_content::ids::MAX_ACTOR_LEN + "-c23456".len() <= MAX_CARD_ID_LEN);
+const _: () = assert!(quillmark_automerge::content::ids::MAX_ACTOR_LEN + "-c23456".len() <= MAX_CARD_ID_LEN);
 
 /// The mint over one document: each call takes the next token of the
 /// sequence that `taken` does not hold, and holds it.
@@ -75,21 +75,40 @@ pub(crate) struct Mint {
     next: usize,
 }
 
-/// Where each actor's mint stands in one [`Document`](super::Document)'s
-/// life since its parse, load or seed: the index of the token past the last
-/// one it minted under that actor, so an actor never mints an id twice,
-/// whether or not a card still holds it. Not document state: equality and
-/// storage skip it.
+/// Who writes through one [`Document`](super::Document) handle, and where
+/// its card-id mint stands since the handle's parse, load or seed: the index
+/// of the token past the last one it minted, so the handle never mints an id
+/// twice, whether or not a card still holds it. Not document state: equality
+/// and storage skip it.
 #[derive(Clone, Default)]
-pub(crate) struct ActorMints(HashMap<String, usize>);
+pub(crate) struct ActorMints {
+    actor: Option<String>,
+    next: usize,
+}
 
 impl ActorMints {
-    /// A mint past `held` and past every token minted under `actor` before.
-    pub(crate) fn mint(&mut self, held: HashSet<String>, actor: &str) -> String {
-        let next = self.0.entry(actor.to_string()).or_default();
-        let mut mint = Mint { taken: held, next: *next };
+    pub(crate) fn actor(&self) -> Option<&str> {
+        self.actor.as_deref()
+    }
+
+    /// Writes under `actor` from now on, its mint starting over where the
+    /// actor changes.
+    pub(crate) fn set_actor(&mut self, actor: &str) {
+        if self.actor.as_deref() != Some(actor) {
+            self.actor = Some(actor.to_string());
+            self.next = 0;
+        }
+    }
+
+    /// A card id past `held`: under the actor, `{actor}-{token}` past every
+    /// token it minted before; positionally with none.
+    pub(crate) fn mint(&mut self, held: HashSet<String>) -> String {
+        let Some(actor) = self.actor.as_deref() else {
+            return Mint::new(held).mint();
+        };
+        let mut mint = Mint { taken: held, next: self.next };
         let id = mint.mint_as(Some(actor));
-        *next = mint.next;
+        self.next = mint.next;
         id
     }
 }
@@ -216,9 +235,9 @@ mod tests {
         let (x, y) = (a.mint_as(Some("7")), b.mint_as(Some("8")));
         assert_eq!((x.as_str(), y.as_str()), (format!("7-{}", token(0)).as_str(), format!("8-{}", token(0)).as_str()));
         assert!(is_card_id(&x) && x != token(0));
-        assert!(quillmark_content::ids::is_actor("client-42") && quillmark_content::ids::is_actor(&"a".repeat(57)));
+        assert!(quillmark_automerge::content::ids::is_actor("client-42") && quillmark_automerge::content::ids::is_actor(&"a".repeat(57)));
         for bad in ["", "a:b", "-a", "é", &"a".repeat(58)] {
-            assert!(!quillmark_content::ids::is_actor(bad), "{bad}");
+            assert!(!quillmark_automerge::content::ids::is_actor(bad), "{bad}");
         }
     }
 

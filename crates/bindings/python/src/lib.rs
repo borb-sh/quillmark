@@ -6,6 +6,7 @@ mod errors;
 mod types;
 
 pub use enums::{PyOutputFormat, PySeverity};
+pub use content::PySyncState;
 pub use errors::QuillmarkError;
 pub use types::{
     PyArtifact, PyDiagnostic, PyDocument, PyEngine, PyLocation, PyQuill, PyReader, PyRenderResult,
@@ -24,11 +25,11 @@ fn _quillmark(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyArtifact>()?;
     m.add_class::<PyDiagnostic>()?;
     m.add_class::<PyLocation>()?;
+    m.add_class::<content::PySyncState>()?;
 
     m.add_class::<PyOutputFormat>()?;
     m.add_class::<PySeverity>()?;
 
-    m.add_function(wrap_pyfunction!(content::invert, m)?)?;
     m.add_function(wrap_pyfunction!(content::diff, m)?)?;
     m.add_function(wrap_pyfunction!(content::repair, m)?)?;
     m.add_function(wrap_pyfunction!(content::import_markdown, m)?)?;

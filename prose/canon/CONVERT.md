@@ -10,7 +10,7 @@ The Typst backend lowers a `Content` value to Typst markup with
 islands, and never re-parses markdown. Alongside the markup it records a
 per-segment source map (`content ↔ generated` byte windows). This is the render
 path's only markup producer. Markdown reaches the content once, at
-ingest, in `quillmark-content::markdown`; the normative rules for *which* markdown
+ingest, in `quillmark-automerge::content::markdown`; the normative rules for *which* markdown
 a content can hold live in [markdown-spec.md §6](../references/markdown-spec.md);
 this page documents how the backend lowers the content it produces.
 
@@ -285,7 +285,7 @@ reads and the shape the WASM boundary pins:
 - **`math`** → `{ tex, display? }`: the TeX as written between the dollars,
   and `display: true` on a `$$…$$` equation (see [Equations](#equations)).
 
-The `IslandType` dispatch (`crates/content/src/island.rs`) owns these shapes
+The `IslandType` dispatch (`crates/automerge/src/content/lines/island.rs`) owns these shapes
 Rust-side; the WASM surface pins them as `TableProps` / `ImageProps` /
 `FootnoteProps` / `MathProps` / `TableCell` and types `ContentIsland.props` per the closed `type`
 (`crates/bindings/wasm/src/engine.rs`).
@@ -330,7 +330,7 @@ loud.
 ## Where markdown is parsed
 
 The Markdown parser (`pulldown-cmark`) appears exactly once in the workspace, in
-`quillmark-content::lines::import`, run at ingest. `import` normalizes, parses, and
+`quillmark-automerge::content::lines::import`, run at ingest. `import` normalizes, parses, and
 lowers markdown into the content (markdown-spec §6 is its normative acceptance
 surface); every downstream render walks the content. No render path parses
 markdown.

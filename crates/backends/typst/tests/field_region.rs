@@ -178,7 +178,7 @@ fn a_claim_takes_detached_glyphs_its_body_prints() {
 /// click on the word beneath it.
 #[test]
 fn a_claim_around_a_content_field_moves_none_of_its_regions() {
-    use quillmark_content::lines::model::{Content, Line, LineKind, Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Content, Line, LineKind, Mark, MarkKind};
     use quillmark_core::session::LiveSession;
     let open_body = |print: &str, body: &serde_json::Value| {
         let source = common::quill_with_plate(
@@ -207,7 +207,7 @@ fn a_claim_around_a_content_field_moves_none_of_its_regions() {
             .filter(|r| r.field == "prose")
             .collect()
     };
-    let decorated = quillmark_content::lines::serial::to_canonical_value(
+    let decorated = quillmark_automerge::content::migrate::from_lines(
         &Content::new(
             "Start struck and underlined, then a long trailing plain run of text.".to_string(),
             vec![Line::new(LineKind::Para)],
@@ -217,7 +217,7 @@ fn a_claim_around_a_content_field_moves_none_of_its_regions() {
             Mark::new(17, 27, MarkKind::Underline),
         ])
         .into_lines(),
-    );
+    ).to_value();
     let listed = common::content("- one\n- two\n  - nested\n\n1. first\n2. second");
     for body in [&listed, &decorated] {
         let bare = of(&open_body("#qm.data.prose", body));

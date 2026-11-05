@@ -3,26 +3,33 @@ its producers `revise` and `replace`, the reads, and the pure helpers over
 changes. Offsets count code points."""
 
 import pytest
-from quillmark import Document, diff, export_markdown, import_markdown, invert, is_inline, is_plain, normalize, repair
+from quillmark import Document, diff, export_markdown, import_markdown, is_inline, is_plain, normalize, repair
 
-from conftest import raises_edit_code
+from conftest import by_place, raises_edit_code
 
 MD = "~~~card-yaml\n$quill: test_quill\n~~~\n\nhello world\n"
 
 
-def test_a_receipt_carries_the_normalized_change_which_invert_undoes():
+def test_a_receipt_carries_its_patches_and_undo_takes_the_write_back():
     doc = Document.parse(MD)
     before = doc.read()
-    base = doc.hash_at()
-    receipt = doc.apply({"steps": [{"splice": {"at": 0, "delete": "hello", "insert": "hi"}}]}, base=base)
+    heads = doc.heads()
+    receipt = doc.apply({"steps": [{"splice": {"at": 0, "delete": "hello", "insert": "hi"}}]}, heads=heads)
     assert doc.read()["text"] == "hi world"
-    assert receipt["hash"] == doc.hash_at()
+    assert (receipt["before"], receipt["heads"]) == (heads, doc.heads())
+    assert receipt["patches"] == [
+        {"action": "del", "path": ["main", "body", "text", 1], "length": 5},
+        {"action": "splice", "path": ["main", "body", "text", 1], "value": "hi"},
+    ]
     assert receipt["dropped_anchors"] == [] and receipt["warnings"] == []
-    assert receipt["rebased"] is False
-    assert doc.apply({"steps": []}, base=base)["rebased"] is True
+    doc.apply({"steps": []}, heads=heads)
+    foreign = Document.parse(MD)
+    foreign.apply({"steps": [{"splice": {"at": 0, "insert": "elsewhere "}}]})
     with raises_edit_code("edit::stale_base"):
-        doc.apply({"steps": []}, base="never-read")
-    doc.apply(invert(receipt["applied"], before), base=receipt["hash"])
+        doc.apply({"steps": []}, heads=foreign.heads())
+    with pytest.raises(ValueError):
+        doc.apply({"steps": []}, heads=["never-read"])
+    doc.undo(receipt)
     assert doc.read() == before
 
 
@@ -47,37 +54,48 @@ def test_a_quoted_step_refuses_text_its_writer_did_not_read():
     with raises_edit_code("edit::content_apply"):
         doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]})
     receipt = doc.apply({"steps": [{"mark": {"start": 9, "end": 14, "type": "strong", "add": True}}]})
-    assert receipt["applied"]["steps"][0]["mark"]["quote"] == "world"
+    assert receipt["patches"] == [{"action": "mark", "path": ["main", "body", "text"], "marks": [{"name": "strong", "value": True, "start": 10, "end": 15}]}]
 
 
-def test_a_stale_base_rebases_over_the_change_since():
+def test_a_write_at_stale_heads_merges_with_the_change_since():
     doc = Document.parse(MD)
-    base = doc.hash_at()
+    heads = doc.heads()
     doc.apply({"steps": [{"splice": {"at": 0, "insert": "XX "}}]})
-    receipt = doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]}, base=base)
-    assert receipt["rebased"] is True
+    doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]}, heads=heads)
     assert doc.read()["anchors"] == [{"id": "a1", "start": 9, "end": 14}]
     doc.apply({"steps": [{"splice": {"at": 9, "delete": "w", "insert": "W"}}]})
-    with raises_edit_code("edit::rebase_conflict") as err:
-        doc.apply({"steps": [{"splice": {"at": 6, "delete": "world", "insert": "there"}}]}, base=base)
-    assert err.value.diagnostics[0].args == {"current": doc.hash_at(), "step": 0, "reason": "deleted"}
+    doc.apply({"steps": [{"splice": {"at": 6, "delete": "world", "insert": "there"}}]}, heads=heads)
+    assert doc.read()["text"] in ("XX hello thereW", "XX hello Wthere")
+
+    block = doc.read()["blocks"][0]["id"]
+
+    def heading(level):
+        return {"steps": [{"setBlock": {"id": block, "kind": "heading", "attrs": {"level": level}}}]}
+
+    read = doc.heads()
+    doc.apply(heading(2))
+    doc.apply(heading(3), heads=read)
+    assert doc.read()["blocks"][0]["attrs"] == {"level": 3}
 
 
 def test_a_placeholder_is_minted_under_the_writers_actor():
     doc = Document.parse(MD)
     change = {"steps": [{"splice": {"at": 5, "insert": "\nnew", "blocks": [{"id": "?n", "kind": "para"}]}}]}
-    receipt = doc.apply(change, actor="ann")
-    assert receipt["minted"] == {"?n": "ann:b0"}
-    assert [b["id"] for b in doc.read()["blocks"]] == ["b0", "ann:b0"]
+    doc.set_actor("ann")
+    assert doc.actor == "ann"
+    doc.apply(change)
+    minted = doc.read()["blocks"][1]["id"]
+    assert minted.endswith("@" + "ann".encode().hex())
     with raises_edit_code("edit::invalid_actor"):
-        doc.apply({"steps": []}, actor="a:b")
+        doc.set_actor("a:b")
+    assert doc.actor == "ann"
 
 
 def test_a_reserved_x_name_rides_as_written():
     doc = Document.parse(MD)
     value = {"text": "Note", "blocks": [{"id": "b0", "kind": "x-callout", "attrs": {"tone": "warm"}}], "marks": [{"start": 0, "end": 4, "type": "x-glow"}]}
     doc.replace(value)
-    assert doc.read() == value
+    assert by_place(doc.read()) == by_place(value)
     with pytest.raises(Exception, match="callout"):
         doc.replace({**value, "blocks": [{"id": "b0", "kind": "callout"}]})
 
@@ -119,13 +137,13 @@ def test_a_content_write_names_its_card_by_id_wherever_it_moved():
         "~~~card-yaml\n$kind: note\n~~~\n\nHello\n"
     )
     card = doc.cards[1]["id"]
-    base = doc.hash_at(card=card)
+    heads = doc.heads()
     doc.move_card(1, 0)
     with pytest.raises(ValueError):
-        doc.apply({"steps": []}, card=1, base=base)
+        doc.apply({"steps": []}, card=1, heads=heads)
     with raises_edit_code("edit::unknown_card_id"):
         doc.apply({"steps": []}, card="nobody")
-    doc.apply({"steps": [{"splice": {"at": 5, "insert": " world"}}]}, card=card, base=base)
+    doc.apply({"steps": [{"splice": {"at": 5, "insert": " world"}}]}, card=card, heads=heads)
     assert [(c["id"] == card, doc.read(card=c["id"])["text"]) for c in doc.cards] == [(True, "Hello world"), (False, "Hello")]
 
 
@@ -149,7 +167,10 @@ def test_an_anchor_placement_refuses_a_held_id_and_a_move_moves_it():
     with raises_edit_code("edit::content_apply"):
         doc.apply({"steps": [{"anchor": {"id": "c9", "start": 6, "end": 11, "move": True}}]})
     receipt = doc.apply({"steps": [{"anchor": {"id": "c1", "start": 6, "end": 11, "move": True}}]})
-    assert receipt["applied"]["steps"][0]["anchor"]["move"] is True
+    assert receipt["patches"] == [{"action": "mark", "path": ["main", "body", "text"], "marks": [
+        {"name": "anchor:c1", "value": None, "start": 0, "end": 12},
+        {"name": "anchor:c1", "value": True, "start": 7, "end": 12},
+    ]}]
     assert doc.read()["anchors"] == [{"id": "c1", "start": 6, "end": 11}]
 
 
@@ -163,17 +184,16 @@ def test_repair_answers_the_change_from_the_merged_text():
     assert repair(valid) == {"content": valid, "repairs": [], "change": {"steps": []}}
 
 
-def test_a_receipt_names_each_anchor_a_write_moved_and_what_moved():
+def test_a_receipt_carries_the_block_a_write_put_and_the_point_anchor_it_moved():
     doc = Document.parse(MD)
     doc.apply({"steps": [{"anchor": {"id": "p", "start": 0, "end": 0}}, {"anchor": {"id": "r", "start": 6, "end": 11}}]})
     receipt = doc.apply({"steps": [
         {"anchor": {"id": "p", "start": 5, "end": 5, "move": True}},
         {"splice": {"at": 5, "delete": " ", "insert": "\n", "blocks": [{"id": "b9", "kind": "para"}]}},
     ]})
-    assert receipt["moved_anchors"] == [
-        {"id": "p", "before": "", "after": "", "reason": "position"},
-        {"id": "r", "before": "world", "after": "world", "reason": "block"},
-    ]
+    paths = [p["path"][-2:] for p in receipt["patches"]]
+    assert ["points", "p"] in paths and ["text", 6] in paths
+    assert doc.read()["anchors"] == [{"id": "p", "start": 6, "end": 6}, {"id": "r", "start": 6, "end": 11}]
 
 
 def test_the_markdown_import_and_export_and_the_predicates_hold_no_document():

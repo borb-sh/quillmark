@@ -25,9 +25,9 @@ __all__ = [
     "Reader",
     "RenderResult",
     "Severity",
+    "SyncState",
     "Writer",
     "diff",
-    "invert",
 ]
 
 @final
@@ -126,8 +126,6 @@ class Document:
     @overload
     def to_markdown(self, *, annotated: Literal[True]) -> AnnotatedMarkdown: ...
     def to_stored(self) -> str: ...
-    def hash(self) -> str: ...
-    def hash_at(self, field: str | None = None, card: int | str | None = None) -> str: ...
     @property
     def quill_ref(self) -> str: ...
     def set_quill_ref(self, ref_str: str) -> None: ...
@@ -161,7 +159,7 @@ class Document:
     def reattach(
         self,
         selectors: Sequence[AnchorContext],
-        changes: dict[str, Change] | None = None,
+        changes: dict[str, list[Patch]] | None = None,
     ) -> Reattached: ...
     def read(self, field: str | None = None, card: int | str | None = None) -> Content: ...
     @overload
@@ -177,25 +175,51 @@ class Document:
         change: Change,
         field: str | None = None,
         card: str | None = None,
-        base: str | None = None,
-        actor: str | None = None,
+        *,
+        heads: list[str] | None = None,
     ) -> Receipt: ...
     def revise(
         self,
         markdown: str,
         field: str | None = None,
         card: str | None = None,
-        base: str | None = None,
-        actor: str | None = None,
+        *,
+        heads: list[str] | None = None,
     ) -> Receipt: ...
     def replace(
         self,
         content: Content,
         field: str | None = None,
         card: str | None = None,
-        base: str | None = None,
-        actor: str | None = None,
+        *,
+        heads: list[str] | None = None,
     ) -> Receipt: ...
+    def undo(
+        self,
+        receipt: Receipt,
+        field: str | None = None,
+        card: str | None = None,
+    ) -> Receipt: ...
+    def save(self) -> bytes: ...
+    @staticmethod
+    def load(data: bytes) -> Document: ...
+    @property
+    def actor(self) -> str | None: ...
+    def set_actor(self, actor: str) -> None: ...
+    def heads(self) -> list[str]: ...
+    def save_since(self, heads: list[str]) -> bytes: ...
+    def merge(self, data: bytes) -> Receipt: ...
+    def generate_sync_message(self, state: SyncState) -> bytes | None: ...
+    def receive_sync_message(self, state: SyncState, message: bytes) -> Receipt: ...
+
+# What one peer of the sync protocol is known to hold. One serves one peer;
+# `encode` keeps it across a restart.
+@final
+class SyncState:
+    def __init__(self) -> None: ...
+    def encode(self) -> bytes: ...
+    @staticmethod
+    def decode(data: bytes) -> SyncState: ...
 
 # A content value: `text` (a `\n` opens a block, U+2028 is a hard break, U+FFFC
 # an island's character), `blocks`, and the optional `containers`, `marks`,
@@ -206,35 +230,30 @@ Content = dict[str, Any]
 # An edit: `{"steps": [...]}`, each step a dict of one key naming it.
 Change = dict[str, Any]
 
-class MovedAnchor(TypedDict):
-    id: str
-    before: str
-    after: str
-    # What moved, the first that holds: "position" (an anchor step put it
-    # other than where the write's text edits carry it), "block" (its start
-    # sits in another block), "context" (its text or the eight characters
-    # either side read otherwise).
-    reason: Literal["position", "block", "context"]
-
 class ReceiptDroppedAnchor(AnchorContext, total=False):
     island: str
     slot: str
 
-class Receipt(TypedDict):
-    applied: Change
-    hash: str
-    dropped_anchors: list[ReceiptDroppedAnchor]
-    moved_anchors: list[MovedAnchor]
-    warnings: list[Diagnostic]
-    # The base was a value the field had moved on from, and the write was
-    # rebased over what changed since, or, for a writer's revise under its
-    # markdown read, merged with it.
-    rebased: bool
-    # Each placeholder id the change gave a record it put, and the id the
-    # write minted for it.
-    minted: dict[str, str]
+# One of Automerge's patches, as automerge-js spells it: `action` (`put`,
+# `insert`, `splice`, `del`, `inc`, `conflict` or `mark`) and `path` from the
+# document's root, a text index counting code points with each block marker
+# and island one, so value offset `n` is index `n + 1` of the value's `text`.
+Patch = dict[str, Any]
 
-def invert(change: Change, before: Content) -> Change: ...
+class Receipt(TypedDict):
+    # The document's heads before the write, merge or sync message, which
+    # `undo` takes a written value back to.
+    before: list[str]
+    # The document's heads after, the next write's `heads`.
+    heads: list[str]
+    # Automerge's patches for the change, in order.
+    patches: list[Patch]
+    # The next three are empty for a merge or sync message, whose `patches`
+    # carry what changed.
+    dropped_anchors: list[ReceiptDroppedAnchor]
+    repairs: list[dict[str, Any]]
+    warnings: list[Diagnostic]
+
 def diff(before: Content, after: Content) -> Change: ...
 
 class Imported(TypedDict):
@@ -288,12 +307,6 @@ class Reattached(TypedDict):
     reattached: list[AnchorContext]
     orphaned: list[AnchorContext]
 
-class MergeConflict(TypedDict):
-    path: str
-    base: Any
-    current: Any
-    proposed: Any
-
 class CardAdded(TypedDict):
     id: str
     warnings: list[Diagnostic]
@@ -304,7 +317,8 @@ DocumentRevised = TypedDict(
         "dropped_anchors": list[AnchorContext],
         "warnings": list[Diagnostic],
         "from": list[int | None],
-        "conflicts": list[MergeConflict],
+        "before": list[str],
+        "heads": list[str],
     },
 )
 
@@ -346,32 +360,28 @@ class Quill:
 class Unchecked:
     def store_field(self, name: str, value: Any, card: int | str | None = None) -> None: ...
     def insert_card(
-        self, card: Any, at: int | None = None, actor: str | None = None
+        self, card: Any, at: int | None = None
     ) -> str: ...
 
 @final
 class Writer:
     @property
     def document(self) -> Document: ...
-    def hash(self) -> str: ...
-    def hash_at(self, field: str | None = None, card: int | str | None = None) -> str: ...
     def set(self, name: str, value: Any, card: int | str | None = None) -> list[Diagnostic]: ...
     def set_all(self, fields: dict[str, Any], card: int | str | None = None) -> list[Diagnostic]: ...
     def revise(
         self,
         text: str,
         field: str | None = None,
-        card: int | str | None = None,
+        card: str | None = None,
         *,
-        base_hash: str | None = None,
-        base_content: dict[str, Any] | None = None,
+        heads: list[str] | None = None,
     ) -> Receipt: ...
     def revise_document(
         self,
         markdown: str,
         *,
-        base_hash: str | None = None,
-        base_stored: str | None = None,
+        heads: list[str] | None = None,
     ) -> DocumentRevised: ...
     def add_card(
         self,
@@ -379,7 +389,6 @@ class Writer:
         fields: dict[str, Any] | None = None,
         body: str | None = None,
         at: int | None = None,
-        actor: str | None = None,
     ) -> CardAdded: ...
     def remove_card(self, index: int) -> dict[str, Any] | None: ...
 

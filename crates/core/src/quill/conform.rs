@@ -32,10 +32,10 @@ pub enum BoundParseError {
     /// (`quill::name_mismatch` / `quill::version_mismatch`).
     #[error(transparent)]
     Mismatch(#[from] RenderError),
-    /// A guarded revise's [`Base`](crate::document::Base) refused the write
-    /// (`edit::stale_base` / `edit::rebase_conflict`).
+    /// A revise at heads the document's history does not hold
+    /// (`edit::stale_base`).
     #[error(transparent)]
-    Base(#[from] crate::document::BaseError),
+    Edit(#[from] crate::document::EditError),
 }
 
 impl BoundParseError {
@@ -45,7 +45,7 @@ impl BoundParseError {
         match self {
             BoundParseError::Parse(e) => vec![e.to_diagnostic()],
             BoundParseError::Mismatch(e) => e.diagnostics().to_vec(),
-            BoundParseError::Base(e) => vec![e.to_diagnostic()],
+            BoundParseError::Edit(e) => vec![e.to_diagnostic(None)],
         }
     }
 }
@@ -100,25 +100,19 @@ impl QuillConfig {
     /// [`Quill::conform`] over the schema alone, for a door that holds only the
     /// config.
     pub(crate) fn conform(&self, doc: &mut Document) -> Result<Vec<Diagnostic>, RenderError> {
-        self.check_quill_reference(doc)?;
+        self.check_quill_reference(&doc.quill_reference())?;
         let mut diags = Vec::new();
-        conform_card(
-            &self.main,
-            doc.main_card_mut(),
-            &DocPath::main(),
-            &mut diags,
-        );
-        for (index, card) in doc.cards_vec_mut().iter_mut().enumerate() {
+        doc.edit_card(None, |c| conform_card(&self.main, c, &DocPath::main(), &mut diags));
+        for index in 0..doc.cards().len() {
             // A card whose `$kind` declares no schema has no declared field to
-            // conform: it passes untouched, as the render gate passes it. The
-            // kind is copied out so the card is free to be borrowed mutably.
-            let Some(kind) = card.kind().map(str::to_string) else {
+            // conform: it passes untouched, as the render gate passes it.
+            let Some(kind) = doc.cards()[index].kind().map(str::to_string) else {
                 continue;
             };
             let Some(schema) = self.card_kind(&kind) else {
                 continue;
             };
-            conform_card(schema, card, &DocPath::card(Some(&kind), index), &mut diags);
+            doc.edit_card(Some(index), |c| conform_card(schema, c, &DocPath::card(Some(&kind), index), &mut diags));
         }
         Ok(diags)
     }
@@ -142,9 +136,10 @@ fn conform_card(schema: &CardSchema, card: &mut Card, base: &DocPath, diags: &mu
         if !field_contains_content(field) {
             continue;
         }
-        match resolve_field_write(name, value, field, base) {
+        let current = value.to_value();
+        match resolve_field_write(name, &current, field, base) {
             Ok((conformed, drops)) => {
-                if &conformed != value {
+                if conformed != *current {
                     diags.extend(drops);
                     updates.push((name.clone(), conformed));
                 }

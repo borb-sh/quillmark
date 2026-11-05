@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::document::{Document, Payload};
+use crate::document::{Card, Payload};
 use crate::error::{Diagnostic, Severity, diag_args};
 use crate::path::DocPath;
 use crate::quill::formats::{format_grammar, is_valid_date, is_valid_datetime};
@@ -355,16 +355,16 @@ fn yaml_scalar_type(value: &serde_json::Value) -> &'static str {
 /// on the import the render floor runs, at the string's path.
 pub(crate) fn validate_document_values(
     config: &QuillConfig,
-    doc: &Document,
+    (main, cards): (&Card, &[Card]),
     drops: &mut Vec<Diagnostic>,
 ) -> Vec<ValidationError> {
     let mut errors =
-        validate_fields_for_card(&config.main, doc.main().payload(), &DocPath::main(), drops);
+        validate_fields_for_card(&config.main, main.payload(), &DocPath::main(), drops);
 
     // A card no declared kind claims has no field to judge, and a body under
     // `body.enabled: false` no place to fill: both render without the input
     // and warn from `Quill::validate` instead.
-    for (index, card) in doc.cards().iter().enumerate() {
+    for (index, card) in cards.iter().enumerate() {
         let Some((kind, card_schema)) = card
             .kind()
             .and_then(|kind| config.card_kind(kind).map(|schema| (kind, schema)))
@@ -398,7 +398,7 @@ fn validate_fields_for_card(
         if let Some(value) = fields.get(field_name) {
             errors.extend(validate_value(
                 schema,
-                value,
+                &value.to_value(),
                 &path,
                 ValueContext::Document,
                 drops,
@@ -965,7 +965,7 @@ main:
         let mut p = Payload::from_index_map(payload);
         p.set_quill("test_quill".parse().unwrap());
         p.set_kind("main");
-        let main = Card::from_parts(p, quillmark_content::lines::model::Lines::empty());
+        let main = Card::from_parts(p, quillmark_automerge::content::lines::model::Lines::empty());
         Document::from_main_and_cards(main, cards)
     }
 
@@ -1143,7 +1143,7 @@ main:
     #[test]
     fn rejects_single_line_richtext_with_multi_block_content() {
         let config = config_with("    tag:\n      type: richtext\n      multiline: false", "");
-        let rt = quillmark_content::lines::import::from_markdown("one\n\ntwo")
+        let rt = quillmark_automerge::content::lines::import::from_markdown("one\n\ntwo")
             .unwrap()
             .content;
         let content = crate::document::stored_over(None, &rt);
@@ -1164,7 +1164,7 @@ main:
             let md = format!("~~~\n$quill: native_validation@1.0.0\npti: {yaml_value}~~~\n");
             let doc = Document::parse(&md).expect("parses").document;
             let mut drops = Vec::new();
-            let errors = validate_document_values(&config, &doc, &mut drops);
+            let errors = validate_document_values(&config, (doc.main(), doc.cards()), &mut drops);
             assert!(
                 errors.is_empty() && drops.is_empty(),
                 "{errors:?} {drops:?}"
@@ -1183,7 +1183,7 @@ main:
     #[test]
     fn accepts_single_line_richtext_single_para_content() {
         let config = config_with("    tag:\n      type: richtext\n      multiline: false", "");
-        let rt = quillmark_content::lines::import::from_markdown("one line only")
+        let rt = quillmark_automerge::content::lines::import::from_markdown("one line only")
             .unwrap()
             .content;
         let content = crate::document::stored_over(None, &rt);

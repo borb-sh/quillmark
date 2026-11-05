@@ -11,21 +11,21 @@ use super::{
     CalendarDate, CardSchema, CoercionError, FieldSchema, FieldType, Leniency, MATRIX_HELD_KEY,
     MATRIX_TITLE_KEY, Quill, QuillConfig, TODAY, VARIANT_DISCRIMINANT_KEY, seed,
 };
-use crate::normalize::{normalize_document, normalize_field_name};
+use crate::normalize::{normalize_cards, normalize_field_name};
 use crate::path::DocPath;
 use crate::quill::blank;
 use crate::{
-    document::{Card, Codec, Document, Payload, SeedOverlay},
+    document::{Card, Snapshot, Codec, Document, Payload, SeedOverlay},
     error::{Diagnostic, RenderError, Severity},
     value::QuillValue,
-    version::Version,
+    version::{QuillReference, Version},
 };
 
 impl Quill {
     /// [`QuillConfig::compile_data`] on this quill's config.
     pub fn compile_data(
         &self,
-        doc: &Document,
+        doc: &Snapshot,
         today: CalendarDate,
     ) -> Result<serde_json::Value, RenderError> {
         self.config().compile_data(doc, today)
@@ -34,14 +34,14 @@ impl Quill {
     /// [`QuillConfig::compile_checked`] on this quill's config.
     pub fn compile_checked(
         &self,
-        doc: &Document,
+        doc: &Snapshot,
         today: CalendarDate,
     ) -> Result<serde_json::Value, RenderError> {
         self.config().compile_checked(doc, today)
     }
 
     /// [`QuillConfig::dry_run`] on this quill's config.
-    pub fn dry_run(&self, doc: &Document) -> Result<(), RenderError> {
+    pub fn dry_run(&self, doc: &Snapshot) -> Result<(), RenderError> {
         self.config().dry_run(doc)
     }
 }
@@ -60,14 +60,14 @@ impl QuillConfig {
     /// `today` is the render date a [`TODAY`] date renders as.
     pub fn compile_data(
         &self,
-        doc: &Document,
+        doc: &Snapshot,
         today: CalendarDate,
     ) -> Result<serde_json::Value, RenderError> {
         // The one coercion pass. The ladder below consumes its coerced,
         // NFC-normalized output rather than re-conforming, so the plate is the
         // sourced ladder with its sources dropped.
         let coerced = self.coerce_and_validate(doc)?;
-        let normalized = normalize_document(coerced);
+        let normalized = normalize_cards(coerced);
 
         let final_main = Card::from_parts(
             rebuild_payload_with_meta(
@@ -78,7 +78,7 @@ impl QuillConfig {
                     today,
                 )),
             ),
-            normalized.main().body_lines().clone(),
+            normalized.main().body().clone(),
         );
         // A card's `$body` is defined for the plate iff its kind resolves to a
         // body-enabled schema. Captured here, where the schema is already in
@@ -100,11 +100,11 @@ impl QuillConfig {
                     // No ladder, as `resolved::card_states` leaves it.
                     None => card.payload().to_index_map(),
                 };
-                Card::from_parts(rebuild_payload_with_meta(card, fields), card.body_lines().clone())
+                Card::from_parts(rebuild_payload_with_meta(card, fields), card.body().clone())
             })
             .collect();
 
-        Ok(Document::from_main_and_cards(final_main, cards_resolved)
+        Ok(Snapshot { main: final_main, cards: cards_resolved }
             .to_plate_json_gated(self.main.body_enabled(), Some(&card_bodies)))
     }
 
@@ -118,20 +118,20 @@ impl QuillConfig {
     /// `--output-data`).
     pub fn compile_checked(
         &self,
-        doc: &Document,
+        doc: &Snapshot,
         today: CalendarDate,
     ) -> Result<serde_json::Value, RenderError> {
-        self.check_quill_reference(doc)?;
+        self.check_quill_reference(&doc.quill_reference())?;
         self.compile_data(doc, today)
     }
 
     /// Validate without backend compilation.
-    pub fn dry_run(&self, doc: &Document) -> Result<(), RenderError> {
-        self.check_quill_reference(doc)?;
+    pub fn dry_run(&self, doc: &Snapshot) -> Result<(), RenderError> {
+        self.check_quill_reference(&doc.quill_reference())?;
         self.coerce_and_validate(doc).map(|_| ())
     }
 
-    fn coerce_and_validate(&self, doc: &Document) -> Result<Document, RenderError> {
+    fn coerce_and_validate(&self, doc: &Snapshot) -> Result<Snapshot, RenderError> {
         let coerced_payload = self
             .coerce_payload(&doc.main().payload().to_index_map())
             .map_err(coercion_error)?;
@@ -143,21 +143,20 @@ impl QuillConfig {
                 .map_err(coercion_error)?;
             coerced_cards.push(Card::from_parts(
                 rebuild_payload_with_meta(card, coerced_fields),
-                card.body_lines().clone(),
+                card.body().clone(),
             ));
         }
 
         let coerced_main = Card::from_parts(
             rebuild_payload_with_meta(doc.main(), coerced_payload),
-            doc.main().body_lines().clone(),
+            doc.main().body().clone(),
         );
-        let coerced_doc = Document::from_main_and_cards(coerced_main, coerced_cards);
+        let errors = super::validation::validate_document_values(self, (&coerced_main, &coerced_cards), &mut Vec::new());
+        if !errors.is_empty() {
+            return Err(RenderError::new(errors.iter().map(|e| e.to_diagnostic()).collect()));
+        }
 
-        self.validate_document(&coerced_doc).map_err(|errors| {
-            RenderError::new(errors.iter().map(|e| e.to_diagnostic()).collect())
-        })?;
-
-        Ok(coerced_doc)
+        Ok(Snapshot { main: coerced_main, cards: coerced_cards })
     }
 
     /// Enforce the document's `$quill` reference (`name@selector`) against this
@@ -170,8 +169,7 @@ impl QuillConfig {
     /// short-circuits and leaves the version unevaluated; otherwise the selector
     /// is checked (`quill::version_mismatch`). A quill version that will not
     /// parse — load validates it, so nothing in practice — skips that check.
-    pub(crate) fn check_quill_reference(&self, doc: &Document) -> Result<(), RenderError> {
-        let doc_ref = doc.quill_reference();
+    pub(crate) fn check_quill_reference(&self, doc_ref: &QuillReference) -> Result<(), RenderError> {
 
         if doc_ref.name.as_str() != self.name {
             return Err(RenderError::coded_hint(
@@ -217,7 +215,7 @@ impl Quill {
     /// Field values, defaults, and presentation order are not part of this
     /// surface: read them from the [`Document`] payload and the quill schema
     /// (`quill.config().schema()`, whose key order is display order).
-    pub fn validate(&self, doc: &Document) -> Vec<Diagnostic> {
+    pub fn validate(&self, doc: &Snapshot) -> Vec<Diagnostic> {
         let mut diags = self.advisories(doc);
         diags.extend(validate_declined(self.config(), doc));
         diags
@@ -226,10 +224,10 @@ impl Quill {
     /// [`validate`](Self::validate) less the backend's declines, which a
     /// render's compile reports itself.
     #[doc(hidden)]
-    pub fn advisories(&self, doc: &Document) -> Vec<Diagnostic> {
+    pub fn advisories(&self, doc: &Snapshot) -> Vec<Diagnostic> {
         let mut drops = Vec::new();
         let mut diags: Vec<Diagnostic> =
-            super::validation::validate_document_values(self.config(), doc, &mut drops)
+            super::validation::validate_document_values(self.config(), (doc.main(), doc.cards()), &mut drops)
                 .iter()
                 .map(|e| e.to_diagnostic())
                 .collect();
@@ -245,7 +243,7 @@ impl Quill {
     /// only, never gating render, so every diagnostic is a **warning** rooted at
     /// `$seed.<kind>[.<field>]`, each overlay judged by
     /// [`seed_overlay_diagnostics`].
-    fn validate_seed(&self, doc: &Document) -> Vec<Diagnostic> {
+    fn validate_seed(&self, doc: &Snapshot) -> Vec<Diagnostic> {
         let Some(seed_map) = doc.main().payload().seed() else {
             return Vec::new();
         };
@@ -837,7 +835,7 @@ fn rebuild_payload_with_meta(source: &Card, fields: IndexMap<String, QuillValue>
 /// `cards[<i>]`; a schema-declared kind qualifies as `cards.<kind>[<i>]`.
 fn schema_cards<'a>(
     config: &'a QuillConfig,
-    doc: &'a Document,
+    doc: &'a Snapshot,
 ) -> impl Iterator<Item = (Option<&'a CardSchema>, &'a Card, DocPath)> {
     std::iter::once((Some(&config.main), doc.main(), DocPath::main())).chain(
         doc.cards().iter().enumerate().map(move |(index, card)| {
@@ -852,7 +850,7 @@ fn schema_cards<'a>(
 /// undeclared, body prose under `body.enabled: false`, and a key no
 /// declaration at its position names. Each renders without the input
 /// (`prose/canon/SCHEMAS.md` § "What blocks a render"), so each is a warning.
-fn validate_unclaimed(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
+fn validate_unclaimed(config: &QuillConfig, doc: &Snapshot) -> Vec<Diagnostic> {
     let kinds: Vec<&str> = config.card_kinds.iter().map(|k| k.name.as_str()).collect();
     let mut diags = Vec::new();
     for (schema, card, path) in schema_cards(config, doc) {
@@ -867,11 +865,12 @@ fn validate_unclaimed(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
             diags.push(body_disabled_warning(&path.body(), &schema.name));
         }
         let declared: Declared = schema.fields.iter().map(|(n, f)| (n.as_str(), f)).collect();
-        let authored: Vec<(&str, &serde_json::Value)> = card
+        let values: Vec<(&str, std::borrow::Cow<'_, QuillValue>)> = card
             .payload()
             .iter()
-            .map(|(k, v)| (k.as_str(), v.as_json()))
+            .map(|(k, v)| (k.as_str(), v.to_value()))
             .collect();
+        let authored: Vec<(&str, &serde_json::Value)> = values.iter().map(|(k, v)| (*k, v.as_json())).collect();
         collect_unknown_keys(&declared, &authored, &path, &mut diags);
     }
     diags
@@ -1197,7 +1196,7 @@ pub(crate) fn body_disabled_warning(path: &DocPath, card: &str) -> Diagnostic {
 /// The `backend::declined_construct` warnings a render of `doc` raises: the
 /// plate a render compiles, defaults and coercion applied. A document that
 /// does not compile draws none.
-fn validate_declined(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
+fn validate_declined(config: &QuillConfig, doc: &Snapshot) -> Vec<Diagnostic> {
     if crate::backend::declines(&config.backend).is_empty() {
         return Vec::new();
     }
@@ -1237,7 +1236,7 @@ impl QuillConfig {
         if declined.is_empty() {
             return diags;
         }
-        self.each_plate_content(data, &mut |at: &DocPath, content: &quillmark_content::lines::model::Content| {
+        self.each_plate_content(data, &mut |at: &DocPath, content: &quillmark_automerge::content::lines::model::Content| {
             let counts = super::BlockConstruct::tally(content);
             for &construct in declined {
                 let count = counts[construct as usize];
@@ -1256,14 +1255,14 @@ impl QuillConfig {
     pub fn each_plate_content(
         &self,
         data: &serde_json::Value,
-        each: &mut dyn FnMut(&DocPath, &quillmark_content::lines::model::Content),
+        each: &mut dyn FnMut(&DocPath, &quillmark_automerge::content::lines::model::Content),
     ) {
         let mut card = |schema: &CardSchema,
                         obj: &serde_json::Map<String, serde_json::Value>,
                         path: DocPath| {
             for (key, value) in obj {
                 if key == "$body" {
-                    if let Ok(content) = quillmark_content::migrate::lines_from_value(value) {
+                    if let Ok(content) = quillmark_automerge::content::migrate::lines_from_value(value) {
                         each(&path.body(), &content);
                     }
                 } else if let Some(field) = schema.fields.get(key.as_str()) {
@@ -1294,7 +1293,7 @@ impl QuillConfig {
 /// not select, across the main card and every composable card. The value stays
 /// in the document and the diagnostic is non-fatal (`prose/canon/SCHEMAS.md`
 /// §"Enum variants": carried, not dropped).
-fn validate_variants(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
+fn validate_variants(config: &QuillConfig, doc: &Snapshot) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     for (schema, card, path) in schema_cards(config, doc) {
         let Some(schema) = schema else { continue };
@@ -1311,10 +1310,10 @@ fn collect_variant_diags(
 ) {
     let payload = card.payload();
     for (name, field) in &schema.fields {
-        let Some(json) = payload.get(name).map(|v| v.as_json()) else {
+        let Some(value) = payload.get(name).map(|v| v.to_value()) else {
             continue;
         };
-        collect_stranded(field, json, &base.field(name), out);
+        collect_stranded(field, value.as_json(), &base.field(name), out);
     }
 }
 
@@ -1397,14 +1396,14 @@ pub(crate) fn out_of_variant_warning(path: &DocPath, owner: &str, member: &str) 
 /// out in: elements on an array, characters on a text field. A warning, never a
 /// gate — a document over the limit renders, with the plate's own rule for the
 /// surplus.
-fn validate_cardinality(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
+fn validate_cardinality(config: &QuillConfig, doc: &Snapshot) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     for (schema, card, path) in schema_cards(config, doc) {
         let Some(schema) = schema else { continue };
         let payload = card.payload();
         for (name, field) in &schema.fields {
             if let Some(value) = payload.get(name) {
-                collect_cardinality_diags(field, value.as_json(), &path.field(name), &mut diags);
+                collect_cardinality_diags(field, value.to_value().as_json(), &path.field(name), &mut diags);
             }
         }
     }

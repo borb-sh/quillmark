@@ -153,8 +153,8 @@ fn element_text(e: &Value) -> Option<String> {
 /// value, an empty line as an array element, the session's
 /// `backend::declined_construct` warning naming the table.
 fn richtext_plaintext(v: &Value) -> Option<String> {
-    let rt = quillmark_content::migrate::lines_from_value(v).ok()?;
-    Some(quillmark_content::lines::export::to_plaintext(&rt))
+    let rt = quillmark_automerge::content::migrate::lines_from_value(v).ok()?;
+    Some(quillmark_automerge::content::lines::export::to_plaintext(&rt))
 }
 
 /// A choice value binds only if it matches one of the declared options exactly.
@@ -228,27 +228,27 @@ mod tests {
 
     #[test]
     fn richtext_content_lowers_to_plaintext() {
-        let rt = quillmark_content::lines::import::from_markdown("A **bold** claim.\n\nSecond line.")
+        let rt = quillmark_automerge::content::lines::import::from_markdown("A **bold** claim.\n\nSecond line.")
             .unwrap()
             .content;
-        let content = quillmark_content::lines::serial::to_canonical_value(&rt);
+        let content = quillmark_automerge::content::migrate::from_lines(&rt).to_value();
         assert_eq!(
             coerce_text(&content).as_deref(),
             Some("A bold claim.\nSecond line.")
         );
-        let blank = quillmark_content::lines::serial::to_canonical_value(
-            &quillmark_content::lines::model::Lines::empty(),
-        );
+        let blank = quillmark_automerge::content::migrate::from_lines(
+            &quillmark_automerge::content::lines::model::Lines::empty(),
+        ).to_value();
         assert_eq!(coerce_text(&blank), None);
         assert_eq!(coerce_text(&json!({ "x": 1 })), None);
     }
 
     fn el(md: &str) -> Value {
-        quillmark_content::lines::serial::to_canonical_value(
-            &quillmark_content::lines::import::from_markdown(md)
+        quillmark_automerge::content::migrate::from_lines(
+            &quillmark_automerge::content::lines::import::from_markdown(md)
                 .unwrap()
                 .content,
-        )
+        ).to_value()
     }
 
     #[test]
@@ -381,11 +381,11 @@ mod tests {
 
     #[test]
     fn a_value_carrying_a_newline_reaches_the_stamp_multiline() {
-        let two_paragraphs = quillmark_content::lines::serial::to_canonical_value(
-            &quillmark_content::lines::import::from_markdown("One.\n\nTwo.")
+        let two_paragraphs = quillmark_automerge::content::migrate::from_lines(
+            &quillmark_automerge::content::lines::import::from_markdown("One.\n\nTwo.")
                 .unwrap()
                 .content,
-        );
+        ).to_value();
         let data = json!({
             "bio": two_paragraphs,
             "address": "1 Main St\nSpringfield",

@@ -30,7 +30,8 @@ fn anchored() -> Document {
 #[test]
 fn a_text_field_rests_as_plain_content_and_emits_its_literal_text() {
     let (doc, _) = parse_bound(&quill(), MD);
-    let note = doc.main().payload().get("note").unwrap().as_json();
+    let note = doc.main().payload().get("note").unwrap().to_value();
+    let note = note.as_json();
     assert_eq!(note["codec"], json!("plain"));
     assert_eq!(note["text"], json!("a *literal* line"));
 
@@ -46,7 +47,7 @@ fn a_text_field_rests_as_plain_content_and_emits_its_literal_text() {
 fn a_string_at_rest_reads_as_authored_and_conforms_to_the_object() {
     let mut doc = Document::parse(MD).expect("transport parse").document;
     assert_eq!(
-        doc.main().payload().get("note").unwrap().as_json(),
+        doc.main().payload().get("note").unwrap().to_value().as_json(),
         &json!("a *literal* line"),
         "the transport door keeps the authored string"
     );
@@ -99,11 +100,12 @@ fn a_text_revise_carries_its_anchors_by_the_diff() {
 fn a_document_revise_keeps_a_text_anchor() {
     let mut doc = anchored();
     let md = doc.to_markdown().replace("note: a *literal* line", "note: still a *literal* line");
-    let revised = quill().writer(&mut doc).revise_document(&md).expect("revise");
+    let revised = quill().writer(&mut doc).revise_document(&md, None).expect("revise");
     assert_eq!(revised.dropped_anchors, []);
     let c1 = doc.anchor_context("c1").expect("c1 survives");
     assert_eq!((c1.quote.as_str(), c1.prefix.as_str()), ("literal", "still a *"));
-    let note = doc.main().payload().get("note").unwrap().as_json();
+    let note = doc.main().payload().get("note").unwrap().to_value();
+    let note = note.as_json();
     assert_eq!(note["codec"], json!("plain"));
 }
 
@@ -122,13 +124,13 @@ fn a_dropped_text_anchor_reattaches_by_its_selector() {
 #[test]
 fn a_text_value_refuses_formatting_at_the_content_level() {
     let (mut doc, _) = parse_bound(&quill(), MD);
-    let mut value = doc.main().payload().get("note").unwrap().as_json().clone();
+    let mut value = doc.main().payload().get("note").unwrap().to_value().as_json().clone();
     value["marks"] = json!([{ "start": 0, "end": 1, "type": "strong" }]);
-    let refused = quillmark_content::model::Content::from_value(&value);
+    let refused = quillmark_automerge::content::model::Content::from_value(&value);
     assert_eq!(
         refused,
-        Err(quillmark_content::wire::ParseError::Invalid(
-            quillmark_content::model::Invariant::NotPlain
+        Err(quillmark_automerge::content::wire::ParseError::Invalid(
+            quillmark_automerge::content::model::Invariant::NotPlain
         ))
     );
     let quill = quill();

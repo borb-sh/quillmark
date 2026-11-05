@@ -3,7 +3,7 @@
 //! `default`/blank. A card added to a document commits the document's `$seed`
 //! overlay for its kind in place of the kind's own `seed:`.
 
-use quillmark_content::lines::model::Lines;
+use quillmark_automerge::content::lines::model::Lines;
 
 use super::Quill;
 use crate::document::PayloadItem;
@@ -33,7 +33,7 @@ fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, L
             let value = seed?.fields.get(name).filter(|v| !v.as_json().is_null())?;
             Some(PayloadItem::Field {
                 key: name.clone(),
-                value: seeded_rest(name, value, field),
+                value: seeded_rest(name, value, field).into(),
             })
         })
         .collect();

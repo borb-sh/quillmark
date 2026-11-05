@@ -28,11 +28,13 @@ import {
   caughtFrom,
   TEST_PLATE,
   TEST_MARKDOWN,
+  storedByPlace,
+  inserts,
 } from './test-helpers.js'
 
 // The consumer contract, exercised as a consumer writes it: the gate is the only
 // door to the core surface.
-const { Quill, Document, importMarkdown, exportMarkdown, normalize, mapPos } = await init()
+const { Quill, Document, importMarkdown, exportMarkdown, normalize } = await init()
 
 function makeRuntimeQuill() {
   return Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
@@ -156,9 +158,8 @@ card_kinds:
     const doc = blankDoc()
     const ed = quill.writer(doc)
     const receipt = ed.revise({}, 'New **body**.')
-    expect(Object.keys(receipt).sort()).toEqual(['applied', 'droppedAnchors', 'hash', 'minted', 'movedAnchors', 'rebased', 'warnings'])
-    expect(receipt.hash).toBe(doc.hashAt({}))
-    expect(receipt.rebased).toBe(false)
+    expect(Object.keys(receipt).sort()).toEqual(['before', 'droppedAnchors', 'heads', 'patches', 'repairs', 'warnings'])
+    expect(receipt.heads).toEqual(doc.heads())
     expect(doc.toMarkdown({})).toBe('New **body**.')
     const { warnings } = ed.revise('subject', 'Q3 <kbd>**results**</kbd>')
     expect(warnings.map((w) => [w.code, w.path])).toEqual([
@@ -167,23 +168,21 @@ card_kinds:
     expect(quill.reader(doc).get('subject')).toBe('Q3 **results**')
   })
 
-  it('a writer revise answers its change in UTF-16, which maps a position and feeds reattach', () => {
+  it('a writer revise answers its patches in UTF-16, which feed reattach', () => {
     const doc = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\n😀 alpha gamma')
     const ed = buildQuill().writer(doc)
-    const { applied } = ed.revise({}, '😀 alpha beta gamma')
-    expect(mapPos(applied, 9, 'after').pos).toBe(14)
-    expect(mapPos(applied, 3, 'after').pos).toBe(3)
+    expect(inserts(ed.revise({}, '😀 alpha beta gamma'))).toEqual([{ at: 9, text: 'beta ' }])
 
     ed.revise('memo', 'a 😀 \\*b\\*')
     const memo = ed.revise('memo', 'a 😀 \\*b\\* c')
-    expect(memo.applied.steps).toEqual([{ splice: { at: 10, delete: '', insert: ' c', removed: {} } }])
-    expect(ed.revise('memo', 'a 😀 \\*b\\* c').applied.steps).toEqual([])
+    expect(memo.patches).toEqual([{ action: 'splice', path: ['main', 'fields', 'memo', 'text', 11], value: ' c' }])
+    expect(ed.revise('memo', 'a 😀 \\*b\\* c').patches).toEqual([])
 
     doc.apply({}, { steps: [{ anchor: { id: 'g', start: 14, end: 19 } }] })
     const [selector] = doc.anchorContexts()
     expect(ed.revise({}, '😀 alpha beta').droppedAnchors.map((a) => a.id)).toEqual(['g'])
     const back = ed.revise({}, '😀 alpha beta gamma')
-    expect(doc.reattach([selector], { 'main.body': back.applied }).reattached.map((a) => a.id)).toEqual(['g'])
+    expect(doc.reattach([selector], { 'main.body': back.patches }).reattached.map((a) => a.id)).toEqual(['g'])
   })
 
   it('revise names the anchors it drops', () => {
@@ -200,55 +199,45 @@ card_kinds:
     ])
   })
 
-  it('a stale baseHash or baseContent rebases a revise, an unknown hash refuses, and a baseStored merges a document', () => {
+  it('a revise at stale heads merges, unknown heads refuse, and a document revise at heads merges', () => {
     const doc = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nAlpha.\n\nBeta.\n\nGamma.')
     const ed = buildQuill().writer(doc)
     const read = doc.toMarkdown(undefined, { annotated: true }).markdown
-    const stored = doc.toStored()
-    const base = doc.read({})
+    const first = doc.heads()
     ed.revise({}, 'Alpha, edited.\n\nBeta.\n\nGamma.')
-    const long = 'Alpha one two three.\n\nBeta four five six.'
-    ed.revise({}, long)
-    const longHash = doc.hashAt({})
-    ed.revise({}, 'Alpha one two three, edited.\n\nBeta four five six.')
-    expect(ed.revise({}, 'Alpha one two three.\n\nBeta four five six, mine.', { baseHash: longHash }).rebased).toBe(true)
-    expect(doc.toMarkdown({})).toBe('Alpha one two three, edited.\n\nBeta four five six, mine.')
-    ed.revise({}, 'Alpha, edited.\n\nBeta.\n\nGamma.')
-    expect(() => ed.revise({}, 'Other.', { baseHash: 'never-read' })).toThrow(
-      expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base', args: { current: doc.hashAt({}) } })] }),
+    const edited = doc.heads()
+    ed.revise({}, 'Alpha, edited.\n\nBeta, two.\n\nGamma.')
+    ed.revise({}, 'Alpha, edited, again.\n\nBeta.\n\nGamma.', { heads: edited })
+    expect(doc.toMarkdown({})).toBe('Alpha, edited, again.\n\nBeta, two.\n\nGamma.')
+    const foreign = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nElsewhere.')
+    foreign.revise({}, 'Elsewhere, edited.')
+    expect(() => ed.revise({}, 'Other.', { heads: foreign.heads() })).toThrow(
+      expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base' })] }),
     )
-    ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { baseStored: stored })
-    expect(doc.toMarkdown({})).toBe('Alpha, edited.\n\nBeta.\n\nGamma, rewritten.')
-    expect(ed.reviseDocument(read.replace('Alpha.', 'Alpha, mine.'), { baseStored: stored }).conflicts).toEqual([
-      {
-        path: 'main.body',
-        base: 'Alpha.\n\nBeta.\n\nGamma.',
-        current: 'Alpha, edited.\n\nBeta.\n\nGamma, rewritten.',
-        proposed: 'Alpha, mine.\n\nBeta.\n\nGamma.',
-      },
-    ])
-    expect(ed.revise({}, 'Alpha.\n\nBeta, mine.\n\nGamma.', { baseContent: base }).rebased).toBe(true)
-    expect(doc.toMarkdown({})).toBe('Alpha, edited.\n\nBeta, mine.\n\nGamma, rewritten.')
-    expectEditCode(
-      () => ed.revise({}, 'Alph!\n\nBeta.\n\nGamma.', { baseContent: base }),
-      'edit::rebase_conflict',
+    ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { heads: first })
+    expect(doc.toMarkdown({})).toBe('Alpha, edited, again.\n\nBeta, two.\n\nGamma, rewritten.')
+    ed.revise({}, 'Alpha.\n\nBeta.\n\nGamma.\n\nDelta.', { heads: first })
+    expect(doc.toMarkdown({})).toBe('Alpha, edited, again.\n\nBeta, two.\n\nGamma, rewritten.\n\nDelta.')
+    expect(() => ed.reviseDocument(read, { heads: first, baseStored: doc.save() })).toThrow(/unknown key `baseStored`/)
+    expect(() => ed.revise({}, 'x', { heads: undefined })).toThrow(/heads must be a string array/)
+    expect(() => ed.reviseDocument(read, { heads: foreign.heads() })).toThrow(
+      expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base' })] }),
     )
-    expect(() => ed.reviseDocument(read, { baseHash: 'x', baseStored: stored })).toThrow(/not both/)
-    expect(() => ed.revise({}, 'x', { baseHash: undefined })).toThrow(/baseHash must be given a value/)
   })
 
-  it('writer.hashAt reads a field through its schema, so a string at rest and its conformed content agree', () => {
-    const doc = Document.parse('~~~card-yaml\n$quill: editor_test\nsubject: Hello *world*\n~~~\n\nBody.')
+  it('a document loaded from its row holds no earlier heads, and a session ends at the row', () => {
+    const doc = buildQuill().parse('~~~card-yaml\n$quill: editor_test\nsubject: Hello\n~~~\n\nBody.')
     const ed = buildQuill().writer(doc)
-    const hash = ed.hashAt('subject')
-    expect(hash).toBe(doc.hashAt('subject'))
-    expect(ed.hashAt({})).toBe(doc.hashAt({}))
-    const whole = ed.hash()
+    const read = doc.heads()
     ed.revise({}, 'Other body.')
-    expect(ed.hashAt('subject')).toBe(hash)
-    expect(ed.hash()).not.toBe(whole)
-    ed.revise('subject', 'Hello _world_, hi', { baseHash: hash })
-    expectEditCode(() => ed.hashAt('nope'), 'edit::unknown_field')
+    const reloaded = Document.fromStored(doc.toStored())
+    expect(() => buildQuill().writer(reloaded).revise({}, 'Mine.', { heads: read })).toThrow(
+      expect.objectContaining({ diagnostics: [expect.objectContaining({ code: 'edit::stale_base' })] }),
+    )
+    const peer = Document.load(doc.save())
+    buildQuill().writer(peer).revise('subject', 'Hello, mine', { heads: read })
+    expect(peer.toMarkdown()).toContain('subject: Hello, mine')
+    expect(peer.toMarkdown({})).toBe('Other body.')
   })
 
   it('addCard commits fields and body; removeCard returns the card', () => {
@@ -280,9 +269,9 @@ card_kinds:
       'cards.note[0].body'
     )
     expect(exportMarkdown(doc.cards[0].body)).toBe('Card body md.')
-    const { applied } = ed.card(0).revise('prose', 'Revised **field**.')
+    const { patches } = ed.card(0).revise('prose', 'Revised **field**.')
     expect(exportMarkdown(fieldOf(doc.cards[0], 'prose'))).toBe('Revised **field**.')
-    expect(Array.isArray(applied.steps)).toBe(true)
+    expect(patches.length).toBeGreaterThan(0)
   })
 
   it('reviseDocument revises the whole document, then conforms it, clearing the load warnings', () => {
@@ -293,8 +282,9 @@ card_kinds:
     const receipt = ed.reviseDocument(
       '~~~card-yaml\n$quill: editor_test\nsubject: Q3 **results**\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nprose: fresh\n~~~\n\n~~~card-yaml\n$kind: note\nprose: kept\n~~~\n',
     )
-    expect(Object.keys(receipt).sort()).toEqual(['conflicts', 'droppedAnchors', 'from', 'warnings'])
+    expect(Object.keys(receipt).sort()).toEqual(['before', 'droppedAnchors', 'from', 'heads', 'warnings'])
     expect(receipt.from).toEqual([null, 0])
+    expect(receipt.heads).toEqual(doc.heads())
     expect(receipt.droppedAnchors).toEqual([])
     expect(receipt.warnings).toEqual([])
     expect(doc.warnings).toEqual([])
@@ -494,7 +484,7 @@ card_kinds:
     expect(read.markdown).toBe('# Plan\n\nMain <qm-anchor ref="c1"></qm-anchor>**body**.')
     expect(read.anchors).toEqual([{ id: 'c1', path: 'main.body', line: 'Main body.' }])
     expect(doc.toMarkdown('subject', { annotated: true })).toEqual({ markdown: 'Q3 **results**', anchors: [] })
-    const receipt = quill.writer(doc).revise({}, read.markdown.replace('Main', 'The main'), { baseContent: doc.read({}) })
+    const receipt = quill.writer(doc).revise({}, read.markdown.replace('Main', 'The main'), { heads: doc.heads() })
     expect(receipt.droppedAnchors).toEqual([])
     expect(doc.anchorContext('c1')).toMatchObject({ quote: 'body' })
   })
@@ -527,12 +517,13 @@ card_kinds:
     expect(bound.warnings).toEqual([])
 
     // conform is the same walk on a document that arrived any other way, and it
-    // converges to identical bytes. A second pass is a no-op.
+    // converges to what the bound door reads, place by place. A second pass is
+    // a no-op.
     const transported = Document.parse(md)
     expect(quill.conform(transported)).toEqual([])
     expect(transported.equals(bound)).toBe(true)
     expect(quill.conform(transported)).toEqual([])
-    expect(transported.toStored()).toBe(bound.toStored())
+    expect(storedByPlace(transported.toStored())).toBe(storedByPlace(bound.toStored()))
   })
 
   it('nothing conforms under the wrong quill', () => {
@@ -1143,11 +1134,11 @@ main:
         typst: {
           load: async () => {
             const real = await import('../../../pkg/render/wasm.js')
-            const borrowedDocument = new Proxy(real.Document, {
+            const borrowedSnapshot = new Proxy(real.Snapshot, {
               get(target, prop, receiver) {
-                if (prop === 'fromStored') {
+                if (prop === 'fromJson') {
                   return (json) => {
-                    const doc = target.fromStored(json)
+                    const doc = target.fromJson(json)
                     const free = doc.free.bind(doc)
                     doc.free = () => {
                       free()
@@ -1166,7 +1157,7 @@ main:
             }
             return new Proxy(real, {
               get(target, prop, receiver) {
-                if (prop === 'Document') return borrowedDocument
+                if (prop === 'Snapshot') return borrowedSnapshot
                 if (prop === 'Engine') return TrappingEngine
                 return Reflect.get(target, prop, receiver)
               },
@@ -1234,15 +1225,16 @@ main:
     // stand-in Document: both caller handles are checked before the clone runs
     // (see "handles from another copy" below), so they have to be real. Same
     // Proxy-over-the-real-module shape as fromTreeCountingEngine, so the quill
-    // clone left cached is a real backend quill and only `fromStored` misbehaves.
+    // clone left cached is a real backend quill and only `Snapshot.fromJson`
+    // misbehaves.
     const engine = new Engine({
       backends: {
         typst: {
           load: async () => {
             const real = await import('../../../pkg/render/wasm.js')
-            const refusingDocument = new Proxy(real.Document, {
+            const refusingSnapshot = new Proxy(real.Snapshot, {
               get(target, prop, receiver) {
-                if (prop === 'fromStored') {
+                if (prop === 'fromJson') {
                   return () => {
                     throw new Error('doc clone refused')
                   }
@@ -1252,7 +1244,7 @@ main:
             })
             return new Proxy(real, {
               get(target, prop, receiver) {
-                if (prop === 'Document') return refusingDocument
+                if (prop === 'Snapshot') return refusingSnapshot
                 return Reflect.get(target, prop, receiver)
               },
             })
@@ -1280,7 +1272,7 @@ main:
 // the built core artifact on disk, which is a genuinely different class over a
 // different linear memory.
 describe('@quillmark/wasm: handles from another copy (duplicate install)', () => {
-  const foreignDoc = (doc) => ({ toStored: () => doc.toStored() })
+  const foreignDoc = (doc) => ({ snapshotJson: () => doc.snapshotJson(), toStored: () => doc.toStored() })
   const foreignQuill = (quill) => ({
     toTree: () => quill.toTree(),
     backendId: quill.backendId,

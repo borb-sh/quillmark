@@ -8,12 +8,12 @@ use super::{
 };
 use crate::error::WasmError;
 use crate::types::Diagnostic;
-use quillmark_content::change::{self, Assoc, Change};
-use quillmark_content::structural::{self, StructuralEdit, Wrap};
-use quillmark_content::model::Content;
-use quillmark_content::units::{self, Utf16};
-use quillmark_content::wire::ParseError;
-use quillmark_core::document::{Card, CardMut, Edit, EditError, Receipt, Target, WriteOptions, check_change, check_content_value};
+use quillmark_automerge::content::change::{self, Change};
+use quillmark_automerge::content::structural::{self, StructuralEdit, Wrap};
+use quillmark_automerge::content::model::Content;
+use quillmark_automerge::content::units::{self, Utf16};
+use quillmark_automerge::content::wire::ParseError;
+use quillmark_core::document::{Card, CardMut, Edit, EditError, Heads, Receipt, Target, WriteOptions, check_change, check_content_value};
 use quillmark_core::path::DocPath;
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
@@ -125,8 +125,7 @@ export interface Change {
  *   `marks` is the formatting the inserted text carries, offsets into
  *   `insert`, a mark without `start`/`end` covering all of it; `blocks` the
  *   record of each block an inserted `\n` opens; `islands` the island of each
- *   inserted `U+FFFC`. `removed` is what the deleted text held, filled in on
- *   the receipt's `applied`.
+ *   inserted `U+FFFC`. `removed` is what the deleted text held.
  * - `setBlock` changes a block's kind, attributes or path.
  * - `container` adds a container or sets an existing one's attributes, or
  *   removes one no path names.
@@ -139,8 +138,8 @@ export interface Change {
  * A record a step puts, a block a splice opens, a container it sets or an
  * island it inserts, may carry a placeholder id, `?` and an id (`"?1"`), and a
  * step may name it, as a `setBlock` path or a `nested` island does: the write
- * mints an id for it past every id the value holds, under `actor` where one is
- * given, and the receipt's `minted` names it.
+ * fills it with the object id of the record it puts, under the document's
+ * Automerge actor, and the receipt's patch that puts the record carries it.
  *
  * A placement of a held id, and a move or removal of one the text does not
  * hold, is refused (`edit::content_apply`).
@@ -149,8 +148,7 @@ export interface Change {
  * covered when the writer read it, and an island insert takes `block`, the id
  * of the block the writer read `at` in. A step whose `quote` or `block` the
  * value no longer holds is refused as stale (`edit::content_apply`), as a
- * splice is whose `delete` the value no longer holds. The receipt's `applied`
- * fills both in.
+ * splice is whose `delete` the value no longer holds.
  */
 export type Step =
     | { splice: { at: number; delete?: string; insert: string;
@@ -165,39 +163,41 @@ export type Step =
     | { nested: { island: string; slot: string; change: Change } };
 
 /**
- * What a write did. `applied` is the change in its normalized form, which
- * `invert(applied, before)` undoes; `hash` is the value's new hash, the next
- * write's `base`. `droppedAnchors` names each anchor the value held and holds
+ * One of Automerge's patches, as automerge-js spells it: `path` runs from
+ * the document's root, and an index into a text is in UTF-16 code units,
+ * each block marker and island one unit, so value offset `n` is index
+ * `n + 1` of the value's `text`.
+ */
+export type Patch =
+    | { action: "put"; path: (string | number)[]; value: unknown; conflict?: boolean }
+    | { action: "insert"; path: (string | number)[]; values: unknown[] }
+    | { action: "splice"; path: (string | number)[]; value: string; marks?: Record<string, unknown> }
+    | { action: "del"; path: (string | number)[]; length?: number }
+    | { action: "inc"; path: (string | number)[]; value: number }
+    | { action: "conflict"; path: (string | number)[] }
+    | { action: "mark"; path: (string | number)[]; marks: { name: string; value: unknown; start: number; end: number }[] };
+
+/**
+ * What a write, a merge or a sync message did. `before` and `heads` are
+ * the document's heads before and after: `heads` is the next write's, and
+ * `undo` takes a written value back to `before`. `patches` are Automerge's
+ * for the change, in order.
+ * `droppedAnchors` names each anchor the value held and holds
  * nowhere now, as it read before: every one a `revise` or `replace` lost, and
  * for an `apply` every one but those its `anchor` steps removed.
- * `movedAnchors` names each surviving one the write moved, a point included,
- * with the text it covered before and after and `reason`, the first of these
- * that holds: `position`, an anchor step put it other than where the write's
- * text edits carry it; `block`, its start sits in another block; `context`,
- * its text or the eight characters either side read otherwise.
+ * `repairs` names what reading the value after mended, where the write left
+ * it invalid.
  * `warnings` holds a `parse::dropped_construct` per construct a revise's
- * markdown dropped.
- * `rebased` says the write's `base` was a value the field had moved on from,
- * and the write was rebased over what changed since. `minted` maps each
- * placeholder the change gave a record it put to the id the write minted for
- * it; a structural edit's own are `"?0"`, `"?1"` and on, in the order it puts them.
+ * markdown dropped. All three are empty for a merge or sync message, whose
+ * `patches` carry what changed.
  */
 export interface Receipt {
-    applied: Change;
-    hash: string;
+    before: string[];
+    heads: string[];
+    patches: Patch[];
     droppedAnchors: DroppedAnchor[];
-    movedAnchors: MovedAnchor[];
+    repairs: Repair[];
     warnings: Diagnostic[];
-    rebased: boolean;
-    minted: Record<string, string>;
-}
-
-/** A surviving anchor a write moved, and what moved. */
-export interface MovedAnchor {
-    id: string;
-    before: string;
-    after: string;
-    reason: "position" | "block" | "context";
 }
 
 /**
@@ -210,20 +210,17 @@ export interface DroppedAnchor extends AnchorContext {
     slot?: string;
 }
 
-/** `base` is the hash a writer read. A value that has changed since rebases
- *  the write over the change, refusing it with `edit::rebase_conflict` where
- *  the two touch the same text or record, and with `edit::stale_base` where
- *  the document no longer holds the change since. Pass it: a write without one
- *  lands over whatever the value now holds.
+/** `heads` is the document's revision the writer read (`doc.heads()`), and
+ *  the write's offsets are into the value as it read then. The write lands
+ *  at those heads and merges with every change since as Automerge merges
+ *  (CONTENT.md § "Live state and merge"). Heads the document's history does
+ *  not hold, as any read before the document was loaded from its stored row,
+ *  throw `edit::stale_base`. Pass it: a write without one lands over
+ *  whatever the value now holds.
  *
- *  `actor` names the writer, one per live session: each id the write mints
- *  is `{actor}:{prefix}{n}`, so two clients writing from one value never mint
- *  one id. Without one a write mints `{prefix}{n}`, as an import does. An
- *  actor is 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, as a
- *  card placement's is; another throws `edit::invalid_actor`. */
+ *  The write writes under the document's `actor`. */
 export interface WriteOptions {
-    base?: string;
-    actor?: string;
+    heads?: string[];
 }
 
 /** `splitBlock`'s options: a write's, and `id`, the new block's id, which
@@ -245,23 +242,6 @@ export interface Located {
     id: string;
     index: number;
     path: string[];
-}
-
-/** A position in a value: an offset into its text, or one inside a
- *  slot of an island. */
-export type Pos = number | { island: string; slot: string; at: Pos };
-
-/**
- * Where `mapPos` carried a position, and what around it the change deleted:
- * the character on its `assoc` side (`deleted`), the one before, the one
- * after, or both in one deletion (`deletedAcross`).
- */
-export interface MapResult {
-    pos: Pos;
-    deleted: boolean;
-    deletedBefore: boolean;
-    deletedAfter: boolean;
-    deletedAcross: boolean;
 }
 
 /** What `wrap` opens around the blocks it wraps: a quote, or a list with an
@@ -309,9 +289,8 @@ export type Repair = { inserts?: true } & (
 );
 
 /** What `repair` read a merged value as: the valid `content`, each mend,
- *  and `change`, the change from the merged text to the content's, which
- *  `mapPos` carries a position through to where repair puts an anchor
- *  there; no mend and no step for a value already valid. */
+ *  and `change`, the change from the merged text to the content's; no mend
+ *  and no step for a value already valid. */
 export interface Repaired {
     content: Content;
     repairs: Repair[];
@@ -323,13 +302,12 @@ export interface Repaired {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ReceiptJs {
-    applied: Value,
-    hash: String,
+    before: Vec<String>,
+    heads: Vec<String>,
+    patches: Vec<Value>,
     dropped_anchors: Vec<DroppedAnchorJs>,
-    moved_anchors: Vec<MovedJs>,
+    repairs: Vec<Value>,
     warnings: Vec<Diagnostic>,
-    rebased: bool,
-    minted: std::collections::BTreeMap<String, String>,
 }
 
 /// A receipt's dropped anchor: its selector, and the island and slot that
@@ -344,60 +322,56 @@ struct DroppedAnchorJs {
     slot: Option<String>,
 }
 
-#[derive(serde::Serialize)]
-struct MovedJs {
-    id: String,
-    before: String,
-    after: String,
-    reason: &'static str,
-}
 
-/// A `WriteOptions` from JS: the `base` the writer read and its `actor`.
-struct WriteOpts {
-    base: Option<String>,
-    actor: Option<String>,
+/// A `WriteOptions` from JS: the `heads` the writer read.
+pub(super) struct WriteOpts {
+    heads: Option<Heads>,
 }
 
 impl WriteOpts {
     /// The options of `verb`, which also reads the keys `extra` names.
-    fn from_js(opts: &JsValue, verb: &str, extra: &[&str]) -> Result<WriteOpts, JsValue> {
-        let mut out = WriteOpts { base: None, actor: None };
+    pub(super) fn from_js(opts: &JsValue, verb: &str, extra: &[&str]) -> Result<WriteOpts, JsValue> {
+        let mut out = WriteOpts { heads: None };
         if opts.is_undefined() || opts.is_null() {
             return Ok(out);
         }
-        let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
-        let keys: Vec<&str> = ["base", "baseHash", "actor"].into_iter().chain(extra.iter().copied()).collect();
+        let keys: Vec<&str> = ["heads"].into_iter().chain(extra.iter().copied()).collect();
         reject_unknown_keys(opts, &keys, "options", |k| {
-            format!("{verb}: options have unknown key `{k}`; a write takes {}", keys.iter().filter(|k| **k != "baseHash").map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "))
+            format!("{verb}: options have unknown key `{k}`; a write takes {}", keys.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "))
         })?;
-        for key in ["base", "baseHash"] {
-            if !js_sys::Reflect::has(opts, &key.into()).unwrap_or(false) {
-                continue;
-            }
-            let v = js_sys::Reflect::get(opts, &key.into()).unwrap_or(JsValue::UNDEFINED);
-            // A key present with no string is a caller bug (a lookup that found
-            // nothing, a missing `await`), and would drop into an unguarded write.
-            let Some(hash) = v.as_string() else {
-                return Err(invalid(format!("{key} must be a string when given")));
-            };
-            if out.base.replace(hash).is_some() {
-                return Err(invalid("name base or baseHash, not both".into()));
-            }
-        }
-        out.actor = string_opt(opts, "actor", verb)?;
+        out.heads = heads_opt(opts, verb)?;
         Ok(out)
     }
 
-    fn as_ref(&self) -> WriteOptions<'_> {
-        WriteOptions { base: self.base.as_deref().map(quillmark_core::document::Base::Hash), actor: self.actor.as_deref() }
+    pub(super) fn as_ref(&self) -> WriteOptions<'_> {
+        WriteOptions { heads: self.heads.as_ref() }
     }
 }
 
-fn target(addr: &Addr) -> Target<'_> {
+/// The `heads` key of `opts`, absent where `opts` or the key is. A key
+/// present with no string array is a caller bug (a lookup that found
+/// nothing, a missing `await`), and would drop into an unguarded write.
+pub(super) fn heads_opt(opts: &JsValue, verb: &str) -> Result<Option<Heads>, JsValue> {
+    if opts.is_undefined() || opts.is_null() || !js_sys::Reflect::has(opts, &"heads".into()).unwrap_or(false) {
+        return Ok(None);
+    }
+    let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
+    let v = js_sys::Reflect::get(opts, &"heads".into()).unwrap_or(JsValue::UNDEFINED);
+    if !js_sys::Array::is_array(&v) {
+        return Err(invalid("heads must be a string array when given".into()));
+    }
+    let hex: Vec<String> = js_sys::Array::from(&v)
+        .iter()
+        .map(|h| h.as_string().ok_or_else(|| invalid("heads must be a string array when given".into())))
+        .collect::<Result<_, _>>()?;
+    Heads::decode(&hex).map(Some).map_err(|e| invalid(e.to_string()))
+}
+
+pub(super) fn target(addr: &Addr) -> Target<'_> {
     Target::from(addr.field.as_deref())
 }
 
-fn card_base(doc: &quillmark_core::document::Document, addr: &Addr) -> DocPath {
+pub(super) fn card_base(doc: &quillmark_core::document::Document, addr: &Addr) -> DocPath {
     match addr.card {
         None => DocPath::main(),
         Some(index) => DocPath::card(doc.cards().get(index).and_then(|c| c.kind()), index),
@@ -411,7 +385,7 @@ fn card_of<'a>(doc: &'a quillmark_core::document::Document, addr: &Addr) -> Resu
     }
 }
 
-fn card_mut_of<'a>(doc: &'a mut quillmark_core::document::Document, addr: &Addr) -> Result<CardMut<'a>, JsValue> {
+pub(super) fn card_mut_of<'a>(doc: &'a mut quillmark_core::document::Document, addr: &Addr) -> Result<CardMut<'a>, JsValue> {
     let len = doc.cards().len();
     match addr.card {
         None => Ok(doc.main_mut()),
@@ -419,7 +393,7 @@ fn card_mut_of<'a>(doc: &'a mut quillmark_core::document::Document, addr: &Addr)
     }
 }
 
-fn value_path(base: &DocPath, addr: &Addr) -> DocPath {
+pub(super) fn value_path(base: &DocPath, addr: &Addr) -> DocPath {
     match &addr.field {
         None => base.body(),
         Some(field) => base.field(field),
@@ -520,7 +494,7 @@ fn write(
     let path = value_path(&card_base, addr);
     let to_js = |e: EditError| edit_error_to_js(&e, &card_base);
     let mut card = card_mut_of(doc, addr)?;
-    let receipt: Receipt = card.write_in(target(addr), edit, opts, Utf16).map_err(to_js)?;
+    let receipt: Receipt = card.write(target(addr), edit, opts).map_err(to_js)?;
     let card_id = card.id().map(str::to_string);
     Ok(receipt_js(receipt, &path, card_id))
 }
@@ -530,8 +504,10 @@ fn write(
 pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath, card_id: Option<String>) -> ReceiptJs {
     let warnings = super::diags(receipt.diagnostics(Some(path)));
     ReceiptJs {
-        applied: receipt.applied.to_value(),
-        hash: receipt.hash,
+        before: receipt.before.encode(),
+        heads: receipt.heads.encode(),
+        patches: receipt.patches,
+        repairs: receipt.repairs.iter().map(|r| r.to_value()).collect(),
         dropped_anchors: receipt
             .dropped_anchors
             .into_iter()
@@ -551,14 +527,7 @@ pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath,
                 }
             })
             .collect(),
-        moved_anchors: receipt
-            .moved_anchors
-            .into_iter()
-            .map(|m| MovedJs { id: m.id, before: m.before, after: m.after, reason: m.reason.name() })
-            .collect(),
         warnings,
-        rebased: receipt.rebased,
-        minted: receipt.minted,
     }
 }
 
@@ -581,12 +550,12 @@ impl Document {
     }
 
     /// **Apply** `change` to the value at `addr`, all its steps or none, and
-    /// answer the `Receipt`. `opts.base` is the hash the writer read
-    /// (`hash(addr)`), and the change's offsets are into the value it names:
-    /// one the value has moved on from rebases the change over the change
-    /// since, throwing `edit::rebase_conflict` where they touch the same text or
-    /// record and `edit::stale_base` where the document no longer holds the change
-    /// since. A refused change throws `edit::content_apply` and writes
+    /// answer the `Receipt`. `opts.heads` is the revision the writer read
+    /// (`doc.heads()`), and the change's offsets are into the value as it
+    /// read then: the change lands at those heads and merges with the change
+    /// since as Automerge merges (CONTENT.md § "Live state and merge"),
+    /// throwing `edit::stale_base` where the document's history does not
+    /// hold them. A refused change throws `edit::content_apply` and writes
     /// nothing.
     #[wasm_bindgen(js_name = apply, unchecked_return_type = "Receipt")]
     pub fn apply(
@@ -639,9 +608,37 @@ impl Document {
         serialize_or_throw(&receipt, "replace")
     }
 
-    /// **Enter** at `at` (UTF-16, into the value `opts.base` names): split
+    /// **Undo** the write `receipt` answered at `addr`: the value goes back to
+    /// how it read at the receipt's `before`, as one write at its `heads`, so
+    /// it keeps what others wrote since. Answers the undo's `Receipt`; throws
+    /// as `apply`.
+    #[wasm_bindgen(js_name = undo, unchecked_return_type = "Receipt")]
+    pub fn undo(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "Receipt")] receipt: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let addr = Addr::for_write(&addr, &self.inner, "undo")?;
+        let json = js_value_to_json(receipt, "undo")?;
+        let heads_of = |key: &str| -> Result<Heads, JsValue> {
+            let hex: Vec<String> = json
+                .get(key)
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .ok_or_else(|| WasmError::from(format!("undo: the receipt's `{key}` is a list of heads")).to_js_value())?;
+            Heads::decode(&hex).map_err(|e| WasmError::from(format!("undo: {e}")).to_js_value())
+        };
+        let (before, heads) = (heads_of("before")?, heads_of("heads")?);
+        let card_base = card_base(&self.inner, &addr);
+        let path = value_path(&card_base, &addr);
+        let mut card = card_mut_of(&mut self.inner, &addr)?;
+        let receipt = card.undo_between(target(&addr), &before, &heads).map_err(|e| edit_error_to_js(&e, &card_base))?;
+        let card_id = card.id().map(str::to_string);
+        serialize_or_throw(&receipt_js(receipt, &path, card_id), "undo")
+    }
+
+    /// **Enter** at `at` (UTF-16, into the value as `opts.heads` read it): split
     /// the block holding it there, the text keeping its id and the new block
-    /// `opts.id`, or one the write mints and names in `minted` under `"?0"`.
+    /// `opts.id`, or one the write mints, which the receipt's insert carries.
     /// Answers the `Receipt`; throws as `apply`.
     #[wasm_bindgen(js_name = splitBlock, unchecked_return_type = "Receipt")]
     pub fn split_block(
@@ -683,8 +680,8 @@ impl Document {
         self.structural(addr, StructuralEdit::DeleteRange { start: start as usize, end: end as usize }, opts, "deleteRange", &[])
     }
 
-    /// **Tab** over the blocks `first` to `last` (`first` alone when absent):
-    /// nest their items under the item before them. Answers the `Receipt`;
+    /// **Tab** over the blocks `first` to `last`: nest their items under the
+    /// item before them. Answers the `Receipt`;
     /// throws as `apply`, and `edit::content_apply` where `first` is in no
     /// item, the range leaves its list, or its first item is the list's
     /// first.
@@ -693,15 +690,14 @@ impl Document {
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         first: &str,
-        last: Option<String>,
+        last: &str,
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let last = last.unwrap_or_else(|| first.to_string());
-        self.structural(addr, StructuralEdit::Indent { first: first.to_string(), last }, opts, "indent", &[])
+        self.structural(addr, StructuralEdit::Indent { first: first.to_string(), last: last.to_string() }, opts, "indent", &[])
     }
 
-    /// **Shift-Tab** over the blocks `first` to `last` (`first` alone when
-    /// absent): lift them out of the innermost item or quote holding `first`.
+    /// **Shift-Tab** over the blocks `first` to `last`: lift them out of the
+    /// innermost item or quote holding `first`.
     /// Answers the `Receipt`; throws as `apply`, and `edit::content_apply`
     /// where `first` is in neither or the range leaves it.
     #[wasm_bindgen(js_name = outdent, unchecked_return_type = "Receipt")]
@@ -709,17 +705,16 @@ impl Document {
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         first: &str,
-        last: Option<String>,
+        last: &str,
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let last = last.unwrap_or_else(|| first.to_string());
-        self.structural(addr, StructuralEdit::Outdent { first: first.to_string(), last }, opts, "outdent", &[])
+        self.structural(addr, StructuralEdit::Outdent { first: first.to_string(), last: last.to_string() }, opts, "outdent", &[])
     }
 
     /// Wrap the blocks `first` to `last` in a quote or a list, around the
     /// children of their innermost shared item or quote the range touches; a
-    /// list the range sits in is wrapped whole. Answers the `Receipt`, the
-    /// containers it opens named in `minted`; throws as `apply`.
+    /// list the range sits in is wrapped whole. Answers the `Receipt`, whose
+    /// container patches carry the containers it opens; throws as `apply`.
     #[wasm_bindgen(js_name = wrap, unchecked_return_type = "Receipt")]
     pub fn wrap(
         &mut self,
@@ -784,21 +779,6 @@ fn string_opt(opts: &JsValue, key: &str, verb: &str) -> Result<Option<String>, J
     v.as_string().map(Some).ok_or_else(|| WasmError::from(format!("{verb}: {key} must be a string when given")).to_js_value())
 }
 
-/// The change that undoes `change` on `before`. Throws `edit::content_apply`
-/// where `change` does not apply to `before`.
-#[wasm_bindgen(js_name = invert, unchecked_return_type = "Change")]
-pub fn invert(
-    #[wasm_bindgen(unchecked_param_type = "Change")] change: JsValue,
-    #[wasm_bindgen(unchecked_param_type = "Content")] before: JsValue,
-) -> Result<JsValue, JsValue> {
-    let before = content_in(before, "invert")?;
-    let change = units::change_to_scalars(&change_in(change, "invert")?, &before, Utf16).map_err(apply_error)?;
-    let after = change::apply(&before, &change).map_err(apply_error)?.content;
-    let undo = change::invert(&change, &before).map_err(apply_error)?;
-    let undo = units::change_from_scalars(&undo, &after, Utf16).map_err(apply_error)?;
-    serialize_or_throw(&undo.to_value(), "invert")
-}
-
 /// A change taking `before` to `after`, word-aligned, for a writer with no
 /// steps of its own. Throws `edit::content_apply` where `after` is not a
 /// valid value.
@@ -808,7 +788,7 @@ pub fn diff(
     #[wasm_bindgen(unchecked_param_type = "Content")] after: JsValue,
 ) -> Result<JsValue, JsValue> {
     let (before, after) = (content_in(before, "diff")?, content_in(after, "diff")?);
-    let change = quillmark_content::diff::diff(&before, &after).map_err(|e| apply_error(e.into()))?;
+    let change = quillmark_automerge::content::diff::diff(&before, &after).map_err(|e| apply_error(e.into()))?;
     let change = units::change_from_scalars(&change, &before, Utf16).map_err(apply_error)?;
     serialize_or_throw(&change.to_value(), "diff")
 }
@@ -822,13 +802,13 @@ pub fn diff(
 pub fn repair(#[wasm_bindgen(unchecked_param_type = "RawContent")] raw: JsValue) -> Result<JsValue, JsValue> {
     let json = js_value_to_json(raw, "repair")?;
     check_content_value(&json).map_err(bound_error)?;
-    let raw = quillmark_content::repair::Raw::from_value_in(&json, Utf16)
+    let raw = quillmark_automerge::content::repair::Raw::from_value_in(&json, Utf16)
         .map_err(|e| WasmError::from(format!("repair: not shaped as content: {e}")).to_js_value())?;
-    let (content, repairs, change) = quillmark_content::repair::repair(raw.clone());
+    let (content, repairs, change) = quillmark_automerge::content::repair::repair(raw.clone());
     let out = serde_json::json!({
         "content": content.to_value_in(Utf16),
-        "repairs": repairs.iter().map(quillmark_content::repair::Repair::to_value).collect::<Vec<_>>(),
-        "change": quillmark_content::repair::change_in(&raw, &change, Utf16).to_value(),
+        "repairs": repairs.iter().map(quillmark_automerge::content::repair::Repair::to_value).collect::<Vec<_>>(),
+        "change": quillmark_automerge::content::repair::change_in(&raw, &change, Utf16).to_value(),
     });
     serialize_or_throw(&out, "repair")
 }
@@ -865,7 +845,7 @@ pub fn diff_range(
             .ok_or_else(|| WasmError::from(format!("diffRange: range.{key} must be a non-negative integer")).to_js_value())
     };
     let (from, to) = (offset_in(&before, bound("from")?)?, offset_in(&before, bound("to")?)?);
-    let change = quillmark_content::diff::diff_range(&before, &after, from, to).map_err(|e| apply_error(e.into()))?;
+    let change = quillmark_automerge::content::diff::diff_range(&before, &after, from, to).map_err(|e| apply_error(e.into()))?;
     let change = units::change_from_scalars(&change, &before, Utf16).map_err(apply_error)?;
     serialize_or_throw(&change.to_value(), "diffRange")
 }
@@ -886,7 +866,7 @@ pub fn inherited_marks(
         .map(|k| {
             let mut m = serde_json::Map::new();
             m.insert("type".into(), k.tag().into());
-            if let Some(attrs) = quillmark_content::wire::mark_attrs(k) {
+            if let Some(attrs) = quillmark_automerge::content::wire::mark_attrs(k) {
                 m.insert("attrs".into(), attrs);
             }
             Value::Object(m)
@@ -895,33 +875,3 @@ pub fn inherited_marks(
     serialize_or_throw(&out, "inheritedMarks")
 }
 
-/// Where `pos` lands after `change`, and what around it the change deleted;
-/// `assoc` (`"after"` by default) picks the side of text inserted at it.
-/// Throws `edit::content_apply` where a splice deletes an island and names
-/// none in `removed`, as the receipt's `applied` always does.
-#[wasm_bindgen(js_name = mapPos, unchecked_return_type = "MapResult")]
-pub fn map_pos(
-    #[wasm_bindgen(unchecked_param_type = "Change")] change: JsValue,
-    #[wasm_bindgen(unchecked_param_type = "Pos")] pos: JsValue,
-    #[wasm_bindgen(unchecked_optional_param_type = "\"before\" | \"after\"")] assoc: JsValue,
-) -> Result<JsValue, JsValue> {
-    let change = change_in(change, "mapPos")?;
-    let pos = quillmark_content::wire::pos_from_value(&js_value_to_json(pos, "mapPos")?)
-        .map_err(|e| WasmError::from(format!("mapPos: not a position: {e}")).to_js_value())?;
-    let assoc = match assoc.as_string().as_deref() {
-        None | Some("after") => Assoc::After,
-        Some("before") => Assoc::Before,
-        Some(other) => {
-            return Err(WasmError::from(format!("mapPos: assoc is \"before\" or \"after\", not {other:?}")).to_js_value());
-        }
-    };
-    let r = change::map_pos_in(&change, &pos, assoc, Utf16).map_err(apply_error)?;
-    let out = serde_json::json!({
-        "pos": quillmark_content::wire::pos_value(&r.pos),
-        "deleted": r.deleted,
-        "deletedBefore": r.deleted_before,
-        "deletedAfter": r.deleted_after,
-        "deletedAcross": r.deleted_across,
-    });
-    serialize_or_throw(&out, "mapPos")
-}

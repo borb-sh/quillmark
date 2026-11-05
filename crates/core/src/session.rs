@@ -1,11 +1,11 @@
 use crate::quill::{CalendarDate, QuillConfig};
 use crate::{
-    document::Document,
+    document::Snapshot,
     error::{Diagnostic, RenderError, RenderResult},
     region::{ContentHit, FieldCoverage, RenderedRegion},
     types::RenderOptions,
 };
-use quillmark_content::units::{self, Units};
+use quillmark_automerge::content::units::{self, Units};
 use std::sync::OnceLock;
 
 /// What a committed [`LiveSession::update`] changed.
@@ -404,7 +404,7 @@ impl LiveSession {
     /// `doc` is checked against the session's quill and compiled through the
     /// same pipeline as the first compile, so an edit cannot reach the backend
     /// under a schema the session was not opened against.
-    pub fn update(&mut self, doc: &Document) -> Result<ChangeSet, RenderError> {
+    pub fn update(&mut self, doc: &Snapshot) -> Result<ChangeSet, RenderError> {
         let json_data = self.config.compile_checked(doc, self.today)?;
         self.update_data(&json_data)
     }
@@ -614,7 +614,7 @@ main:
         });
         let session = LiveSession::new(Box::new(SpanHandle), config(), test_date(), &data);
         let spans: Vec<_> = session
-            .regions_in(quillmark_content::units::Utf16)
+            .regions_in(quillmark_automerge::content::units::Utf16)
             .into_iter()
             .map(|r| (r.field, r.span))
             .collect();

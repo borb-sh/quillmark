@@ -1,5 +1,4 @@
-use quillmark_content::lines::model::{Mark, MarkKind, Lines};
-use quillmark_content::lines::serial::to_canonical_value;
+use quillmark_automerge::content::lines::model::{Mark, MarkKind, Lines};
 
 use crate::document::{Codec, Document};
 use crate::value::QuillValue;
@@ -60,8 +59,8 @@ fn stored_with_items() -> Document {
     let mut doc = stored();
     let item = crate::document::import_body("an item to flag").unwrap();
     let items = serde_json::json!([
-        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
-        to_canonical_value(&anchored(&item, "flag", "i1")),
+        quillmark_automerge::content::migrate::from_lines(&crate::document::import_body("a plain item").unwrap()).to_value(),
+        quillmark_automerge::content::migrate::from_lines(&anchored(&item, "flag", "i1")).to_value(),
     ]);
     doc.unchecked().store_field(Some(0), "items", QuillValue::from_json(items))
         .unwrap();
@@ -158,7 +157,7 @@ fn everything_else_lands_as_the_markdown_spells_it() {
     let _ = doc.revise(incoming).unwrap();
     assert_eq!(doc.quill_reference().to_string(), "other@1.2");
     assert_eq!(
-        doc.main().payload().get("qty").unwrap().as_json(),
+        doc.main().payload().get("qty").unwrap().to_value().as_json(),
         &serde_json::json!(4)
     );
     assert!(doc.cards().is_empty());
@@ -228,38 +227,6 @@ fn a_dropped_anchor_inside_a_field_names_the_content_holding_it() {
     assert_eq!(dropped, ["cards.note[0].items[1]#i1"]);
 }
 
-/// A content object stored out of canonical order emits as the structure it
-/// is and revises as authored, and an anchor in it is named when a revise
-/// drops it.
-#[test]
-fn an_anchor_in_content_stored_out_of_canonical_order_is_named_when_it_drops() {
-    let note = crate::document::import_body("a note to flag").unwrap();
-    let canonical = to_canonical_value(&anchored(&note, "flag", "n1"));
-    let reordered: serde_json::Map<String, serde_json::Value> = canonical
-        .as_object()
-        .unwrap()
-        .clone()
-        .into_iter()
-        .rev()
-        .collect();
-    let mut doc = parse("~~~\n$quill: q\n~~~\n\nBody.\n");
-    doc.unchecked().store_field(None, "note", QuillValue::from_json(reordered.into()))
-        .unwrap();
-
-    let receipt = doc.clone().revise(&doc.to_markdown()).unwrap();
-    assert!(receipt.dropped_anchors.is_empty(), "{receipt:?}");
-
-    let receipt = doc
-        .revise("~~~\n$quill: q\nnote: a note to flag\n~~~\n\nBody.\n")
-        .unwrap();
-    let dropped: Vec<String> = receipt
-        .dropped_anchors
-        .iter()
-        .map(|d| format!("{}#{}", d.path, d.id))
-        .collect();
-    assert_eq!(dropped, ["main.note#n1"]);
-}
-
 /// An anchor in content nested in a field revises with the item holding it,
 /// matched by index, so an edit elsewhere in the item keeps it.
 #[test]
@@ -278,9 +245,9 @@ fn an_anchor_in_a_fields_list_item_survives_an_edit_to_its_item() {
         .payload()
         .get("items")
         .unwrap()
-        .as_json()
+        .to_value().as_json()
         .clone();
-    let item = quillmark_content::migrate::lines_from_value(&items[1]).unwrap();
+    let item = quillmark_automerge::content::migrate::lines_from_value(&items[1]).unwrap();
     assert_eq!(item.text, "an edited item to flag");
     assert_eq!(anchor_ids(&item), ["i1"]);
     assert!(
@@ -368,7 +335,7 @@ fn revising_with_the_annotated_read_keeps_every_anchor() {
 fn a_revised_fields_nested_comments_stay() {
     let mut doc = stored();
     let sections = serde_json::json!([{
-        "body": to_canonical_value(&crate::document::import_body("hello world").unwrap()),
+        "body": quillmark_automerge::content::migrate::from_lines(&crate::document::import_body("hello world").unwrap()).to_value(),
         "note": "x",
     }]);
     doc.unchecked().store_field(None, "sections", QuillValue::from_json(sections))
@@ -494,10 +461,10 @@ fn an_item_inserted_ahead_keeps_each_anchor_on_its_own_item() {
         .payload()
         .get("items")
         .unwrap()
-        .as_json()
+        .to_value().as_json()
         .clone();
     assert_eq!(items[0], "a new first item");
-    let item = quillmark_content::migrate::lines_from_value(&items[2]).unwrap();
+    let item = quillmark_automerge::content::migrate::lines_from_value(&items[2]).unwrap();
     assert_eq!(item.text, "an item to flag");
     assert_eq!(anchor_ids(&item), ["i1"]);
 
@@ -525,12 +492,11 @@ fn an_annotated_read_revises_back_through_its_tags_and_tokens() {
     let body = titled(&anchored(doc.main().body_lines(), "plan", "p1"));
     doc.main_mut().overwrite_body(body.clone());
     let read = doc.to_markdown_annotated().markdown;
-    assert!(read.contains("See <qm-island ref=\"isl-0\"></qm-island> and the <qm-anchor ref=\"p1\"></qm-anchor>plan."), "{read}");
+    let isl = body.islands[0].id.clone();
+    let before = format!("See <qm-island ref=\"{isl}\"></qm-island> and the <qm-anchor ref=\"p1\"></qm-anchor>plan.");
+    assert!(read.contains(&before), "{read}");
 
-    let written = read.replace(
-        "See <qm-island ref=\"isl-0\"></qm-island> and the <qm-anchor ref=\"p1\"></qm-anchor>plan.",
-        "Now <qm-anchor ref=\"p1\"></qm-anchor>the plan, beside <qm-island ref=\"isl-0\"></qm-island>.",
-    );
+    let written = read.replace(&before, &format!("Now <qm-anchor ref=\"p1\"></qm-anchor>the plan, beside <qm-island ref=\"{isl}\"></qm-island>."));
     let receipt = doc.revise(&written).unwrap();
     assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
     assert!(
@@ -540,7 +506,8 @@ fn an_annotated_read_revises_back_through_its_tags_and_tokens() {
     );
     let revised = doc.main().body_lines();
     assert_eq!(revised.text, "Now the plan, beside \u{FFFC}.");
-    assert_eq!(revised.islands, body.islands);
+    let shape = |islands: &[quillmark_automerge::content::lines::model::Island]| islands.iter().map(|i| (i.island_type.clone(), i.props.clone())).collect::<Vec<_>>();
+    assert_eq!(shape(&revised.islands), shape(&body.islands));
     let p1 = revised
         .marks
         .iter()
@@ -595,8 +562,9 @@ fn a_token_in_a_field_keeps_its_island() {
         .overwrite_field("summary", summary.clone())
         .unwrap();
     let read = doc.to_markdown_annotated().markdown;
+    let held = doc.main().field_content("summary", Codec::Richtext).unwrap().unwrap().islands.clone();
     assert!(
-        read.contains("summary: A <qm-island ref=\"isl-0\"></qm-island> here."),
+        read.contains(&format!("summary: A <qm-island ref=\"{}\"></qm-island> here.", held[0].id)),
         "{read}"
     );
 
@@ -608,5 +576,6 @@ fn a_token_in_a_field_keeps_its_island() {
         .unwrap()
         .unwrap();
     assert_eq!(now.text, "A \u{FFFC} there.");
-    assert_eq!(now.islands, summary.islands);
+    assert_eq!(now.islands, held);
+    assert_eq!(now.islands[0].props, summary.islands[0].props);
 }

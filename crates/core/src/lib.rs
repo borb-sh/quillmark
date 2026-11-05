@@ -16,7 +16,7 @@
 //! let title = doc.main()
 //!     .payload()
 //!     .get("title")
-//!     .and_then(|v| v.as_str())
+//!     .and_then(|v| v.data()?.as_str())
 //!     .unwrap_or("Untitled");
 //! assert_eq!(title, "Example");
 //! ```
@@ -37,4 +37,4 @@ pub mod writer;
 
 /// The content model: the value every body and content field holds, and what
 /// every content read answers and every content write takes.
-pub use quillmark_content::model::Content;
+pub use quillmark_automerge::content::model::Content;

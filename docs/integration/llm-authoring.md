@@ -65,11 +65,11 @@ A model revising a long document reads and writes one address at a time, rather 
 
 ```javascript
 const read = doc.toMarkdown({ card: 0 }, { annotated: true }) // the body of cards[0], with its anchor tags
-const base = doc.read({ card: 0 })                     // the value the model read
+const heads = doc.heads()                              // the revision the model read
 const reply = await model(read.markdown)              // the model edits that markdown alone
-quill.writer(doc).card(0).revise({}, reply, { baseContent: base })
+quill.writer(doc).revise({ card: doc.cards[0].id }, reply, { heads })
 ```
 
-The scoped read is the read a revise at that address takes back: kept anchor tags pin their comments, and `baseContent` rebases the edit over any change made since the read.
+The scoped read is the read a revise at that address takes back: kept anchor tags pin their comments, and `heads` merges the edit with any change made since the read.
 
 Full model: [AUTHORING.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/AUTHORING.md).

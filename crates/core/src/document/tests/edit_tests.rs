@@ -67,15 +67,15 @@ fn test_document_store_field_rejects_invalid_names() {
 #[test]
 fn test_document_insert_and_remove_card() {
     let mut doc = make_doc_with_cards();
-    doc.unchecked().insert_card(Some(0), Card::new("intro").unwrap(), None).unwrap();
-    doc.unchecked().insert_card(Some(3), Card::new("footer").unwrap(), None).unwrap();
+    doc.unchecked().insert_card(Some(0), Card::new("intro").unwrap()).unwrap();
+    doc.unchecked().insert_card(Some(3), Card::new("footer").unwrap()).unwrap();
     let kinds: Vec<_> = doc.cards().iter().map(|c| c.kind()).collect();
     assert_eq!(
         kinds,
         [Some("intro"), Some("note"), Some("summary"), Some("footer")]
     );
     assert_eq!(
-        doc.unchecked().insert_card(Some(5), Card::new("note").unwrap(), None),
+        doc.unchecked().insert_card(Some(5), Card::new("note").unwrap()),
         Err(EditError::IndexOutOfRange { index: 5, len: 4 })
     );
     assert_eq!(doc.remove_card(0).unwrap().kind(), Some("intro"));
@@ -91,15 +91,15 @@ fn test_placing_a_card_past_the_card_ceiling_is_refused() {
 
     let mut doc = make_doc();
     for _ in 0..MAX_CARD_COUNT {
-        doc.unchecked().insert_card(None, Card::new("note").unwrap(), None).unwrap();
+        doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
     }
     assert!(Document::parse(&doc.to_markdown()).is_ok());
     let full = EditError::TooManyCards {
         max: MAX_CARD_COUNT,
     };
-    assert_eq!(doc.unchecked().insert_card(None, Card::new("note").unwrap(), None), Err(full.clone()));
+    assert_eq!(doc.unchecked().insert_card(None, Card::new("note").unwrap()), Err(full.clone()));
     assert_eq!(
-        doc.unchecked().insert_card(Some(0), Card::new("note").unwrap(), None),
+        doc.unchecked().insert_card(Some(0), Card::new("note").unwrap()),
         Err(full.clone())
     );
     assert_eq!(full.code(), "edit::too_many_cards");
@@ -126,7 +126,7 @@ fn test_set_card_kind_renames_in_place() {
     doc.set_card_kind(0, "annotation").unwrap();
     assert_eq!(doc.cards()[0].kind(), Some("annotation"));
     assert_eq!(
-        doc.cards()[0].payload().get("foo").unwrap().as_str(),
+        doc.cards()[0].payload().get("foo").unwrap().to_value().as_str(),
         Some("bar")
     );
     assert_eq!(doc.cards()[1].kind(), Some("summary"));
@@ -153,10 +153,10 @@ fn test_document_new_blank_canvas() {
     assert!(doc.cards().is_empty());
     assert_eq!(doc.main().body_markdown(), "");
 
-    doc.main_card_mut().store_fields([("title", "Hello")]).unwrap();
+    doc.edit_card(None, |c| c.store_fields([("title", "Hello")])).unwrap();
     let mut card = Card::new("note").unwrap();
     card.store_field("qty", 3).unwrap();
-    doc.unchecked().insert_card(None, card, None).unwrap();
+    doc.unchecked().insert_card(None, card).unwrap();
 
     let reparsed = Document::parse(&doc.to_markdown()).unwrap().document;
     assert_eq!(doc, reparsed);
@@ -169,7 +169,7 @@ fn test_card_store_fields_inserts_in_iterator_order() {
         .unwrap();
     let keys: Vec<&String> = card.payload().iter().map(|(k, _)| k).collect();
     assert_eq!(keys, ["b", "a"]);
-    assert_eq!(card.payload().get("a").unwrap().as_str(), Some("one"));
+    assert_eq!(card.payload().get("a").unwrap().to_value().as_str(), Some("one"));
 }
 
 #[test]
@@ -191,7 +191,7 @@ fn test_card_store_fields_collects_every_violation_and_applies_none() {
             .all(|(n, e)| *e == EditError::InvalidFieldName(n.clone()))
     );
     assert_eq!(
-        card.payload().get("existing").unwrap().as_str(),
+        card.payload().get("existing").unwrap().to_value().as_str(),
         Some("old")
     );
 }
@@ -205,7 +205,7 @@ fn test_card_store_fields_repeated_name_last_wins() {
         ("title".to_string(), qv("final")),
     ])
     .unwrap();
-    assert_eq!(card.payload().get("title").unwrap().as_str(), Some("final"));
+    assert_eq!(card.payload().get("title").unwrap().to_value().as_str(), Some("final"));
 }
 
 #[test]
@@ -218,11 +218,11 @@ fn test_store_field_scalar_conversions() {
     card.store_field("tags", serde_json::json!(["a", "b"]))
         .unwrap();
     card.store_fields([("count", 1), ("total", 2)]).unwrap();
-    assert_eq!(card.payload().get("name").unwrap().as_str(), Some("Alice"));
-    assert_eq!(card.payload().get("qty").unwrap().as_i64(), Some(3));
-    assert_eq!(card.payload().get("price").unwrap().as_f64(), Some(2.5));
-    assert_eq!(card.payload().get("active").unwrap().as_bool(), Some(true));
-    assert_eq!(card.payload().get("total").unwrap().as_i64(), Some(2));
+    assert_eq!(card.payload().get("name").unwrap().to_value().as_str(), Some("Alice"));
+    assert_eq!(card.payload().get("qty").unwrap().to_value().as_i64(), Some(3));
+    assert_eq!(card.payload().get("price").unwrap().to_value().as_f64(), Some(2.5));
+    assert_eq!(card.payload().get("active").unwrap().to_value().as_bool(), Some(true));
+    assert_eq!(card.payload().get("total").unwrap().to_value().as_i64(), Some(2));
 }
 
 #[test]
@@ -255,9 +255,9 @@ fn test_replace_body_reports_import_error() {
 
 #[test]
 fn test_overwrite_body_sets_directly() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::lines::import::from_markdown("underlined body")
+    let mut content = quillmark_automerge::content::lines::import::from_markdown("underlined body")
         .unwrap()
         .content
         .into_content();
@@ -271,9 +271,9 @@ fn test_overwrite_body_sets_directly() {
 
 #[test]
 fn test_overwrite_field_sets_directly() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
+    let mut content = quillmark_automerge::content::lines::import::from_markdown("underlined intro")
         .unwrap()
         .content
         .into_content();
@@ -289,7 +289,7 @@ fn test_overwrite_field_sets_directly() {
     assert_eq!(read, content);
 
     assert_eq!(
-        card.overwrite_field("$bad", quillmark_content::lines::model::Lines::empty())
+        card.overwrite_field("$bad", quillmark_automerge::content::lines::model::Lines::empty())
             .unwrap_err()
             .code(),
         "edit::invalid_field_name"
@@ -298,11 +298,12 @@ fn test_overwrite_field_sets_directly() {
 
 #[test]
 fn test_revise_field_diff_imports_and_returns_its_change() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
-    let mut card = Card::new("note").unwrap();
+    let mut doc = super::placed(Card::new("note").unwrap());
+    let mut card = doc.card_mut(0).unwrap();
     let revised = card.revise(crate::document::Target::from("intro"), "hello target world", None).unwrap();
-    assert!(!revised.applied.steps.is_empty());
+    assert!(!revised.patches.is_empty());
 
     let mut base = card
         .field_content("intro", Codec::Richtext)
@@ -327,13 +328,9 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
             .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
     );
 
-    card.store_field(
-        "count",
-        crate::value::QuillValue::from_json(serde_json::json!(3)),
-    )
-    .unwrap();
+    doc.unchecked().store_field(Some(0), "count", crate::value::QuillValue::from_json(serde_json::json!(3))).unwrap();
     assert_eq!(
-        card.revise(crate::document::Target::from("count"), "x", None).unwrap_err().code(),
+        doc.card_mut(0).unwrap().revise(crate::document::Target::from("count"), "x", None).unwrap_err().code(),
         "edit::field_decode"
     );
 }
@@ -341,7 +338,7 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
 #[test]
 fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
     use crate::quill::{FieldSchema, FieldType};
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
     let inline = FieldSchema::new(
         "subject".to_string(),
@@ -349,11 +346,12 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
         None,
     );
 
-    let mut card = Card::new("note").unwrap();
+    let mut doc = super::placed(Card::new("note").unwrap());
+    let mut card = doc.card_mut(0).unwrap();
     let revised = card
-        .revise_field_checked("subject", "hello target world", &inline)
+        .revise_field_checked("subject", "hello target world", &inline, None)
         .unwrap();
-    assert!(!revised.applied.steps.is_empty());
+    assert!(!revised.patches.is_empty());
 
     let mut base = card
         .field_content("subject", Codec::Richtext)
@@ -366,7 +364,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
     let base = base.into_lines();
     card.overwrite_field("subject", base).unwrap();
     let _ = card
-        .revise_field_checked("subject", "why keep the target here", &inline)
+        .revise_field_checked("subject", "why keep the target here", &inline, None)
         .unwrap();
     let read = card
         .field_content("subject", Codec::Richtext)
@@ -376,7 +374,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
         read.marks
             .iter()
             .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1")),
-        "anchor should rebase onto surviving text, unlike the cold commit_field"
+        "anchor should ride its surviving text, unlike the cold commit_field"
     );
 
     let before = card
@@ -384,7 +382,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
         .unwrap()
         .unwrap();
     let err = card
-        .revise_field_checked("subject", "line one\n\nline two", &inline)
+        .revise_field_checked("subject", "line one\n\nline two", &inline, None)
         .unwrap_err();
     assert_eq!(err.code(), "edit::field_not_single_line");
     assert_eq!(
@@ -400,9 +398,9 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
         None,
     );
     let d = card
-        .revise_field_checked("body", "para one\n\npara two", &block)
+        .revise_field_checked("body", "para one\n\npara two", &block, None)
         .unwrap();
-    assert!(!d.applied.steps.is_empty());
+    assert!(!d.patches.is_empty());
     assert!(
         card.field_text("body", Codec::Richtext)
             .unwrap()
@@ -413,20 +411,20 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
 
 #[test]
 fn test_commit_field_richtext_content_object_reads_back() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
+    let mut content = quillmark_automerge::content::lines::import::from_markdown("underlined intro")
         .unwrap()
         .content
         .into_content();
     content.marks.push(Mark::new(0, 10, MarkKind::Underline));
     let content = content.into_lines();
-    let json = quillmark_content::lines::serial::to_canonical_value(&content);
+    let json = quillmark_automerge::content::migrate::from_lines(&content).to_value();
 
     let mut card = Card::new("note").unwrap();
     commit_richtext(&mut card, "intro", &json, false).unwrap();
 
-    assert!(card.payload().get("intro").unwrap().as_json().is_object());
+    assert!(card.payload().get("intro").unwrap().to_value().as_json().is_object());
     let read = card
         .field_content("intro", Codec::Richtext)
         .unwrap()
@@ -451,7 +449,7 @@ fn test_commit_field_richtext_markdown_null_and_rejects_bad() {
     );
 
     commit_richtext(&mut card, "intro", &serde_json::Value::Null, false).unwrap();
-    assert!(card.payload().get("intro").unwrap().as_json().is_null());
+    assert!(card.payload().get("intro").unwrap().to_value().as_json().is_null());
     assert!(
         card.field_content("intro", Codec::Richtext)
             .unwrap()
@@ -551,7 +549,7 @@ fn test_commit_field_scalar_strict() {
     )
     .unwrap();
     assert_eq!(
-        card.payload().get("qty").unwrap().as_json(),
+        card.payload().get("qty").unwrap().to_value().as_json(),
         &serde_json::json!(3)
     );
 
@@ -575,7 +573,7 @@ fn test_commit_field_scalar_strict() {
         "edit::field_coercion_failed"
     );
     assert_eq!(
-        card.payload().get("qty").unwrap().as_json(),
+        card.payload().get("qty").unwrap().to_value().as_json(),
         &serde_json::json!(3)
     );
 
@@ -616,25 +614,25 @@ fn test_field_content_absent_and_non_content() {
 }
 
 #[test]
-fn test_revise_body_returns_its_change_and_updates_body() {
-    use quillmark_content::change::Assoc;
-    use quillmark_content::mapping::Mapping;
-    use quillmark_content::model::Pos;
-
-    let mut card = Card::new("note").unwrap();
+fn test_revise_body_returns_its_patches_and_updates_body() {
+    let mut doc = super::placed(Card::new("note").unwrap());
+    let mut card = doc.card_mut(0).unwrap();
     let _ = card.revise(crate::document::Target::Body, "hello world", None).unwrap();
-    let applied = card.revise(crate::document::Target::Body, "hello brave world", None).unwrap().applied;
+    let patches = card.revise(crate::document::Target::Body, "hello brave world", None).unwrap().patches;
     assert_eq!(card.body_lines().text, "hello brave world");
-    let mapping = Mapping::from_change(&applied).unwrap();
-    assert_eq!(mapping.map(&Pos::at(6), Assoc::Before).pos, Pos::at(6));
-    assert_eq!(mapping.map(&Pos::at(11), Assoc::After).pos, Pos::at(17));
+    let spliced: Vec<(&serde_json::Value, &str)> = patches
+        .iter()
+        .filter(|p| p["action"] == "splice")
+        .map(|p| (p["path"].as_array().unwrap().last().unwrap(), p["value"].as_str().unwrap()))
+        .collect();
+    assert_eq!(spliced, [(&serde_json::json!(7), "brave ")]);
 }
 
 #[test]
-fn test_revise_body_rebases_anchor() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+fn test_revise_body_anchor_rides_its_text() {
+    use quillmark_automerge::content::lines::model::{Mark, MarkKind};
 
-    let mut base = quillmark_content::lines::import::from_markdown("keep the target word")
+    let mut base = quillmark_automerge::content::lines::import::from_markdown("keep the target word")
         .unwrap()
         .content
         .into_content();
@@ -653,8 +651,8 @@ fn test_revise_body_rebases_anchor() {
         .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
         .expect("identity anchor survives the whole-document replace");
     let text = &card.body_lines().text;
-    let s = quillmark_content::units::char_to_byte(text, anchor.start);
-    let e = quillmark_content::units::char_to_byte(text, anchor.end);
+    let s = quillmark_automerge::content::units::char_to_byte(text, anchor.start);
+    let e = quillmark_automerge::content::units::char_to_byte(text, anchor.end);
     assert_eq!(&text[s..e], "target");
 }
 
@@ -800,14 +798,13 @@ fn test_insert_card_refuses_root_only_entries() {
         mutate(&mut wire);
         let card = Card::try_from(wire).expect("the wire stays permissive on placement metadata");
         let mut doc = make_doc();
-        doc.unchecked().insert_card(None, card.clone(), None).map(|_| doc).map_err(|e| {
+        doc.unchecked().insert_card(None, card.clone()).map(|_| doc).inspect_err(|e| {
             let mut doc = make_doc();
             assert_eq!(
-                doc.unchecked().insert_card(Some(0), card, None),
+                doc.unchecked().insert_card(Some(0), card),
                 Err(e.clone()),
                 "push and insert agree"
             );
-            e
         })
     };
 
@@ -898,8 +895,8 @@ fn test_wire_refuses_payload_level_violations() {
 fn storage_dto_refuses_what_the_parser_refuses() {
     let load = |items: serde_json::Value| {
         serde_json::from_value::<crate::document::Document>(serde_json::json!({
-            "schema": "quillmark/document@0.129.0",
-            "main": {"payload": {"items": items}, "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}},
+            "schema": "quillmark/document@0.135.0",
+            "main": {"payload": {"items": items}, "body": {"blocks": [{"id": "b0", "kind": "para"}], "text": ""}},
             "cards": []
         }))
     };
@@ -961,13 +958,12 @@ fn storage_dto_refuses_what_the_parser_refuses() {
 #[test]
 fn a_field_write_past_the_count_is_refused_at_the_write() {
     use crate::document::edit::{PayloadViolation, validate_payload};
-    use quillmark_content::lines::model::Lines;
+    use quillmark_automerge::content::lines::model::Lines;
 
     let max = crate::error::MAX_FIELD_COUNT;
     let names: Vec<String> = (0..max).map(|i| format!("f{i}")).collect();
     let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
-    doc.main_card_mut()
-        .store_fields(names.iter().map(|n| (n.as_str(), qv("v"))))
+    doc.edit_card(None, |c| c.store_fields(names.iter().map(|n| (n.as_str(), qv("v")))))
         .expect("a batch that fills the card exactly to the cap lands");
     assert_eq!(doc.main().payload().len(), max);
 
@@ -983,7 +979,7 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
             .unwrap_err(),
     );
     refused.push(
-        commit_richtext(doc.main_card_mut(), "late", &serde_json::json!("v"), false).unwrap_err(),
+        doc.edit_card(None, |c| commit_richtext(c, "late", &serde_json::json!("v"), false)).unwrap_err(),
     );
     for err in refused {
         assert_eq!(err.code(), "edit::invalid_payload");
@@ -1009,18 +1005,11 @@ fn a_batch_past_the_count_names_its_overflowing_tail() {
     let max = crate::error::MAX_FIELD_COUNT;
     let names: Vec<String> = (0..max - 1).map(|i| format!("f{i}")).collect();
     let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
-    doc.main_card_mut()
-        .store_fields(names.iter().map(|n| (n.as_str(), qv("v"))))
+    doc.edit_card(None, |c| c.store_fields(names.iter().map(|n| (n.as_str(), qv("v")))))
         .expect("one slot short of the cap");
 
     let errs = doc
-        .main_card_mut()
-        .store_fields([
-            ("f0", qv("replaced")),
-            ("a", qv("v")),
-            ("b", qv("v")),
-            ("c", qv("v")),
-        ])
+        .edit_card(None, |c| c.store_fields([("f0", qv("replaced")), ("a", qv("v")), ("b", qv("v")), ("c", qv("v"))]))
         .unwrap_err();
     assert_eq!(
         errs.iter()
@@ -1035,7 +1024,7 @@ fn a_batch_past_the_count_names_its_overflowing_tail() {
     );
 
     assert_eq!(doc.main().payload().len(), max - 1);
-    assert_eq!(doc.main().payload().get("f0").unwrap().as_str(), Some("v"));
+    assert_eq!(doc.main().payload().get("f0").unwrap().to_value().as_str(), Some("v"));
 }
 
 /// [`CardMut`](crate::document::CardMut) is the whole mutable surface of a
@@ -1047,7 +1036,7 @@ fn a_batch_past_the_count_names_its_overflowing_tail() {
 fn no_verb_on_a_placed_card_moves_it_between_roles() {
     use crate::document::CardMut;
     use crate::quill::{FieldSchema, FieldType};
-    use quillmark_content::lines::model::Lines;
+    use quillmark_automerge::content::lines::model::Lines;
 
     fn richtext() -> FieldSchema {
         FieldSchema::new(
@@ -1080,7 +1069,7 @@ fn no_verb_on_a_placed_card_moves_it_between_roles() {
             ignore(c.commit_field("f", qv("v"), &richtext()))
         }),
         ("revise_field_checked", |c| {
-            ignore(c.revise_field_checked("f", "text", &richtext()))
+            ignore(c.revise_field_checked("f", "text", &richtext(), None))
         }),
     ];
 
@@ -1119,8 +1108,8 @@ fn reversed_keys(v: &serde_json::Value) -> serde_json::Value {
 /// write, the wire and the load.
 #[test]
 fn a_field_write_holds_its_content_as_a_body_write_does() {
-    let mut content = quillmark_content::markdown::from_markdown("Hello *world*").unwrap().content;
-    content.anchors.push(quillmark_content::model::Anchor::new("a1", 0, 5));
+    let mut content = quillmark_automerge::content::markdown::from_markdown("Hello *world*").unwrap().content;
+    content.anchors.push(quillmark_automerge::content::model::Anchor::new("a1", 0, 5));
     let canonical = content.to_value();
     let shuffled = reversed_keys(&canonical);
     assert_ne!(serde_json::to_string(&shuffled).unwrap(), serde_json::to_string(&canonical).unwrap());
@@ -1136,7 +1125,8 @@ fn a_field_write_holds_its_content_as_a_body_write_does() {
 
     let mut nested = make_doc();
     nested.unchecked().store_field(None, "rows", QuillValue::from_json(serde_json::json!([{ "f": shuffled }]))).unwrap();
-    assert_eq!(nested.main().payload().get("rows").unwrap().as_json(), &serde_json::json!([{ "f": canonical }]));
+    let by_place = quillmark_automerge::content::model::Content::from_value(&canonical).unwrap().by_place().to_value();
+    assert_eq!(nested.by_place().main().payload().get("rows").unwrap().to_value().as_json(), &serde_json::json!([{ "f": by_place }]));
 
     let mut bad = canonical.clone();
     bad["anchors"][0]["end"] = 99.into();
@@ -1152,18 +1142,22 @@ fn a_field_write_holds_its_content_as_a_body_write_does() {
     wire.payload_items.push(crate::document::PayloadItemWire::Field { key: "f".into(), value: bad.clone() });
     assert_eq!(Card::try_from(wire).unwrap_err().code(), "edit::field_decode");
 
-    let row = stored(&b).replace(&serde_json::to_string(&canonical).unwrap(), &serde_json::to_string(&bad).unwrap());
+    let row = stored(&b).replace(r#"{"end":5,"id":"a1","start":0}"#, r#"{"end":99,"id":"a1","start":0}"#);
+    assert_ne!(row, stored(&b));
     assert!(Document::from_stored(&row).is_err(), "a load refuses a field it would refuse as a body");
 }
 
-/// A card placed with no `$id` mints one positionally, or under the writer's
-/// actor where one is given, so two writers placing a card into one document
-/// mint two ids.
+/// A card placed with no `$id` mints one positionally, or under the
+/// document's actor where one is set, so two writers placing a card into one
+/// document mint two ids.
 #[test]
 fn a_placed_card_mints_under_its_writers_actor() {
     let place = |actor: Option<&str>| {
         let mut doc = make_doc();
-        let id = doc.unchecked().insert_card(None, Card::new("note").unwrap(), actor).unwrap();
+        if let Some(a) = actor {
+            doc.set_actor(a).unwrap();
+        }
+        let id = doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
         assert_eq!(doc.cards()[0].id(), Some(id.as_str()));
         id
     };
@@ -1173,13 +1167,13 @@ fn a_placed_card_mints_under_its_writers_actor() {
     assert_ne!(seven, eight);
 
     let mut doc = make_doc();
-    assert_eq!(
-        doc.unchecked().insert_card(None, Card::new("note").unwrap(), Some("a:b")),
-        Err(EditError::InvalidActor("a:b".into()))
-    );
+    assert_eq!(doc.set_actor("a:b"), Err(EditError::InvalidActor("a:b".into())));
+    assert_eq!(doc.actor(), None);
+    doc.set_actor("7").unwrap();
+    assert_eq!(doc.actor(), Some("7"));
     let mut spelled = Card::new("note").unwrap();
     spelled.payload_mut().set_id("kept");
-    assert_eq!(doc.unchecked().insert_card(None, spelled, Some("7")).unwrap(), "kept");
+    assert_eq!(doc.unchecked().insert_card(None, spelled).unwrap(), "kept");
 }
 
 /// An actor never mints an id twice in a document's life, though the card
@@ -1187,8 +1181,9 @@ fn a_placed_card_mints_under_its_writers_actor() {
 #[test]
 fn an_actor_never_mints_a_freed_id_again() {
     let mut doc = make_doc();
-    let first = doc.unchecked().insert_card(None, Card::new("note").unwrap(), Some("7")).unwrap();
+    doc.set_actor("7").unwrap();
+    let first = doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
     doc.remove_card(0).unwrap();
-    let second = doc.unchecked().insert_card(None, Card::new("note").unwrap(), Some("7")).unwrap();
+    let second = doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
     assert_ne!(first, second);
 }

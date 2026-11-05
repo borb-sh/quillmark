@@ -1,9 +1,9 @@
 //! The whole-document revise: a markdown write that keeps what markdown cannot
 //! spell.
 
-use quillmark_content::lines::delta::rebase_marks;
-use quillmark_content::change::ApplyError;
-use quillmark_content::model::Content;
+use quillmark_automerge::content::lines::delta::rebase_marks;
+use quillmark_automerge::content::change::ApplyError;
+use quillmark_automerge::content::model::Content;
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 
@@ -12,10 +12,9 @@ use super::card_id::{is_card_id, reminted_warning, settle_reporting};
 use super::anchors::AnchorSelector;
 use super::edit::EditError;
 use super::emit::{canonical_content, emit_payload_fields};
-use quillmark_content::anchors::anchor_contexts;
-use quillmark_content::model::Content as ContentModel;
-use super::merge::MergeConflict;
-use super::{Card, Document, Parsed, Revising, dropped_constructs};
+use quillmark_automerge::content::anchors::anchor_contexts;
+use quillmark_automerge::content::model::Content as ContentModel;
+use super::{Card, FieldValue, Snapshot, Document, Heads, Revising, dropped_constructs};
 use crate::error::{Diagnostic, ParseError, Severity};
 use crate::path::DocPath;
 use crate::value::QuillValue;
@@ -41,10 +40,10 @@ pub struct DocumentRevised {
     /// entry names was removed. Only cards of one `$kind` pair, and a card
     /// revising a stored one holds its `$id`.
     pub from: Vec<Option<usize>>,
-    /// Under a [`DocumentBase::Stored`](super::DocumentBase::Stored), each place the writer's
-    /// change and the change since its read both changed, which the write
-    /// leaves as it stands now. Empty for any other write.
-    pub conflicts: Vec<MergeConflict>,
+    /// The document's heads before the revise.
+    pub before: Heads,
+    /// The document's heads after the revise.
+    pub heads: Heads,
 }
 
 impl Document {
@@ -61,8 +60,8 @@ impl Document {
     /// card's body, and each
     /// markdown string in a field where the stored field holds a content
     /// object, at any depth, by key in an object and by index in an array,
-    /// revise as [`Card::revise`] does, so
-    /// surviving anchors rebase. A body or value whose revise does not
+    /// revise as [`CardMut::revise`](crate::document::CardMut::revise) does, so
+    /// surviving anchors ride their text. A body or value whose revise does not
     /// validate keeps its stored value, with a warning. Everything else
     /// lands as the markdown spells it: scalars, `$quill`, `$seed`, YAML
     /// comments, inserted cards, and removed cards dropped.
@@ -87,18 +86,11 @@ impl Document {
     /// [`revise`](Self::revise) from `revising`, whose cards hold the `$id`
     /// each spells or none, as [`Document::parse_revising`] leaves them.
     pub(crate) fn revise_parsed(&mut self, revising: Revising) -> DocumentRevised {
-        let Revising {
-            parsed:
-                Parsed {
-                    document: incoming,
-                    mut warnings,
-                },
-            bodies,
-        } = revising;
-        let Document { main, cards, .. } = incoming;
+        let Revising { cards: Snapshot { main, cards }, mut warnings, bodies } = revising;
+        let before = self.heads();
         let mut bodies = bodies.into_iter();
 
-        let pairs = align_cards(&self.cards, &cards);
+        let pairs = align_cards(&self.view.cards, &cards);
         let same_kinds = self
             .cards
             .iter()
@@ -109,7 +101,7 @@ impl Document {
         let mut moves = Moves::new();
 
         let main = revise_card(
-            &self.main,
+            &self.view.main,
             main,
             bodies.next().as_deref(),
             (&DocPath::main(), &DocPath::main()),
@@ -118,7 +110,7 @@ impl Document {
             &mut moves,
         );
         drop_report(
-            &self.main,
+            &self.view.main,
             Some(&main),
             &DocPath::main(),
             &moves,
@@ -132,14 +124,14 @@ impl Document {
             .map(str::to_string)
             .collect();
         let mut revised_cards = Vec::with_capacity(cards.len());
-        let mut kept = vec![None; self.cards.len()];
+        let mut kept = vec![None; self.view.cards.len()];
         for (j, mut card) in cards.into_iter().enumerate() {
             let at = DocPath::card(card.kind(), j);
             let body = bodies.next();
             let card = match pairs[j] {
                 Some((i, pairing)) => {
                     kept[i] = Some(j);
-                    let stored = &self.cards[i];
+                    let stored = &self.view.cards[i];
                     match stored.id() {
                         Some(id) => card.payload_mut().set_id(id),
                         None => card.payload_mut().remove_id(),
@@ -173,7 +165,7 @@ impl Document {
             revised_cards.push(card);
         }
         settle_reporting(&mut revised_cards, &stored_ids, &mut warnings);
-        for (i, stored) in self.cards.iter().enumerate() {
+        for (i, stored) in self.view.cards.iter().enumerate() {
             let at = DocPath::card(stored.kind(), i);
             let revised = kept[i].map(|j| &revised_cards[j]);
             drop_report(stored, revised, &at, &moves, &mut dropped_anchors);
@@ -182,13 +174,13 @@ impl Document {
             anchor.card_id = self.card_id_at(&anchor.path).map(str::to_string);
         }
 
-        self.main = main;
-        self.cards = revised_cards;
+        self.replace_cards(main, revised_cards);
         DocumentRevised {
             dropped_anchors,
             warnings,
             from: pairs.into_iter().map(|pair| pair.map(|(i, _)| i)).collect(),
-            conflicts: Vec::new(),
+            before,
+            heads: self.heads(),
         }
     }
 }
@@ -251,7 +243,7 @@ fn revise_card(
         Some(revised) => Ok(revised),
         None => {
             let lines = rebase_marks(stored.body_lines(), incoming.body_lines().clone());
-            let lifted = quillmark_content::diff::lift(stored.body(), &lines);
+            let lifted = quillmark_automerge::content::diff::lift(stored.body(), &lines);
             lifted.validate().map(|()| lifted).map_err(ApplyError::Invalid)
         }
     });
@@ -266,13 +258,15 @@ fn revise_card(
     for (name, value) in incoming.payload_mut().fields_mut() {
         if let Some(stored) = stored.payload().get(name) {
             let places = (&at.field(name), &from.field(name));
+            let mut revised = value.to_value().into_owned();
             revise_value(
-                stored.as_json(),
-                value.as_json_mut(),
+                stored.to_value().as_json(),
+                revised.as_json_mut(),
                 places,
                 warnings,
                 moves,
             );
+            *value = revised.into();
         }
     }
 
@@ -284,22 +278,15 @@ fn revise_card(
     incoming
 }
 
-/// `markdown` revising `stored` as [`Card::revise`] revises a value with no
-/// base. Where the markdown rewrites what the stored value's annotated read
-/// does not spell, which that revise refuses, the revise is the cold diff
-/// against `stored`, dropping what the markdown cannot spell rather than
-/// refusing the document. `None` on an over-nested input, and the refusal
-/// where the markdown imports to a value that does not validate.
-fn revised(stored: &Content, markdown: &str) -> Result<Option<quillmark_content::diff::Revision>, ApplyError> {
-    use quillmark_content::diff::{ReviseError, revise, revise_holding};
-    let revision = match revise(stored, markdown) {
-        Err(ReviseError::Conflict(_)) => revise_holding(stored, markdown, stored),
-        revision => revision,
-    };
-    match revision {
+/// `markdown` revising `stored` as [`CardMut::revise`](crate::document::CardMut::revise) revises a value with no
+/// base. `None` on an over-nested input, and the refusal where the markdown
+/// imports to a value that does not validate.
+fn revised(stored: &Content, markdown: &str) -> Result<Option<quillmark_automerge::content::diff::Revision>, ApplyError> {
+    use quillmark_automerge::content::diff::ReviseError;
+    match quillmark_automerge::revise(stored, markdown) {
         Ok(revision) => Ok(Some(revision)),
         Err(ReviseError::Refused(e)) => Err(e),
-        Err(ReviseError::Import(_) | ReviseError::Conflict(_)) => Ok(None),
+        Err(ReviseError::Import(_)) => Ok(None),
     }
 }
 
@@ -455,10 +442,8 @@ fn drop_report(
     out: &mut Vec<AnchorSelector>,
 ) {
     for (name, value) in stored.payload().iter() {
-        let revised = revised
-            .and_then(|card| card.payload().get(name))
-            .map(QuillValue::as_json);
-        drop_value(value.as_json(), revised, &at.field(name), moves, out);
+        let revised = revised.and_then(|card| card.payload().get(name)).map(FieldValue::to_value);
+        drop_value(value.to_value().as_json(), revised.as_deref().map(QuillValue::as_json), &at.field(name), moves, out);
     }
     drop_content(stored.body(), revised.map(Card::body), &at.body(), out);
 }
@@ -467,7 +452,7 @@ fn drop_report(
 /// any depth, against what `revised` holds at its place, an array item's
 /// place the one `moves` names for it. A content object
 /// stored out of canonical order counts too, though a revise lands over it as
-/// authored rather than rebasing it.
+/// authored rather than merging with it.
 fn drop_value(
     stored: &JsonValue,
     revised: Option<&JsonValue>,
@@ -476,8 +461,7 @@ fn drop_value(
     out: &mut Vec<AnchorSelector>,
 ) {
     let content_of = |value: &JsonValue| {
-        value
-            .is_object()
+        quillmark_automerge::content::units::is_content_value(value)
             .then(|| ContentModel::from_value_lenient(value).ok().map(|read| read.content))
             .flatten()
     };

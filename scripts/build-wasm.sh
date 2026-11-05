@@ -204,12 +204,13 @@ report_size "render" pkg/render/wasm_bg.wasm
 # Size budget on the core artifact: the split only pays off if core stays
 # Typst-free. Typst is megabytes, so a leak back into the no-features build
 # would blow past this ceiling; fail rather than ship it silently. The gzip
-# ceiling sits well above core's real size and far below anything carrying Typst.
+# ceiling sits well above core's real size, Automerge included, and far below
+# anything carrying Typst.
 #
 # Only enforced on the size-optimized release profile (where the artifact
 # publishes); the `wasm-ci` profile is unoptimized, so its size is meaningless
 # here.
-CORE_MAX_GZIP_BYTES=${CORE_MAX_GZIP_BYTES:-1500000}
+CORE_MAX_GZIP_BYTES=${CORE_MAX_GZIP_BYTES:-2000000}
 if [ -f pkg/core/wasm_bg.wasm ] && [ "$PROFILE" = "wasm-release" ]; then
     if ! [ "$core_gz_bytes" -gt 0 ] 2>/dev/null; then
         echo "ERROR: could not measure core wasm gzip size (got '${core_gz_bytes}')." >&2

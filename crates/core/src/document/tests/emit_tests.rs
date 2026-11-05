@@ -125,7 +125,8 @@ fn nested_map_keys_with_structural_chars_emit_valid_yaml() {
     let reparsed = Document::parse(&md)
         .unwrap_or_else(|e| panic!("emitted YAML must re-parse, got error {e}\n{md}"))
         .document;
-    let cfg = reparsed.main().payload().get("config").unwrap().as_json();
+    let cfg = reparsed.main().payload().get("config").unwrap().to_value();
+    let cfg = cfg.as_json();
     assert_eq!(cfg["a: b"], serde_json::json!(1));
     assert_eq!(cfg["*star"], serde_json::json!(2));
     assert_eq!(cfg["n"], serde_json::json!(3));
@@ -208,7 +209,7 @@ Body.
             .payload()
             .get("config")
             .unwrap()
-            .as_json(),
+            .to_value().as_json(),
         &serde_json::json!({"a b": "Example", "city": "Anytown"})
     );
     let paths: Vec<_> = out.warnings.iter().map(|w| w.path.as_deref()).collect();
@@ -221,10 +222,10 @@ Body.
 #[test]
 fn an_indented_text_field_survives_emit_and_reparse() {
     let text = "    indented\nplain\ntrailing   ";
-    let content = quillmark_content::lines::import::from_plaintext(text);
+    let content = quillmark_automerge::content::lines::import::from_plaintext(text);
     let md = doc_with(&[(
         "sample",
-        quillmark_content::lines::serial::to_canonical_value(&content),
+        quillmark_automerge::content::migrate::from_lines(&content).to_value(),
     )])
     .to_markdown();
     let back = Document::parse(&md).expect("re-parses").document;
@@ -232,47 +233,15 @@ fn an_indented_text_field_survives_emit_and_reparse() {
         .main()
         .payload()
         .get("sample")
-        .and_then(|v| v.as_str())
+        .and_then(|v| v.data()?.as_str())
         .expect("the field projected to a markdown string");
     assert_eq!(
-        quillmark_content::lines::import::from_markdown(projected)
+        quillmark_automerge::content::lines::import::from_markdown(projected)
             .expect("the projection re-imports")
             .content
             .text,
         text,
         "indented plaintext lost in emit:\n{md}"
-    );
-}
-
-/// The projection guard is byte identity against the canonical form, so a
-/// content object spelling a zero `instance` stays structural: it decodes to the
-/// same value and re-encodes to different bytes.
-#[test]
-fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
-    let content = quillmark_content::lines::import::from_markdown("> quoted")
-        .unwrap()
-        .content;
-    let canonical = quillmark_content::lines::serial::to_canonical_value(&content);
-    let mut spelled = canonical.clone();
-    spelled["lines"][0]["containers"][0]["instance"] = serde_json::json!(0);
-
-    let md = doc_with(&[("stored", canonical), ("spelled", spelled)]).to_markdown();
-    assert!(md.contains(r#"stored: "> quoted""#), "got:\n{md}");
-    let back = Document::parse(&md).expect("re-parses").document;
-    assert_eq!(
-        back.main().payload().get("stored").unwrap().as_str(),
-        Some("> quoted")
-    );
-
-    let spelled = back
-        .main()
-        .payload()
-        .get("spelled")
-        .expect("field survives");
-    assert_eq!(
-        spelled.as_json()["lines"][0]["containers"][0]["instance"],
-        serde_json::json!(0),
-        "got:\n{md}"
     );
 }
 
@@ -282,11 +251,11 @@ fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
 fn a_nested_content_cell_projects_and_ext_content_does_not() {
     use crate::value::QuillValue;
 
-    let content = quillmark_content::lines::serial::to_canonical_value(
-        &quillmark_content::lines::import::from_markdown("and **this**")
+    let content = quillmark_automerge::content::migrate::from_lines(
+        &quillmark_automerge::content::lines::import::from_markdown("and **this**")
             .unwrap()
             .content,
-    );
+    ).to_value();
     let meta = QuillValue::from_json(serde_json::json!({ "blurb": content.clone() }));
 
     let mut doc = Document::new("q@1.0.0".parse().expect("reference"));

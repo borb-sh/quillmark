@@ -1,9 +1,7 @@
-use quillmark_content::lines::export::to_markdown_annotated;
-use quillmark_content::lines::import::from_markdown;
+use quillmark_automerge::content::lines::export::to_markdown_annotated;
+use quillmark_automerge::content::lines::import::from_markdown;
 
-use crate::document::{
-    Base, BaseError, Card, Document, DocumentBase, EditError, MergeConflict, content_hash, value_hash,
-};
+use crate::document::{Card, Document, EditError, Heads};
 use crate::quill::{BoundParseError, QuillConfig};
 use crate::writer::TypedWriter;
 use serde_json::json;
@@ -46,38 +44,74 @@ fn config() -> QuillConfig {
     QuillConfig::from_yaml(QUILL_YAML).expect("valid quill")
 }
 
-fn card_with_body(markdown: &str) -> Card {
-    let mut card = Card::new("note").unwrap();
+/// A `note` card placed in a document, so its writes land in the document's
+/// Automerge document and a stale one merges.
+#[derive(Clone)]
+struct Placed(Document);
+
+impl Placed {
+    fn new(card: Card) -> Placed {
+        let mut doc = Document::new(std::str::FromStr::from_str("memo@1.0.0").unwrap());
+        doc.unchecked().insert_card(None, card).unwrap();
+        Placed(doc)
+    }
+
+    fn revise_body(&mut self, markdown: impl AsRef<str>) -> Result<crate::document::Receipt, EditError> {
+        self.0.card_mut(0).unwrap().revise(crate::document::Target::Body, markdown.as_ref(), None)
+    }
+
+    fn revise_body_at(&mut self, heads: &Heads, markdown: impl AsRef<str>) -> Result<crate::document::Receipt, EditError> {
+        self.0.card_mut(0).unwrap().revise(crate::document::Target::Body, markdown.as_ref(), Some(heads))
+    }
+
+    fn heads(&mut self) -> Heads {
+        self.0.heads()
+    }
+
+    fn overwrite_body(&mut self, content: impl Into<quillmark_automerge::content::lines::model::Lines>) {
+        self.0.card_mut(0).unwrap().overwrite_body(content);
+    }
+}
+
+impl std::ops::Deref for Placed {
+    type Target = Card;
+
+    fn deref(&self) -> &Card {
+        &self.0.cards()[0]
+    }
+}
+
+fn card_with_body(markdown: &str) -> Placed {
+    let mut card = Placed::new(Card::new("note").unwrap());
     let _ = card.revise_body(markdown).unwrap();
     card
 }
 
-fn current_of(err: EditError) -> (&'static str, String) {
-    match err {
-        EditError::Base(BaseError::Stale { current, .. }) => ("stale", current),
-        EditError::Base(BaseError::Conflict { current, .. }) => ("conflict", current),
-        other => panic!("not a base refusal: {other:?}"),
-    }
+/// Heads no document in these tests holds: another document's.
+fn foreign() -> Heads {
+    card_with_body("Elsewhere entirely.").heads()
+}
+
+fn stale(err: EditError) {
+    assert!(matches!(err, EditError::StaleHeads { .. }), "not a stale base: {err:?}");
+    assert_eq!(err.code(), "edit::stale_base");
 }
 
 #[test]
-fn a_stale_hash_rebases_the_revise_and_an_unknown_one_names_the_hash_now() {
+fn stale_heads_merge_the_revise_and_unknown_heads_refuse_it() {
     let mut card = card_with_body("Alpha one.\n\nBeta two.");
-    let read = card.body_hash();
+    let read = card.heads();
     let _ = card.revise_body("Alpha one, edited.\n\nBeta two.").unwrap();
 
-    let receipt = card
-        .revise_body_against(Base::Hash(&read), "Alpha one.\n\nBeta two, rewritten.")
+    let _ = card
+        .revise_body_at(&read, "Alpha one.\n\nBeta two, rewritten.")
         .unwrap();
-    assert!(receipt.rebased);
     assert_eq!(card.body_lines().text, "Alpha one, edited.\nBeta two, rewritten.");
 
-    let stored = card.body_lines().clone();
-    let err = card
-        .revise_body_against(Base::Hash("not-a-read"), "Alpha.")
-        .unwrap_err();
-    assert_eq!(current_of(err), ("stale", card.body_hash()));
-    assert_eq!(card.body_lines(), &stored);
+    let kept = card.body_lines().clone();
+    let err = card.revise_body_at(&foreign(), "Alpha.").unwrap_err();
+    stale(err);
+    assert_eq!(card.body_lines(), &kept);
 }
 
 #[test]
@@ -87,16 +121,17 @@ fn a_read_lands_the_writer_edit_beside_the_change_since_and_keeps_anchors() {
         .content;
     let mut card = Card::new("note").unwrap();
     card.overwrite_body(anchored(&content, "Beta", "c1"));
+    let mut card = Placed::new(card);
     let read = to_markdown_annotated(card.body_lines()).markdown;
-    let base = card.read(crate::document::Target::Body).unwrap();
+    let at = card.heads();
     assert!(read.contains("<qm-anchor"), "{read}");
 
     let _ = card
         .revise_body("Alpha one, edited.\n\nBeta two.\n\nGamma three.")
         .unwrap();
     let revised = card
-        .revise_body_against(
-            Base::Content(&base),
+        .revise_body_at(
+            &at,
             "Alpha one.\n\nBeta two.\n\nGamma three, rewritten.",
         )
         .unwrap();
@@ -107,27 +142,27 @@ fn a_read_lands_the_writer_edit_beside_the_change_since_and_keeps_anchors() {
     assert_eq!(anchor_ids(card.body_lines()), ["c1"]);
     assert!(revised.dropped_anchors.is_empty());
 
-    let stored = card.body_lines().clone();
-    let err = card
-        .revise_body_against(
-            Base::Content(&base),
+    let _ = card
+        .revise_body_at(
+            &at,
             "Alpha uno!\n\nBeta two.\n\nGamma three.",
         )
-        .unwrap_err();
-    assert_eq!(current_of(err), ("conflict", card.body_hash()));
-    assert_eq!(card.body_lines(), &stored);
+        .unwrap();
+    let text = card.body_lines().text.clone();
+    assert!(text.contains("uno!") && text.contains("edited") && text.contains("rewritten"), "{text}");
+    assert_eq!(anchor_ids(card.body_lines()), ["c1"]);
 }
 
 #[test]
 fn a_read_of_the_value_now_is_a_plain_revise() {
     let mut card = card_with_body("Alpha *one*.");
-    let base = card.read(crate::document::Target::Body).unwrap();
+    let at = card.heads();
     let mut plain = card.clone();
     let _ = plain
         .revise_body("Alpha _one_, then <span>two</span>.")
         .unwrap();
     let revised = card
-        .revise_body_against(Base::Content(&base), "Alpha _one_, then <span>two</span>.")
+        .revise_body_at(&at, "Alpha _one_, then <span>two</span>.")
         .unwrap();
     assert_eq!(card.body_lines(), plain.body_lines());
     assert_eq!(revised.warnings.len(), 1);
@@ -137,84 +172,49 @@ fn a_read_of_the_value_now_is_a_plain_revise() {
 fn a_text_field_merges_its_literal_text() {
     let config = config();
     let mut doc = parse("~~~\n$quill: memo@1.0.0\nnote: \"a *b*\\n\\nc\\n\\nd\"\n~~~\n");
-    let base = doc.main().read("note").unwrap();
+    config.conform(&mut doc).unwrap();
+    let at = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w.revise(crate::document::Target::from("note"), "a *b*, edited\n\nc\n\nd", None).unwrap();
     let _ = w
-        .revise(crate::document::Target::from("note"), "a *b*\n\nc\n\nd, too", Some(Base::Content(&base)))
+        .revise(crate::document::Target::from("note"), "a *b*\n\nc\n\nd, too", Some(&at))
         .unwrap();
-    let note = doc.main().payload().get("note").unwrap().as_json().clone();
+    let note = doc.main().payload().get("note").unwrap().to_value().as_json().clone();
     assert_eq!(crate::quill::text_of(&note), "a *b*, edited\n\nc\n\nd, too");
 
+    let read = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
-    let read = w.hash_of("note").unwrap();
     let _ = w.revise(crate::document::Target::from("note"), "x", None).unwrap();
+    let _ = w.revise(crate::document::Target::from("note"), "y", Some(&read)).unwrap();
+    let note = doc.main().payload().get("note").unwrap().to_value().as_json().clone();
+    assert_eq!(crate::quill::text_of(&note), "yx");
+
+    let mut w = TypedWriter::new(&config, &mut doc);
     let err = w
-        .revise(crate::document::Target::from("note"), "y", Some(Base::Hash(&read)))
+        .revise(crate::document::Target::from("note"), "z", Some(&foreign()))
         .unwrap_err();
     assert_eq!(
         err.doc_path(&crate::path::DocPath::main())
             .map(|p| p.to_string()),
         Some("main.note".into())
     );
-    let w = TypedWriter::new(&config, &mut doc);
-    assert_eq!(current_of(err), ("stale", w.hash_of("note").unwrap()));
+    stale(err);
 }
 
 /// A revise of a field neither `text` nor `richtext` fails as it does with no
-/// base, never as a stale read of a fresh hash.
+/// base, never as a stale read of fresh heads.
 #[test]
-fn a_revise_of_a_date_under_a_fresh_hash_fails_as_a_plain_revise() {
+fn a_revise_of_a_date_at_fresh_heads_fails_as_a_plain_revise() {
     let config = config();
     let mut doc = parse("~~~\n$quill: memo@1.0.0\non: 2024-01-01\n~~~\n");
+    let read = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let plain = w.revise(crate::document::Target::from("on"), "2024-02-02", None).unwrap_err().code();
-    let read = w.hash_of("on").unwrap();
     let err = w
-        .revise(crate::document::Target::from("on"), "2024-02-02", Some(Base::Hash(&read)))
+        .revise(crate::document::Target::from("on"), "2024-02-02", Some(&read))
         .unwrap_err();
     assert_eq!(err.code(), plain);
     assert_ne!(plain, "edit::stale_base");
-}
-
-#[test]
-fn a_richtext_field_hashes_its_content_however_it_rests() {
-    let config = config();
-    let mut doc = parse("~~~\n$quill: memo@1.0.0\nsubject: Hello *world*\n~~~\n");
-    let as_string = doc.main().hash_of("subject").unwrap();
-    assert_eq!(
-        as_string,
-        content_hash(&quillmark_content::markdown::from_markdown("Hello *world*").unwrap().content)
-    );
-    let mut w = TypedWriter::new(&config, &mut doc);
-    assert_eq!(w.hash_of("subject").unwrap(), as_string);
-    let _ = w.revise(crate::document::Target::Body, "Body.", None).unwrap();
-    assert!(config.conform(&mut doc).unwrap().is_empty());
-    assert_eq!(doc.main().hash_of("subject").unwrap(), as_string);
-    let mut w = TypedWriter::new(&config, &mut doc);
-    let _ = w
-        .revise(crate::document::Target::from("subject"), "Hello _world_, hi", Some(Base::Hash(&as_string)))
-        .unwrap();
-    assert_eq!(
-        w.hash_of("missing").unwrap_err().code(),
-        "edit::unknown_field"
-    );
-}
-
-#[test]
-fn a_hash_ignores_key_order_and_a_typed_document_hash_ignores_conforming() {
-    assert_eq!(
-        value_hash(&json!({"b": [{"y": 1, "x": 2}], "a": null})),
-        value_hash(&json!({"a": null, "b": [{"x": 2, "y": 1}]}))
-    );
-    assert_ne!(value_hash(&json!({"a": 1})), value_hash(&json!({"a": 2})));
-    let config = config();
-    let mut doc = parse("~~~\n$quill: memo@1.0.0\nsubject: Hello *world*\n~~~\n\nBody.\n");
-    let before = TypedWriter::new(&config, &mut doc).hash().unwrap();
-    let stored_before = doc.hash();
-    config.conform(&mut doc).unwrap();
-    assert_eq!(TypedWriter::new(&config, &mut doc).hash().unwrap(), before);
-    assert_ne!(doc.hash(), stored_before);
 }
 
 #[test]
@@ -230,19 +230,17 @@ fn an_annotated_document_read_with_a_field_anchor_is_a_fresh_read() {
         .field_content("summary", crate::document::Codec::Richtext)
         .unwrap()
         .unwrap();
-    let mut card = doc.card_mut(0).unwrap();
-    card.overwrite_field("summary", anchored(&summary, "Second", "s1"))
+    doc.card_mut(0)
+        .unwrap()
+        .overwrite_field("summary", anchored(&summary, "Second", "s1"))
         .unwrap();
     let read = doc.to_markdown_annotated().markdown;
-    let stored = doc.clone();
+    let at = doc.heads();
     assert!(read.contains("<qm-anchor"), "{read}");
 
     let mut w = TypedWriter::new(&config, &mut doc);
     let revised = w
-        .revise_document_against(
-            DocumentBase::Stored(&stored),
-            &read.replace("Second para here", "Second paragraph here"),
-        )
+        .revise_document(&read.replace("Second para here", "Second paragraph here"), &at)
         .unwrap();
     assert!(revised.dropped_anchors.is_empty());
     let summary = doc
@@ -256,38 +254,27 @@ fn an_annotated_document_read_with_a_field_anchor_is_a_fresh_read() {
 }
 
 #[test]
-fn a_field_both_sides_wrote_keeps_its_value_now_and_warnings_follow_their_card() {
+fn a_field_both_sides_wrote_takes_the_later_write_and_warnings_follow_their_card() {
     let config = config();
     let mut doc = parse(
         "~~~\n$quill: memo@1.0.0\nsubject: Hello\n~~~\n\nBody.\n\n~~~\n$kind: item\n~~~\n\nOne.\n",
     );
     let read = doc.to_markdown();
-    let stored = doc.clone();
+    let at = doc.heads();
 
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise_document(&read.replace("subject: Hello\n", "subject: Hello\nnote: theirs\n"))
+        .revise_document(&read.replace("subject: Hello\n", "subject: Hello\nnote: theirs\n"), None)
         .unwrap();
     let revised = w
-        .revise_document_against(
-            DocumentBase::Stored(&stored),
-            &read
+        .revise_document(&read
                 .replace("$quill: memo@1.0.0\n", "$quill: memo@1.0.0\nnote: mine\n")
-                .replace("Body.", "Body, mine."),
-        )
+                .replace("Body.", "Body, mine."), &at)
         .unwrap();
+    assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     assert_eq!(
-        revised.conflicts,
-        [MergeConflict {
-            path: "main.note".parse().unwrap(),
-            base: None,
-            current: Some(json!("theirs")),
-            proposed: Some(json!("mine")),
-        }]
-    );
-    assert_eq!(
-        crate::quill::text_of(doc.main().payload().get("note").unwrap().as_json()),
-        "theirs"
+        crate::quill::text_of(doc.main().payload().get("note").unwrap().to_value().as_json()),
+        "mine"
     );
     assert_eq!(doc.main().body_markdown(), "Body, mine.");
 
@@ -295,16 +282,13 @@ fn a_field_both_sides_wrote_keeps_its_value_now_and_warnings_follow_their_card()
         "~~~\n$quill: memo@1.0.0\n~~~\n\nBody.\n\n~~~\n$kind: item\n~~~\n\nOne.\n\n~~~\n$kind: item\n~~~\n\nTwo.\n",
     );
     let read = doc.to_markdown();
-    let stored = doc.clone();
+    let at = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise_document(&read.replace("Body.\n", "Body.\n\n~~~\n$kind: item\n~~~\n\nZero.\n"))
+        .revise_document(&read.replace("Body.\n", "Body.\n\n~~~\n$kind: item\n~~~\n\nZero.\n"), None)
         .unwrap();
     let revised = w
-        .revise_document_against(
-            DocumentBase::Stored(&stored),
-            &read.replace("Two.", "Two <span>x</span>."),
-        )
+        .revise_document(&read.replace("Two.", "Two <span>x</span>."), &at)
         .unwrap();
     assert_eq!(
         revised
@@ -318,13 +302,12 @@ fn a_field_both_sides_wrote_keeps_its_value_now_and_warnings_follow_their_card()
 }
 
 #[test]
-fn a_document_revise_merges_a_read_and_refuses_a_stale_hash() {
+fn a_document_revise_merges_a_read_and_refuses_unknown_heads() {
     let config = config();
     let mut doc =
         parse("~~~\n$quill: memo@1.0.0\nsubject: Hello\n~~~\n\nAlpha one.\n\nBeta two.\n");
     let read = doc.to_markdown_annotated().markdown;
-    let stored = doc.clone();
-    let hash = doc.hash();
+    let at = doc.heads();
 
     let _ = doc
         .main_mut()
@@ -332,10 +315,10 @@ fn a_document_revise_merges_a_read_and_refuses_a_stale_hash() {
         .unwrap();
     let mut w = TypedWriter::new(&config, &mut doc);
     let err = w
-        .revise_document_against(DocumentBase::Hash(&hash), &read.replace("Hello", "Goodbye"))
+        .revise_document(&read.replace("Hello", "Goodbye"), &foreign())
         .unwrap_err();
     assert!(
-        matches!(&err, BoundParseError::Base(BaseError::Stale { .. })),
+        matches!(&err, BoundParseError::Edit(EditError::StaleHeads { .. })),
         "{err:?}"
     );
     assert_eq!(
@@ -344,7 +327,7 @@ fn a_document_revise_merges_a_read_and_refuses_a_stale_hash() {
     );
 
     let _ = w
-        .revise_document_against(DocumentBase::Stored(&stored), &read.replace("Hello", "Goodbye"))
+        .revise_document(&read.replace("Hello", "Goodbye"), &at)
         .unwrap();
     let expected: Document = parse(
         "~~~\n$quill: memo@1.0.0\nsubject: Goodbye\n~~~\n\nAlpha one.\n\nBeta two, edited.\n",
@@ -363,7 +346,7 @@ fn a_moved_tag_pins_through_a_merge() {
     let body = anchored(card.body_lines(), "delta", "c1");
     card.overwrite_body(body);
     let read = to_markdown_annotated(card.body_lines()).markdown;
-    let base = card.read(crate::document::Target::Body).unwrap();
+    let at = card.heads();
     assert!(
         read.contains("<qm-anchor ref=\"c1\"></qm-anchor>delta"),
         "{read}"
@@ -375,9 +358,9 @@ fn a_moved_tag_pins_through_a_merge() {
     let _ = card
         .revise_body(read.replace("Third.", "Third, theirs."))
         .unwrap();
-    let revised = card.revise_body_against(Base::Content(&base), &moved).unwrap();
+    let revised = card.revise_body_at(&at, &moved).unwrap();
     assert!(revised.dropped_anchors.is_empty());
-    let ctx = quillmark_content::lines::anchor::anchor_context(card.body_lines(), "c1").unwrap();
+    let ctx = quillmark_automerge::content::lines::anchor::anchor_context(card.body_lines(), "c1").unwrap();
     assert!(ctx.quote.starts_with("beta"), "{ctx:?}");
     assert!(card.body_markdown().contains("Third, theirs."));
 }
@@ -394,11 +377,12 @@ fn a_plain_read_of_an_unchanged_value_writes_the_writers_own() {
         .into_content();
     body.islands[0].props["note"] = "kept".into();
     card.overwrite_body(body.into_lines());
+    let mut card = Placed::new(card);
     let read = card.body_markdown();
-    let base = card.read(crate::document::Target::Body).unwrap();
+    let at = card.heads();
     let edited = read.replace("cell", "cell, edited");
     let revised = card
-        .revise_body_against(Base::Content(&base), &edited)
+        .revise_body_at(&at, &edited)
         .unwrap();
     assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     assert_eq!(card.body_markdown(), edited);
@@ -407,10 +391,10 @@ fn a_plain_read_of_an_unchanged_value_writes_the_writers_own() {
     let mut doc = parse("~~~\n$quill: memo@1.0.0\n~~~\n\nLead.\n");
     doc.main_mut().overwrite_body(card.body_lines().clone());
     let read = doc.to_markdown();
-    let stored = doc.clone();
+    let at = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise_document_against(DocumentBase::Stored(&stored), &read.replace("edited", "edited twice"))
+        .revise_document(&read.replace("edited", "edited twice"), &at)
         .unwrap();
     assert!(doc.main().body_markdown().contains("edited twice"));
 }
@@ -424,48 +408,51 @@ fn a_token_survives_a_merge() {
             .content,
     );
     card.overwrite_body(body.clone());
+    let mut card = Placed::new(card);
     let read = to_markdown_annotated(card.body_lines()).markdown;
     let base = card.read(crate::document::Target::Body).unwrap();
+    let at = card.heads();
     assert_eq!(
         read,
-        "Alpha <qm-island ref=\"isl-0\"></qm-island>.\n\nBeta two."
+        format!("Alpha <qm-island ref=\"{}\"></qm-island>.\n\nBeta two.", base.islands[0].id)
     );
 
     let _ = card
         .revise_body(read.replace("Beta two.", "Beta two, theirs."))
         .unwrap();
     let revised = card
-        .revise_body_against(Base::Content(&base), read.replace("Alpha", "Alpha, mine,"))
+        .revise_body_at(&at, read.replace("Alpha", "Alpha, mine,"))
         .unwrap();
     assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     assert_eq!(
         card.body_lines().text,
         "Alpha, mine, \u{FFFC}.\nBeta two, theirs."
     );
-    assert_eq!(card.body_lines().islands, body.islands);
+    assert_eq!(card.read(crate::document::Target::Body).unwrap().islands, base.islands);
 
     let config = config();
     let mut doc = parse("~~~\n$quill: memo@1.0.0\n~~~\n\nAlpha ![a](u.png).\n\nBeta two.\n");
     doc.main_mut().overwrite_body(body.clone());
     let read = doc.to_markdown_annotated().markdown;
-    let stored = doc.clone();
+    let at = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise_document(&read.replace("Beta two.", "Beta two, theirs."))
+        .revise_document(&read.replace("Beta two.", "Beta two, theirs."), None)
         .unwrap();
     let revised = w
-        .revise_document_against(DocumentBase::Stored(&stored), &read.replace("Alpha", "Alpha, mine,"))
+        .revise_document(&read.replace("Alpha", "Alpha, mine,"), &at)
         .unwrap();
     assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     assert_eq!(
         doc.main().body_lines().text,
         "Alpha, mine, \u{FFFC}.\nBeta two, theirs."
     );
-    assert_eq!(doc.main().body_lines().islands, body.islands);
+    let shape = |islands: &[quillmark_automerge::content::lines::model::Island]| islands.iter().map(|i| (i.island_type.clone(), i.props.clone())).collect::<Vec<_>>();
+    assert_eq!(shape(&doc.main().body_lines().islands), shape(&body.islands));
 }
 
 fn jobs(doc: &Document) -> serde_json::Value {
-    crate::quill::plain_leaves(doc.main().payload().get("jobs").unwrap().as_json())
+    crate::quill::plain_leaves(doc.main().payload().get("jobs").unwrap().to_value().as_json())
 }
 
 /// The person edits one row while the writer edits another: both land.
@@ -477,18 +464,13 @@ fn edits_to_two_rows_of_one_array_both_land() {
     );
     config.conform(&mut doc).unwrap();
     let read = doc.to_markdown_annotated().markdown;
-    let stored = doc.clone();
+    let at = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise_document(&read.replace("2019", "2019-2020"))
+        .revise_document(&read.replace("2019", "2019-2020"), None)
         .unwrap();
-    let revised = w
-        .revise_document_against(
-            DocumentBase::Stored(&stored),
-            &read.replace("Analyst", "Senior analyst"),
-        )
-        .unwrap();
-    assert!(revised.conflicts.is_empty(), "{:?}", revised.conflicts);
+    let _ = w.revise_document(&read.replace("Analyst", "Senior analyst"), &at)
+    .unwrap();
     assert_eq!(
         jobs(&doc),
         json!([
@@ -498,8 +480,8 @@ fn edits_to_two_rows_of_one_array_both_land() {
     );
 }
 
-/// A card the person removed while the writer edited it stays removed and is
-/// reported whole; the writer's other edits land.
+/// A card the person removed while the writer edited it stays removed; the
+/// writer's other edits land.
 #[test]
 fn a_card_removed_since_the_read_and_edited_by_the_writer_stays_removed() {
     let config = config();
@@ -507,59 +489,39 @@ fn a_card_removed_since_the_read_and_edited_by_the_writer_stays_removed() {
         "~~~\n$quill: memo@1.0.0\nsubject: Hello\n~~~\n\nBody.\n\n~~~\n$kind: item\n~~~\n\nOne.\n\n~~~\n$kind: item\n~~~\n\nTwo.\n",
     );
     let read = doc.to_markdown_annotated().markdown;
-    let stored = doc.clone();
+    let at = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w.remove_card(1);
     let revised = w
-        .revise_document_against(
-            DocumentBase::Stored(&stored),
-            &read
+        .revise_document(&read
                 .replace("Two.", "Two, mine.")
-                .replace("Hello", "Goodbye"),
-        )
+                .replace("Hello", "Goodbye"), &at)
         .unwrap();
-    assert_eq!(revised.conflicts.len(), 1, "{:?}", revised.conflicts);
-    let conflict = &revised.conflicts[0];
-    assert_eq!(conflict.path.to_string(), "cards.item[1]");
-    assert_eq!(conflict.current, None);
-    assert_eq!(
-        conflict.proposed.as_ref().unwrap()["$body"],
-        json!("Two, mine.")
-    );
+    assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     assert_eq!(doc.cards().len(), 1);
     assert_eq!(doc.card(0).unwrap().body_markdown(), "One.");
     assert!(doc.to_markdown().contains("subject: Goodbye"));
 }
 
-/// Two edits to one line of a body keep the body now and report it, while the
-/// writer's edits elsewhere land.
+/// Two edits to one line of a body both land, as Automerge merges text, and
+/// the writer's edits elsewhere land.
 #[test]
-fn a_body_line_both_sides_changed_keeps_the_body_now() {
+fn a_body_line_both_sides_changed_takes_both_edits() {
     let config = config();
     let mut doc = parse("~~~\n$quill: memo@1.0.0\nsubject: Hello\n~~~\n\nAlpha one.\n");
     let read = doc.to_markdown_annotated().markdown;
-    let stored = doc.clone();
+    let at = doc.heads();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise_document(&read.replace("Alpha one.", "Alpha, theirs."))
+        .revise_document(&read.replace("Alpha one.", "Alpha, theirs."), None)
         .unwrap();
     let revised = w
-        .revise_document_against(
-            DocumentBase::Stored(&stored),
-            &read
+        .revise_document(&read
                 .replace("Alpha one.", "Alpha, mine.")
-                .replace("Hello", "Goodbye"),
-        )
+                .replace("Hello", "Goodbye"), &at)
         .unwrap();
-    assert_eq!(
-        revised.conflicts,
-        [MergeConflict {
-            path: "main.body".parse().unwrap(),
-            base: Some(json!("Alpha one.")),
-            current: Some(json!("Alpha, theirs.")),
-            proposed: Some(json!("Alpha, mine.")),
-        }]
-    );
-    assert_eq!(doc.main().body_markdown(), "Alpha, theirs.");
+    assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
+    let body = doc.main().body_markdown();
+    assert!(body.contains("theirs") && body.contains("mine") && !body.contains("one"), "{body}");
     assert!(doc.to_markdown().contains("subject: Goodbye"));
 }
