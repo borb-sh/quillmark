@@ -369,7 +369,7 @@ impl From<&Card> for CardV0_134_0 {
 }
 
 /// The hop from the line form: each body migrates, minting its ids. Field and
-/// `$seed` values migrate as a `0.134.0` row's do, in [`card_from_stored`].
+/// `$seed` values migrate as a `0.134.0` row's do, in `card_from_stored`.
 impl From<DocumentV0_129_0> for DocumentV0_134_0 {
     fn from(d: DocumentV0_129_0) -> Self {
         let card = |c: CardV0_129_0| CardV0_134_0 {
