@@ -1,7 +1,7 @@
 //! The whole-document revise: a markdown write that keeps what markdown cannot
 //! spell.
 
-use quillmark_content::lines::delta::rebase_marks;
+use quillmark_content::lines::delta::carry_anchors;
 use quillmark_content::change::ApplyError;
 use quillmark_content::model::Content;
 use serde_json::Value as JsonValue;
@@ -57,7 +57,7 @@ impl Document {
     /// markdown string in a field where the stored field holds a content
     /// object, at any depth, by key in an object and by index in an array,
     /// revise as [`Card::revise`] does, so
-    /// surviving anchors rebase. A body or value whose revise does not
+    /// surviving anchors carry. A body or value whose revise does not
     /// validate keeps its stored value, with a warning. Everything else
     /// lands as the markdown spells it: scalars, `$quill`, `$seed`, YAML
     /// comments, inserted cards, and removed cards dropped.
@@ -224,7 +224,7 @@ fn card_text(card: &Card) -> String {
 /// the index each stored item landed at, or `None` for a removed one.
 type Moves = HashMap<DocPath, Vec<Option<usize>>>;
 
-/// `incoming` with `stored`'s anchors rebased onto its body and the content
+/// `incoming` with `stored`'s anchors carried onto its body and the content
 /// in its fields, and `stored`'s `$ext` when `incoming` omits it and
 /// `carry_ext`. The body revises from `source`, its markdown, when given. `at`
 /// is the card's address in the revised document, `from` the stored card's.
@@ -244,7 +244,7 @@ fn revise_card(
     let body = revised.and_then(|revised| match revised {
         Some(revised) => Ok(revised),
         None => {
-            let lines = rebase_marks(stored.body_lines(), incoming.body_lines().clone());
+            let lines = carry_anchors(stored.body_lines(), incoming.body_lines().clone());
             let lifted = quillmark_content::diff::lift(stored.body(), &lines);
             lifted.validate().map(|()| lifted).map_err(ApplyError::Invalid)
         }
@@ -313,7 +313,7 @@ fn revise_body(stored: &Content, source: &str, at: &DocPath, warnings: &mut Vec<
 /// Revise each string in `incoming` that sits where `stored` holds a content
 /// object, by key in an object and by [aligned](align_items) item in an array,
 /// into the content it imports under that object's codec with `stored`'s
-/// anchors rebased.
+/// anchors carried.
 fn revise_value(
     stored: &JsonValue,
     incoming: &mut JsonValue,

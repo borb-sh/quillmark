@@ -280,8 +280,8 @@ export interface RawContent {
 
 /**
  * One mend `repair` made. `inserts` marks one whose write-back inserts text
- * or an island's slot, which only a server writes back, and with none no peer; any peer may
- * write back a report holding none.
+ * or an island's slot, so that writing it back twice lands it twice; a mend
+ * without it writes back the same however often it is written.
  */
 export type Repair = { inserts?: true } & (
 | { repair: "missing_container"; block: string; container: string }

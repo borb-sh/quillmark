@@ -1,15 +1,15 @@
-//! The per-field edit surface: a [`Delta`] of text splices over the scalar content,
-//! plus the **stale-text writer** path, cold-parse a full new markdown document,
-//! char-diff it against the base, and rebase the base's non-formatting marks
-//! (anchors/comments) through the diff so annotations survive an LLM
-//! full-document rewrite with no preservation contract on the LLM.
+//! The char diff a markdown revise carries anchors through: import the new
+//! markdown, char-diff it against the stored value as a [`Delta`] of text
+//! splices, and carry the stored value's non-formatting marks (anchors) and
+//! island ids onto the import, so a writer rewriting a value whole keeps its
+//! comments with no contract to keep them.
 //!
 //! ## Text splices, not attributed ops
 //!
 //! [`Delta`] is `retain` / `insert` / `delete` over the character sequence:
 //! CodeMirror `ChangeSet` / OT text semantics, **not** Quill-Delta. It carries
 //! no formatting attributes: marks and islands are separate `(range, kind)` data
-//! that *rebase through* a delta ([`Delta::map_pos`]). An attribute map is a
+//! that *map through* a delta ([`Delta::map_pos`]). An attribute map is a
 //! per-character property map and cannot represent overlapping same-kind marks
 //! or two distinct identity anchors over one range, the algebra the content
 //! model keeps.
@@ -17,13 +17,13 @@
 //! [`diff`] computes a Myers/LCS minimal edit script and pairs it with a
 //! **move detector** that re-homes an anchor across a verbatim block move.
 //! Position mapping follows CodeMirror's `ChangeDesc.mapPos` semantics.
-//! Anchoring a captured position across edits is the editor's job; the content
-//! carries no session-side change log.
+//! The delta is internal to the revise and the line-form export; the content
+//! write surface speaks `Change`.
 //!
 //! ## The move weak spot
 //!
 //! A paragraph reorder is delete-here + insert-there to any char differ, so a
-//! naive rebase collapses an anchor in the moved text to the deletion point. The
+//! naive carry collapses an anchor in the moved text to the deletion point. The
 //! detector re-homes an anchor onto a **single, verbatim block move** by
 //! locating the moved text in the new content. Text both *moved and rewritten*
 //! in one round loses the match, and the anchor with it: the accepted
@@ -31,26 +31,19 @@
 
 use crate::lines::import::{Against, ImportWarning, Pin};
 use crate::lines::model::{Island, Mark, MarkKind, Content, Lines};
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use similar::{capture_diff_slices, Algorithm, ChangeTag, DiffOp, TextDiff};
 
 /// A per-field edit against a base content. Ops apply left-to-right, consuming
 /// base positions; `Retain`/`Delete` advance the base cursor, `Insert` adds new
 /// text. scalar throughout.
-///
-/// Serializes as `{ "ops": [ {"retain": n} | {"insert": s} | {"delete": n} ] }`:
-/// the wire `rebase` and the `applyChange` bundle carry across the
-/// language bindings.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Delta {
     pub ops: Vec<Op>,
 }
 
-/// One delta operation. Serializes externally-tagged with a lowercase key
-/// (`{"retain": 5}`, `{"insert": "x"}`, `{"delete": 2}`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+/// One delta operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
     /// Keep `n` chars of the base unchanged.
     Retain(usize),
@@ -60,10 +53,8 @@ pub enum Op {
     Delete(usize),
 }
 
-/// Which side of a same-position insertion a mapped point lands on. Serializes
-/// as `"before"` / `"after"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+/// Which side of a same-position insertion a mapped point lands on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Assoc {
     /// Stay before inserted text.
     Before,
@@ -179,7 +170,7 @@ const CHAR_DIFF_LIMIT: usize = 5_000;
 /// Char-level Myers/LCS diff over scalar: a minimal `Retain` / `Delete` / `Insert`
 /// script. Disjoint edits stay separate ops rather than collapsing the span
 /// between them into one delete+insert, so anchors sitting in unchanged middle
-/// text survive rebase without relying on the move detector.
+/// text survive the carry without relying on the move detector.
 ///
 /// Single-line text diffs at char granularity; multi-line text diffs at line
 /// granularity so a paragraph reorder surfaces as whole-line insert spans the
@@ -528,9 +519,9 @@ fn push_insert(ops: &mut Vec<Op>, s: &str) {
 /// The revise lane: import `new_markdown` as a revise of `base`
 /// ([`from_markdown_against`](crate::lines::import::from_markdown_against)), so its
 /// island tokens are `base`'s islands, char-diff it against `base`, and carry
-/// `base`'s non-formatting marks (anchors) forward, rebased through the diff
+/// `base`'s non-formatting marks (anchors) forward through the diff
 /// (re-homing verbatim block moves) or placed where a tag pins them
-/// ([`rebase_pinned`]). The returned content is the fresh import's
+/// ([`carry_pinned`]). The returned content is the fresh import's
 /// structure, marks and islands plus the surviving handles.
 ///
 /// Returns the new content, the [`Delta`] used (the text change an editor
@@ -541,21 +532,21 @@ pub fn diff_import(
     new_markdown: &str,
 ) -> Result<(Lines, Delta, Vec<ImportWarning>), crate::lines::import::ImportError> {
     let Against { content, warnings, pins } = crate::lines::import::from_markdown_against(new_markdown, base)?;
-    let (content, delta) = rebase_pinned(base, content, &pins);
+    let (content, delta) = carry_pinned(base, content, &pins);
     Ok((content, delta, warnings))
 }
 
-/// [`rebase_onto`], then each anchor a pin names placed to start at the pin.
-/// One whose rebased start the pin already is keeps its range. Any other
+/// [`carry_onto`], then each anchor a pin names placed to start at the pin.
+/// One whose carried start the pin already is keeps its range. Any other
 /// ends where the diff carries its stored end, when that lands from the pin to
 /// the end of the pin's line, and otherwise spans its stored length, cut at
 /// the line's end. A pin naming no prose anchor of `base` pins nothing.
-pub fn rebase_pinned(base: &Content, new: Lines, pins: &[Pin]) -> (Lines, Delta) {
-    let (rebased, delta) = rebase_onto(base, new);
+pub fn carry_pinned(base: &Content, new: Lines, pins: &[Pin]) -> (Lines, Delta) {
+    let (carried, delta) = carry_onto(base, new);
     if pins.is_empty() {
-        return (rebased, delta);
+        return (carried, delta);
     }
-    let mut next = rebased.into_content();
+    let mut next = carried.into_content();
     let chars: Vec<char> = next.text.chars().collect();
     let anchor = |marks: &[Mark], id: &str| {
         marks.iter().position(|m| matches!(&m.kind, MarkKind::Anchor { id: held } if held == id))
@@ -586,7 +577,7 @@ pub fn rebase_pinned(base: &Content, new: Lines, pins: &[Pin]) -> (Lines, Delta)
 /// [`diff_import`] over a content already imported: diff `new` against `base`
 /// and carry `base`'s surviving non-formatting marks onto it. `new` carries no
 /// anchor of its own, as an import's output does not.
-pub fn rebase_onto(base: &Content, new: Lines) -> (Lines, Delta) {
+pub fn carry_onto(base: &Content, new: Lines) -> (Lines, Delta) {
     let mut new_rt = new.into_content();
     let delta = diff(&base.text, &new_rt.text);
     carry_marks(base, &mut new_rt, &delta, |_| true);
@@ -594,15 +585,15 @@ pub fn rebase_onto(base: &Content, new: Lines) -> (Lines, Delta) {
     (new_rt.into_lines(), delta)
 }
 
-/// [`rebase_onto`] without the delta, diffing only when `base` holds a mark
+/// [`carry_onto`] without the delta, diffing only when `base` holds a mark
 /// to carry.
-pub fn rebase_marks(base: &Content, new: Lines) -> Lines {
+pub fn carry_anchors(base: &Content, new: Lines) -> Lines {
     if base.marks.iter().all(|m| m.kind.is_formatting()) {
         let mut new_rt = new.into_content();
         carry_island_ids(&base.islands, &mut new_rt);
         return new_rt.into_lines();
     }
-    rebase_onto(base, new).0
+    carry_onto(base, new).0
 }
 
 fn carry_marks(base: &Content, new_rt: &mut Content, delta: &Delta, carry: impl Fn(&Mark) -> bool) {
@@ -614,7 +605,7 @@ fn carry_marks(base: &Content, new_rt: &mut Content, delta: &Delta, carry: impl 
         if m.kind.is_formatting() || !carry(m) {
             continue;
         }
-        if let Some((ns, ne)) = rebase_mark(delta, &base_chars, &new_chars, &inserted, m) {
+        if let Some((ns, ne)) = carry_mark(delta, &base_chars, &new_chars, &inserted, m) {
             new_rt.marks.push(Mark {
                 start: ns,
                 end: ne,
@@ -711,10 +702,10 @@ fn carry_cell_anchors(base: &[Island], new: &mut Content, carried: &[Option<usiz
     }
 }
 
-/// Rebase one non-formatting mark through the delta. Returns its new range, or
+/// Carry one non-formatting mark through the delta. Returns its new range, or
 /// `None` if it detaches (its text was deleted and no verbatim move re-homes
 /// it).
-fn rebase_mark(
+fn carry_mark(
     delta: &Delta,
     base_chars: &[char],
     new_chars: &[char],
@@ -745,7 +736,7 @@ fn rebase_mark(
 /// Where `new` re-homes `[start, end)` of `base` that the change to `new`
 /// deleted: a span or a point moved verbatim into `inserted`, the ranges of
 /// `new` the change inserted, at least [`MIN_MOVE`] characters of it, as
-/// [`rebase_mark`] relocates a mark. `None` where nothing moved it.
+/// [`carry_mark`] relocates a mark. `None` where nothing moved it.
 pub(crate) fn relocate(base: &str, new: &str, inserted: &[(usize, usize)], start: usize, end: usize) -> Option<(usize, usize)> {
     let base_chars: Vec<char> = base.chars().collect();
     let new_chars: Vec<char> = new.chars().collect();
@@ -1153,7 +1144,7 @@ mod tests {
     #[test]
     fn diff_import_large_single_line_rewrite_keeps_prefix_anchor() {
         // `diff_import` is what a full-document LLM rewrite hits: it must stay
-        // fast and still rebase an anchor sitting in shared text.
+        // fast and still carry an anchor sitting in shared text.
         let base_text = format!("hello target world-{}-end", filler(30_000, 0));
         let mut base = from_markdown(&base_text).unwrap().content.into_content();
         base.marks.push(Mark {

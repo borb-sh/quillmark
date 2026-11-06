@@ -295,18 +295,6 @@ export interface CardAddr {
 }
 
 /**
- * A text-splice change set over a value's text, counted in UTF-16 code units
- * (CodeMirror `ChangeSet` semantics).
- *
- * Applying one admits an `insert` string rather than storing it verbatim: `\r`
- * and the Unicode bidi controls drop, and a line separator — VT, FF, NEL,
- * U+2028, U+2029 — becomes a space. Nothing reports the substitution.
- */
-export interface Delta {
-    ops: ({ retain: number } | { insert: string } | { delete: number })[];
-}
-
-/**
  * What a `revise`'s writer read, its optional last argument: `baseHash`, the
  * hash the writer read (`writer.hashAt`). A value that hashes otherwise throws
  * `edit::stale_base`, its `args.current` the hash now, and leaves the value

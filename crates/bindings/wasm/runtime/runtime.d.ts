@@ -150,7 +150,6 @@ export type {
 	PathStep,
 	Addr,
 	CardAddr,
-	Delta,
 	BaseOptions,
 	DocumentBaseOptions,
 	DocumentRevised,

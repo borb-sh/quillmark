@@ -104,14 +104,14 @@ impl<'a> TypedWriter<'a> {
     }
 
     /// Revise the main card's body or a content field from authored text:
-    /// edit semantics, surviving anchors rebase, and the [`Receipt`] a content
+    /// edit semantics, surviving anchors carry, and the [`Receipt`] a content
     /// write answers. A field is typed as well: the diffed result is
     /// schema-conformed (a one-line `richtext` rejects a multi-block result),
     /// and an undeclared name fails with [`EditError::UnknownField`], as
     /// [`set`](Self::set).
     ///
     /// The codec comes from the declared type, the body's being `richtext`:
-    /// `richtext` diffs markdown and rebases anchors; `text` diffs the literal
+    /// `richtext` diffs markdown and carries anchors; `text` diffs the literal
     /// text and never imports markdown, so a byte-identical revise of a value
     /// carrying escapes is a byte no-op, and its [`Receipt`]'s change is one
     /// splice over the literal text.

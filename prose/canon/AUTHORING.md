@@ -132,8 +132,7 @@ yields the same document. What the values form does not carry, the authoring
 document does not either ([SCHEMAS.md](SCHEMAS.md#the-values-form)): an import
 is a cold write, a document rebuilt from its own export loses its `$ext` and
 `$seed` and holds a field stored as `null` as absent, and Markdown export
-spells it canonically ([CONTENT.md](CONTENT.md) § "What markdown keeps"). A collaboration layer that holds a body as Markdown text
-therefore diffs against the canonical export, not the model's string.
+spells it canonically ([CONTENT.md](CONTENT.md) § "What markdown keeps").
 
 ## The canonical documents
 

@@ -511,9 +511,10 @@ is written, and never rewritten while its card lives.**
   letters of SHA-256 over `quillmark/card-id\n{n}`, the first `n` whose id no
   card holds (`card_id::Mint`). A parse, a load and a seed mint the token
   alone, positionally, so equal markdown parses to equal ids, and a placement
-  (`Unchecked::insert_card`, the writer's `add_card`) mints the same way. A
-  live client carries the `$id` a placement answers to its peers, so two
-  replicas never mint two ids for one card.
+  (`Unchecked::insert_card`, the writer's `add_card`) mints the same way. Two
+  replicas minting apart can mint one id for two cards, or two ids for one, so
+  a layer that replicates a document carries the `$id` a placement answers to
+  every replica rather than letting each mint its own.
 - **Every input path normalizes the id.** A parse, a load and a placing edit each leave every
   composable card holding a distinct valid id. A parse keeps the first card
   spelling an id, re-mints a later duplicate or an id outside the grammar, and
