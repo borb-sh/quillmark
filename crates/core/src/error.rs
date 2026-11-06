@@ -815,21 +815,14 @@ mod args_canon {
             EditError::InvalidPayload(crate::document::edit::PayloadViolation::DuplicateField {
                 key: "title".into(),
             }),
-            EditError::Base(crate::document::BaseError::Stale {
+            EditError::StaleBase(crate::document::StaleBase {
                 current: "h".into(),
                 field: None,
-            }),
-            EditError::Base(crate::document::BaseError::Conflict {
-                current: "h".into(),
-                field: None,
-                step: Some(1),
-                reason: Some("deleted"),
             }),
             EditError::DropsExtIsland {
                 island: "isl-x".into(),
                 kind: "x-chart".into(),
             },
-            EditError::InvalidActor("a:b".into()),
         ] {
             add(e.code(), e.args());
         }

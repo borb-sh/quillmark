@@ -18,10 +18,9 @@ def test_a_receipt_carries_the_normalized_change_which_invert_undoes():
     assert doc.read()["text"] == "hi world"
     assert receipt["hash"] == doc.hash_at()
     assert receipt["dropped_anchors"] == [] and receipt["warnings"] == []
-    assert receipt["rebased"] is False
-    assert doc.apply({"steps": []}, base=base)["rebased"] is True
-    with raises_edit_code("edit::stale_base"):
-        doc.apply({"steps": []}, base="never-read")
+    with raises_edit_code("edit::stale_base") as err:
+        doc.apply({"steps": []}, base=base)
+    assert err.value.diagnostics[0].args == {"current": receipt["hash"]}
     doc.apply(invert(receipt["applied"], before), base=receipt["hash"])
     assert doc.read() == before
 
@@ -50,27 +49,26 @@ def test_a_quoted_step_refuses_text_its_writer_did_not_read():
     assert receipt["applied"]["steps"][0]["mark"]["quote"] == "world"
 
 
-def test_a_stale_base_rebases_over_the_change_since():
+def test_a_stale_base_refuses_with_the_hash_now_and_writes_nothing():
     doc = Document.parse(MD)
     base = doc.hash_at()
     doc.apply({"steps": [{"splice": {"at": 0, "insert": "XX "}}]})
-    receipt = doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]}, base=base)
-    assert receipt["rebased"] is True
+    held = doc.read()
+    with raises_edit_code("edit::stale_base") as err:
+        doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]}, base=base)
+    current = err.value.diagnostics[0].args["current"]
+    assert current == doc.hash_at()
+    assert doc.read() == held
+    doc.apply({"steps": [{"anchor": {"id": "a1", "start": 9, "end": 14, "quote": "world"}}]}, base=current)
     assert doc.read()["anchors"] == [{"id": "a1", "start": 9, "end": 14}]
-    doc.apply({"steps": [{"splice": {"at": 9, "delete": "w", "insert": "W"}}]})
-    with raises_edit_code("edit::rebase_conflict") as err:
-        doc.apply({"steps": [{"splice": {"at": 6, "delete": "world", "insert": "there"}}]}, base=base)
-    assert err.value.diagnostics[0].args == {"current": doc.hash_at(), "step": 0, "reason": "deleted"}
 
 
-def test_a_placeholder_is_minted_under_the_writers_actor():
+def test_a_placeholder_is_minted_past_the_value():
     doc = Document.parse(MD)
     change = {"steps": [{"splice": {"at": 5, "insert": "\nnew", "blocks": [{"id": "?n", "kind": "para"}]}}]}
-    receipt = doc.apply(change, actor="ann")
-    assert receipt["minted"] == {"?n": "ann:b0"}
-    assert [b["id"] for b in doc.read()["blocks"]] == ["b0", "ann:b0"]
-    with raises_edit_code("edit::invalid_actor"):
-        doc.apply({"steps": []}, actor="a:b")
+    receipt = doc.apply(change)
+    assert receipt["minted"] == {"?n": "b1"}
+    assert [b["id"] for b in doc.read()["blocks"]] == ["b0", "b1"]
 
 
 def test_a_reserved_x_name_rides_as_written():

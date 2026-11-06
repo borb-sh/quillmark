@@ -89,7 +89,7 @@ reference and owns neither: bind, write, discard.
 w = quill.writer(doc)
 w.set("title", "On Taro")                 # typed-commit one field (mismatch raises now)
 w.set_all({"title": "T", "author": "A"})  # atomic batch; one diagnostic per bad field
-w.revise("A **taro** essay.")             # body write: no field is the body (edit semantics, anchors rebase)
+w.revise("A **taro** essay.")             # body write: no field is the body (edit semantics, anchors ride the diff)
 w.revise("make it **bold**", "bio")       # typed *and* anchor-preserving content write (codec by declared type)
 w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit + insert (at appends/inserts)
                                           # set and set_all return the parse::dropped_construct
@@ -97,7 +97,7 @@ w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit
                                           # add_card returns {"id", "warnings": [Diagnostic, ...]}
                                           # revise returns its receipt:
                                           # {"delta", "warnings": [Diagnostic, ...], "dropped_anchors": [{"id", "line"}]}
-w.revise_document(markdown)               # whole-document write: cards align by $kind and text, anchors rebase,
+w.revise_document(markdown)               # whole-document write: cards align by $kind and text, anchors ride the diff,
                                           # then conform; returns {"dropped_anchors": [{"id", "path", "line"}],
                                           # "warnings": [Diagnostic, ...], "from": [int | None]}, clears doc.warnings
 w.remove_card(0)
@@ -166,7 +166,6 @@ doc.set_quill_ref("other@1.0")
 doc.unchecked.insert_card({"kind": "note", "body": "..."}, at=None)   # at appends/inserts; returns the $id
 doc.unchecked.insert_card({"kind": "note",                            # fields → payload items
                            "payload_items": [{"type": "field", "key": "x", "value": 1}]})
-doc.unchecked.insert_card({"kind": "note"}, actor="7")                # a live client's $id, minted under its actor
 doc.unchecked.store_field("title", "x", card=None)                    # no schema coercion; content stored canonical
 doc.remove_card(0)                               # returns the Card dict, or None
 doc.move_card(2, 0)

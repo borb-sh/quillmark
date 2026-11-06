@@ -293,9 +293,7 @@ pub(crate) fn moved_islands<'a>(steps: impl IntoIterator<Item = &'a Step>) -> BT
 
 /// A list of step maps, a position mapped through each in turn. A mirror
 /// link pairs map `a` with a later `b` that undoes it: a position `a` deleted
-/// skips to `b`, which puts it back, and maps on from there. A rebase builds
-/// one as the inverse of a change's own earlier steps, then the change it
-/// rebases over, then those steps rebased, each linked to its inverse. A
+/// skips to `b`, which puts it back, and maps on from there. A
 /// mirror of a nested map pairs their inner maps from the two ends, inner map
 /// `t` with the mirror's `n - 1 - t`.
 #[derive(Debug, Clone, PartialEq, Default)]

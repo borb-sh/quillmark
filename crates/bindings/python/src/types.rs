@@ -939,17 +939,12 @@ impl PyDocument {
     /// **Apply** `change` to the value at `field` on `card`, all its steps or
     /// none, and return the receipt: `applied` (the change in its normalized
     /// form, which `invert` undoes), `hash` (the next write's `base`),
-    /// `dropped_anchors`, `moved_anchors`, `warnings`, `rebased` and
-    /// `minted`, each placeholder id the change gave a record mapped to the id
-    /// the write minted. `actor` scopes each id the write mints,
-    /// `{actor}:{prefix}{n}`. `base` is the hash the writer read
-    /// (`hash_at`); pass it. One the value has
-    /// moved on from rebases the change over the change since, raising
-    /// `edit::rebase_conflict` where they touch the same text or
-    /// record and `edit::stale_base` where the document no longer holds the change
-    /// since. A refused change raises `edit::content_apply` and writes
-    /// nothing.
-    #[pyo3(signature = (change, field=None, card=None, base=None, actor=None))]
+    /// `dropped_anchors`, `moved_anchors`, `warnings` and `minted`, each placeholder id the change gave a record mapped to the id
+    /// the write minted. `base` is the hash the writer read
+    /// (`hash_at`); pass it. A value that hashes otherwise raises
+    /// `edit::stale_base`. A refused change raises `edit::content_apply` and
+    /// writes nothing.
+    #[pyo3(signature = (change, field=None, card=None, base=None))]
     fn apply<'py>(
         &mut self,
         py: Python<'py>,
@@ -957,20 +952,19 @@ impl PyDocument {
         field: Option<&str>,
         card: Option<CardSel>,
         base: Option<&str>,
-        actor: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
         require_card_id(&card, "apply")?;
         let target = Target::resolve(&self.inner, card)?;
         let change = crate::content::change_from_py(change, "apply")?;
         let edit = quillmark_core::document::Edit::Apply(change);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base: base.map(quillmark_core::document::Base::Hash), actor })
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base })
     }
 
     /// Rewrite the value at `field` on `card` as `markdown`: the anchors and
     /// islands whose `qm-*` tags it keeps (`annotated` spells them) stay put,
     /// and the rest keeps what a word-aligned diff keeps. Returns the receipt,
     /// its `warnings` the import's. Raises as `apply`.
-    #[pyo3(signature = (markdown, field=None, card=None, base=None, actor=None))]
+    #[pyo3(signature = (markdown, field=None, card=None, base=None))]
     fn revise<'py>(
         &mut self,
         py: Python<'py>,
@@ -978,18 +972,17 @@ impl PyDocument {
         field: Option<&str>,
         card: Option<CardSel>,
         base: Option<&str>,
-        actor: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
         require_card_id(&card, "revise")?;
         let target = Target::resolve(&self.inner, card)?;
         let edit = quillmark_core::document::Edit::Revise(markdown);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base: base.map(quillmark_core::document::Base::Hash), actor })
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base })
     }
 
     /// Write `content` over the value at `field` on `card`, carrying each
     /// anchor it does not name where a diff keeps its text and reporting the
     /// rest in `dropped_anchors`. Raises as `apply`.
-    #[pyo3(signature = (content, field=None, card=None, base=None, actor=None))]
+    #[pyo3(signature = (content, field=None, card=None, base=None))]
     fn replace<'py>(
         &mut self,
         py: Python<'py>,
@@ -997,13 +990,12 @@ impl PyDocument {
         field: Option<&str>,
         card: Option<CardSel>,
         base: Option<&str>,
-        actor: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
         require_card_id(&card, "replace")?;
         let target = Target::resolve(&self.inner, card)?;
         let content = crate::content::content_from_py(content, "replace")?;
         let edit = quillmark_core::document::Edit::Replace(content);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base: base.map(quillmark_core::document::Base::Hash), actor })
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base })
     }
 }
 
@@ -1074,31 +1066,6 @@ fn index_error(index: usize, len: usize) -> PyErr {
         quillmark_core::document::EditError::IndexOutOfRange { index, len },
         &quillmark_core::path::DocPath::new(),
     )
-}
-
-/// What a revise's writer read, off its `base_hash` / `base_content`
-/// keywords: one or neither.
-enum ReadBase {
-    Hash(String),
-    Content(quillmark_core::Content),
-}
-
-impl ReadBase {
-    fn from_py(base_hash: Option<&str>, base_content: Option<&Bound<'_, PyAny>>) -> PyResult<Option<Self>> {
-        match (base_hash, base_content) {
-            (None, None) => Ok(None),
-            (Some(hash), None) => Ok(Some(ReadBase::Hash(hash.to_string()))),
-            (None, Some(content)) => Ok(Some(ReadBase::Content(crate::content::content_from_py(content, "base_content")?))),
-            (Some(_), Some(_)) => Err(PyValueError::new_err("name base_hash or base_content, not both")),
-        }
-    }
-
-    fn as_base(&self) -> quillmark_core::document::Base<'_> {
-        match self {
-            ReadBase::Hash(hash) => quillmark_core::document::Base::Hash(hash),
-            ReadBase::Content(content) => quillmark_core::document::Base::Content(content),
-        }
-    }
 }
 
 /// How a `card=` selector names a composable card: by index, or by `$id`.
@@ -1196,10 +1163,9 @@ impl PyUnchecked {
     /// raises `IndexOutOfRange`, and a document holding 1,000 cards raises
     /// `edit::too_many_cards`). `card` is a `Card` dict, as `cards`,
     /// `remove_card`, and `seed_card` return. A card spelling no `id` mints
-    /// one, under `actor` where one is given (`{actor}-{token}`), so two live
-    /// clients placing cards never mint one id.
-    #[pyo3(signature = (card, at=None, actor=None))]
-    fn insert_card(&self, py: Python<'_>, card: Bound<'_, PyAny>, at: Option<isize>, actor: Option<&str>) -> PyResult<String> {
+    /// one.
+    #[pyo3(signature = (card, at=None))]
+    fn insert_card(&self, py: Python<'_>, card: Bound<'_, PyAny>, at: Option<isize>) -> PyResult<String> {
         let core_card = py_dict_to_card(&card)?;
         let mut doc = self.doc.borrow_mut(py);
         let at = at
@@ -1212,7 +1178,7 @@ impl PyUnchecked {
         });
         doc.inner
             .unchecked()
-            .insert_card(at, core_card, actor)
+            .insert_card(at, core_card)
             .map_err(|e| convert_edit_error(e, &base))
     }
 }
@@ -1350,7 +1316,7 @@ impl PyWriter {
     }
 
     /// Revise the body (`field=None`) or the content field `field` on `card`
-    /// (`None` for the main card) from authored text; anchors rebase. A field
+    /// (`None` for the main card) from authored text; anchors ride the diff. A field
     /// is typed as well: the codec comes from its declared type (`richtext`
     /// diffs markdown, `text` the literal text, the body being `richtext`),
     /// the diffed result is schema-conformed, so a one-paragraph `richtext`
@@ -1361,17 +1327,12 @@ impl PyWriter {
     /// `applied`, the change from the value before (a `text` field's is one
     /// splice over its literal text); `hash`; `dropped_anchors` and
     /// `moved_anchors`; `warnings`, the import's `parse::dropped_construct` as
-    /// `Diagnostic` objects anchored at the value; and `rebased`, set where the
-    /// write rebased over a change since its base.
+    /// `Diagnostic` objects anchored at the value.
     ///
-    /// `base_hash` or `base_content` names what the writer read: its hash
-    /// (`hash_at`), or the value itself as canonical Content-JSON (`read`). A
-    /// value that has moved on rebases the write over the change since,
-    /// raising `edit::rebase_conflict` where the two touch; a `base_hash`
-    /// raises `edit::stale_base` where the log no longer reaches it, and a
-    /// `base_content` holds however long ago it was read. Either refusal's
-    /// `args["current"]` is the hash now.
-    #[pyo3(signature = (text, field=None, card=None, *, base_hash=None, base_content=None))]
+    /// `base_hash` is the hash the writer read (`hash_at`). A value that
+    /// hashes otherwise raises `edit::stale_base`, its `args["current"]` the
+    /// hash now.
+    #[pyo3(signature = (text, field=None, card=None, *, base_hash=None))]
     fn revise<'py>(
         &self,
         py: Python<'py>,
@@ -1379,10 +1340,8 @@ impl PyWriter {
         field: Option<&str>,
         card: Option<CardSel>,
         base_hash: Option<&str>,
-        base_content: Option<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let read = ReadBase::from_py(base_hash, base_content.as_ref())?;
-        let read = read.as_ref().map(ReadBase::as_base);
+        let read = base_hash;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
@@ -1421,32 +1380,16 @@ impl PyWriter {
     /// or a `$quill` this quill does not answer to, leaving the document
     /// unchanged.
     ///
-    /// `base_hash` (`hash()`) or `base_stored` (the `to_stored()` row the
-    /// writer read) guard the write. A stale hash raises before any mutation.
-    /// Under `base_stored` the writer's change and the change since merge card
-    /// by card and field by field; each place both changed keeps its value now
-    /// and is named in the receipt's `conflicts`, a list of
-    /// `{path, base, current, proposed}`, and the write raises
-    /// `edit::rebase_conflict` only where no merge can stand.
-    #[pyo3(signature = (markdown, *, base_hash=None, base_stored=None))]
+    /// `base_hash` (`hash()`) guards the write: a document that hashes
+    /// otherwise raises `edit::stale_base` before any mutation.
+    #[pyo3(signature = (markdown, *, base_hash=None))]
     fn revise_document<'py>(
         &self,
         py: Python<'py>,
         markdown: &str,
         base_hash: Option<&str>,
-        base_stored: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        use quillmark_core::document::DocumentBase;
-        let stored = match (base_hash, base_stored) {
-            (Some(_), Some(_)) => return Err(PyValueError::new_err("name base_hash or base_stored, not both")),
-            (_, Some(stored)) => Some(PyDocument::from_stored(stored)?.inner),
-            _ => None,
-        };
-        let read = match (base_hash, &stored) {
-            (Some(hash), _) => Some(DocumentBase::Hash(hash)),
-            (None, Some(stored)) => Some(DocumentBase::Stored(stored)),
-            (None, None) => None,
-        };
+        let read = base_hash;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let mut writer = quill.inner.writer(&mut doc.inner);
@@ -1464,22 +1407,6 @@ impl PyWriter {
         )?;
         receipt.set_item("warnings", py_diagnostics(revised.warnings))?;
         receipt.set_item("from", revised.from)?;
-        let conflicts: Vec<_> = revised
-            .conflicts
-            .into_iter()
-            .map(|c| {
-                serde_json::json!({
-                    "path": c.path.to_string(),
-                    "base": c.base,
-                    "current": c.current,
-                    "proposed": c.proposed,
-                })
-            })
-            .collect();
-        receipt.set_item(
-            "conflicts",
-            json_to_py(py, &serde_json::Value::Array(conflicts))?,
-        )?;
         Ok(receipt)
     }
 
@@ -1488,11 +1415,11 @@ impl PyWriter {
     /// appends, `Some(i)` inserts at index `i`, and a position out of range
     /// raises. Transactional: a rejected field (raising a per-field diagnostic
     /// bundle) or an invalid kind, body, or position leaves the document
-    /// untouched. The card's `$id` mints as `unchecked.insert_card` mints one,
-    /// under `actor` where one is given. Returns a dict: `id`, that id, and
+    /// untouched. The card's `$id` mints as `unchecked.insert_card` mints one.
+    /// Returns a dict: `id`, that id, and
     /// `warnings`, the fields' `parse::dropped_construct` warnings then the
     /// body import's, anchored under the placed card.
-    #[pyo3(signature = (kind, fields=None, body=None, at=None, actor=None))]
+    #[pyo3(signature = (kind, fields=None, body=None, at=None))]
     fn add_card<'py>(
         &self,
         py: Python<'py>,
@@ -1500,7 +1427,6 @@ impl PyWriter {
         fields: Option<Bound<'py, PyDict>>,
         body: Option<String>,
         at: Option<isize>,
-        actor: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
         let batch = match fields {
             Some(f) => pydict_to_field_batch(&f)?,
@@ -1516,7 +1442,7 @@ impl PyWriter {
         let added = quill
             .inner
             .writer(&mut doc.inner)
-            .add_card(kind, batch, body.as_deref(), at, actor)
+            .add_card(kind, batch, body.as_deref(), at)
             .map_err(|errs| convert_edit_errors(errs, &quillmark_core::path::DocPath::new()))?;
         let out = PyDict::new(py);
         out.set_item("id", added.id)?;

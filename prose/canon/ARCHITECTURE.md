@@ -12,6 +12,8 @@ authoring / compile). The `Engine` is the thin-but-mandatory layer every
 render routes through: a backend registry + render dispatcher. Backends
 do the heavy compilation.
 
+Core is single-writer: a write that names a base lands only while the value still hashes to it, and is refused with `edit::stale_base` otherwise. Concurrent editing, writers that answer late, sessions and version history live in `@quillmark/collab`, over Yjs.
+
 ## Data Flow
 
 1. **Parse**: card-yaml block extraction, bidi stripping, line-separator spacing, HTML fence normalization

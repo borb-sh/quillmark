@@ -8,7 +8,6 @@ use serde::Serialize;
 use std::collections::HashMap;
 #[cfg(feature = "render")]
 use quillmark_content::units::Utf16;
-use quillmark_core::Content;
 #[cfg(feature = "render")]
 use tsify::Ts;
 use wasm_bindgen::prelude::*;
@@ -228,18 +227,6 @@ export interface Card {
 }
 
 /**
- * How a card is placed (`doc.unchecked.insertCard`, `writer.addCard`).
- * `actor` names the writer, one per live session: a card spelling no `id`
- * mints `{actor}-{token}`, so two clients placing cards from one document
- * never mint one id; without it the id mints positionally. A card's actor is
- * 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit; another throws
- * `edit::invalid_actor`.
- */
-export interface PlaceOptions {
-    actor?: string;
-}
-
-/**
  * What `writer.addCard` answers: the placed card's `$id`, and the fields'
  * `parse::dropped_construct` warnings then the body import's, anchored under
  * the placed card.
@@ -320,32 +307,22 @@ export interface Delta {
 }
 
 /**
- * What a `revise`'s writer read, its optional last argument. Name one or
- * neither; a key present with no value throws. `baseHash` is the hash the
- * writer read (`writer.hashAt`); `baseContent` is the value itself, the
- * `Content` `reader.getContent` returned. On a value that has moved on, the write rebases over the change
- * since and throws `edit::rebase_conflict` where the two touch. A `baseHash`
- * throws `edit::stale_base` where the log no longer reaches it; a
- * `baseContent` holds however long ago it was read. Each refusal's
- * `args.current` is the hash now, and leaves the value unchanged.
+ * What a `revise`'s writer read, its optional last argument: `baseHash`, the
+ * hash the writer read (`writer.hashAt`). A value that hashes otherwise throws
+ * `edit::stale_base`, its `args.current` the hash now, and leaves the value
+ * unchanged. A key present with no value throws.
  */
 export interface BaseOptions {
     baseHash?: string;
-    baseContent?: Content;
 }
 
 /**
- * What a `reviseDocument`'s writer read, its optional last argument. Name one
- * or neither. A stale `baseHash` (`writer.hash`) throws `edit::stale_base`.
- * `baseStored` is the `toStored()` row the writer read: when the document has
- * changed since, the writer's change and the change since merge card by card
- * and field by field, each place both changed keeps its value now and is named
- * in the receipt's `conflicts`, and the write throws `edit::rebase_conflict`
- * only where no merge can stand.
+ * What a `reviseDocument`'s writer read, its optional last argument:
+ * `baseHash`, the document's hash the writer read (`writer.hash`). A document
+ * that hashes otherwise throws `edit::stale_base`.
  */
 export interface DocumentBaseOptions {
     baseHash?: string;
-    baseStored?: string;
 }
 
 /**
@@ -357,29 +334,12 @@ export interface DocumentBaseOptions {
  * content, reports no drop. `from` names, for each composable card of the
  * revised document, the index of the stored card it revises, or `null` for an
  * inserted card; a stored card no entry names was removed, and only cards of
- * one `$kind` pair. `conflicts` is empty unless the write carries a
- * `baseStored`.
+ * one `$kind` pair.
  */
 export interface DocumentRevised {
     droppedAnchors: AnchorContext[];
     warnings: Diagnostic[];
     from: (number | null)[];
-    conflicts: MergeConflict[];
-}
-
-/**
- * A place a `reviseDocument` under `baseStored` found changed both by the
- * writer and since its read, which the write leaves as it stands now. `path`
- * is where it stands in the written document, or would stand where the write
- * left it out. Each side is the value there, `null` where that side holds
- * nothing: a field or item absent, a card removed. A body is its markdown,
- * and a whole card an object of its fields beside `$kind` and `$body`.
- */
-export interface MergeConflict {
-    path: string;
-    base: unknown;
-    current: unknown;
-    proposed: unknown;
 }
 
 /** What `toMarkdown` and `exportMarkdown` read: `annotated` spells each
@@ -1593,7 +1553,7 @@ impl Document {
     /// `addr` from authored text, typed *and* anchor-preserving. The codec is
     /// the declared type's, the body's being `richtext`: `richtext` imports the
     /// markdown, `text` takes the literal text and drops nothing. The text is
-    /// diffed against the current value, surviving anchors rebase, and a field's
+    /// diffed against the current value, surviving anchors ride the diff, and a field's
     /// result is schema-conformed, so a one-paragraph `richtext` field rejects a
     /// multi-block result with `edit::field_not_single_line`. Returns the
     /// `Receipt` a content write answers: `applied`, the change from the value
@@ -1603,9 +1563,8 @@ impl Document {
     /// absent `addr.field` targets the body, an absent `addr.card` the main
     /// card.
     ///
-    /// `opts` names what the writer read (`BaseOptions`): a value that has
-    /// moved on from its `baseHash` or `baseContent` rebases the write over the
-    /// change since, throwing `edit::rebase_conflict` where the two touch.
+    /// `opts` names the hash the writer read (`BaseOptions`): a value that
+    /// hashes otherwise throws `edit::stale_base`.
     ///
     /// An undeclared name throws `edit::unknown_field`; an out-of-range card,
     /// a malformed field name, or an over-nested markdown input throws.
@@ -1617,18 +1576,18 @@ impl Document {
         text: &str,
         #[wasm_bindgen(unchecked_optional_param_type = "BaseOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let read = ReadBase::from_js(opts, "revise", "baseContent")?;
+        let read = base_hash(opts, "revise")?;
         let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let base = self.addr_base(&addr);
         let card_id = self.addr_card_ref(&addr)?.id().map(str::to_string);
         let target = quillmark_core::document::Target::from(addr.field.as_deref());
         let mut writer = quill.inner.writer(&mut self.inner);
         let receipt = match addr.card {
-            None => writer.revise(target, text, read.as_base()),
+            None => writer.revise(target, text, read.as_deref()),
             Some(index) => writer
                 .card(index)
                 .map_err(|e| edit_error_to_js(&e, &base))?
-                .revise(target, text, read.as_base()),
+                .revise(target, text, read.as_deref()),
         }
         .map_err(|e| edit_error_to_js(&e, &base))?;
         let path = match &addr.field {
@@ -1650,9 +1609,9 @@ impl Document {
         markdown: &str,
         #[wasm_bindgen(unchecked_optional_param_type = "DocumentBaseOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let read = ReadBase::from_js(opts, "reviseDocument", "baseStored")?;
+        let read = base_hash(opts, "reviseDocument")?;
         let mut writer = quill.inner.writer(&mut self.inner);
-        let revised = match read.as_document_base() {
+        let revised = match read.as_deref() {
             None => writer.revise_document(markdown),
             Some(read) => writer.revise_document_against(read, markdown),
         }
@@ -1781,8 +1740,8 @@ impl Document {
     /// leaves the document untouched. Field errors throw the same per-field
     /// bundle as [`commitFields`](Self::commit_fields); an invalid kind or body,
     /// or a bad position, throws a single-entry bundle keyed `$kind` / `$body`.
-    /// The card's `$id` mints as `unchecked.insertCard` mints one, under
-    /// `opts.actor` where one is given. Returns a `CardAdded`: that id, and
+    /// The card's `$id` mints as `unchecked.insertCard` mints one. Returns a
+    /// `CardAdded`: that id, and
     /// the fields' `parse::dropped_construct` warnings, then the body
     /// import's, anchored under the placed card.
     #[wasm_bindgen(js_name = _addCard, skip_typescript, unchecked_return_type = "CardAdded")]
@@ -1795,9 +1754,7 @@ impl Document {
         >,
         #[wasm_bindgen(unchecked_optional_param_type = "string")] body: Option<String>,
         #[wasm_bindgen(unchecked_optional_param_type = "number")] at: Option<usize>,
-        #[wasm_bindgen(unchecked_optional_param_type = "PlaceOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let actor = place_actor(&opts, "addCard")?;
         let batch = match fields {
             Some(f) => js_value_to_field_batch(&f, "addCard")?,
             None => Vec::new(),
@@ -1807,7 +1764,7 @@ impl Document {
         let added = quill
             .inner
             .writer(&mut self.inner)
-            .add_card(kind, batch, body.as_deref(), at, actor.as_deref())
+            .add_card(kind, batch, body.as_deref(), at)
             .map_err(|errs| edit_errors_to_js(errs, &quillmark_core::path::DocPath::new()))?;
         serialize_or_throw(&CardAddedJs { id: added.id, warnings: diags(added.warnings) }, "addCard")
     }
@@ -1816,19 +1773,15 @@ impl Document {
     /// absent appending and a number inserting at that index (in
     /// `0..=cards.length`), and answer its `$id`. Accepts any `CardInput`,
     /// including a card read back out of a document; its fields' content
-    /// values decode as its body does. A card spelling no `id` mints one,
-    /// under `opts.actor` where one is given. Throws if `card.kind` is not a
-    /// valid kind name, if `at` is out of range, `edit::invalid_actor` for an
-    /// actor that cannot open a card id, or `edit::too_many_cards` if the
-    /// document holds 1,000 cards.
+    /// values decode as its body does. A card spelling no `id` mints one.
+    /// Throws if `card.kind` is not a valid kind name, if `at` is out of
+    /// range, or `edit::too_many_cards` if the document holds 1,000 cards.
     #[wasm_bindgen(js_name = _uncheckedInsertCard, skip_typescript)]
     pub fn insert_card(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "CardInput")] card: JsValue,
         #[wasm_bindgen(unchecked_optional_param_type = "number")] at: Option<usize>,
-        #[wasm_bindgen(unchecked_optional_param_type = "PlaceOptions")] opts: JsValue,
     ) -> Result<String, JsValue> {
-        let actor = place_actor(&opts, "insertCard")?;
         let core_card = js_to_card(&card)?;
         // A kind error anchors at the target slot; an append has no slot yet, so
         // its kind error carries no anchor.
@@ -1837,7 +1790,7 @@ impl Document {
         });
         self.inner
             .unchecked()
-            .insert_card(at, core_card, actor.as_deref())
+            .insert_card(at, core_card)
             .map_err(|e| edit_error_to_js(&e, &base))
     }
 
@@ -2092,80 +2045,34 @@ fn markdown_options(opts: &JsValue, verb: &str) -> Result<bool, JsValue> {
     Ok(opts.annotated.unwrap_or(false))
 }
 
-/// What a revise's writer read, off a `BaseOptions` or a
+/// The hash a revise's writer read, off a `BaseOptions` or a
 /// `DocumentBaseOptions`.
-enum ReadBase {
-    None,
-    Hash(String),
-    Content(Content),
-    Stored(Box<quillmark_core::document::Document>),
-}
-
-impl ReadBase {
-    /// `other` is the key beside `baseHash`: `baseContent` on `revise`,
-    /// `baseStored` on `reviseDocument`.
-    fn from_js(opts: JsValue, verb: &str, other: &str) -> Result<Self, JsValue> {
-        if opts.is_undefined() || opts.is_null() {
-            return Ok(ReadBase::None);
-        }
-        let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
-        if !opts.is_object() {
-            return Err(invalid("options must be an object".into()));
-        }
-        let keys = js_sys::Object::keys(opts.unchecked_ref::<js_sys::Object>());
-        for key in keys.iter() {
-            let key = key.as_string().unwrap_or_default();
-            if key != "baseHash" && key != other {
-                return Err(invalid(format!("unknown option `{key}`; expected baseHash or {other}")));
-            }
-        }
-        // A key that is present but holds nothing is a caller bug (a lookup
-        // that found nothing, a missing `await`), and would otherwise fall
-        // through to an unguarded write.
-        let get = |key: &str| -> Result<Option<JsValue>, JsValue> {
-            if !js_sys::Reflect::has(&opts, &key.into()).unwrap_or(false) {
-                return Ok(None);
-            }
-            let v = js_sys::Reflect::get(&opts, &key.into()).unwrap_or(JsValue::UNDEFINED);
-            if v.is_undefined() || v.is_null() {
-                return Err(invalid(format!("{key} must be given a value when present")));
-            }
-            Ok(Some(v))
-        };
-        match (get("baseHash")?, get(other)?) {
-            (None, None) => Ok(ReadBase::None),
-            (Some(_), Some(_)) => Err(invalid(format!("name baseHash or {other}, not both"))),
-            (Some(hash), None) => hash
-                .as_string()
-                .map(ReadBase::Hash)
-                .ok_or_else(|| invalid("baseHash must be a string".into())),
-            (None, Some(v)) if other == "baseStored" => {
-                let json = v.as_string().ok_or_else(|| invalid("baseStored must be a toStored string".into()))?;
-                quillmark_core::document::Document::from_stored(&json)
-                    .map(|parsed| ReadBase::Stored(Box::new(parsed.document)))
-                    .map_err(|e| invalid(format!("baseStored: invalid storage DTO: {e}")))
-            }
-            (None, Some(v)) => content::content_in(v, &format!("{verb}: baseContent")).map(ReadBase::Content),
+fn base_hash(opts: JsValue, verb: &str) -> Result<Option<String>, JsValue> {
+    if opts.is_undefined() || opts.is_null() {
+        return Ok(None);
+    }
+    let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
+    if !opts.is_object() {
+        return Err(invalid("options must be an object".into()));
+    }
+    let keys = js_sys::Object::keys(opts.unchecked_ref::<js_sys::Object>());
+    for key in keys.iter() {
+        let key = key.as_string().unwrap_or_default();
+        if key != "baseHash" {
+            return Err(invalid(format!("unknown option `{key}`; expected baseHash")));
         }
     }
-
-    fn as_base(&self) -> Option<quillmark_core::document::Base<'_>> {
-        use quillmark_core::document::Base;
-        match self {
-            ReadBase::None | ReadBase::Stored(_) => None,
-            ReadBase::Hash(hash) => Some(Base::Hash(hash)),
-            ReadBase::Content(content) => Some(Base::Content(content)),
-        }
+    if !js_sys::Reflect::has(&opts, &"baseHash".into()).unwrap_or(false) {
+        return Ok(None);
     }
-
-    fn as_document_base(&self) -> Option<quillmark_core::document::DocumentBase<'_>> {
-        use quillmark_core::document::DocumentBase;
-        match self {
-            ReadBase::None | ReadBase::Content(_) => None,
-            ReadBase::Hash(hash) => Some(DocumentBase::Hash(hash)),
-            ReadBase::Stored(doc) => Some(DocumentBase::Stored(doc)),
-        }
+    // A key that is present but holds nothing is a caller bug (a lookup that
+    // found nothing, a missing `await`), and would otherwise fall through to an
+    // unguarded write.
+    let hash = js_sys::Reflect::get(&opts, &"baseHash".into()).unwrap_or(JsValue::UNDEFINED);
+    if hash.is_undefined() || hash.is_null() {
+        return Err(invalid("baseHash must be given a value when present".into()));
     }
+    hash.as_string().map(Some).ok_or_else(|| invalid("baseHash must be a string".into()))
 }
 
 /// The canonical form of `rt`, read without a document: the one spelling
@@ -2229,15 +2136,6 @@ struct DocumentRevisedJs {
     dropped_anchors: Vec<AnchorContextJs>,
     warnings: Vec<Diagnostic>,
     from: Vec<Option<usize>>,
-    conflicts: Vec<MergeConflictJs>,
-}
-
-#[derive(serde::Serialize)]
-struct MergeConflictJs {
-    path: String,
-    base: Option<serde_json::Value>,
-    current: Option<serde_json::Value>,
-    proposed: Option<serde_json::Value>,
 }
 
 #[derive(serde::Serialize)]
@@ -2276,16 +2174,6 @@ impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
                 .collect(),
             warnings: diags(revised.warnings),
             from: revised.from,
-            conflicts: revised
-                .conflicts
-                .into_iter()
-                .map(|c| MergeConflictJs {
-                    path: c.path.to_string(),
-                    base: c.base,
-                    current: c.current,
-                    proposed: c.proposed,
-                })
-                .collect(),
         }
     }
 }
@@ -2791,23 +2679,6 @@ fn card_to_js(card: &quillmark_core::document::Card) -> Result<JsValue, JsValue>
         }
     }
     serialize_or_throw(&wire, "card")
-}
-
-/// The `actor` a card placement's `PlaceOptions` name, if any.
-fn place_actor(opts: &JsValue, verb: &str) -> Result<Option<String>, JsValue> {
-    if opts.is_undefined() || opts.is_null() {
-        return Ok(None);
-    }
-    reject_unknown_keys(opts, &["actor"], "options", |k| {
-        format!("{verb}: options have unknown key `{k}`; a card placement takes `actor`")
-    })?;
-    let v = js_sys::Reflect::get(opts, &"actor".into()).unwrap_or(JsValue::UNDEFINED);
-    if v.is_undefined() {
-        return Ok(None);
-    }
-    v.as_string()
-        .map(Some)
-        .ok_or_else(|| WasmError::from(format!("{verb}: actor must be a string when given")).to_js_value())
 }
 
 fn js_to_card(value: &JsValue) -> Result<quillmark_core::document::Card, JsValue> {

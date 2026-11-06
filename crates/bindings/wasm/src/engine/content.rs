@@ -139,8 +139,8 @@ export interface Change {
  * A record a step puts, a block a splice opens, a container it sets or an
  * island it inserts, may carry a placeholder id, `?` and an id (`"?1"`), and a
  * step may name it, as a `setBlock` path or a `nested` island does: the write
- * mints an id for it past every id the value holds, under `actor` where one is
- * given, and the receipt's `minted` names it.
+ * mints an id for it past every id the value holds, and the receipt's `minted`
+ * names it.
  *
  * A placement of a held id, and a move or removal of one the text does not
  * hold, is refused (`edit::content_apply`).
@@ -177,8 +177,7 @@ export type Step =
  * its text or the eight characters either side read otherwise.
  * `warnings` holds a `parse::dropped_construct` per construct a revise's
  * markdown dropped.
- * `rebased` says the write's `base` was a value the field had moved on from,
- * and the write was rebased over what changed since. `minted` maps each
+ * `minted` maps each
  * placeholder the change gave a record it put to the id the write minted for
  * it; a structural edit's own are `"?0"`, `"?1"` and on, in the order it puts them.
  */
@@ -188,7 +187,6 @@ export interface Receipt {
     droppedAnchors: DroppedAnchor[];
     movedAnchors: MovedAnchor[];
     warnings: Diagnostic[];
-    rebased: boolean;
     minted: Record<string, string>;
 }
 
@@ -210,20 +208,11 @@ export interface DroppedAnchor extends AnchorContext {
     slot?: string;
 }
 
-/** `base` is the hash a writer read. A value that has changed since rebases
- *  the write over the change, refusing it with `edit::rebase_conflict` where
- *  the two touch the same text or record, and with `edit::stale_base` where
- *  the document no longer holds the change since. Pass it: a write without one
- *  lands over whatever the value now holds.
- *
- *  `actor` names the writer, one per live session: each id the write mints
- *  is `{actor}:{prefix}{n}`, so two clients writing from one value never mint
- *  one id. Without one a write mints `{prefix}{n}`, as an import does. An
- *  actor is 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, as a
- *  card placement's is; another throws `edit::invalid_actor`. */
+/** `base` is the hash a writer read. A value that hashes otherwise refuses
+ *  the write with `edit::stale_base`, its `args.current` the hash now. Pass it:
+ *  a write without one lands over whatever the value now holds. */
 export interface WriteOptions {
     base?: string;
-    actor?: string;
 }
 
 /** `splitBlock`'s options: a write's, and `id`, the new block's id, which
@@ -328,7 +317,6 @@ pub(super) struct ReceiptJs {
     dropped_anchors: Vec<DroppedAnchorJs>,
     moved_anchors: Vec<MovedJs>,
     warnings: Vec<Diagnostic>,
-    rebased: bool,
     minted: std::collections::BTreeMap<String, String>,
 }
 
@@ -352,21 +340,20 @@ struct MovedJs {
     reason: &'static str,
 }
 
-/// A `WriteOptions` from JS: the `base` the writer read and its `actor`.
+/// A `WriteOptions` from JS: the `base` the writer read.
 struct WriteOpts {
     base: Option<String>,
-    actor: Option<String>,
 }
 
 impl WriteOpts {
     /// The options of `verb`, which also reads the keys `extra` names.
     fn from_js(opts: &JsValue, verb: &str, extra: &[&str]) -> Result<WriteOpts, JsValue> {
-        let mut out = WriteOpts { base: None, actor: None };
+        let mut out = WriteOpts { base: None };
         if opts.is_undefined() || opts.is_null() {
             return Ok(out);
         }
         let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
-        let keys: Vec<&str> = ["base", "baseHash", "actor"].into_iter().chain(extra.iter().copied()).collect();
+        let keys: Vec<&str> = ["base", "baseHash"].into_iter().chain(extra.iter().copied()).collect();
         reject_unknown_keys(opts, &keys, "options", |k| {
             format!("{verb}: options have unknown key `{k}`; a write takes {}", keys.iter().filter(|k| **k != "baseHash").map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "))
         })?;
@@ -384,12 +371,11 @@ impl WriteOpts {
                 return Err(invalid("name base or baseHash, not both".into()));
             }
         }
-        out.actor = string_opt(opts, "actor", verb)?;
         Ok(out)
     }
 
     fn as_ref(&self) -> WriteOptions<'_> {
-        WriteOptions { base: self.base.as_deref().map(quillmark_core::document::Base::Hash), actor: self.actor.as_deref() }
+        WriteOptions { base: self.base.as_deref() }
     }
 }
 
@@ -557,7 +543,6 @@ pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath,
             .map(|m| MovedJs { id: m.id, before: m.before, after: m.after, reason: m.reason.name() })
             .collect(),
         warnings,
-        rebased: receipt.rebased,
         minted: receipt.minted,
     }
 }
@@ -582,12 +567,9 @@ impl Document {
 
     /// **Apply** `change` to the value at `addr`, all its steps or none, and
     /// answer the `Receipt`. `opts.base` is the hash the writer read
-    /// (`hash(addr)`), and the change's offsets are into the value it names:
-    /// one the value has moved on from rebases the change over the change
-    /// since, throwing `edit::rebase_conflict` where they touch the same text or
-    /// record and `edit::stale_base` where the document no longer holds the change
-    /// since. A refused change throws `edit::content_apply` and writes
-    /// nothing.
+    /// (`hash(addr)`), and the change's offsets are into that value: a value
+    /// that hashes otherwise throws `edit::stale_base`. A refused change throws
+    /// `edit::content_apply` and writes nothing.
     #[wasm_bindgen(js_name = apply, unchecked_return_type = "Receipt")]
     pub fn apply(
         &mut self,
@@ -604,8 +586,8 @@ impl Document {
 
     /// Rewrite the value at `addr` as `markdown`, an edit of the read
     /// `toMarkdown(addr, { annotated: true })` gives: the anchors and islands
-    /// whose `qm-*` tags it keeps stay put, what the read does not spell rides
-    /// back in, and the rest keeps what a word-aligned diff keeps. Answers the
+    /// whose `qm-*` tags it keeps stay put, and the rest keeps what a
+    /// word-aligned diff keeps; what markdown does not spell is gone. Answers the
     /// `Receipt`, its `warnings` the import's. Throws as `apply`, and on an
     /// over-nested markdown input.
     #[wasm_bindgen(js_name = revise, unchecked_return_type = "Receipt")]

@@ -410,7 +410,7 @@ and markdown round-trip all follow from that.
 
 |                     | Block, container, island, slot, row, column `id`  | Anchor `id`                                        | Card `$id`                                          |
 | ------------------- | -------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------- |
-| Minted by           | Quillmark at import, migration and revise; the caller in a step | the caller                            | the author or caller, else Quillmark where the card is placed, under the placing writer's actor |
+| Minted by           | Quillmark at import, migration and revise; the caller in a step | the caller                            | the author or caller, else Quillmark where the card is placed |
 | Because             | content determines it: the nth part minted         | the referent is external; no content determines it | the card is the referent, and markdown can spell its id |
 | Unique across       | its kind within the `Content`; slots, rows and columns within their island | the `Content`, its slots included | the document's composable cards |
 | On collision        | a change that leaves one held twice refuses, and a step naming one held twice; `validate` refuses | the step refuses; `validate` refuses               | a parse re-mints and warns; a placing edit rejects; a load refuses |
@@ -426,7 +426,7 @@ A structural id is part of the canonical form, so it is hash input like every
 other field, and byte-stability's promise of equal bytes for equal content
 holds for a cold import, a migration and a revise: equal content from them
 carries equal ids. The rule: **an id Quillmark mints is a deterministic
-function of the values in play and the writer's actor, never drawn from an
+function of the values in play, never drawn from an
 ambient source** (RNG, wall-clock, UUID, allocation identity, process state).
 An ambient id would make re-importing the same markdown yield different bytes
 for the same document, silently breaking divergence detection and cache keys.
@@ -440,19 +440,15 @@ The invariant that holds for every `Content`, checked by `Content::validate`,
 is therefore **uniqueness**, not `id == isl-{index}`.
 
 A step names the ids of what it lands, and the apply refuses one already live
-in its scope. A live client mints none of its own: a record it puts carries a
-placeholder the write fills, and the write mints under the client's actor,
-`{actor}:{prefix}{n}`, so two clients never mint one id
-([CONTENT.md](CONTENT.md) § Ids). A live document's bytes therefore depend on
-which actors wrote it, and its hash is stable from the moment it is stored
-rather than equal to a cold import's. Merge repair derives each id it mints
+in its scope. A writer that wants Quillmark to mint puts a placeholder the
+write fills ([CONTENT.md](CONTENT.md) § Ids). Merge repair derives each id it mints
 from the ids involved ([CONTENT.md](CONTENT.md) § "Merge repair").
 
 A markdown revise keeps the ids of what it kept (`diff::align`), an island
 equal to a stored one or named by a `qm-island` tag keeping its id, and mints
 every other part past the highest id the value held, so none takes a dropped
-part's id. How a revise or replace mints over a stale base, reading values and
-never the change log, is CONTENT.md § "Writing a value".
+part's id. How a revise or replace mints, reading the value and the write
+alone, is CONTENT.md § "Writing a value".
 
 Re-landing a dropped part is not a mint: the delete freed the id and it travels
 back with its part in the inverse, so restoring a deletion restores the bytes.
@@ -514,21 +510,10 @@ is written, and never rewritten while its card lives.**
 - **Mint.** A card without a valid id takes a token, `c` and five base32
   letters of SHA-256 over `quillmark/card-id\n{n}`, the first `n` whose id no
   card holds (`card_id::Mint`). A parse, a load and a seed mint the token
-  alone, positionally, so equal markdown parses to equal ids. A placement
-  under a writer's actor (`Unchecked::insert_card`, the writer's `add_card`)
-  mints `{actor}-{token}`: an actor ([CONTENT.md](CONTENT.md) § Ids) is short
-  enough that the id is a card id, no actor's id is a positional one
-  and two actors never mint one id. A live client places each card it inserts
-  under its actor and carries the `$id` the placement answers to its peers, so
-  two replicas never mint two ids for one card. The mint is a function of the
-  document and the writer's actor, so the never-ambient rule of § Island-id
-  determinism holds, narrowed as it is there: a live document's ids depend on
-  which actors placed its cards. An actor's mint never reissues an id: each
-  `Document` value holds, beside its cards and outside its equality and its
-  stored row, the index past the last token it minted under each actor since
-  its parse, load or seed, and that actor's next mint starts there, so an id
-  an actor minted is never minted under it again in that value's life, though
-  the card holding it is removed. A positional mint keeps no such record.
+  alone, positionally, so equal markdown parses to equal ids, and a placement
+  (`Unchecked::insert_card`, the writer's `add_card`) mints the same way. A
+  live client carries the `$id` a placement answers to its peers, so two
+  replicas never mint two ids for one card.
 - **Every input path normalizes the id.** A parse, a load and a placing edit each leave every
   composable card holding a distinct valid id. A parse keeps the first card
   spelling an id, re-mints a later duplicate or an id outside the grammar, and
@@ -544,10 +529,9 @@ is written, and never rewritten while its card lives.**
   align by text ([BINDINGS.md](BINDINGS.md) § The write surface). A card revising a stored one
   holds its id whatever it spells. An inserted card keeps a valid id no stored
   card held and mints past every stored id otherwise, so a card a revise
-  removes never hands its id to a card that revise inserts. Past the actor
-  mint above, the document keeps no record of an id it no longer holds: a
-  positional mint, or a mint under an actor in a value loaded after the id was
-  freed, may mint it again. A consumer keeping selectors by card id drops a removed card's when the
+  removes never hands its id to a card that revise inserts. The document
+  keeps no record of an id it no longer holds, so a later mint may mint it
+  again. A consumer keeping selectors by card id drops a removed card's when the
   receipt's `from` names that card in no entry.
 - **Never rendered.** `$id` never reaches the plate JSON, as `$ext` does not.
 

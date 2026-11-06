@@ -108,7 +108,6 @@ pub(crate) fn receipt_to_py<'py>(
     out.set_item("dropped_anchors", json_to_py(py, &serde_json::Value::Array(dropped))?)?;
     out.set_item("moved_anchors", json_to_py(py, &serde_json::Value::Array(moved))?)?;
     out.set_item("warnings", warnings)?;
-    out.set_item("rebased", receipt.rebased)?;
     out.set_item("minted", receipt.minted)?;
     Ok(out)
 }

@@ -15,7 +15,7 @@ use quillmark_content::lines::import::ImportError;
 #[cfg(test)]
 use quillmark_content::lines::model::Lines;
 
-use crate::document::base::{Base, BaseError};
+use crate::document::base::StaleBase;
 use crate::document::meta::{CardKindError, validate_composable_kind};
 use crate::document::payload::MetaKey;
 use crate::document::{Card, Codec, ContentDecodeError, Document, Payload, PayloadItem};
@@ -242,14 +242,9 @@ pub enum EditError {
     #[error("the write removes the {kind} island '{island}', which its writer may not have seen; remove it with apply")]
     DropsExtIsland { island: String, kind: String },
 
-    /// A write's or a card placement's actor is not an
-    /// [actor](quillmark_content::ids::is_actor).
-    #[error("invalid actor '{0}': must be 1 to 57 of [A-Za-z0-9_-], opening with a letter or digit")]
-    InvalidActor(String),
-
-    /// A revise's [`Base`] refused the write.
+    /// A write's base no longer names the value: `edit::stale_base`.
     #[error(transparent)]
-    Base(BaseError),
+    StaleBase(StaleBase),
 }
 
 impl EditError {
@@ -317,8 +312,7 @@ impl EditError {
             EditError::TooManyAnchors { .. } => "edit::too_many_anchors",
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
-            EditError::InvalidActor(_) => "edit::invalid_actor",
-            EditError::Base(e) => e.code(),
+            EditError::StaleBase(e) => e.code(),
         }
     }
 
@@ -387,8 +381,7 @@ impl EditError {
                 "island" => island,
                 "type" => kind,
             },
-            EditError::InvalidActor(actor) => diag_args! { "actor" => actor },
-            EditError::Base(e) => e.args(),
+            EditError::StaleBase(e) => e.args(),
         }
     }
 
@@ -425,7 +418,7 @@ impl EditError {
             | EditError::FieldNotSingleLine { field: f, .. }
             | EditError::FieldCoercionFailed { field: f, .. } => Some(base.field(f)),
             EditError::IndexOutOfRange { index, .. } => Some(DocPath::card(None, *index)),
-            EditError::Base(e) if e.field().is_some() => e.field().map(|f| base.field(f)),
+            EditError::StaleBase(StaleBase { field: Some(f), .. }) => Some(base.field(f)),
             _ => (!base.segs().is_empty()).then(|| base.clone()),
         }
     }
@@ -965,7 +958,7 @@ impl<'a> CardMut<'a> {
     pub fn revise_field_checked_against(
         &mut self,
         name: &str,
-        base: Base<'_>,
+        base: &str,
         body: impl Into<String>,
         schema: &FieldSchema,
     ) -> Result<super::Receipt, EditError> {
@@ -998,7 +991,7 @@ impl Document {
 
     /// Place `card` at `at` (`None` appends), its `$id` as
     /// [`Unchecked::insert_card`] takes it, answering that id.
-    pub(crate) fn place_card(&mut self, at: Option<usize>, mut card: Card, actor: Option<&str>) -> Result<String, EditError> {
+    pub(crate) fn place_card(&mut self, at: Option<usize>, mut card: Card) -> Result<String, EditError> {
         let len = self.cards().len();
         let index = at.unwrap_or(len);
         if index > len {
@@ -1006,9 +999,6 @@ impl Document {
         }
         Self::check_composable_placement(&card)?;
         self.check_card_room()?;
-        if let Some(actor) = actor.filter(|a| !quillmark_content::ids::is_actor(a)) {
-            return Err(EditError::InvalidActor(actor.to_string()));
-        }
         let held: std::collections::HashSet<String> = self
             .cards()
             .iter()
@@ -1024,10 +1014,7 @@ impl Document {
             }
             Some(id) => id.to_string(),
             None => {
-                let id = match actor {
-                    Some(actor) => self.mints.mint(held, actor),
-                    None => super::card_id::Mint::new(held).mint(),
-                };
+                let id = super::card_id::Mint::new(held).mint();
                 card.payload_mut().set_id(id.clone());
                 id
             }
@@ -1151,11 +1138,9 @@ impl Unchecked<'_> {
     /// ([`EditError::TooManyCards`]). A card spelling an id keeps it, refused
     /// where it is no card id ([`EditError::InvalidCardId`]) or another card
     /// holds it ([`EditError::DuplicateCardId`]). A card spelling none mints
-    /// one: under `actor`, `{actor}-{token}`, so two writers placing cards
-    /// from one document never mint one id, and positionally with none. An
-    /// actor that cannot open a card id is [`EditError::InvalidActor`].
-    pub fn insert_card(&mut self, at: Option<usize>, card: Card, actor: Option<&str>) -> Result<String, EditError> {
-        self.0.place_card(at, card, actor)
+    /// one positionally.
+    pub fn insert_card(&mut self, at: Option<usize>, card: Card) -> Result<String, EditError> {
+        self.0.place_card(at, card)
     }
 }
 
@@ -1489,17 +1474,11 @@ impl Card {
     /// [`revise`](Self::revise) builds it, landed nowhere.
     fn revision(
         &self,
-        target: super::Target<'_>,
         before: &quillmark_content::model::Content,
         markdown: &str,
     ) -> Result<quillmark_content::diff::Revision, EditError> {
         quillmark_content::diff::revise(before, markdown).map_err(|e| match e {
             quillmark_content::diff::ReviseError::Import(e) => EditError::import(e),
-            quillmark_content::diff::ReviseError::Conflict(c) => EditError::Base(super::BaseError::rebase_conflict(
-                super::content_hash(before),
-                target.field().map(str::to_string),
-                &c,
-            )),
             quillmark_content::diff::ReviseError::Refused(e) => EditError::change(e),
         })
     }
@@ -1530,14 +1509,14 @@ impl Card {
                 Some(v) => Codec::Text.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Text, e))?,
             };
             before.codec = Codec::Text.content();
-            let revised = self.revision(target, &before, &text)?;
+            let revised = self.revision(&before, &text)?;
             let stored = QuillValue::from_json(revised.content.to_value());
             return self.revising(target, Vec::new(), |card| {
                 card.payload_mut().insert(name.to_string(), stored).map(|_| ()).map_err(EditError::InvalidPayload)
             });
         }
         let before = self.richtext_value(name)?;
-        let revised = self.revision(target, &before, &body.into())?;
+        let revised = self.revision(&before, &body.into())?;
         super::write::keeps_ext_islands(&before, &revised.content)?;
         let (stored, _) = resolve_field_write(
             name,

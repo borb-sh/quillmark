@@ -67,15 +67,15 @@ fn test_document_store_field_rejects_invalid_names() {
 #[test]
 fn test_document_insert_and_remove_card() {
     let mut doc = make_doc_with_cards();
-    doc.unchecked().insert_card(Some(0), Card::new("intro").unwrap(), None).unwrap();
-    doc.unchecked().insert_card(Some(3), Card::new("footer").unwrap(), None).unwrap();
+    doc.unchecked().insert_card(Some(0), Card::new("intro").unwrap()).unwrap();
+    doc.unchecked().insert_card(Some(3), Card::new("footer").unwrap()).unwrap();
     let kinds: Vec<_> = doc.cards().iter().map(|c| c.kind()).collect();
     assert_eq!(
         kinds,
         [Some("intro"), Some("note"), Some("summary"), Some("footer")]
     );
     assert_eq!(
-        doc.unchecked().insert_card(Some(5), Card::new("note").unwrap(), None),
+        doc.unchecked().insert_card(Some(5), Card::new("note").unwrap()),
         Err(EditError::IndexOutOfRange { index: 5, len: 4 })
     );
     assert_eq!(doc.remove_card(0).unwrap().kind(), Some("intro"));
@@ -91,15 +91,15 @@ fn test_placing_a_card_past_the_card_ceiling_is_refused() {
 
     let mut doc = make_doc();
     for _ in 0..MAX_CARD_COUNT {
-        doc.unchecked().insert_card(None, Card::new("note").unwrap(), None).unwrap();
+        doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
     }
     assert!(Document::parse(&doc.to_markdown()).is_ok());
     let full = EditError::TooManyCards {
         max: MAX_CARD_COUNT,
     };
-    assert_eq!(doc.unchecked().insert_card(None, Card::new("note").unwrap(), None), Err(full.clone()));
+    assert_eq!(doc.unchecked().insert_card(None, Card::new("note").unwrap()), Err(full.clone()));
     assert_eq!(
-        doc.unchecked().insert_card(Some(0), Card::new("note").unwrap(), None),
+        doc.unchecked().insert_card(Some(0), Card::new("note").unwrap()),
         Err(full.clone())
     );
     assert_eq!(full.code(), "edit::too_many_cards");
@@ -156,7 +156,7 @@ fn test_document_new_blank_canvas() {
     doc.main_card_mut().store_fields([("title", "Hello")]).unwrap();
     let mut card = Card::new("note").unwrap();
     card.store_field("qty", 3).unwrap();
-    doc.unchecked().insert_card(None, card, None).unwrap();
+    doc.unchecked().insert_card(None, card).unwrap();
 
     let reparsed = Document::parse(&doc.to_markdown()).unwrap().document;
     assert_eq!(doc, reparsed);
@@ -800,10 +800,10 @@ fn test_insert_card_refuses_root_only_entries() {
         mutate(&mut wire);
         let card = Card::try_from(wire).expect("the wire stays permissive on placement metadata");
         let mut doc = make_doc();
-        doc.unchecked().insert_card(None, card.clone(), None).map(|_| doc).map_err(|e| {
+        doc.unchecked().insert_card(None, card.clone()).map(|_| doc).map_err(|e| {
             let mut doc = make_doc();
             assert_eq!(
-                doc.unchecked().insert_card(Some(0), card, None),
+                doc.unchecked().insert_card(Some(0), card),
                 Err(e.clone()),
                 "push and insert agree"
             );
@@ -1156,39 +1156,20 @@ fn a_field_write_holds_its_content_as_a_body_write_does() {
     assert!(Document::from_stored(&row).is_err(), "a load refuses a field it would refuse as a body");
 }
 
-/// A card placed with no `$id` mints one positionally, or under the writer's
-/// actor where one is given, so two writers placing a card into one document
-/// mint two ids.
+/// A card placed with no `$id` mints one positionally, the same in every
+/// document holding the same cards; a card spelling an id keeps it.
 #[test]
-fn a_placed_card_mints_under_its_writers_actor() {
-    let place = |actor: Option<&str>| {
+fn a_placed_card_mints_positionally_or_keeps_its_id() {
+    let place = || {
         let mut doc = make_doc();
-        let id = doc.unchecked().insert_card(None, Card::new("note").unwrap(), actor).unwrap();
+        let id = doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
         assert_eq!(doc.cards()[0].id(), Some(id.as_str()));
         id
     };
-    let (none, seven, eight) = (place(None), place(Some("7")), place(Some("8")));
-    assert_eq!(none, place(None));
-    assert_eq!(seven, format!("7-{none}"));
-    assert_ne!(seven, eight);
+    assert_eq!(place(), place());
 
     let mut doc = make_doc();
-    assert_eq!(
-        doc.unchecked().insert_card(None, Card::new("note").unwrap(), Some("a:b")),
-        Err(EditError::InvalidActor("a:b".into()))
-    );
     let mut spelled = Card::new("note").unwrap();
     spelled.payload_mut().set_id("kept");
-    assert_eq!(doc.unchecked().insert_card(None, spelled, Some("7")).unwrap(), "kept");
-}
-
-/// An actor never mints an id twice in a document's life, though the card
-/// that held it is gone.
-#[test]
-fn an_actor_never_mints_a_freed_id_again() {
-    let mut doc = make_doc();
-    let first = doc.unchecked().insert_card(None, Card::new("note").unwrap(), Some("7")).unwrap();
-    doc.remove_card(0).unwrap();
-    let second = doc.unchecked().insert_card(None, Card::new("note").unwrap(), Some("7")).unwrap();
-    assert_ne!(first, second);
+    assert_eq!(doc.unchecked().insert_card(None, spelled).unwrap(), "kept");
 }

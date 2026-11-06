@@ -517,7 +517,7 @@ card_kinds:
             let mut w = crate::writer::TypedWriter::new(config, &mut doc);
             w.set("subject", "Hello **world**").unwrap();
             w.set("qty", "3").unwrap();
-            w.add_card("note", [("prose", "a *card*")], None, None, None)
+            w.add_card("note", [("prose", "a *card*")], None, None)
                 .unwrap();
         }
         doc

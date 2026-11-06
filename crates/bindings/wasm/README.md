@@ -231,7 +231,6 @@ doc.unchecked.insertCard({                                        // fields → 
   kind: "note",
   payloadItems: [{ type: "field", key: "x", value: 1 }],
 });
-const id = doc.unchecked.insertCard({ kind: "note" }, 0, { actor }); // a live client's $id, minted under its actor
 ```
 
 Reads and writes are two aligned shapes. A read `Card` always has `body:

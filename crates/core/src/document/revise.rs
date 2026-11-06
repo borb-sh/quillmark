@@ -14,7 +14,6 @@ use super::edit::EditError;
 use super::emit::{canonical_content, emit_payload_fields};
 use quillmark_content::anchors::anchor_contexts;
 use quillmark_content::model::Content as ContentModel;
-use super::merge::MergeConflict;
 use super::{Card, Document, Parsed, Revising, dropped_constructs};
 use crate::error::{Diagnostic, ParseError, Severity};
 use crate::path::DocPath;
@@ -41,10 +40,6 @@ pub struct DocumentRevised {
     /// entry names was removed. Only cards of one `$kind` pair, and a card
     /// revising a stored one holds its `$id`.
     pub from: Vec<Option<usize>>,
-    /// Under a [`DocumentBase::Stored`](super::DocumentBase::Stored), each place the writer's
-    /// change and the change since its read both changed, which the write
-    /// leaves as it stands now. Empty for any other write.
-    pub conflicts: Vec<MergeConflict>,
 }
 
 impl Document {
@@ -188,7 +183,6 @@ impl Document {
             dropped_anchors,
             warnings,
             from: pairs.into_iter().map(|pair| pair.map(|(i, _)| i)).collect(),
-            conflicts: Vec::new(),
         }
     }
 }
@@ -285,21 +279,14 @@ fn revise_card(
 }
 
 /// `markdown` revising `stored` as [`Card::revise`] revises a value with no
-/// base. Where the markdown rewrites what the stored value's annotated read
-/// does not spell, which that revise refuses, the revise is the cold diff
-/// against `stored`, dropping what the markdown cannot spell rather than
-/// refusing the document. `None` on an over-nested input, and the refusal
-/// where the markdown imports to a value that does not validate.
+/// base. `None` on an over-nested input, and the refusal where the markdown
+/// imports to a value that does not validate.
 fn revised(stored: &Content, markdown: &str) -> Result<Option<quillmark_content::diff::Revision>, ApplyError> {
-    use quillmark_content::diff::{ReviseError, revise, revise_holding};
-    let revision = match revise(stored, markdown) {
-        Err(ReviseError::Conflict(_)) => revise_holding(stored, markdown, stored),
-        revision => revision,
-    };
-    match revision {
+    use quillmark_content::diff::{ReviseError, revise};
+    match revise(stored, markdown) {
         Ok(revision) => Ok(Some(revision)),
         Err(ReviseError::Refused(e)) => Err(e),
-        Err(ReviseError::Import(_) | ReviseError::Conflict(_)) => Ok(None),
+        Err(ReviseError::Import(_)) => Ok(None),
     }
 }
 

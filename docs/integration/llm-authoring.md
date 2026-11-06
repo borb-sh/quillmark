@@ -65,11 +65,11 @@ A model revising a long document reads and writes one address at a time, rather 
 
 ```javascript
 const read = doc.toMarkdown({ card: 0 }, { annotated: true }) // the body of cards[0], with its anchor tags
-const base = doc.read({ card: 0 })                     // the value the model read
+const base = quill.writer(doc).card(0).hashAt()        // the hash of the value the model read
 const reply = await model(read.markdown)              // the model edits that markdown alone
-quill.writer(doc).card(0).revise({}, reply, { baseContent: base })
+quill.writer(doc).card(0).revise({}, reply, { baseHash: base })
 ```
 
-The scoped read is the read a revise at that address takes back: kept anchor tags pin their comments, and `baseContent` rebases the edit over any change made since the read.
+The scoped read is the read a revise at that address takes back: kept anchor tags pin their comments, and `baseHash` refuses the edit with `edit::stale_base` where the value changed since the read, so the model reads again rather than reverting it. A model that edits while a person types shares a `@quillmark/collab` session instead.
 
 Full model: [AUTHORING.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/AUTHORING.md).

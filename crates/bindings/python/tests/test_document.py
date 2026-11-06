@@ -133,17 +133,14 @@ def test_a_composable_card_carries_its_id():
         doc.unchecked.insert_card({**make_card("note", {}), "id": "-x"})
 
 
-def test_a_live_client_places_a_card_under_its_actor():
-    """A card spelling no id mints under the placing writer's actor, and the
-    id it answers places the same card on a peer."""
+def test_a_placed_card_mints_its_id_positionally():
+    """A card spelling no id mints one positionally, and the id it answers
+    places the same card on a copy."""
     a = Document.parse(SIMPLE_MD)
     b = a.clone()
-    minted = a.unchecked.insert_card(make_card("note", {}), actor="7")
-    assert minted == a.cards[0]["id"] and minted.startswith("7-c")
-    assert b.unchecked.insert_card(make_card("note", {}), actor="8") != minted
+    minted = a.unchecked.insert_card(make_card("note", {}))
+    assert minted == a.cards[0]["id"] and minted.startswith("c")
     assert b.unchecked.insert_card({**make_card("note", {}), "id": minted}) == minted
-    with raises_edit_code("edit::invalid_actor"):
-        a.unchecked.insert_card(make_card("note", {}), actor="a:b")
 
 
 def test_a_field_holds_its_content_as_a_body_does():

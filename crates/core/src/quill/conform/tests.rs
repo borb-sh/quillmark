@@ -290,7 +290,7 @@ fn conform_is_a_no_op_on_seeds() {
     );
     assert_eq!(card.body_markdown(), "overlaid **body**");
     let mut doc2 = quill.seed_document();
-    doc2.unchecked().insert_card(None, card, None).unwrap();
+    doc2.unchecked().insert_card(None, card).unwrap();
     let before2 = bytes(&doc2);
     quill.conform(&mut doc2).expect("conform");
     assert_eq!(bytes(&doc2), before2, "seed_card is already at rest");
@@ -344,7 +344,7 @@ card_kinds:
     );
 
     let mut doc = quill.seed_document();
-    doc.unchecked().insert_card(None, card, None).unwrap();
+    doc.unchecked().insert_card(None, card).unwrap();
     let before = bytes(&doc);
     let diags = quill.conform(&mut doc).expect("conform");
     assert!(diags.is_empty(), "{diags:?}");

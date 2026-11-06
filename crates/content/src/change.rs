@@ -13,7 +13,6 @@ use crate::model::{
     check_island, check_mark_kind, is_text_char, mark_spans, normalized_marks,
 };
 pub use crate::mapping::{MapResult, Mapping};
-pub use crate::rebase::{Conflict, RebaseError, rebase};
 use crate::table::{self, Table};
 use crate::units::{Scalars, Units, split_at};
 use serde_json::{Map, Value};
@@ -287,7 +286,7 @@ pub fn invert(change: &Change, before: &Content) -> Result<Change, ApplyError> {
 }
 
 fn applying(before: &Content, change: &Change, undo: bool) -> Result<(Applied, Change), ApplyError> {
-    let crate::mint::Filled { change, minted } = crate::mint::fill(change, &[before], None, None)?;
+    let crate::mint::Filled { change, minted } = crate::mint::fill(change, &[before])?;
     let mut run = Run::new(undo);
     let mut draft = Draft::new(before.clone());
     let (mut applied, mut groups) = run.level(&mut draft, &change.steps)?;
