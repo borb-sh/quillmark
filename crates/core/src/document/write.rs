@@ -458,15 +458,15 @@ impl Card {
     }
 
     /// Run `write`, which stores a new value at `target`, and answer its
-    /// receipt: the change from the value before to the value after, in
-    /// scalars.
+    /// receipt: the change from `before`, the value the caller read there, to
+    /// the value after, in scalars.
     pub(crate) fn revising(
         &mut self,
         target: Target<'_>,
+        before: Content,
         warnings: Vec<ImportWarning>,
         write: impl FnOnce(&mut Self) -> Result<(), EditError>,
     ) -> Result<Receipt, EditError> {
-        let before = self.read(target)?;
         write(self)?;
         let after = self.read(target)?;
         let change = diff::diff(&before, &after).map_err(|e| EditError::change(e.into()))?;

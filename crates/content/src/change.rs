@@ -1394,7 +1394,7 @@ fn moved_anchors(before: &Content, after: &Content, applied: &Change, run: &Run)
             let w = was.remove(&id)?;
             let placed = || match &maps {
                 _ if w.path != n.path => true,
-                Some(maps) => carried(maps, &w) != Some((n.start, n.end)),
+                Some(maps) => carried(maps, &w) != (n.start, n.end),
                 None => true,
             };
             let reason = if run.stepped.contains(&id) && placed() {
@@ -1419,7 +1419,7 @@ fn moved_anchors(before: &Content, after: &Content, applied: &Change, run: &Run)
 }
 
 /// Where an anchor read in `site` lands across `maps`, as `apply` moves it.
-fn carried(maps: &Mapping, site: &Site) -> Option<(Scalar, Scalar)> {
+fn carried(maps: &Mapping, site: &Site) -> (Scalar, Scalar) {
     let at = |p: Scalar| {
         site.path
             .iter()
@@ -1439,7 +1439,7 @@ fn carried(maps: &Mapping, site: &Site) -> Option<(Scalar, Scalar)> {
             }
         }
     };
-    Some(match site.start == site.end {
+    match site.start == site.end {
         true => {
             let p = local(maps.map_point(&at(site.start)));
             (p, p)
@@ -1448,7 +1448,7 @@ fn carried(maps: &Mapping, site: &Site) -> Option<(Scalar, Scalar)> {
             local(maps.map(&at(site.start), Assoc::After)),
             local(maps.map(&at(site.end), Assoc::Before)),
         ),
-    })
+    }
 }
 
 /// An anchor as one value holds it: the slots it sits in, its range, the id
@@ -2057,6 +2057,7 @@ mod wire {
                 only(body, "a container step", &["id", "kind", "attrs", "remove"])?;
                 let id = str_key(body, "id")?;
                 if removing(body)? {
+                    only(body, "a container remove", &["id", "remove"])?;
                     Step::Container(ContainerStep::Remove { id })
                 } else {
                     check_container_attrs(body)?;
@@ -2082,6 +2083,11 @@ mod wire {
                         quote,
                     })
                 } else {
+                    only(
+                        body,
+                        "a mark remove",
+                        &["start", "end", "type", "add", "quote"],
+                    )?;
                     let tag = str_key(body, "type")?;
                     if !MARK_TAGS.contains(&tag.as_str()) && !crate::ids::is_ext_name(&tag) {
                         return Err(ParseError::UnknownName {
@@ -2107,9 +2113,12 @@ mod wire {
                     (true, true) => {
                         return Err(shape("an anchor step names `remove` or `move`, not both"));
                     }
-                    (true, false) => Step::Anchor(AnchorStep::Remove {
-                        id: str_key(body, "id")?,
-                    }),
+                    (true, false) => {
+                        only(body, "an anchor remove", &["id", "remove"])?;
+                        Step::Anchor(AnchorStep::Remove {
+                            id: str_key(body, "id")?,
+                        })
+                    }
                     (false, true) => Step::Anchor(AnchorStep::Move {
                         anchor: anchor_from_value(body)?,
                         quote: opt_str(body, "quote")?,
