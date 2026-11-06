@@ -1593,7 +1593,7 @@ impl Card {
             before.codec = Codec::Text.content();
             let revised = self.revision(&before, &text)?;
             let stored = QuillValue::from_json(revised.content.to_value());
-            return self.revising(target, Vec::new(), |card| {
+            return self.revising(target, before, Vec::new(), |card| {
                 card.payload_mut()
                     .insert(name.to_string(), stored)
                     .map(|_| ())
@@ -1609,7 +1609,7 @@ impl Card {
             schema,
             &DocPath::new(),
         )?;
-        self.revising(target, revised.warnings, |card| {
+        self.revising(target, before, revised.warnings, |card| {
             card.payload_mut()
                 .insert(name.to_string(), stored)
                 .map(|_| ())

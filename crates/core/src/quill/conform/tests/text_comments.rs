@@ -64,6 +64,29 @@ fn a_string_at_rest_reads_as_authored_and_conforms_to_the_object() {
 }
 
 #[test]
+fn a_text_revise_of_a_string_at_rest_answers_its_literal_splice() {
+    let mut doc = Document::parse(MD).expect("transport parse").document;
+    let before = quillmark_content::markdown::plain("a *literal* line");
+    let applied = quill()
+        .writer(&mut doc)
+        .revise(
+            crate::document::Target::from("note"),
+            "a *literal* line, edited",
+            None,
+        )
+        .expect("revise")
+        .applied;
+    assert_eq!(applied.steps.len(), 1, "one splice: {applied:?}");
+    let after = quillmark_content::change::apply(&before, &applied)
+        .expect("applies to the literal value")
+        .content;
+    assert_eq!(
+        quillmark_content::markdown::to_plaintext(&after),
+        "a *literal* line, edited"
+    );
+}
+
+#[test]
 fn a_text_anchor_reads_rests_and_round_trips_as_a_richtext_one() {
     let doc = anchored();
     let contexts = doc.anchor_contexts();
