@@ -7,8 +7,8 @@
 use serde::{Deserialize, Serialize};
 
 use quillmark_content::lines::export::ExportLoss;
-use quillmark_content::lines::import::from_markdown as import_markdown;
 use quillmark_content::lines::model::Lines;
+use quillmark_content::markdown::from_markdown as import_markdown;
 use quillmark_content::model::Content;
 
 use crate::error::ParseError;
@@ -48,7 +48,13 @@ fn held_value(old: Option<&serde_json::Value>) -> Option<Content> {
         .map(|read| read.content)
 }
 
-pub(crate) fn import_body(md: &str) -> Result<Lines, ImportError> {
+/// [`import_body`] lowered to the line form, for the tests that read it.
+#[cfg(test)]
+pub(crate) fn import_body_lines(md: &str) -> Result<Lines, ImportError> {
+    import_body(md).map(|c| quillmark_content::migrate::to_lines(&c))
+}
+
+pub(crate) fn import_body(md: &str) -> Result<Content, ImportError> {
     import_markdown(md).map(|imported| imported.content)
 }
 
@@ -58,7 +64,7 @@ pub(crate) fn import_body_at(
     md: &str,
     at: &crate::path::DocPath,
     warnings: &mut Vec<Diagnostic>,
-) -> Result<Lines, ImportError> {
+) -> Result<Content, ImportError> {
     let imported = import_markdown(md)?;
     warnings.extend(dropped_constructs(imported.warnings, Some(at)));
     Ok(imported.content)
@@ -767,22 +773,25 @@ pub struct Card {
     body: Content,
     /// `body` lowered to the line form the codecs and renderers read, made
     /// when first read.
-    lines: Lowered,
     hashes: Hashes,
+    #[cfg(test)]
+    lines: Lowered,
 }
 
-/// A body's line form, lowered when first read: a write that no renderer
-/// reads pays nothing for it. Derived from the body, so it takes no part in
-/// equality.
+/// The body's line form for the tests that read it, lowered when first read
+/// and no part of equality.
+#[cfg(test)]
 #[derive(Clone, Default)]
 struct Lowered(std::sync::OnceLock<Lines>);
 
+#[cfg(test)]
 impl PartialEq for Lowered {
     fn eq(&self, _: &Self) -> bool {
         true
     }
 }
 
+#[cfg(test)]
 impl std::fmt::Debug for Lowered {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Lowered")
@@ -846,8 +855,9 @@ impl Card {
         Self {
             payload,
             body,
-            lines: Lowered::default(),
             hashes: Hashes::default(),
+            #[cfg(test)]
+            lines: Lowered::default(),
         }
     }
 
@@ -892,6 +902,7 @@ impl Card {
 
     /// The body lowered to the line form the markdown codecs and the renderers
     /// read.
+    #[cfg(test)]
     pub(crate) fn body_lines(&self) -> &Lines {
         self.lines
             .0
@@ -902,11 +913,14 @@ impl Card {
     /// derived view (`export ∘ body`), not stored state; a `Document` round-trip
     /// therefore canonicalizes the body (e.g. `__b__` → `**b**`).
     pub fn body_markdown(&self) -> String {
-        quillmark_content::lines::export::to_markdown(self.body_lines())
+        quillmark_content::markdown::to_markdown(&self.body)
     }
 
     pub(crate) fn set_body(&mut self, body: Content) {
-        self.lines = Lowered::default();
+        #[cfg(test)]
+        {
+            self.lines = Lowered::default();
+        }
         self.hashes.body = None;
         self.body = body;
     }
@@ -1128,7 +1142,7 @@ impl Document {
     pub(crate) fn parse_revising(markdown: &str) -> Result<Revising, ParseError> {
         let (document, warnings, bodies) = assemble::decompose_with_warnings(
             markdown,
-            quillmark_content::lines::import::from_markdown_unresolved,
+            quillmark_content::markdown::from_markdown_unresolved,
         )?;
         Ok(Revising {
             parsed: Parsed { document, warnings },

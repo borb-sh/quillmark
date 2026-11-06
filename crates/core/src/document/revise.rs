@@ -244,7 +244,10 @@ fn revise_card(
     let body = revised.and_then(|revised| match revised {
         Some(revised) => Ok(revised),
         None => {
-            let lines = carry_anchors(stored.body_lines(), incoming.body_lines().clone());
+            let lines = carry_anchors(
+                &quillmark_content::migrate::to_lines(stored.body()),
+                quillmark_content::migrate::to_lines(incoming.body()),
+            );
             let lifted = quillmark_content::diff::lift(stored.body(), &lines);
             lifted
                 .validate()

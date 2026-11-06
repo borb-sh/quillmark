@@ -78,7 +78,7 @@ impl QuillConfig {
                     today,
                 )),
             ),
-            normalized.main().body_lines().clone(),
+            normalized.main().body().clone(),
         );
         // A card's `$body` is defined for the plate iff its kind resolves to a
         // body-enabled schema. Captured here, where the schema is already in
@@ -100,10 +100,7 @@ impl QuillConfig {
                     // No ladder, as `resolved::card_states` leaves it.
                     None => card.payload().to_index_map(),
                 };
-                Card::from_parts(
-                    rebuild_payload_with_meta(card, fields),
-                    card.body_lines().clone(),
-                )
+                Card::from_parts(rebuild_payload_with_meta(card, fields), card.body().clone())
             })
             .collect();
 
@@ -146,13 +143,13 @@ impl QuillConfig {
                 .map_err(coercion_error)?;
             coerced_cards.push(Card::from_parts(
                 rebuild_payload_with_meta(card, coerced_fields),
-                card.body_lines().clone(),
+                card.body().clone(),
             ));
         }
 
         let coerced_main = Card::from_parts(
             rebuild_payload_with_meta(doc.main(), coerced_payload),
-            doc.main().body_lines().clone(),
+            doc.main().body().clone(),
         );
         let coerced_doc = Document::from_main_and_cards(coerced_main, coerced_cards);
 
@@ -866,7 +863,7 @@ fn validate_unclaimed(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
             continue;
         };
         // A whitespace-only body is empty: only meaningful prose warns.
-        if !schema.body_enabled() && !card.body_lines().is_blank() {
+        if !schema.body_enabled() && !card.body().is_blank() {
             diags.push(body_disabled_warning(&path.body(), &schema.name));
         }
         let declared: Declared = schema.fields.iter().map(|(n, f)| (n.as_str(), f)).collect();
@@ -1242,7 +1239,7 @@ impl QuillConfig {
         }
         self.each_plate_content(
             data,
-            &mut |at: &DocPath, content: &quillmark_content::lines::model::Content| {
+            &mut |at: &DocPath, content: &quillmark_content::model::Content| {
                 let counts = super::BlockConstruct::tally(content);
                 for &construct in declined {
                     let count = counts[construct as usize];
@@ -1262,20 +1259,20 @@ impl QuillConfig {
     pub fn each_plate_content(
         &self,
         data: &serde_json::Value,
-        each: &mut dyn FnMut(&DocPath, &quillmark_content::lines::model::Content),
+        each: &mut dyn FnMut(&DocPath, &quillmark_content::model::Content),
     ) {
         let mut card = |schema: &CardSchema,
                         obj: &serde_json::Map<String, serde_json::Value>,
                         path: DocPath| {
             for (key, value) in obj {
                 if key == "$body" {
-                    if let Ok(content) = quillmark_content::migrate::lines_from_value(value) {
-                        each(&path.body(), &content);
+                    if let Ok(read) = quillmark_content::model::Content::from_value_lenient(value) {
+                        each(&path.body(), &read.content);
                     }
                 } else if let Some(field) = schema.fields.get(key.as_str()) {
                     each_content_leaf(field, value, &path.field(key), &mut |at, codec, leaf| {
                         if let Some(Ok(imported)) = codec.decode_value(leaf) {
-                            each(at, &quillmark_content::migrate::to_lines(&imported.content));
+                            each(at, &imported.content);
                         }
                     });
                 }

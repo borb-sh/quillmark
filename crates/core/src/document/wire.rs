@@ -302,7 +302,10 @@ mod tests {
             PayloadItem::field("count", QuillValue::from_json(json!(3))),
         ]);
         payload.set_kind("note");
-        let card = Card::from_parts(payload, crate::document::import_body("body text").unwrap());
+        let card = Card::from_parts(
+            payload,
+            crate::document::import_body_lines("body text").unwrap(),
+        );
 
         let wire = CardWire::from(&card);
         assert_eq!(wire.kind, "note");

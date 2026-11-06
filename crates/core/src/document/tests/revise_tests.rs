@@ -42,7 +42,7 @@ const STORED: &str = "~~~\n$quill: q\nsubject: placeholder\n~~~\n\nMain prose st
 
 fn stored() -> Document {
     let mut doc = parse(STORED);
-    let subject = crate::document::import_body("The subject line").unwrap();
+    let subject = crate::document::import_body_lines("The subject line").unwrap();
     doc.main_mut()
         .overwrite_field("subject", anchored(&subject, "subject", "s1"))
         .unwrap();
@@ -58,9 +58,9 @@ fn stored() -> Document {
 /// anchored `i1`.
 fn stored_with_items() -> Document {
     let mut doc = stored();
-    let item = crate::document::import_body("an item to flag").unwrap();
+    let item = crate::document::import_body_lines("an item to flag").unwrap();
     let items = serde_json::json!([
-        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
+        to_canonical_value(&crate::document::import_body_lines("a plain item").unwrap()),
         to_canonical_value(&anchored(&item, "flag", "i1")),
     ]);
     doc.unchecked()
@@ -235,7 +235,7 @@ fn a_dropped_anchor_inside_a_field_names_the_content_holding_it() {
 /// drops it.
 #[test]
 fn an_anchor_in_content_stored_out_of_canonical_order_is_named_when_it_drops() {
-    let note = crate::document::import_body("a note to flag").unwrap();
+    let note = crate::document::import_body_lines("a note to flag").unwrap();
     let canonical = to_canonical_value(&anchored(&note, "flag", "n1"));
     let reordered: serde_json::Map<String, serde_json::Value> = canonical
         .as_object()
@@ -371,7 +371,7 @@ fn revising_with_the_annotated_read_keeps_every_anchor() {
 fn a_revised_fields_nested_comments_stay() {
     let mut doc = stored();
     let sections = serde_json::json!([{
-        "body": to_canonical_value(&crate::document::import_body("hello world").unwrap()),
+        "body": to_canonical_value(&crate::document::import_body_lines("hello world").unwrap()),
         "note": "x",
     }]);
     doc.unchecked()
@@ -594,7 +594,7 @@ fn a_tag_naming_nothing_stored_drops_reported_at_its_card() {
 #[test]
 fn a_token_in_a_field_keeps_its_island() {
     let mut doc = parse("~~~\n$quill: memo@1.0.0\nsummary: x\n~~~\n");
-    let summary = titled(&crate::document::import_body("A ![b](v.png) here.").unwrap());
+    let summary = titled(&crate::document::import_body_lines("A ![b](v.png) here.").unwrap());
     doc.main_mut()
         .overwrite_field("summary", summary.clone())
         .unwrap();

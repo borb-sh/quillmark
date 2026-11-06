@@ -23,9 +23,12 @@ fn document() -> Document {
     let mut note = doc.card_mut(0).unwrap();
     let body = anchored(note.body_lines(), "orchard rows", "n1");
     note.overwrite_body(body);
-    let item = crate::document::import_body("an item worth a flag").unwrap();
+    let item = crate::document::import_body_lines("an item worth a flag").unwrap();
     let items = json!([
-        crate::document::stored_over(None, &crate::document::import_body("a plain item").unwrap()),
+        crate::document::stored_over(
+            None,
+            &crate::document::import_body_lines("a plain item").unwrap()
+        ),
         crate::document::stored_over(None, &anchored(&item, "worth a flag", "i1")),
     ]);
     doc.unchecked()
@@ -154,8 +157,8 @@ fn a_path_naming_no_body_or_content_value_orphans_its_selector() {
 #[test]
 fn an_id_live_anywhere_is_answered_and_not_written() {
     let mut doc = document();
-    let table =
-        crate::document::import_body("Lead line.\n\n| a | b |\n|---|---|\n| 1 | 2 |").unwrap();
+    let table = crate::document::import_body_lines("Lead line.\n\n| a | b |\n|---|---|\n| 1 | 2 |")
+        .unwrap();
     let mut table = table.into_content();
     table.islands[0].props["rows"][0][0]["marks"] =
         json!([{ "start": 0, "end": 1, "type": "anchor", "id": "cell1" }]);
@@ -251,9 +254,10 @@ fn a_quote_found_again_in_inserted_text_is_placed_with_the_change() {
 /// the text it held.
 #[test]
 fn every_field_revise_names_the_anchor_it_drops() {
-    let base = crate::document::import_body("Keep this line.\n\nDrop this anchored line.").unwrap();
+    let base =
+        crate::document::import_body_lines("Keep this line.\n\nDrop this anchored line.").unwrap();
     let base = anchored(&base, "anchored", "c1");
-    let next = crate::document::import_body("Keep this line.").unwrap();
+    let next = crate::document::import_body_lines("Keep this line.").unwrap();
     let schema = FieldSchema::new(
         "f".to_string(),
         FieldType::RichText { multiline: true },
@@ -359,7 +363,7 @@ fn a_selector_resolves_its_card_by_id() {
 
 fn table_body(cell_id: &str) -> Lines {
     let table =
-        crate::document::import_body("Lead line.\n\n| a | b |\n|---|---|\n| one cell | 2 |")
+        crate::document::import_body_lines("Lead line.\n\n| a | b |\n|---|---|\n| one cell | 2 |")
             .unwrap();
     let mut table = table.into_content();
     table.islands[0].props["rows"][0][0]["marks"] =

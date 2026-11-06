@@ -668,8 +668,9 @@ fn fold_kindless(mut main: Card, cards: Vec<Card>) -> Result<Document, StorageEr
         let mut yaml = String::new();
         super::emit::emit_payload_items(&mut yaml, &payload);
         let code = code_block(&yaml).map_err(|e| malformed(&e))?;
-        let body = append_block(target.body_lines().clone().into_content(), code);
-        let body = append_block(body, card.body_lines().clone().into_content()).into_lines();
+        let lowered = |c: &Card| quillmark_content::migrate::to_lines(c.body()).into_content();
+        let body = append_block(lowered(target), code);
+        let body = append_block(body, lowered(&card)).into_lines();
         body.validate().map_err(|e| malformed(&e))?;
         target.set_body_lines(body);
     }
@@ -686,7 +687,8 @@ fn code_block(yaml: &str) -> Result<Content, ImportError> {
     let longest = yaml.split(|c| c != '`').map(str::len).max().unwrap_or(0);
     let fence = "`".repeat((longest + 1).max(3));
     let newline = if yaml.ends_with('\n') { "" } else { "\n" };
-    super::import_body(&format!("{fence}\n{yaml}{newline}{fence}\n")).map(Lines::into_content)
+    super::import_body(&format!("{fence}\n{yaml}{newline}{fence}\n"))
+        .map(|c| quillmark_content::migrate::to_lines(&c).into_content())
 }
 
 /// `src` as the blocks following `dst`'s, each its own block: its top-level
@@ -1411,7 +1413,7 @@ title: Hi
                 value: QuillValue::from_json(serde_json::json!("server")),
             },
         ]);
-        let body = super::super::import_body("Conclusion. ![c](c.png)").unwrap();
+        let body = super::super::import_body_lines("Conclusion. ![c](c.png)").unwrap();
         let kindless = Card::from_parts(kindless, body);
         let stored = Document {
             main: parsed.main().clone(),
@@ -1467,7 +1469,7 @@ title: Hi
     fn a_folded_island_id_past_u64_max_is_fresh() {
         let body = |ids: &[&str]| {
             let md = vec!["![a](a.png)"; ids.len()].join("\n\n");
-            let mut content = super::super::import_body(&md).unwrap().into_content();
+            let mut content = super::super::import_body_lines(&md).unwrap().into_content();
             for (island, id) in content.islands.iter_mut().zip(ids) {
                 island.id = id.to_string();
             }
@@ -1502,7 +1504,7 @@ title: Hi
                 .collect();
             let card = Card::from_parts(
                 Payload::from_items(items),
-                super::super::import_body(body_md).unwrap(),
+                super::super::import_body_lines(body_md).unwrap(),
             );
             let json = serde_json::to_value(&Document {
                 main,
@@ -1829,7 +1831,7 @@ title: Hi
     #[test]
     fn an_older_row_migrates_its_body_and_saves_under_the_newest_tag() {
         let intro = quillmark_content::lines::serial::to_canonical_value(
-            &super::super::import_body("**hi** there").unwrap(),
+            &super::super::import_body_lines("**hi** there").unwrap(),
         );
         for schema in [
             STORAGE_V0_135_0,
@@ -1874,7 +1876,7 @@ title: Hi
     #[test]
     fn a_line_form_field_or_seed_value_migrates_and_warns() {
         let intro = quillmark_content::lines::serial::to_canonical_value(
-            &super::super::import_body("**hi** there").unwrap(),
+            &super::super::import_body_lines("**hi** there").unwrap(),
         );
         for schema in [
             STORAGE_V0_135_0,

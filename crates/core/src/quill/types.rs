@@ -78,23 +78,34 @@ impl BlockConstruct {
     /// How many of each construct `content` holds, indexed by discriminant: a
     /// heading, rule or code block per block, a list or quote per container
     /// run at any depth, and a table, image, footnote or equation per island.
-    pub(crate) fn tally(content: &quillmark_content::lines::model::Content) -> [usize; 9] {
+    pub(crate) fn tally(content: &quillmark_content::model::Content) -> [usize; 9] {
         use quillmark_content::lines::island::IslandType;
-        use quillmark_content::lines::model::{Container, LineKind};
+        use quillmark_content::model::{BlockKind, ContainerKind};
         let mut counts = [0; 9];
-        for line in content.lines.iter().filter(|l| !l.continues) {
-            match line.kind {
-                LineKind::Heading { .. } => counts[Self::Heading as usize] += 1,
-                LineKind::Rule => counts[Self::Rule as usize] += 1,
-                LineKind::Code { .. } => counts[Self::Code as usize] += 1,
+        for block in &content.blocks {
+            match block.kind {
+                BlockKind::Heading { .. } => counts[Self::Heading as usize] += 1,
+                BlockKind::Rule => counts[Self::Rule as usize] += 1,
+                BlockKind::Code { .. } => counts[Self::Code as usize] += 1,
                 _ => {}
             }
         }
-        let lines = &content.lines;
-        visit_runs(lines, 0..lines.len(), 0, &mut |c, _, _| match c {
-            Container::ListItem { .. } => counts[Self::List as usize] += 1,
-            Container::Quote { .. } => counts[Self::Quote as usize] += 1,
-        });
+        let held: std::collections::HashSet<&str> = content
+            .blocks
+            .iter()
+            .flat_map(|b| b.path.iter().map(String::as_str))
+            .collect();
+        for container in content
+            .containers
+            .iter()
+            .filter(|c| held.contains(c.id.as_str()))
+        {
+            match container.kind {
+                ContainerKind::List { .. } => counts[Self::List as usize] += 1,
+                ContainerKind::Quote => counts[Self::Quote as usize] += 1,
+                ContainerKind::Item { .. } => {}
+            }
+        }
         for island in &content.islands {
             match island.island_type {
                 IslandType::Table => counts[Self::Table as usize] += 1,
@@ -119,21 +130,6 @@ impl BlockConstruct {
             Self::Image => "image",
             Self::Footnote => "footnote",
             Self::Math => "math",
-        }
-    }
-}
-
-fn visit_runs(
-    lines: &[quillmark_content::lines::model::Line],
-    range: std::ops::Range<usize>,
-    depth: usize,
-    f: &mut dyn FnMut(&quillmark_content::lines::model::Container, usize, usize),
-) {
-    use quillmark_content::lines::traverse::{items, runs};
-    for run in runs(lines, range, depth) {
-        f(run.container, run.range.start, depth);
-        for item in items(lines, run.range, depth) {
-            visit_runs(lines, item.range, depth + 1, f);
         }
     }
 }
