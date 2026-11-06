@@ -125,7 +125,7 @@ fn a_write_lands_on_the_card_its_writer_read() {
         |doc| {
             let mut card = Card::new("note").unwrap();
             card.overwrite_body(quillmark_content::lines::import::from_markdown("Hello").unwrap().content);
-            doc.unchecked().insert_card(Some(1), card, None).unwrap();
+            doc.unchecked().insert_card(Some(1), card).unwrap();
         },
     ];
     for shuffle in shuffles {
@@ -376,33 +376,31 @@ fn a_remembered_hash_is_the_values_own() {
     }
 }
 
-/// Two writers make structural edits in turn under their own actors, each
-/// from the hash the last receipt answered: each verb answers its receipt and
-/// their mints differ. A placeholder in an apply is filled past the value it
-/// lands on and named in `minted`; a revise under an actor mints under it, and
-/// a bad actor writes nothing.
+/// Structural edits made in turn, each from the hash the last receipt
+/// answered, each answer their receipt and mint past every id the value
+/// holds; one from a stale hash writes nothing. A placeholder in an apply is
+/// filled past the value it lands on and named in `minted`.
 #[test]
-fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
-    use crate::document::WriteOptions;
+fn structural_edits_and_placeholders_mint_past_the_value() {
     use quillmark_content::structural::Wrap;
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nalpha\n\nbravo\n\ncharlie\n");
     let base = doc.main().hash_of(Target::Body).unwrap();
-    let quoted = doc.main_mut().wrap(Target::Body, "b0", "b1", Wrap::Quote, WriteOptions { base: Some(&base), actor: Some("ann") }).unwrap();
-    assert_eq!(quoted.minted.get("?0").map(String::as_str), Some("ann:q0"));
+    let quoted = doc.main_mut().wrap(Target::Body, "b0", "b1", Wrap::Quote, Some(base.as_str())).unwrap();
+    assert_eq!(quoted.minted.get("?0").map(String::as_str), Some("q0"));
     let held = doc.clone();
-    let err = doc.main_mut().split_block(Target::Body, 14, None, WriteOptions { base: Some(&base), actor: Some("bo") }).unwrap_err();
+    let err = doc.main_mut().split_block(Target::Body, 14, None, Some(base.as_str())).unwrap_err();
     assert_eq!(err.code(), "edit::stale_base");
     assert_eq!(doc, held);
-    let split = doc.main_mut().split_block(Target::Body, 14, None, WriteOptions { base: Some(&quoted.hash), actor: Some("bo") }).unwrap();
-    assert_eq!(split.minted.get("?0").map(String::as_str), Some("bo:b0"));
-    let listed = doc.main_mut().wrap(Target::Body, "b2", "b2", Wrap::List { ordered: true, checked: None }, WriteOptions { base: Some(&split.hash), actor: Some("bo") }).unwrap();
-    assert_eq!(listed.minted.values().map(String::as_str).collect::<Vec<_>>(), ["bo:l0", "bo:i0"]);
+    let split = doc.main_mut().split_block(Target::Body, 14, None, Some(quoted.hash.as_str())).unwrap();
+    assert_eq!(split.minted.get("?0").map(String::as_str), Some("b3"));
+    let listed = doc.main_mut().wrap(Target::Body, "b2", "b2", Wrap::List { ordered: true, checked: None }, Some(split.hash.as_str())).unwrap();
+    assert_eq!(listed.minted.values().map(String::as_str).collect::<Vec<_>>(), ["l0", "i0"]);
     let body = doc.main().body();
     let ids: Vec<&str> = body.blocks.iter().map(|b| b.id.as_str()).collect();
-    assert_eq!(ids, ["b0", "b1", "b2", "bo:b0"]);
-    assert_eq!(body.blocks[2].path, ["bo:l0", "bo:i0"]);
+    assert_eq!(ids, ["b0", "b1", "b2", "b3"]);
+    assert_eq!(body.blocks[2].path, ["l0", "i0"]);
     let located = doc.main().block_at(Target::Body, 7).unwrap();
-    assert_eq!((located.id.as_str(), located.index, located.path.as_slice()), ("b1", 1, &["ann:q0".to_string()][..]));
+    assert_eq!((located.id.as_str(), located.index, located.path.as_slice()), ("b1", 1, &["q0".to_string()][..]));
 
     let insert = Change::new(vec![
         Step::Splice(Splice { blocks: vec![Block::new("?p".to_string(), BlockKind::Para)], ..Splice::new(20, "", "\nnew") }),
@@ -414,17 +412,6 @@ fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
         }),
     ]);
     let filled = doc.main_mut().apply(Target::Body, &insert, Some(listed.hash.as_str())).unwrap();
-    assert_eq!(filled.minted.get("?p").map(String::as_str), Some("b3"));
-    assert!(doc.main().body().blocks.iter().any(|b| b.id == "b3" && matches!(b.kind, BlockKind::Heading { level: 2 })));
-
-    let now = doc.main().hash_of(Target::Body).unwrap();
-    let more = format!("{}\n\nend\n", doc.main().body_annotated().markdown.trim_end());
-    let revised = doc.main_mut().revise(Target::Body, &more, WriteOptions { base: Some(&now), actor: Some("cy") }).unwrap();
-    assert_eq!(doc.main().body().blocks.last().unwrap().id, "cy:b0");
-    assert!(revised.minted.is_empty());
-
-    let held = doc.clone();
-    let err = doc.main_mut().join_blocks(Target::Body, "b1", WriteOptions { base: None, actor: Some("a:b") }).unwrap_err();
-    assert_eq!(err.code(), "edit::invalid_actor");
-    assert_eq!(doc, held);
+    assert_eq!(filled.minted.get("?p").map(String::as_str), Some("b4"));
+    assert!(doc.main().body().blocks.iter().any(|b| b.id == "b4" && matches!(b.kind, BlockKind::Heading { level: 2 })));
 }

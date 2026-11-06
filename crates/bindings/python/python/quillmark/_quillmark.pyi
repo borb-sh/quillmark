@@ -178,7 +178,6 @@ class Document:
         field: str | None = None,
         card: str | None = None,
         base: str | None = None,
-        actor: str | None = None,
     ) -> Receipt: ...
     def revise(
         self,
@@ -186,7 +185,6 @@ class Document:
         field: str | None = None,
         card: str | None = None,
         base: str | None = None,
-        actor: str | None = None,
     ) -> Receipt: ...
     def replace(
         self,
@@ -194,7 +192,6 @@ class Document:
         field: str | None = None,
         card: str | None = None,
         base: str | None = None,
-        actor: str | None = None,
     ) -> Receipt: ...
 
 # A content value: `text` (a `\n` opens a block, U+2028 is a hard break, U+FFFC
@@ -335,7 +332,7 @@ class Quill:
 class Unchecked:
     def store_field(self, name: str, value: Any, card: int | str | None = None) -> None: ...
     def insert_card(
-        self, card: Any, at: int | None = None, actor: str | None = None
+        self, card: Any, at: int | None = None
     ) -> str: ...
 
 @final
@@ -366,7 +363,6 @@ class Writer:
         fields: dict[str, Any] | None = None,
         body: str | None = None,
         at: int | None = None,
-        actor: str | None = None,
     ) -> CardAdded: ...
     def remove_card(self, index: int) -> dict[str, Any] | None: ...
 

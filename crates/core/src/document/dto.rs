@@ -1095,7 +1095,7 @@ This body and the metadata above are an indorsement card.
             .unwrap()
             .document;
         for _ in 0..MAX_CARD_COUNT {
-            doc.unchecked().insert_card(None, Card::new("note").unwrap(), None).unwrap();
+            doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
         }
         let row = serde_json::to_value(&doc).unwrap();
         let loads = |row: serde_json::Value| -> Result<Document, String> {
@@ -1375,7 +1375,6 @@ title: Hi
         let stored = Document {
             main: parsed.main().clone(),
             cards: vec![kindless, parsed.cards()[0].clone()],
-            mints: Default::default(),
         };
 
         let mut json = v1_row(&stored, STORAGE_V0_134_0);
@@ -1467,7 +1466,6 @@ title: Hi
             let json = serde_json::to_value(&Document {
                 main,
                 cards: vec![card],
-                mints: Default::default(),
             })
             .unwrap();
             let restored: Document = serde_json::from_value(json).unwrap_or_else(|e| panic!("{e}"));

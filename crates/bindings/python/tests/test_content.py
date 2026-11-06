@@ -63,14 +63,12 @@ def test_a_stale_base_refuses_with_the_hash_now_and_writes_nothing():
     assert doc.read()["anchors"] == [{"id": "a1", "start": 9, "end": 14}]
 
 
-def test_a_placeholder_is_minted_under_the_writers_actor():
+def test_a_placeholder_is_minted_past_the_value():
     doc = Document.parse(MD)
     change = {"steps": [{"splice": {"at": 5, "insert": "\nnew", "blocks": [{"id": "?n", "kind": "para"}]}}]}
-    receipt = doc.apply(change, actor="ann")
-    assert receipt["minted"] == {"?n": "ann:b0"}
-    assert [b["id"] for b in doc.read()["blocks"]] == ["b0", "ann:b0"]
-    with raises_edit_code("edit::invalid_actor"):
-        doc.apply({"steps": []}, actor="a:b")
+    receipt = doc.apply(change)
+    assert receipt["minted"] == {"?n": "b1"}
+    assert [b["id"] for b in doc.read()["blocks"]] == ["b0", "b1"]
 
 
 def test_a_reserved_x_name_rides_as_written():

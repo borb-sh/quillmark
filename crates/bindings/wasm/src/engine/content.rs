@@ -139,8 +139,8 @@ export interface Change {
  * A record a step puts, a block a splice opens, a container it sets or an
  * island it inserts, may carry a placeholder id, `?` and an id (`"?1"`), and a
  * step may name it, as a `setBlock` path or a `nested` island does: the write
- * mints an id for it past every id the value holds, under `actor` where one is
- * given, and the receipt's `minted` names it.
+ * mints an id for it past every id the value holds, and the receipt's `minted`
+ * names it.
  *
  * A placement of a held id, and a move or removal of one the text does not
  * hold, is refused (`edit::content_apply`).
@@ -210,16 +210,9 @@ export interface DroppedAnchor extends AnchorContext {
 
 /** `base` is the hash a writer read. A value that hashes otherwise refuses
  *  the write with `edit::stale_base`, its `args.current` the hash now. Pass it:
- *  a write without one lands over whatever the value now holds.
- *
- *  `actor` names the writer, one per live session: each id the write mints
- *  is `{actor}:{prefix}{n}`, so two clients writing from one value never mint
- *  one id. Without one a write mints `{prefix}{n}`, as an import does. An
- *  actor is 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, as a
- *  card placement's is; another throws `edit::invalid_actor`. */
+ *  a write without one lands over whatever the value now holds. */
 export interface WriteOptions {
     base?: string;
-    actor?: string;
 }
 
 /** `splitBlock`'s options: a write's, and `id`, the new block's id, which
@@ -347,21 +340,20 @@ struct MovedJs {
     reason: &'static str,
 }
 
-/// A `WriteOptions` from JS: the `base` the writer read and its `actor`.
+/// A `WriteOptions` from JS: the `base` the writer read.
 struct WriteOpts {
     base: Option<String>,
-    actor: Option<String>,
 }
 
 impl WriteOpts {
     /// The options of `verb`, which also reads the keys `extra` names.
     fn from_js(opts: &JsValue, verb: &str, extra: &[&str]) -> Result<WriteOpts, JsValue> {
-        let mut out = WriteOpts { base: None, actor: None };
+        let mut out = WriteOpts { base: None };
         if opts.is_undefined() || opts.is_null() {
             return Ok(out);
         }
         let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
-        let keys: Vec<&str> = ["base", "baseHash", "actor"].into_iter().chain(extra.iter().copied()).collect();
+        let keys: Vec<&str> = ["base", "baseHash"].into_iter().chain(extra.iter().copied()).collect();
         reject_unknown_keys(opts, &keys, "options", |k| {
             format!("{verb}: options have unknown key `{k}`; a write takes {}", keys.iter().filter(|k| **k != "baseHash").map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "))
         })?;
@@ -379,12 +371,11 @@ impl WriteOpts {
                 return Err(invalid("name base or baseHash, not both".into()));
             }
         }
-        out.actor = string_opt(opts, "actor", verb)?;
         Ok(out)
     }
 
     fn as_ref(&self) -> WriteOptions<'_> {
-        WriteOptions { base: self.base.as_deref(), actor: self.actor.as_deref() }
+        WriteOptions { base: self.base.as_deref() }
     }
 }
 

@@ -242,11 +242,6 @@ pub enum EditError {
     #[error("the write removes the {kind} island '{island}', which its writer may not have seen; remove it with apply")]
     DropsExtIsland { island: String, kind: String },
 
-    /// A write's or a card placement's actor is not an
-    /// [actor](quillmark_content::ids::is_actor).
-    #[error("invalid actor '{0}': must be 1 to 57 of [A-Za-z0-9_-], opening with a letter or digit")]
-    InvalidActor(String),
-
     /// A write's base no longer names the value: `edit::stale_base`.
     #[error(transparent)]
     StaleBase(StaleBase),
@@ -317,7 +312,6 @@ impl EditError {
             EditError::TooManyAnchors { .. } => "edit::too_many_anchors",
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
-            EditError::InvalidActor(_) => "edit::invalid_actor",
             EditError::StaleBase(e) => e.code(),
         }
     }
@@ -387,7 +381,6 @@ impl EditError {
                 "island" => island,
                 "type" => kind,
             },
-            EditError::InvalidActor(actor) => diag_args! { "actor" => actor },
             EditError::StaleBase(e) => e.args(),
         }
     }
@@ -998,7 +991,7 @@ impl Document {
 
     /// Place `card` at `at` (`None` appends), its `$id` as
     /// [`Unchecked::insert_card`] takes it, answering that id.
-    pub(crate) fn place_card(&mut self, at: Option<usize>, mut card: Card, actor: Option<&str>) -> Result<String, EditError> {
+    pub(crate) fn place_card(&mut self, at: Option<usize>, mut card: Card) -> Result<String, EditError> {
         let len = self.cards().len();
         let index = at.unwrap_or(len);
         if index > len {
@@ -1006,9 +999,6 @@ impl Document {
         }
         Self::check_composable_placement(&card)?;
         self.check_card_room()?;
-        if let Some(actor) = actor.filter(|a| !quillmark_content::ids::is_actor(a)) {
-            return Err(EditError::InvalidActor(actor.to_string()));
-        }
         let held: std::collections::HashSet<String> = self
             .cards()
             .iter()
@@ -1024,10 +1014,7 @@ impl Document {
             }
             Some(id) => id.to_string(),
             None => {
-                let id = match actor {
-                    Some(actor) => self.mints.mint(held, actor),
-                    None => super::card_id::Mint::new(held).mint(),
-                };
+                let id = super::card_id::Mint::new(held).mint();
                 card.payload_mut().set_id(id.clone());
                 id
             }
@@ -1151,11 +1138,9 @@ impl Unchecked<'_> {
     /// ([`EditError::TooManyCards`]). A card spelling an id keeps it, refused
     /// where it is no card id ([`EditError::InvalidCardId`]) or another card
     /// holds it ([`EditError::DuplicateCardId`]). A card spelling none mints
-    /// one: under `actor`, `{actor}-{token}`, so two writers placing cards
-    /// from one document never mint one id, and positionally with none. An
-    /// actor that cannot open a card id is [`EditError::InvalidActor`].
-    pub fn insert_card(&mut self, at: Option<usize>, card: Card, actor: Option<&str>) -> Result<String, EditError> {
-        self.0.place_card(at, card, actor)
+    /// one positionally.
+    pub fn insert_card(&mut self, at: Option<usize>, card: Card) -> Result<String, EditError> {
+        self.0.place_card(at, card)
     }
 }
 

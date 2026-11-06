@@ -467,15 +467,13 @@ describe('Card ids', () => {
     expectEditCode(() => doc._uncheckedInsertCard({ ...makeCard('note'), id: '-x' }), 'edit::invalid_card_id')
   })
 
-  it('a live client places a card under its actor and carries the id it answers', () => {
+  it('a placed card mints its id positionally and carries the id it answers', () => {
     const a = Document.parse(MD)
     const b = a.clone()
-    const minted = a._uncheckedInsertCard(makeCard('note', {}, 'From a.'), 1, { actor: '7' })
+    const minted = a._uncheckedInsertCard(makeCard('note', {}, 'From a.'), 1)
     expect(minted).toBe(a.cards[1].id)
-    expect(minted).toMatch(/^7-c[a-z2-9]{5}$/)
-    expect(b._uncheckedInsertCard(makeCard('note', {}, 'From b.'), 1, { actor: '8' })).not.toBe(minted)
+    expect(minted).toMatch(/^c[a-z2-9]{5}$/)
     expect(b._uncheckedInsertCard({ ...makeCard('note', {}, 'From a.'), id: minted }, 1)).toBe(minted)
-    expectEditCode(() => a._uncheckedInsertCard(makeCard('note'), 0, { actor: 'a:b' }), 'edit::invalid_actor')
   })
 
   it('a selector names its card, and reattach follows the card wherever it moved', () => {
@@ -806,29 +804,29 @@ describe('Document apply: the write primitive', () => {
     const doc = blankDoc()
     doc.replace({}, importMarkdown('😀 ab\n\n- one\n- two').content)
     const base = doc.hash({})
-    const split = doc.splitBlock({}, 4, { base, actor: 'ann' })
+    const split = doc.splitBlock({}, 4, { base })
     expect(split.applied.steps[0].splice.at).toBe(4)
-    expect(split.minted).toEqual({ '?0': 'ann:b0' })
+    expect(split.minted).toEqual({ '?0': 'b3' })
     expect(doc.read({}).text).toBe('😀 a\nb\none\ntwo')
-    expectEditCode(() => doc.splitBlock({}, 1 + 2, { base, actor: 'bo', id: 'mine' }), 'edit::stale_base')
-    doc.splitBlock({}, 1 + 2, { base: split.hash, actor: 'bo', id: 'mine' })
+    expectEditCode(() => doc.splitBlock({}, 1 + 2, { base, id: 'mine' }), 'edit::stale_base')
+    doc.splitBlock({}, 1 + 2, { base: split.hash, id: 'mine' })
     expect(doc.read({}).text).toBe('😀 \na\nb\none\ntwo')
     doc.joinBlocks({}, 'mine')
-    doc.joinBlocks({}, 'ann:b0')
+    doc.joinBlocks({}, split.minted['?0'])
     let c = doc.read({})
     expect(c.text).toBe('😀 ab\none\ntwo')
 
     const [, first, second] = c.blocks.map((b) => b.id)
     doc.indent({}, second)
     expect(doc.read({}).blocks[2].path).toHaveLength(4)
-    doc.outdent({}, second, undefined, { actor: 'ann' })
+    doc.outdent({}, second)
     expect(doc.read({}).blocks[2].path).toHaveLength(2)
-    const wrapped = doc.wrap({}, c.blocks[0].id, c.blocks[0].id, { kind: 'quote' }, { actor: 'ann' })
+    const wrapped = doc.wrap({}, c.blocks[0].id, c.blocks[0].id, { kind: 'quote' })
     c = doc.read({})
     expect(c.blocks[0].path).toEqual([wrapped.minted['?0']])
-    expect(c.containers.find((k) => k.id === 'ann:q0').kind).toBe('quote')
+    expect(c.containers.find((k) => k.id === wrapped.minted['?0']).kind).toBe('quote')
     expectEditCode(() => doc.indent({}, first), 'edit::content_apply')
-    expectEditCode(() => doc.wrap({}, first, first, { kind: 'quote' }, { actor: 'a:b' }), 'edit::invalid_actor')
+    expect(() => doc.wrap({}, first, first, { kind: 'quote' }, { actor: 'ann' })).toThrow(/unknown key `actor`/)
 
     doc.deleteRange({}, 0, 6)
     c = doc.read({})
@@ -855,7 +853,7 @@ describe('Document apply: the write primitive', () => {
     expect(() => diffRange(before, after, { from: 7 })).toThrow(/range.to/)
   })
 
-  it('a placeholder a change puts is filled under the actor and named in minted', () => {
+  it('a placeholder a change puts is filled past the value and named in minted', () => {
     const doc = blankDoc()
     doc.replace({}, importMarkdown('one').content)
     const base = doc.hash({})
@@ -863,9 +861,9 @@ describe('Document apply: the write primitive', () => {
       { splice: { at: 3, insert: '\nnew', blocks: [{ id: '?n', kind: 'para' }] } },
       { setBlock: { id: '?n', kind: 'heading', attrs: { level: 2 } } },
     ] }
-    const receipt = doc.apply({}, change, { base, actor: 'ann' })
-    expect(receipt.minted).toEqual({ '?n': 'ann:b0' })
-    expect(doc.read({}).blocks[1]).toEqual({ id: 'ann:b0', kind: 'heading', attrs: { level: 2 } })
+    const receipt = doc.apply({}, change, { base })
+    expect(receipt.minted).toEqual({ '?n': 'b1' })
+    expect(doc.read({}).blocks[1]).toEqual({ id: 'b1', kind: 'heading', attrs: { level: 2 } })
   })
 
   it('repair reads a merged state as a valid value, offsets in UTF-16', () => {

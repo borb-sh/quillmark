@@ -123,10 +123,7 @@ any other verb refuses the same way. A content write's
 revise or replace whose change removes an `x-` island refuses under
 `edit::drops_ext_island`, carrying `island` and `type`: markdown cannot spell
 one, so its writer may not have seen it, and a change through `apply` removes
-one. The line-form revise verbs do not check. A content write whose `actor`
-is not an actor ([CONTENT.md](CONTENT.md) § Ids) refuses under
-`edit::invalid_actor`, carrying `actor`, as does a card placement under
-one.
+one. The line-form revise verbs do not check.
 
 Building a card from a `CardWire` (`unchecked.insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:
@@ -584,7 +581,6 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::invalid_payload` | — | fallback |
 | `edit::stale_base` | `current` | structured |
 | `edit::drops_ext_island` | `island`, `type` | structured |
-| `edit::invalid_actor` | `actor` | structured |
 | `conform::invalid_field_name` | `field` | structured |
 | `conform::value_too_deep` | `max` | structured |
 | `conform::field_not_single_line` | `field`, `codec` | structured |

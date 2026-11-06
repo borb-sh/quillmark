@@ -12,7 +12,6 @@ use std::sync::Arc;
 use quillmark_content::change::{self, Change, Dropped, Moved, Step};
 use quillmark_content::diff;
 use quillmark_content::structural::{StructuralEdit, Wrap};
-use quillmark_content::ids::is_actor;
 use quillmark_content::mint;
 use quillmark_content::lines::import::ImportWarning;
 use quillmark_content::lines::island::IslandType;
@@ -76,19 +75,12 @@ pub struct WriteOptions<'a> {
     /// The hash of the value the writer read: a value that hashes otherwise
     /// refuses the write.
     pub base: Option<&'a str>,
-    /// Who writes, scoping each id the write mints: `{actor}:{prefix}{n}`
-    /// where it is given, `{prefix}{n}` where not. A live client passes one
-    /// unique to its session, so two clients writing from one value never
-    /// mint one id. One that is not an
-    /// [actor](quillmark_content::ids::is_actor) is refused with
-    /// `edit::invalid_actor`.
-    pub actor: Option<&'a str>,
 }
 
 impl<'a> From<Option<&'a str>> for WriteOptions<'a> {
-    /// The options of a write with this hash for its base and no actor.
+    /// The options of a write with this hash for its base.
     fn from(base: Option<&'a str>) -> Self {
-        WriteOptions { base, actor: None }
+        WriteOptions { base }
     }
 }
 
@@ -256,8 +248,7 @@ impl Card {
 
     /// Land `edit` on the value at `target`, all of it or none, while the
     /// value hashes to the options' base where one is given. A revise or
-    /// replace is refused where it would drop an `x-` island. Each id it mints
-    /// is minted under the options' actor where one is given.
+    /// replace is refused where it would drop an `x-` island.
     pub fn write<'o>(&mut self, target: Target<'_>, edit: Edit<'_>, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
         self.write_with(target, edit, opts.into(), None::<units::Scalars>)
     }
@@ -273,13 +264,10 @@ impl Card {
         if let Edit::Apply(change) = &edit {
             check_change(change)?;
         }
-        if let Some(actor) = opts.actor.filter(|a| !is_actor(a)) {
-            return Err(EditError::InvalidActor(actor.to_string()));
-        }
         let now = self.read(target)?;
         let mut before_hash = None;
         check_base(opts.base, || Ok(before_hash.insert(self.hash_now(target, &now)).clone()), target.field())?;
-        let fill = |change: &Change| mint::fill(change, &[&now], opts.actor).map_err(EditError::change);
+        let fill = |change: &Change| mint::fill(change, &[&now]).map_err(EditError::change);
         let mut minted = BTreeMap::new();
         let (change, warnings, diffed) = match edit {
             Edit::Apply(change) => {
@@ -304,18 +292,10 @@ impl Card {
                     diff::ReviseError::Import(e) => EditError::import(e),
                     diff::ReviseError::Refused(e) => EditError::change(e),
                 })?;
-                let change = match opts.actor {
-                    Some(actor) => mint::remint(&revision.change, &now, None, &[&now], actor),
-                    None => revision.change,
-                };
-                (change, revision.warnings, true)
+                (revision.change, revision.warnings, true)
             }
             Edit::Replace(content) => {
                 let change = diff::replace(&now, &content).map_err(|e| EditError::change(e.into()))?;
-                let change = match opts.actor {
-                    Some(actor) => mint::remint(&change, &now, Some(&content), &[&now], actor),
-                    None => change,
-                };
                 (change, Vec::new(), true)
             }
         };

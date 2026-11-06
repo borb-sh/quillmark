@@ -677,16 +677,14 @@ export interface DocumentUnchecked {
 	 * Place a card whole and answer its `$id`: `at` omitted appends, a number
 	 * inserts at that index (`0..=cards.length`). Accepts any `CardInput`,
 	 * including a card read back out of a document. A card spelling no `id`
-	 * mints one, under `opts.actor` where one is given (`{actor}-{token}`), so
-	 * two live clients placing cards never mint one id; a card spelling one
-	 * keeps it, refused where it is no card id or another card holds it. Throws
-	 * on an invalid kind, an out-of-range `at`, an invalid actor, or a document
-	 * holding 1,000 cards.
+	 * mints one; a card spelling one keeps it, refused where it is no card id
+	 * or another card holds it. Throws on an invalid kind, an out-of-range
+	 * `at`, or a document holding 1,000 cards.
 	 */
-	insertCard(card: CardInput, at?: number, opts?: PlaceOptions): string;
+	insertCard(card: CardInput, at?: number): string;
 }
 
-import type { Addr, BaseOptions, CardAdded, DocumentBaseOptions, CardInput, Content, DocumentRevised, PathStep, PlaceOptions, Receipt, Resolved } from '../core/wasm.js';
+import type { Addr, BaseOptions, CardAdded, DocumentBaseOptions, CardInput, Content, DocumentRevised, PathStep, Receipt, Resolved } from '../core/wasm.js';
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
@@ -774,11 +772,11 @@ export declare class DocumentWriter {
 	 * inserts at that index. Transactional: a rejected field (throwing a per-field
 	 * diagnostic bundle) or an invalid kind, body, or position leaves the document
 	 * untouched. The card's `$id` mints as `doc.unchecked.insertCard` mints
-	 * one, under `opts.actor` where one is given. Returns that id and the
+	 * one. Returns that id and the
 	 * fields' `parse::dropped_construct` warnings, then the body import's,
 	 * anchored under the placed card.
 	 */
-	addCard(kind: string, fields?: Record<string, unknown>, body?: string, at?: number, opts?: PlaceOptions): CardAdded;
+	addCard(kind: string, fields?: Record<string, unknown>, body?: string, at?: number): CardAdded;
 	/** Remove the composable card at `index`, returning it (or `undefined`). */
 	removeCard(index: number): Card | undefined;
 	/**

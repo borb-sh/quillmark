@@ -121,12 +121,11 @@ So a value decodes only from the bytes it encodes to, up to the wire's own spell
 
 Blocks, containers, islands, slots, table rows and table columns have structural ids. Quillmark mints every one, by one rule (`ids`, `mint`):
 
-- Import, migration and a write with no actor mint positionally, `{prefix}{n}` past the highest number the values in play hold under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A revise, as an LLM writer makes it, passes no actor.
-- A live client mints through the engine under its actor: a write given `actor` mints `{actor}:{prefix}{n}` the same way. An actor is 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit, the one grammar a content write and a card placement both hold it to ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Card-id identity"), one per session, so two clients writing from one value never mint one id and their merge needs no repair. No positional id holds a `:`, and a repair's `a-b` or a diff's `{id}-{n}` holds one only where it derives from an actor's.
-- A record a change puts may carry a placeholder in place of its id: `?` and an id, such as `"?1"`, which other steps of the change may name. No id opens with `?`. The write that lands the change mints an id for each placeholder and names it in the receipt's `minted`, `{"?1": "ann:b4"}`; a placeholder put twice, or named and never put, refuses the change.
+- Import, migration and every write mint positionally, `{prefix}{n}` past the highest number the values in play hold under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes and one writer never mints an id the value holds. Two copies of a value minting apart can mint one id; telling their records apart when they merge is `@quillmark/collab`'s, which mints its own under each client and re-mints what collides.
+- A record a change puts may carry a placeholder in place of its id: `?` and an id, such as `"?1"`, which other steps of the change may name. No id opens with `?`. The write that lands the change mints an id for each placeholder and names it in the receipt's `minted`, `{"?1": "b4"}`; a placeholder put twice, or named and never put, refuses the change.
 - A write fills a placeholder past every id the value it lands on holds (§ "Writing a value").
 
-The cost is stated: a live document's bytes depend on which actor typed, so equal content does not mean equal bytes across a cold import and a live session; determinism holds for import, migration and revise ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Island-id determinism"). Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
+Determinism holds for import, migration and every write ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Island-id determinism"). Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
 
 ## Changes
 
@@ -168,7 +167,7 @@ Enter at the start of a block keeps the text on its id when the producer inserts
 An editor lowers a transaction in two ways, both exact. The structural keys go through the structural edits, which are verbs on the document:
 
 - `split_block`, `join_blocks`, `delete_range`, `indent`, `outdent` and `wrap` on `Card` (`doc.splitBlock(addr, at, opts)` and the rest in WASM) build the edit's change from the value and write it as `apply` does, base and receipt included.
-- A record a structural edit opens takes a placeholder, `?0` first, which the write fills under the writer's actor; `split_block` takes the new block's id or mints one. The `structural` module holds the same changes as functions over a value, and an editor that lowers through them builds no container path.
+- A record a structural edit opens takes a placeholder, `?0` first, which the write fills; `split_block` takes the new block's id or mints one. The `structural` module holds the same changes as functions over a value, and an editor that lowers through them builds no container path.
 - `block_at(addr, offset)` (`blockAt`) answers the block holding an offset, its index and its container path, so an editor builds no path of its own.
 
 Text edits go through `diff_range(before, after, from, to)` (`diffRange(before, after, {from, to})`), the exact lowering of a range an editor already knows, ProseMirror's `ReplaceStep`:
@@ -243,7 +242,7 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 - `Document::revise` runs it on each body and content field of each card it aligns. A value whose markdown imports to one that does not validate keeps its stored value, with an `edit::content_apply` warning at its address.
 A binding's write names its card by `$id`, or the main card, never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, the base cannot tell. An id no card holds refuses with `edit::unknown_card_id`.
 
-Each write answers a `Receipt`: `applied`, the change in its normalized form, which `invert(applied, before)` undoes; `hash`, the value's new hash and the next write's base; `droppedAnchors`; `movedAnchors`; a revise's import warnings; and `minted`, each placeholder and the id the write gave it. A write's options are `base` and `actor` (`WriteOptions`); the actor scopes every id the write mints (§ Ids), and one that is not an actor refuses with `edit::invalid_actor`.
+Each write answers a `Receipt`: `applied`, the change in its normalized form, which `invert(applied, before)` undoes; `hash`, the value's new hash and the next write's base; `droppedAnchors`; `movedAnchors`; a revise's import warnings; and `minted`, each placeholder and the id the write gave it. A write's one option is `base` (`WriteOptions`).
 
 **Pass the base.** `base` is the hash the writer read (`hash(addr)`). Without one, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. Core is single-writer:
 
@@ -251,8 +250,8 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 - A document keeps no history of its writes, so the check reads alike in every process, a document loaded from its stored row included.
 - Writers that answer late and must merge with what landed since, a person typing beside an LLM, share a `@quillmark/collab` session, whose Yjs document merges them, and land the merged value through `replace`.
 
-- Each block, container and island id a revise or replace introduces is minted afresh where the value holds it, past the ids of the value and the write (`diff::revise_holding`, `diff::replace_holding`), a replace's own id among them. Under an actor, each id such a write minted rather than took from its writer moves under the actor (`mint::remint`).
-- Minting reads the value and the write alone, so equal values written over equal values by one actor, or none, store equal bytes, and `normalize` predicts what `replace` stores up to the first block's id, which a replace keeps, and the actor's ids.
+- Each block, container and island id a revise or replace introduces is minted afresh where the value holds it, past the ids of the value and the write (`diff::revise_holding`, `diff::replace_holding`), a replace's own id among them.
+- Minting reads the value and the write alone, so equal values written over equal values store equal bytes, and `normalize` predicts what `replace` stores up to the first block's id, which a replace keeps.
 - A card keeps the hash each write left on its body or field, which the next write reads as the value's hash instead of hashing it again; a write with no base hashes nothing before it applies. Any other write to the body or the payload forgets it.
 
 `diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line and then by word, and a revise keeps its anchors through the same diff, but for one whose tag the writer kept, which stands where the tag does.

@@ -830,11 +830,10 @@ class DocumentUnchecked {
 	/**
 	 * @param {import('../core/wasm.js').CardInput} card
 	 * @param {number} [at] insertion index; appends when omitted
-	 * @param {import('../core/wasm.js').PlaceOptions} [opts]
 	 * @returns {string}
 	 */
-	insertCard(card, at, opts) {
-		return this.#doc._uncheckedInsertCard(card, at, opts);
+	insertCard(card, at) {
+		return this.#doc._uncheckedInsertCard(card, at);
 	}
 }
 
@@ -912,11 +911,10 @@ export class DocumentWriter {
 	 * @param {Record<string, unknown>} [fields]
 	 * @param {string} [body]
 	 * @param {number} [at] insertion index; appends when omitted
-	 * @param {import('../core/wasm.js').PlaceOptions} [opts]
 	 * @returns {import('../core/wasm.js').Diagnostic[]}
 	 */
-	addCard(kind, fields, body, at, opts) {
-		return this.#doc._addCard(this.#quill, kind, fields, body, at, opts);
+	addCard(kind, fields, body, at) {
+		return this.#doc._addCard(this.#quill, kind, fields, body, at);
 	}
 	/**
 	 * @param {number} index

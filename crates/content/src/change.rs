@@ -286,7 +286,7 @@ pub fn invert(change: &Change, before: &Content) -> Result<Change, ApplyError> {
 }
 
 fn applying(before: &Content, change: &Change, undo: bool) -> Result<(Applied, Change), ApplyError> {
-    let crate::mint::Filled { change, minted } = crate::mint::fill(change, &[before], None)?;
+    let crate::mint::Filled { change, minted } = crate::mint::fill(change, &[before])?;
     let mut run = Run::new(undo);
     let mut draft = Draft::new(before.clone());
     let (mut applied, mut groups) = run.level(&mut draft, &change.steps)?;
