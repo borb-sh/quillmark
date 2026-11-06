@@ -76,7 +76,10 @@ fn a_headless_table_resaves_as_head_0() {
     );
     let row: Value = serde_json::from_str(&saved).unwrap();
     let props = table_props(&row["main"]["body"]);
-    assert_eq!((&props["head"], &props["headless"]), (&json!(0), &Value::Null));
+    assert_eq!(
+        (&props["head"], &props["headless"]),
+        (&json!(0), &Value::Null)
+    );
 
     let again: Document = serde_json::from_str(&saved).expect("the resave loads");
     assert_eq!(serde_json::to_string(&again).unwrap(), saved);

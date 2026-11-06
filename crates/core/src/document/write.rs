@@ -11,16 +11,16 @@ use std::sync::Arc;
 
 use quillmark_content::change::{self, Change, Dropped, Moved, Step};
 use quillmark_content::diff;
-use quillmark_content::structural::{StructuralEdit, Wrap};
-use quillmark_content::mint;
 use quillmark_content::lines::import::ImportWarning;
 use quillmark_content::lines::island::IslandType;
+use quillmark_content::mint;
 use quillmark_content::model::Content;
+use quillmark_content::structural::{StructuralEdit, Wrap};
 use quillmark_content::units::{self, Units};
 
+use super::Card;
 use super::base::{check_base, content_hash};
 use super::edit::EditError;
-use super::Card;
 use crate::value::QuillValue;
 
 /// Where an offset sits: the block holding it, by id and index, and that
@@ -175,7 +175,10 @@ impl Card {
     /// The annotated read of the value at `target`: the scoped read a revise
     /// of it reads back. A field stored under `codec: "plain"` reads as its literal
     /// text, its anchors listed and no tag spelled.
-    pub fn annotated<'t>(&self, target: impl Into<Target<'t>>) -> Result<quillmark_content::lines::export::Annotated, EditError> {
+    pub fn annotated<'t>(
+        &self,
+        target: impl Into<Target<'t>>,
+    ) -> Result<quillmark_content::lines::export::Annotated, EditError> {
         match target.into() {
             Target::Body => Ok(self.body_annotated()),
             Target::Field(name) => self.field_annotated(name),
@@ -183,54 +186,142 @@ impl Card {
     }
 
     /// [`write`](Self::write) of [`Edit::Apply`].
-    pub fn apply<'o>(&mut self, target: Target<'_>, change: &Change, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+    pub fn apply<'o>(
+        &mut self,
+        target: Target<'_>,
+        change: &Change,
+        opts: impl Into<WriteOptions<'o>>,
+    ) -> Result<Receipt, EditError> {
         self.write(target, Edit::Apply(change.clone()), opts)
     }
 
     /// [`write`](Self::write) of [`Edit::Revise`].
-    pub fn revise<'o>(&mut self, target: Target<'_>, markdown: &str, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+    pub fn revise<'o>(
+        &mut self,
+        target: Target<'_>,
+        markdown: &str,
+        opts: impl Into<WriteOptions<'o>>,
+    ) -> Result<Receipt, EditError> {
         self.write(target, Edit::Revise(markdown), opts)
     }
 
     /// [`write`](Self::write) of [`Edit::Replace`].
-    pub fn replace<'o>(&mut self, target: Target<'_>, content: &Content, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+    pub fn replace<'o>(
+        &mut self,
+        target: Target<'_>,
+        content: &Content,
+        opts: impl Into<WriteOptions<'o>>,
+    ) -> Result<Receipt, EditError> {
         self.write(target, Edit::Replace(content.clone()), opts)
     }
 
     /// Enter at `at`: [`write`](Self::write) of
     /// [`StructuralEdit::SplitBlock`], the new block `id` or one the write mints.
-    pub fn split_block<'o>(&mut self, target: Target<'_>, at: usize, id: Option<&str>, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Structural(StructuralEdit::SplitBlock { at, id: id.map(str::to_string) }), opts)
+    pub fn split_block<'o>(
+        &mut self,
+        target: Target<'_>,
+        at: usize,
+        id: Option<&str>,
+        opts: impl Into<WriteOptions<'o>>,
+    ) -> Result<Receipt, EditError> {
+        self.write(
+            target,
+            Edit::Structural(StructuralEdit::SplitBlock {
+                at,
+                id: id.map(str::to_string),
+            }),
+            opts,
+        )
     }
 
     /// Backspace at the start of block `id`: [`write`](Self::write) of
     /// [`StructuralEdit::JoinBlocks`].
-    pub fn join_blocks<'o>(&mut self, target: Target<'_>, id: &str, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Structural(StructuralEdit::JoinBlocks { id: id.to_string() }), opts)
+    pub fn join_blocks<'o>(
+        &mut self,
+        target: Target<'_>,
+        id: &str,
+        opts: impl Into<WriteOptions<'o>>,
+    ) -> Result<Receipt, EditError> {
+        self.write(
+            target,
+            Edit::Structural(StructuralEdit::JoinBlocks { id: id.to_string() }),
+            opts,
+        )
     }
 
     /// Deleting `[start, end)`: [`write`](Self::write) of
     /// [`StructuralEdit::DeleteRange`].
-    pub fn delete_range<'o>(&mut self, target: Target<'_>, start: usize, end: usize, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Structural(StructuralEdit::DeleteRange { start, end }), opts)
+    pub fn delete_range<'o>(
+        &mut self,
+        target: Target<'_>,
+        start: usize,
+        end: usize,
+        opts: impl Into<WriteOptions<'o>>,
+    ) -> Result<Receipt, EditError> {
+        self.write(
+            target,
+            Edit::Structural(StructuralEdit::DeleteRange { start, end }),
+            opts,
+        )
     }
 
     /// Tab over the blocks `first` to `last`: [`write`](Self::write) of
     /// [`StructuralEdit::Indent`].
-    pub fn indent<'o>(&mut self, target: Target<'_>, first: &str, last: &str, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Structural(StructuralEdit::Indent { first: first.to_string(), last: last.to_string() }), opts)
+    pub fn indent<'o>(
+        &mut self,
+        target: Target<'_>,
+        first: &str,
+        last: &str,
+        opts: impl Into<WriteOptions<'o>>,
+    ) -> Result<Receipt, EditError> {
+        self.write(
+            target,
+            Edit::Structural(StructuralEdit::Indent {
+                first: first.to_string(),
+                last: last.to_string(),
+            }),
+            opts,
+        )
     }
 
     /// Shift-Tab over the blocks `first` to `last`: [`write`](Self::write)
     /// of [`StructuralEdit::Outdent`].
-    pub fn outdent<'o>(&mut self, target: Target<'_>, first: &str, last: &str, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Structural(StructuralEdit::Outdent { first: first.to_string(), last: last.to_string() }), opts)
+    pub fn outdent<'o>(
+        &mut self,
+        target: Target<'_>,
+        first: &str,
+        last: &str,
+        opts: impl Into<WriteOptions<'o>>,
+    ) -> Result<Receipt, EditError> {
+        self.write(
+            target,
+            Edit::Structural(StructuralEdit::Outdent {
+                first: first.to_string(),
+                last: last.to_string(),
+            }),
+            opts,
+        )
     }
 
     /// Wrapping the blocks `first` to `last`: [`write`](Self::write) of
     /// [`StructuralEdit::Wrap`].
-    pub fn wrap<'o>(&mut self, target: Target<'_>, first: &str, last: &str, with: Wrap, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Structural(StructuralEdit::Wrap { first: first.to_string(), last: last.to_string(), with }), opts)
+    pub fn wrap<'o>(
+        &mut self,
+        target: Target<'_>,
+        first: &str,
+        last: &str,
+        with: Wrap,
+        opts: impl Into<WriteOptions<'o>>,
+    ) -> Result<Receipt, EditError> {
+        self.write(
+            target,
+            Edit::Structural(StructuralEdit::Wrap {
+                first: first.to_string(),
+                last: last.to_string(),
+                with,
+            }),
+            opts,
+        )
     }
 
     /// The block holding offset `at` of the value at `target`, its index and
@@ -243,30 +334,55 @@ impl Card {
         }
         let index = content.block_at(at);
         let block = &content.blocks[index];
-        Ok(Located { id: block.id.clone(), index, path: block.path.clone() })
+        Ok(Located {
+            id: block.id.clone(),
+            index,
+            path: block.path.clone(),
+        })
     }
 
     /// Land `edit` on the value at `target`, all of it or none, while the
     /// value hashes to the options' base where one is given. A revise or
     /// replace is refused where it would drop an `x-` island.
-    pub fn write<'o>(&mut self, target: Target<'_>, edit: Edit<'_>, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+    pub fn write<'o>(
+        &mut self,
+        target: Target<'_>,
+        edit: Edit<'_>,
+        opts: impl Into<WriteOptions<'o>>,
+    ) -> Result<Receipt, EditError> {
         self.write_with(target, edit, opts.into(), None::<units::Scalars>)
     }
 
     /// [`write`](Self::write) for a host counting offsets in `u`: an
     /// [`Edit::Apply`]'s change, an [`Edit::Structural`]'s offsets and the
     /// receipt's `applied` are in `u`.
-    pub fn write_in<'o>(&mut self, target: Target<'_>, edit: Edit<'_>, opts: impl Into<WriteOptions<'o>>, u: impl Units) -> Result<Receipt, EditError> {
+    pub fn write_in<'o>(
+        &mut self,
+        target: Target<'_>,
+        edit: Edit<'_>,
+        opts: impl Into<WriteOptions<'o>>,
+        u: impl Units,
+    ) -> Result<Receipt, EditError> {
         self.write_with(target, edit, opts.into(), Some(u))
     }
 
-    fn write_with<U: Units>(&mut self, target: Target<'_>, edit: Edit<'_>, opts: WriteOptions<'_>, u: Option<U>) -> Result<Receipt, EditError> {
+    fn write_with<U: Units>(
+        &mut self,
+        target: Target<'_>,
+        edit: Edit<'_>,
+        opts: WriteOptions<'_>,
+        u: Option<U>,
+    ) -> Result<Receipt, EditError> {
         if let Edit::Apply(change) = &edit {
             check_change(change)?;
         }
         let now = self.read(target)?;
         let mut before_hash = None;
-        check_base(opts.base, || Ok(before_hash.insert(self.hash_now(target, &now)).clone()), target.field())?;
+        check_base(
+            opts.base,
+            || Ok(before_hash.insert(self.hash_now(target, &now)).clone()),
+            target.field(),
+        )?;
         let fill = |change: &Change| mint::fill(change, &[&now]).map_err(EditError::change);
         let mut minted = BTreeMap::new();
         let (change, warnings, diffed) = match edit {
@@ -274,7 +390,12 @@ impl Card {
                 let filled = fill(&change)?;
                 minted = filled.minted;
                 match u {
-                    Some(u) => (units::change_to_scalars(&filled.change, &now, u).map_err(EditError::change)?, Vec::new(), false),
+                    Some(u) => (
+                        units::change_to_scalars(&filled.change, &now, u)
+                            .map_err(EditError::change)?,
+                        Vec::new(),
+                        false,
+                    ),
                     None => (filled.change, Vec::new(), false),
                 }
             }
@@ -295,7 +416,8 @@ impl Card {
                 (revision.change, revision.warnings, true)
             }
             Edit::Replace(content) => {
-                let change = diff::replace(&now, &content).map_err(|e| EditError::change(e.into()))?;
+                let change =
+                    diff::replace(&now, &content).map_err(|e| EditError::change(e.into()))?;
                 (change, Vec::new(), true)
             }
         };
@@ -305,16 +427,30 @@ impl Card {
             applied.dropped = change::lost_anchors(&now, &applied.content, |_| true);
         }
         let shown = match u {
-            Some(u) => units::change_from_scalars(&applied.applied, &now, u).map_err(EditError::change)?,
+            Some(u) => {
+                units::change_from_scalars(&applied.applied, &now, u).map_err(EditError::change)?
+            }
             None => applied.applied.clone(),
         };
         let hash = self.land(target, &now, before_hash, applied.content)?;
-        Ok(Receipt { applied: shown, hash, dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, minted, counted: Counted::Host })
+        Ok(Receipt {
+            applied: shown,
+            hash,
+            dropped_anchors: applied.dropped,
+            moved_anchors: applied.moved,
+            warnings,
+            minted,
+            counted: Counted::Host,
+        })
     }
 
     /// [`revise`](Self::revise) with no base, its receipt counted in scalars
     /// on the value it read, which [`Receipt::in_units`] converts.
-    pub(crate) fn revise_counted(&mut self, target: Target<'_>, markdown: &str) -> Result<Receipt, EditError> {
+    pub(crate) fn revise_counted(
+        &mut self,
+        target: Target<'_>,
+        markdown: &str,
+    ) -> Result<Receipt, EditError> {
         let before = self.read(target)?;
         let mut receipt = self.write(target, Edit::Revise(markdown), WriteOptions::default())?;
         receipt.counted = Counted::Content(Arc::new(before));
@@ -361,7 +497,13 @@ impl Card {
     /// Store `content` at `target`, where it differs from `before`, the value
     /// read, and answer its hash. `before_hash` is `before`'s, where it was
     /// hashed already.
-    fn land(&mut self, target: Target<'_>, before: &Content, before_hash: Option<String>, content: Content) -> Result<String, EditError> {
+    fn land(
+        &mut self,
+        target: Target<'_>,
+        before: &Content,
+        before_hash: Option<String>,
+        content: Content,
+    ) -> Result<String, EditError> {
         let before_hash = before_hash.unwrap_or_else(|| self.hash_now(target, before));
         let (hash, value) = match target {
             Target::Body => (content_hash(&content), None),
@@ -373,7 +515,9 @@ impl Card {
         if hash != before_hash {
             match (target, value) {
                 (Target::Field(name), Some(value)) => {
-                    self.payload_mut().insert(name.to_string(), QuillValue::from_json(value)).map_err(EditError::InvalidPayload)?;
+                    self.payload_mut()
+                        .insert(name.to_string(), QuillValue::from_json(value))
+                        .map_err(EditError::InvalidPayload)?;
                 }
                 _ => self.set_body(content),
             }
@@ -401,7 +545,10 @@ pub(crate) fn keeps_ext_islands(before: &Content, after: &Content) -> Result<(),
     ext(before, "", &mut held);
     ext(after, "", &mut kept);
     let kept: HashSet<&str> = kept.iter().map(|(at, _, _)| at.as_str()).collect();
-    match held.into_iter().find(|(at, _, _)| !kept.contains(at.as_str())) {
+    match held
+        .into_iter()
+        .find(|(at, _, _)| !kept.contains(at.as_str()))
+    {
         Some((_, island, kind)) => Err(EditError::DropsExtIsland { island, kind }),
         None => Ok(()),
     }
@@ -417,7 +564,10 @@ pub const MAX_CHANGE_STEPS: usize = 16_384;
 /// and the bindings run it on each change they take.
 pub fn check_change(change: &Change) -> Result<(), EditError> {
     match steps_in(change) {
-        count if count > MAX_CHANGE_STEPS => Err(EditError::TooManySteps { count, max: MAX_CHANGE_STEPS }),
+        count if count > MAX_CHANGE_STEPS => Err(EditError::TooManySteps {
+            count,
+            max: MAX_CHANGE_STEPS,
+        }),
         _ => Ok(()),
     }
 }
@@ -429,7 +579,10 @@ pub fn check_change(change: &Change) -> Result<(), EditError> {
 /// value is decoded. The bindings run it on each content value they take.
 pub fn check_content_value(v: &serde_json::Value) -> Result<(), EditError> {
     fn text_bytes(v: &serde_json::Value) -> usize {
-        let own = v.get("text").and_then(serde_json::Value::as_str).map_or(0, str::len);
+        let own = v
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .map_or(0, str::len);
         let islands: Box<dyn Iterator<Item = &serde_json::Value>> = match v.get("islands") {
             Some(serde_json::Value::Array(list)) => Box::new(list.iter()),
             Some(serde_json::Value::Object(map)) => Box::new(map.values()),

@@ -4,12 +4,14 @@
 //! rather than panicking on what a caller hands them.
 
 use proptest::prelude::*;
-use quillmark_content::lines::island::IslandType;
 use quillmark_content::lines::delta::diff_import;
-use quillmark_content::lines::export::{to_markdown, to_markdown_annotated, to_markdown_checked, ExportLoss};
+use quillmark_content::lines::export::{
+    ExportLoss, to_markdown, to_markdown_annotated, to_markdown_checked,
+};
 use quillmark_content::lines::import::from_markdown;
-use quillmark_content::lines::model::{Content, Island, Line, LineKind, Mark, MarkKind, Lines};
-use serde_json::{json, Value};
+use quillmark_content::lines::island::IslandType;
+use quillmark_content::lines::model::{Content, Island, Line, LineKind, Lines, Mark, MarkKind};
+use serde_json::{Value, json};
 
 /// The mint's fixed point: normalizing again changes nothing.
 ///
@@ -108,10 +110,19 @@ fn hard_break_line() -> impl Strategy<Value = Vec<String>> {
 }
 
 fn hard_break_prose() -> impl Strategy<Value = String> {
-    let wraps = ["**{}**", "_{}_", "~~{}~~", "<u>{}</u>", "[{}](https://ex.com/u)"];
+    let wraps = [
+        "**{}**",
+        "_{}_",
+        "~~{}~~",
+        "<u>{}</u>",
+        "[{}](https://ex.com/u)",
+    ];
     (
         prop::collection::vec(hard_break_line(), 2..4),
-        prop::option::of((any::<prop::sample::Index>(), prop::sample::select(wraps.to_vec()))),
+        prop::option::of((
+            any::<prop::sample::Index>(),
+            prop::sample::select(wraps.to_vec()),
+        )),
     )
         .prop_map(|(lines, wrap)| {
             let mut lines: Vec<String> = lines.into_iter().map(|w| w.join(" ")).collect();
@@ -228,9 +239,8 @@ fn document() -> impl Strategy<Value = String> {
         (prose(), prose()).prop_map(|(a, b)| format!("{a}\n\n    {b}")),
         (prose(), prose()).prop_map(|(a, b)| format!("{a}\n    - {b}")),
     ];
-    (prop::collection::vec(block(), 1..6), note.clone(), note).prop_map(|(blocks, a, b)| {
-        format!("{}\n\n[^a]: {a}\n\n[^b]: {b}", blocks.join("\n\n"))
-    })
+    (prop::collection::vec(block(), 1..6), note.clone(), note)
+        .prop_map(|(blocks, a, b)| format!("{}\n\n[^a]: {a}\n\n[^b]: {b}", blocks.join("\n\n")))
 }
 
 /// Emphasis delimiters run together with one char from each Unicode class
@@ -260,8 +270,12 @@ fn ov_kind(i: u8) -> MarkKind {
         1 => MarkKind::Emph,
         2 => MarkKind::Strike,
         3 => MarkKind::Underline,
-        4 => MarkKind::FontFamily { name: "Carlito".into() },
-        _ => MarkKind::FontFamily { name: "Noto Serif".into() },
+        4 => MarkKind::FontFamily {
+            name: "Carlito".into(),
+        },
+        _ => MarkKind::FontFamily {
+            name: "Noto Serif".into(),
+        },
     }
 }
 
@@ -835,11 +849,49 @@ proptest! {
 /// The keys the decoders dispatch on, so generated objects reach past the first
 /// branch; the noise arm keeps the rest of the space.
 const DECODE_DISCRIMINATORS: &[&str] = &[
-    "text", "lines", "marks", "islands", "kind", "attrs", "op", "line", "at", "delta", "ops",
-    "retain", "insert", "islandOps", "lineOps", "markOps", "start", "end", "container", "type",
-    "$name", "element", "instance", "containers", "continues", "id", "props", "url", "level",
-    "ordered", "ordinal", "rows", "aligns", "widths", "align", "list_item", "quote", "table",
-    "checked", "head", "colspan", "rowspan", "valign",
+    "text",
+    "lines",
+    "marks",
+    "islands",
+    "kind",
+    "attrs",
+    "op",
+    "line",
+    "at",
+    "delta",
+    "ops",
+    "retain",
+    "insert",
+    "islandOps",
+    "lineOps",
+    "markOps",
+    "start",
+    "end",
+    "container",
+    "type",
+    "$name",
+    "element",
+    "instance",
+    "containers",
+    "continues",
+    "id",
+    "props",
+    "url",
+    "level",
+    "ordered",
+    "ordinal",
+    "rows",
+    "aligns",
+    "widths",
+    "align",
+    "list_item",
+    "quote",
+    "table",
+    "checked",
+    "head",
+    "colspan",
+    "rowspan",
+    "valign",
 ];
 
 fn decode_key() -> impl Strategy<Value = String> {
@@ -909,12 +961,18 @@ fn grid_props() -> impl Strategy<Value = Value> {
             let rows: Vec<Value> = rows
                 .into_iter()
                 .map(|(id, slots)| {
-                    let cells: serde_json::Map<String, Value> =
-                        columns.iter().cloned().zip(slots.into_iter().map(Value::from)).collect();
+                    let cells: serde_json::Map<String, Value> = columns
+                        .iter()
+                        .cloned()
+                        .zip(slots.into_iter().map(Value::from))
+                        .collect();
                     json!({"id": id, "cells": cells})
                 })
                 .collect();
-            let mut props = serde_json::Map::from_iter([("columns".to_string(), json!(columns)), ("rows".to_string(), Value::Array(rows))]);
+            let mut props = serde_json::Map::from_iter([
+                ("columns".to_string(), json!(columns)),
+                ("rows".to_string(), Value::Array(rows)),
+            ]);
             props.extend(layout.into_iter().map(|(k, v)| (k.to_string(), v)));
             Value::Object(props)
         })
@@ -955,7 +1013,9 @@ fn fixture_bodies_import_and_are_valid() {
         "extended_metadata_demo.md",
     ] {
         let md = fixture_body(name);
-        let rt = from_markdown(&md).unwrap_or_else(|e| panic!("import {name}: {e}")).content;
+        let rt = from_markdown(&md)
+            .unwrap_or_else(|e| panic!("import {name}: {e}"))
+            .content;
         assert_eq!(rt.validate(), Ok(()), "{name} invariants");
         let rt2 = from_markdown(&to_markdown(&rt)).unwrap().content;
         assert_eq!(rt, rt2, "{name} content not a fixed point");
@@ -1012,11 +1072,16 @@ mod model {
     /// twice keeps its first holder.
     #[test]
     fn a_shape_the_model_refuses_migrates_valid() {
-        let mut rt = from_markdown("before\n\n| a |\n|---|\n| b |\n\nafter").unwrap().content.into_content();
+        let mut rt = from_markdown("before\n\n| a |\n|---|\n| b |\n\nafter")
+            .unwrap()
+            .content
+            .into_content();
         rt.text = "before\u{FFFC}after".into();
         rt.lines.truncate(1);
-        rt.marks.push(Mark::new(0, 6, MarkKind::Anchor { id: "c1".into() }));
-        rt.marks.push(Mark::new(7, 12, MarkKind::Anchor { id: "c1".into() }));
+        rt.marks
+            .push(Mark::new(0, 6, MarkKind::Anchor { id: "c1".into() }));
+        rt.marks
+            .push(Mark::new(7, 12, MarkKind::Anchor { id: "c1".into() }));
         let v2 = from_lines(&rt.into_lines());
         assert_eq!(v2.validate(), Ok(()));
         assert_eq!(v2.text, "before\n\u{FFFC}\nafter");
@@ -1026,7 +1091,11 @@ mod model {
 
     #[test]
     fn fixture_bodies_migrate_and_lower_back() {
-        for name in ["sample.md", "card_yaml_demo.md", "extended_metadata_demo.md"] {
+        for name in [
+            "sample.md",
+            "card_yaml_demo.md",
+            "extended_metadata_demo.md",
+        ] {
             let rt = from_markdown(&fixture_body(name)).unwrap();
             let v2 = from_lines(&rt.content);
             assert_eq!(v2.validate(), Ok(()), "{name}");
@@ -1064,8 +1133,17 @@ mod strict {
     fn respell() -> impl Strategy<Value = Respell> {
         use Respell::*;
         prop::sample::select(vec![
-            ReverseMark, EmptyMark, SplitMark, MarkOverBreak, ExtMarkOverBreak, ShuffleMarks, ShuffleAnchors,
-            UnusedContainer, SwapContainers, DefaultHead, CellParagraphs,
+            ReverseMark,
+            EmptyMark,
+            SplitMark,
+            MarkOverBreak,
+            ExtMarkOverBreak,
+            ShuffleMarks,
+            ShuffleAnchors,
+            UnusedContainer,
+            SwapContainers,
+            DefaultHead,
+            CellParagraphs,
         ])
     }
 
@@ -1074,9 +1152,22 @@ mod strict {
     fn respelled(v: &Value, r: Respell, at: usize) -> Value {
         let mut v = v.clone();
         let text: Vec<char> = v["text"].as_str().unwrap().chars().collect();
-        let marks = v.get("marks").and_then(Value::as_array).cloned().unwrap_or_default();
-        let anchors = v.get("anchors").and_then(Value::as_array).cloned().unwrap_or_default();
-        let newlines: Vec<usize> = text.iter().enumerate().filter(|(_, c)| **c == '\n').map(|(i, _)| i).collect();
+        let marks = v
+            .get("marks")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let anchors = v
+            .get("anchors")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let newlines: Vec<usize> = text
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| **c == '\n')
+            .map(|(i, _)| i)
+            .collect();
         let newline = (!newlines.is_empty()).then(|| newlines[at % newlines.len()]);
         let push_mark = |v: &mut Value, mark: Value| {
             let mut all = marks.clone();
@@ -1086,7 +1177,10 @@ mod strict {
         match r {
             Respell::ReverseMark | Respell::EmptyMark | Respell::SplitMark if !marks.is_empty() => {
                 let k = at % marks.len();
-                let (s, e) = (marks[k]["start"].as_u64().unwrap(), marks[k]["end"].as_u64().unwrap());
+                let (s, e) = (
+                    marks[k]["start"].as_u64().unwrap(),
+                    marks[k]["end"].as_u64().unwrap(),
+                );
                 let mut all = marks.clone();
                 match r {
                     Respell::ReverseMark => (all[k]["start"], all[k]["end"]) = (e.into(), s.into()),
@@ -1122,12 +1216,23 @@ mod strict {
                 v["anchors"] = Value::Array(all);
             }
             Respell::UnusedContainer => {
-                let mut all = v.get("containers").and_then(Value::as_array).cloned().unwrap_or_default();
-                all.insert(at % (all.len() + 1), json!({"id": "q-unused", "kind": "quote"}));
+                let mut all = v
+                    .get("containers")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                all.insert(
+                    at % (all.len() + 1),
+                    json!({"id": "q-unused", "kind": "quote"}),
+                );
                 v["containers"] = Value::Array(all);
             }
             Respell::SwapContainers => {
-                if let Some(all) = v.get_mut("containers").and_then(Value::as_array_mut).filter(|a| a.len() >= 2) {
+                if let Some(all) = v
+                    .get_mut("containers")
+                    .and_then(Value::as_array_mut)
+                    .filter(|a| a.len() >= 2)
+                {
                     let k = at % (all.len() - 1);
                     all.swap(k, k + 1);
                 }
@@ -1144,7 +1249,10 @@ mod strict {
                     let cell = slots.values_mut().nth(at % n).unwrap();
                     let text = format!("{}\nmore", cell["text"].as_str().unwrap());
                     cell["text"] = text.into();
-                    cell["blocks"].as_array_mut().unwrap().push(json!({"id": "b-more", "kind": "para"}));
+                    cell["blocks"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(json!({"id": "b-more", "kind": "para"}));
                 }
             }
             _ => {}

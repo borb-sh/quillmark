@@ -36,10 +36,17 @@ fn contexts_where(c: &Content, keep: impl Fn(&str) -> bool) -> Vec<AnchorContext
     for a in c.anchors.iter().filter(|a| keep(&a.id)) {
         sites.push((a.start, 0, a.start, context_of(&prose, a)));
     }
-    let slots = c.text.chars().enumerate().filter(|&(_, ch)| ch == ISLAND_SLOT).map(|(at, _)| at);
+    let slots = c
+        .text
+        .chars()
+        .enumerate()
+        .filter(|&(_, ch)| ch == ISLAND_SLOT)
+        .map(|(at, _)| at);
     for (island, at) in c.islands.iter().zip(slots) {
         for (n, slot) in island.slot_order().iter().enumerate() {
-            let Some(inner) = island.slots.get(slot) else { continue };
+            let Some(inner) = island.slots.get(slot) else {
+                continue;
+            };
             let text: Vec<char> = inner.text.chars().collect();
             for a in inner.anchors.iter().filter(|a| keep(&a.id)) {
                 sites.push((at, n + 1, a.start, context_of(&text, a)));
@@ -55,8 +62,12 @@ fn context_of(text: &[char], a: &Anchor) -> AnchorContext {
     AnchorContext {
         id: a.id.clone(),
         quote: text[start..end].iter().collect(),
-        prefix: text[start.saturating_sub(ANCHOR_CONTEXT_SCALARS)..start].iter().collect(),
-        suffix: text[end..(end + ANCHOR_CONTEXT_SCALARS).min(text.len())].iter().collect(),
+        prefix: text[start.saturating_sub(ANCHOR_CONTEXT_SCALARS)..start]
+            .iter()
+            .collect(),
+        suffix: text[end..(end + ANCHOR_CONTEXT_SCALARS).min(text.len())]
+            .iter()
+            .collect(),
     }
 }
 
@@ -87,13 +98,25 @@ fn line_spelling(text: &str, slot: bool) -> (Vec<char>, Vec<Scalar>) {
 /// spelling, or, where that names none, over the line form's spelling of
 /// each surface, which the selectors stored before 0.135 use. With
 /// `inserted` given, the prose alone counts.
-pub fn locate_site(c: &Content, ctx: &AnchorContext, inserted: Option<&[(Scalar, Scalar)]>) -> Option<(Surface, Scalar, Scalar)> {
+pub fn locate_site(
+    c: &Content,
+    ctx: &AnchorContext,
+    inserted: Option<&[(Scalar, Scalar)]>,
+) -> Option<(Surface, Scalar, Scalar)> {
     let surfaces: Vec<(Surface, &str)> = match inserted {
         Some(_) => vec![(Surface::Prose, c.text.as_str())],
         None => std::iter::once((Surface::Prose, c.text.as_str()))
             .chain(c.islands.iter().flat_map(|i| {
                 i.slot_order().into_iter().filter_map(move |s| {
-                    i.slots.get(&s).map(|inner| (Surface::Slot { island: i.id.clone(), slot: s.clone() }, inner.text.as_str()))
+                    i.slots.get(&s).map(|inner| {
+                        (
+                            Surface::Slot {
+                                island: i.id.clone(),
+                                slot: s.clone(),
+                            },
+                            inner.text.as_str(),
+                        )
+                    })
                 })
             }))
             .collect(),
@@ -133,7 +156,10 @@ impl Content {
         live: &HashSet<&str>,
     ) -> Reattached<AnchorContext> {
         let mut answered = HashSet::new();
-        let ctxs: Vec<&AnchorContext> = ctxs.iter().filter(|c| answered.insert(c.id.as_str())).collect();
+        let ctxs: Vec<&AnchorContext> = ctxs
+            .iter()
+            .filter(|c| answered.insert(c.id.as_str()))
+            .collect();
         let held: HashSet<String> = self.anchor_ids().into_iter().collect();
         let mut placed = Vec::with_capacity(ctxs.len());
         for ctx in &ctxs {
@@ -147,7 +173,12 @@ impl Content {
                 match surface {
                     Surface::Prose => self.anchors.push(anchor),
                     Surface::Slot { island, slot } => {
-                        if let Some(inner) = self.islands.iter_mut().find(|i| &i.id == island).and_then(|i| i.slots.get_mut(slot)) {
+                        if let Some(inner) = self
+                            .islands
+                            .iter_mut()
+                            .find(|i| &i.id == island)
+                            .and_then(|i| i.slots.get_mut(slot))
+                        {
                             inner.anchors.push(anchor);
                         }
                     }
@@ -159,7 +190,9 @@ impl Content {
         let mut out = Reattached::default();
         for (ctx, placed) in ctxs.into_iter().zip(placed) {
             match placed {
-                true => out.reattached.push(anchor_context(self, &ctx.id).unwrap_or_else(|| ctx.clone())),
+                true => out
+                    .reattached
+                    .push(anchor_context(self, &ctx.id).unwrap_or_else(|| ctx.clone())),
                 false => out.orphaned.push(ctx.clone()),
             }
         }
@@ -188,9 +221,15 @@ mod tests {
                 "anchors": [{"id": "n", "start": 0, "end": 4}]}}}],
         }));
         let ctxs = anchor_contexts(&c);
-        assert_eq!(ctxs.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), ["a", "p", "n"]);
+        assert_eq!(
+            ctxs.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(),
+            ["a", "p", "n"]
+        );
         assert_eq!(ctxs[0].quote, "one\u{2028}two");
-        assert_eq!((ctxs[1].prefix.as_str(), ctxs[1].suffix.as_str()), ("one\u{2028}two\nth", "ree \u{FFFC}"));
+        assert_eq!(
+            (ctxs[1].prefix.as_str(), ctxs[1].suffix.as_str()),
+            ("one\u{2028}two\nth", "ree \u{FFFC}")
+        );
         assert_eq!(ctxs[2].quote, "a\u{2028}\nb");
     }
 
@@ -203,13 +242,23 @@ mod tests {
             "islands": [{"id": "f0", "type": "x-box", "props": {}, "slots": {"note": {
                 "text": "ab\u{2028}\ncd", "blocks": [{"id": "b0", "kind": "para"}, {"id": "b1", "kind": "para"}]}}}],
         }));
-        for (quote, note) in [("one\u{2028}two", "ab\u{2028}\ncd"), ("one\ntwo", "ab\n\n\ncd")] {
+        for (quote, note) in [
+            ("one\u{2028}two", "ab\u{2028}\ncd"),
+            ("one\ntwo", "ab\n\n\ncd"),
+        ] {
             let mut c = stored.clone();
-            let ctxs = [AnchorContext::new("a", quote, "", "\nthree"), AnchorContext::new("n", note, "", "")];
+            let ctxs = [
+                AnchorContext::new("a", quote, "", "\nthree"),
+                AnchorContext::new("n", note, "", ""),
+            ];
             let out = c.reattach(&ctxs, None, &HashSet::new());
             assert_eq!(out.orphaned, [], "{quote:?}");
             assert_eq!(c.anchors, [Anchor::new("a", 0, 7)], "{quote:?}");
-            assert_eq!(c.islands[0].slots["note"].anchors, [Anchor::new("n", 0, 6)], "{note:?}");
+            assert_eq!(
+                c.islands[0].slots["note"].anchors,
+                [Anchor::new("n", 0, 6)],
+                "{note:?}"
+            );
             assert_eq!(out.reattached[1].quote, "ab\u{2028}\ncd");
         }
     }

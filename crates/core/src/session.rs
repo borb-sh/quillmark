@@ -321,7 +321,14 @@ impl LiveSession {
     }
 
     /// [`position_at`](Self::position_at) with `pos` in `u`.
-    pub fn position_at_in(&self, page: usize, x: f32, y: f32, tol: f32, u: impl Units) -> Option<ContentHit> {
+    pub fn position_at_in(
+        &self,
+        page: usize,
+        x: f32,
+        y: f32,
+        tol: f32,
+        u: impl Units,
+    ) -> Option<ContentHit> {
         let mut hit = self.position_at(page, x, y, tol)?;
         if let Some(text) = self.content_text(&hit.field) {
             hit.pos = units::from_scalars(u, text, hit.pos);
@@ -339,7 +346,11 @@ impl LiveSession {
     }
 
     /// [`render`](Self::render) with each region's `span` in `u`.
-    pub fn render_in(&self, opts: &RenderOptions, u: impl Units) -> Result<RenderResult, RenderError> {
+    pub fn render_in(
+        &self,
+        opts: &RenderOptions,
+        u: impl Units,
+    ) -> Result<RenderResult, RenderError> {
         let mut result = self.render(opts)?;
         result.regions = self.spans_in(std::mem::take(&mut result.regions), u);
         Ok(result)
@@ -347,7 +358,9 @@ impl LiveSession {
 
     fn spans_in(&self, mut regions: Vec<RenderedRegion>, u: impl Units) -> Vec<RenderedRegion> {
         for region in &mut regions {
-            if let (Some(span), Some(text)) = (region.span.as_mut(), self.content_text(&region.field)) {
+            if let (Some(span), Some(text)) =
+                (region.span.as_mut(), self.content_text(&region.field))
+            {
                 *span = span.map(|n| units::from_scalars(u, text, n));
             }
         }
@@ -361,7 +374,11 @@ impl LiveSession {
             Some(rest) => {
                 let mut it = rest.splitn(3, '.');
                 let (kind, ord) = (it.next()?, it.next()?.parse::<usize>().ok()?);
-                let card = self.data.get("$cards")?.as_array()?.iter()
+                let card = self
+                    .data
+                    .get("$cards")?
+                    .as_array()?
+                    .iter()
                     .filter(|c| c.get("$kind").and_then(|k| k.as_str()) == Some(kind))
                     .nth(ord)?;
                 (card, it.next()?)
@@ -618,7 +635,12 @@ main:
             .into_iter()
             .map(|r| (r.field, r.span))
             .collect();
-        let want = [("refs.1", [0, 3]), ("$cards.note.1.$body", [0, 4]), ("$body", [0, 3]), ("subject", [0, 2])];
+        let want = [
+            ("refs.1", [0, 3]),
+            ("$cards.note.1.$body", [0, 4]),
+            ("$body", [0, 3]),
+            ("subject", [0, 2]),
+        ];
         assert_eq!(spans, want.map(|(f, s)| (f.to_string(), Some(s))));
     }
 

@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::lines::delta::MIN_MOVE;
-use crate::lines::model::{Content, Mark, MarkKind, Lines, Scalar, ISLAND_SLOT};
+use crate::lines::model::{Content, ISLAND_SLOT, Lines, Mark, MarkKind, Scalar};
 
 /// Context read on each side of an anchor, in Unicode scalar values.
 pub const ANCHOR_CONTEXT_SCALARS: usize = 32;
@@ -86,7 +86,10 @@ pub enum Surface {
     Prose,
     /// The `cell`th cell [`IslandType::cell_marks`](crate::lines::island::IslandType::cell_marks)
     /// reads of the `island`th island.
-    Cell { island: usize, cell: usize },
+    Cell {
+        island: usize,
+        cell: usize,
+    },
 }
 
 /// One anchor of a content, on whichever surface holds it.
@@ -113,25 +116,47 @@ impl Content {
             .filter_map(|m| match &m.kind {
                 MarkKind::Anchor { id } if m.start <= m.end && m.end <= len => Some((
                     m.start,
-                    AnchorSite { id: id.clone(), surface: Surface::Prose, start: m.start, end: m.end },
+                    AnchorSite {
+                        id: id.clone(),
+                        surface: Surface::Prose,
+                        start: m.start,
+                        end: m.end,
+                    },
                 )),
                 _ => None,
             })
             .collect();
-        let slots = self.text.chars().enumerate().filter(|&(_, c)| c == ISLAND_SLOT).map(|(at, _)| at);
+        let slots = self
+            .text
+            .chars()
+            .enumerate()
+            .filter(|&(_, c)| c == ISLAND_SLOT)
+            .map(|(at, _)| at);
         for (island, (isl, at)) in self.islands.iter().zip(slots).enumerate() {
-            for (cell, (text, marks)) in isl.island_type.cell_marks(&isl.props).into_iter().enumerate() {
+            for (cell, (text, marks)) in isl
+                .island_type
+                .cell_marks(&isl.props)
+                .into_iter()
+                .enumerate()
+            {
                 let n = text.chars().count();
                 sites.extend(marks.into_iter().filter_map(|m| match m.kind {
                     MarkKind::Anchor { id } if m.start <= m.end && m.end <= n => Some((
                         at,
-                        AnchorSite { id, surface: Surface::Cell { island, cell }, start: m.start, end: m.end },
+                        AnchorSite {
+                            id,
+                            surface: Surface::Cell { island, cell },
+                            start: m.start,
+                            end: m.end,
+                        },
                     )),
                     _ => None,
                 }));
             }
         }
-        sites.sort_by(|(a, x), (b, y)| (a, x.surface, x.start, &x.id).cmp(&(b, y.surface, y.start, &y.id)));
+        sites.sort_by(|(a, x), (b, y)| {
+            (a, x.surface, x.start, &x.id).cmp(&(b, y.surface, y.start, &y.id))
+        });
         sites.into_iter().map(|(_, site)| site).collect()
     }
 
@@ -158,7 +183,11 @@ impl Content {
             Surface::Prose => Some(self.text.clone()),
             Surface::Cell { island, cell } => {
                 let isl = self.islands.get(island)?;
-                isl.island_type.cell_marks(&isl.props).into_iter().nth(cell).map(|(text, _)| text)
+                isl.island_type
+                    .cell_marks(&isl.props)
+                    .into_iter()
+                    .nth(cell)
+                    .map(|(text, _)| text)
             }
         }
     }
@@ -167,7 +196,12 @@ impl Content {
     fn surfaces(&self) -> Vec<(Surface, Vec<char>)> {
         let mut out = vec![(Surface::Prose, self.text.chars().collect())];
         for (island, isl) in self.islands.iter().enumerate() {
-            for (cell, (text, _)) in isl.island_type.cell_marks(&isl.props).into_iter().enumerate() {
+            for (cell, (text, _)) in isl
+                .island_type
+                .cell_marks(&isl.props)
+                .into_iter()
+                .enumerate()
+            {
                 out.push((Surface::Cell { island, cell }, text.chars().collect()));
             }
         }
@@ -190,21 +224,31 @@ pub fn anchor_context(rt: &Lines, id: &str) -> Option<AnchorContext> {
 }
 
 fn contexts_where(rt: &Lines, keep: impl Fn(&str) -> bool) -> Vec<AnchorContext> {
-    let sites: Vec<AnchorSite> = rt.anchor_sites().into_iter().filter(|s| keep(&s.id)).collect();
+    let sites: Vec<AnchorSite> = rt
+        .anchor_sites()
+        .into_iter()
+        .filter(|s| keep(&s.id))
+        .collect();
     let mut texts: HashMap<Surface, Vec<char>> = HashMap::new();
     sites
         .into_iter()
         .filter_map(|site| {
             let chars = match texts.entry(site.surface) {
                 std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-                std::collections::hash_map::Entry::Vacant(e) => e.insert(rt.surface_text(site.surface)?.chars().collect()),
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(rt.surface_text(site.surface)?.chars().collect())
+                }
             };
             let (start, end) = (site.start, site.end);
             Some(AnchorContext {
                 id: site.id,
                 quote: chars[start..end].iter().collect(),
-                prefix: chars[start.saturating_sub(ANCHOR_CONTEXT_SCALARS)..start].iter().collect(),
-                suffix: chars[end..(end + ANCHOR_CONTEXT_SCALARS).min(chars.len())].iter().collect(),
+                prefix: chars[start.saturating_sub(ANCHOR_CONTEXT_SCALARS)..start]
+                    .iter()
+                    .collect(),
+                suffix: chars[end..(end + ANCHOR_CONTEXT_SCALARS).min(chars.len())]
+                    .iter()
+                    .collect(),
             })
         })
         .collect()
@@ -268,9 +312,9 @@ fn locate_among(
     ctx: &AnchorContext,
     inserted: Option<&[(Scalar, Scalar)]>,
 ) -> Option<(Surface, Scalar, Scalar)> {
-    let mut hits = surfaces
-        .iter()
-        .filter_map(|(surface, text)| locate_in(text, ctx, inserted).map(|(start, end)| (*surface, start, end)));
+    let mut hits = surfaces.iter().filter_map(|(surface, text)| {
+        locate_in(text, ctx, inserted).map(|(start, end)| (*surface, start, end))
+    });
     let hit = hits.next()?;
     hits.next().is_none().then_some(hit)
 }
@@ -310,8 +354,15 @@ impl Lines {
         live: &HashSet<&str>,
     ) -> Reattached<AnchorContext> {
         let mut answered = HashSet::new();
-        let ctxs: Vec<&AnchorContext> = ctxs.iter().filter(|c| answered.insert(c.id.as_str())).collect();
-        let held: HashSet<String> = self.anchor_sites().into_iter().map(|site| site.id).collect();
+        let ctxs: Vec<&AnchorContext> = ctxs
+            .iter()
+            .filter(|c| answered.insert(c.id.as_str()))
+            .collect();
+        let held: HashSet<String> = self
+            .anchor_sites()
+            .into_iter()
+            .map(|site| site.id)
+            .collect();
         let surfaces = searched(self, inserted);
         let mut placed = Vec::with_capacity(ctxs.len());
         let mut marks = Vec::new();
@@ -322,7 +373,10 @@ impl Lines {
             }
             let site = locate_among(&surfaces, ctx, inserted).filter(|_| !ctx.id.is_empty());
             if let Some((surface, start, end)) = site {
-                marks.push((surface, Mark::new(start, end, MarkKind::Anchor { id: ctx.id.clone() })));
+                marks.push((
+                    surface,
+                    Mark::new(start, end, MarkKind::Anchor { id: ctx.id.clone() }),
+                ));
             }
             placed.push(site.is_some());
         }
@@ -332,11 +386,18 @@ impl Lines {
             for (surface, mark) in marks {
                 match surface {
                     Surface::Prose => content.marks.push(mark),
-                    Surface::Cell { island, cell } => cells.entry((island, cell)).or_default().push(mark),
+                    Surface::Cell { island, cell } => {
+                        cells.entry((island, cell)).or_default().push(mark)
+                    }
                 }
             }
             for (island, isl) in content.islands.iter_mut().enumerate() {
-                for (cell, value) in isl.island_type.cell_values_mut(&mut isl.props).into_iter().enumerate() {
+                for (cell, value) in isl
+                    .island_type
+                    .cell_values_mut(&mut isl.props)
+                    .into_iter()
+                    .enumerate()
+                {
                     if let Some(added) = cells.remove(&(island, cell)) {
                         let (_, mut held) = crate::lines::serial::parse_cell(value);
                         held.extend(added);
@@ -346,12 +407,15 @@ impl Lines {
             }
             *self = content.into_lines();
         }
-        let mut fresh: HashMap<String, AnchorContext> =
-            anchor_contexts(self).into_iter().map(|c| (c.id.clone(), c)).collect();
+        let mut fresh: HashMap<String, AnchorContext> = anchor_contexts(self)
+            .into_iter()
+            .map(|c| (c.id.clone(), c))
+            .collect();
         let mut out = Reattached::default();
         for (ctx, landed) in ctxs.into_iter().zip(placed) {
             if landed {
-                out.reattached.push(fresh.remove(&ctx.id).unwrap_or_else(|| ctx.clone()));
+                out.reattached
+                    .push(fresh.remove(&ctx.id).unwrap_or_else(|| ctx.clone()));
             } else {
                 out.orphaned.push(ctx.clone());
             }
@@ -360,16 +424,27 @@ impl Lines {
     }
 }
 
-pub(crate) fn locate_in(text: &[char], ctx: &AnchorContext, inserted: Option<&[(Scalar, Scalar)]>) -> Option<(Scalar, Scalar)> {
+pub(crate) fn locate_in(
+    text: &[char],
+    ctx: &AnchorContext,
+    inserted: Option<&[(Scalar, Scalar)]>,
+) -> Option<(Scalar, Scalar)> {
     let quote: Vec<char> = ctx.quote.chars().collect();
     let prefix: Vec<char> = ctx.prefix.chars().collect();
     let suffix: Vec<char> = ctx.suffix.chars().collect();
     let n = text.len();
-    let touches = |(a, b): (Scalar, Scalar)| inserted.is_none_or(|spans| spans.iter().any(|&(s, e)| a < e && b > s));
-    let agrees = |i: usize, j: usize| agrees_before(&text[..i], &prefix) && agrees_after(&text[j..], &suffix);
+    let touches = |(a, b): (Scalar, Scalar)| {
+        inserted.is_none_or(|spans| spans.iter().any(|&(s, e)| a < e && b > s))
+    };
+    let agrees = |i: usize, j: usize| {
+        agrees_before(&text[..i], &prefix) && agrees_after(&text[j..], &suffix)
+    };
     let mut hits = Vec::new();
     if quote.is_empty() {
-        let (before, after) = (prefix.len().min(ANCHOR_AGREE_SCALARS), suffix.len().min(ANCHOR_AGREE_SCALARS));
+        let (before, after) = (
+            prefix.len().min(ANCHOR_AGREE_SCALARS),
+            suffix.len().min(ANCHOR_AGREE_SCALARS),
+        );
         for p in before..=n.saturating_sub(after) {
             if agrees(p, p) && touches((p - before, p + after)) {
                 hits.push((p, p));
@@ -409,7 +484,7 @@ mod tests {
     mod properties;
 
     use super::*;
-    use crate::lines::delta::{diff_import, carry_onto};
+    use crate::lines::delta::{carry_onto, diff_import};
     use crate::lines::import::from_markdown;
     use crate::lines::model::Mark;
 
@@ -419,7 +494,8 @@ mod tests {
 
     fn with_anchor(rt: Lines, start: Scalar, end: Scalar, id: &str) -> Lines {
         let mut rt = rt.into_content();
-        rt.marks.push(Mark::new(start, end, MarkKind::Anchor { id: id.into() }));
+        rt.marks
+            .push(Mark::new(start, end, MarkKind::Anchor { id: id.into() }));
         rt.into_lines()
     }
 
@@ -457,7 +533,8 @@ mod tests {
 
     #[test]
     fn contexts_then_reattach_restore_every_anchor_where_it_was() {
-        let base = content("The tax rate and the tax base rose in Q3.\n\nA second paragraph follows.");
+        let base =
+            content("The tax rate and the tax base rose in Q3.\n\nA second paragraph follows.");
         let base = with_anchor(base, 4, 12, "range");
         let base = with_anchor(base, 21, 21, "point");
         let ctxs = anchor_contexts(&base);
@@ -506,7 +583,8 @@ mod tests {
 
     #[test]
     fn an_anchor_over_a_slot_alone_quotes_the_slot_and_is_placed_on_its_context() {
-        let base = content("Intro line here.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nOutro line here.");
+        let base =
+            content("Intro line here.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nOutro line here.");
         let slot = base.text.chars().position(|c| c == ISLAND_SLOT).unwrap();
         let base = with_anchor(base, slot, slot + 1, "table");
         let ctxs = anchor_contexts(&base);
@@ -519,20 +597,30 @@ mod tests {
 
     #[test]
     fn a_slot_alone_is_not_placed_where_its_context_disagrees_or_twice() {
-        let two = content("Intro line here.\n\n| a |\n|---|\n| 1 |\n\nMiddle.\n\n| a |\n|---|\n| 2 |\n\nOutro line here.");
-        let slots: Vec<Scalar> = two.text.char_indices().filter(|&(_, c)| c == ISLAND_SLOT).map(|(i, _)| i).collect();
+        let two = content(
+            "Intro line here.\n\n| a |\n|---|\n| 1 |\n\nMiddle.\n\n| a |\n|---|\n| 2 |\n\nOutro line here.",
+        );
+        let slots: Vec<Scalar> = two
+            .text
+            .char_indices()
+            .filter(|&(_, c)| c == ISLAND_SLOT)
+            .map(|(i, _)| i)
+            .collect();
         let first = with_anchor(two.clone(), slots[0], slots[0] + 1, "t");
         let ctx = anchor_contexts(&first).remove(0);
         assert_eq!(locate(&two, &ctx, None), Some((slots[0], slots[0] + 1)));
         let moved = AnchorContext::new("t", "\u{FFFC}", &ctx.prefix, "\n\nElsewhere.");
         assert_eq!(locate(&two, &moved, None), None);
-        let same_context = content("Intro line here.\n\n| a |\n|---|\n| 1 |\n\nMiddle.\n\nIntro line here.\n\n| a |\n|---|\n| 2 |\n\nMiddle.\n\nOutro line here.");
+        let same_context = content(
+            "Intro line here.\n\n| a |\n|---|\n| 1 |\n\nMiddle.\n\nIntro line here.\n\n| a |\n|---|\n| 2 |\n\nMiddle.\n\nOutro line here.",
+        );
         assert_eq!(locate(&same_context, &ctx, None), None);
     }
 
     #[test]
     fn the_quote_floor_alone_refuses_a_three_character_quote() {
-        let whole = |text: &str| locate(&content(text), &AnchorContext::new("c", text, "", ""), None);
+        let whole =
+            |text: &str| locate(&content(text), &AnchorContext::new("c", text, "", ""), None);
         assert_eq!(whole("abc"), None);
         assert_eq!(whole("abcd"), Some((0, 4)));
     }
@@ -541,7 +629,11 @@ mod tests {
     fn a_repeated_quote_places_nothing_and_a_disagreeing_twin_does_not_count() {
         let rt = content("and then gamma rises fast, and then gamma rises fast.");
         let ctx = AnchorContext::new("c", "gamma", "and then ", " rises fast");
-        assert_eq!(locate(&rt, &ctx, None), None, "two occurrences with equal context");
+        assert_eq!(
+            locate(&rt, &ctx, None),
+            None,
+            "two occurrences with equal context"
+        );
 
         let rt = content("and then gamma rises fast, but then gamma rises fast.");
         let ctx = AnchorContext::new("c", "gamma", "but then ", " rises fast");
@@ -553,14 +645,25 @@ mod tests {
     fn a_delta_counts_only_a_match_overlapping_what_it_inserted() {
         let rt = content("Lorem ipsum dolor sit amet, consectetur adipiscing elit.");
         let at = rt.text.find("dolor sit").unwrap();
-        let quote = AnchorContext::new("c", "dolor sit", "Lorem ipsum ", " amet, consectetur adipiscing elit.");
+        let quote = AnchorContext::new(
+            "c",
+            "dolor sit",
+            "Lorem ipsum ",
+            " amet, consectetur adipiscing elit.",
+        );
         assert_eq!(locate(&rt, &quote, None), Some((at, at + 9)));
-        assert_eq!(locate(&rt, &quote, Some(&[(at + 8, at + 12)])), Some((at, at + 9)));
+        assert_eq!(
+            locate(&rt, &quote, Some(&[(at + 8, at + 12)])),
+            Some((at, at + 9))
+        );
         assert_eq!(locate(&rt, &quote, Some(&[(at + 9, at + 12)])), None);
 
         let point = AnchorContext::new("p", "", "Lorem ipsum ", "dolor sit amet, consectetur");
         assert_eq!(locate(&rt, &point, None), Some((at, at)));
-        assert_eq!(locate(&rt, &point, Some(&[(at + 7, at + 12)])), Some((at, at)));
+        assert_eq!(
+            locate(&rt, &point, Some(&[(at + 7, at + 12)])),
+            Some((at, at))
+        );
         assert_eq!(locate(&rt, &point, Some(&[(at + 8, at + 12)])), None);
     }
 
@@ -575,7 +678,11 @@ mod tests {
         assert_eq!(locate(&edited, &ctx, None), Some((at, at)));
 
         let rewritten = content("Lorem ipsum dolxr sXt amet, consectetur adipiscing elit.");
-        assert_eq!(locate(&rewritten, &ctx, None), None, "edited within the agreement on both sides");
+        assert_eq!(
+            locate(&rewritten, &ctx, None),
+            None,
+            "edited within the agreement on both sides"
+        );
     }
 
     #[test]
@@ -584,16 +691,25 @@ mod tests {
         let at = base.text.find("quarterly figures").unwrap();
         let base = with_anchor(base, at, at + "quarterly figures".len(), "c1");
 
-        let (kept, _, _) = diff_import(&base, "Always keep the quarterly figures in view.").unwrap();
+        let (kept, _, _) =
+            diff_import(&base, "Always keep the quarterly figures in view.").unwrap();
         assert_eq!(text(&kept, span(&kept, "c1").unwrap()), "quarterly figures");
 
         let (wide, _, _) = diff_import(&base, "Keep the quarterly sales figures in view.").unwrap();
-        assert_eq!(text(&wide, span(&wide, "c1").unwrap()), "quarterly sales figures");
+        assert_eq!(
+            text(&wide, span(&wide, "c1").unwrap()),
+            "quarterly sales figures"
+        );
     }
 
     #[test]
     fn an_anchor_revise_refuses_onto_a_surviving_twin_stays_orphaned() {
-        let base = with_anchor(content("target one to drop\n\nkeep the target two"), 0, 6, "c1");
+        let base = with_anchor(
+            content("target one to drop\n\nkeep the target two"),
+            0,
+            6,
+            "c1",
+        );
         let ctxs = anchor_contexts(&base);
         let (mut next, delta, _) = diff_import(&base, "keep the target two").unwrap();
         assert_eq!(span(&next, "c1"), None, "revise drops it");
@@ -602,7 +718,10 @@ mod tests {
         let out = next.reattach(&ctxs, Some(&inserted), &none());
         assert_eq!(out.orphaned, ctxs);
         let out = next.reattach(&ctxs, None, &none());
-        assert_eq!(out.orphaned, ctxs, "the context disagrees even without a delta");
+        assert_eq!(
+            out.orphaned, ctxs,
+            "the context disagrees even without a delta"
+        );
         assert_eq!(span(&next, "c1"), None);
     }
 
@@ -613,7 +732,9 @@ mod tests {
         let base = with_anchor(base, at, at + "approved the budget".len(), "c1");
         let ctxs = anchor_contexts(&base);
         let filler = "one two three four five six seven eight nine ten eleven twelve thirteen";
-        let new_md = format!("Intro.\n\n{filler} fourteen fifteen sixteen fiscal year we approved the budget for roads.");
+        let new_md = format!(
+            "Intro.\n\n{filler} fourteen fifteen sixteen fiscal year we approved the budget for roads."
+        );
 
         let (revised, _, _) = diff_import(&base, &new_md).unwrap();
         let moved = span(&revised, "c1").expect("revise relocates it into the inserted line");
@@ -629,7 +750,8 @@ mod tests {
     #[test]
     fn raw_content_is_normalized_first_and_each_id_answered_once() {
         let mut raw = content("some words to anchor here").into_content();
-        raw.marks.push(Mark::new(9, 3, MarkKind::Anchor { id: "bad".into() }));
+        raw.marks
+            .push(Mark::new(9, 3, MarkKind::Anchor { id: "bad".into() }));
         let ctx = AnchorContext::new("c1", "words to anchor", "some ", " here");
         let twin = AnchorContext::new("c1", "nothing here at all", "", "");
         let out = raw.reattach(std::slice::from_ref(&twin), None, &none());
@@ -661,13 +783,26 @@ mod tests {
         let rt = with_anchor(table_with_cell_anchor("cell"), 0, 4, "lead");
         let sites = rt.anchor_sites();
         let ids: Vec<(&str, Surface)> = sites.iter().map(|s| (s.id.as_str(), s.surface)).collect();
-        assert_eq!(ids, [("lead", Surface::Prose), ("cell", Surface::Cell { island: 0, cell: 2 })]);
+        assert_eq!(
+            ids,
+            [
+                ("lead", Surface::Prose),
+                ("cell", Surface::Cell { island: 0, cell: 2 })
+            ]
+        );
         let ctx = anchor_context(&rt, "cell").unwrap();
-        assert_eq!((&*ctx.prefix, &*ctx.quote, &*ctx.suffix), ("alpha ", "beta", ""));
+        assert_eq!(
+            (&*ctx.prefix, &*ctx.quote, &*ctx.suffix),
+            ("alpha ", "beta", "")
+        );
         assert!(rt.anchor_collisions().is_empty());
 
         let twice = with_anchor(table_with_cell_anchor("lead"), 0, 4, "lead");
-        assert_eq!(twice.validate(), Ok(()), "a collision a cell takes part in loads");
+        assert_eq!(
+            twice.validate(),
+            Ok(()),
+            "a collision a cell takes part in loads"
+        );
         assert_eq!(twice.anchor_collisions(), ["lead"]);
     }
 
@@ -678,9 +813,20 @@ mod tests {
         let mut bare = without_anchors(&rt).into_content();
         bare.islands[0].props["rows"][0][0]["marks"] = serde_json::json!([]);
         let mut bare = bare.into_lines();
-        assert_eq!(locate(&bare, &ctxs[0], None), None, "the one place is a cell");
-        assert_eq!(locate_site(&bare, &ctxs[0], None), Some((Surface::Cell { island: 0, cell: 2 }, 6, 10)));
-        assert_eq!(locate_site(&bare, &ctxs[0], Some(&[(0, 100)])), None, "a delta binds the prose alone");
+        assert_eq!(
+            locate(&bare, &ctxs[0], None),
+            None,
+            "the one place is a cell"
+        );
+        assert_eq!(
+            locate_site(&bare, &ctxs[0], None),
+            Some((Surface::Cell { island: 0, cell: 2 }, 6, 10))
+        );
+        assert_eq!(
+            locate_site(&bare, &ctxs[0], Some(&[(0, 100)])),
+            None,
+            "a delta binds the prose alone"
+        );
         let out = bare.reattach(&ctxs, None, &none());
         assert_eq!((out.reattached, bare), (ctxs, rt));
     }
@@ -694,6 +840,9 @@ mod tests {
 
         let (dropped, _, _) = diff_import(&rt, &md.replace("alpha beta", "alpha delta")).unwrap();
         assert!(dropped.anchor_sites().is_empty());
-        assert_eq!(dropped.islands[0].id, rt.islands[0].id, "the edited table keeps its id");
+        assert_eq!(
+            dropped.islands[0].id, rt.islands[0].id,
+            "the edited table keeps its id"
+        );
     }
 }

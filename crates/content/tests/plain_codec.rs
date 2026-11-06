@@ -13,7 +13,8 @@ use serde_json::json;
 fn anchored(s: &str, id: &str, quote: &str) -> Content {
     let mut c = plain(s);
     let start = s.find(quote).unwrap();
-    c.anchors.push(Anchor::new(id, start, start + quote.chars().count()));
+    c.anchors
+        .push(Anchor::new(id, start, start + quote.chars().count()));
     c
 }
 
@@ -26,13 +27,24 @@ fn the_codec_rides_the_wire_and_the_hash_bytes() {
     assert_eq!(c.to_json(), serde_json::to_string(&v).unwrap());
     assert!(c.to_json().starts_with(r#"{"anchors":[{"end":10,"id":"c1","start":3}],"blocks":[{"id":"b0","kind":"para"}],"codec":"plain","#));
 
-    let rich = Content { codec: Codec::Rich, ..c.clone() };
-    assert!(rich.to_value().get("codec").is_none(), "the rich codec is unspelled");
+    let rich = Content {
+        codec: Codec::Rich,
+        ..c.clone()
+    };
+    assert!(
+        rich.to_value().get("codec").is_none(),
+        "the rich codec is unspelled"
+    );
     assert_ne!(rich.to_json(), c.to_json());
 
     assert_eq!(
-        Content::from_value(&json!({"blocks": [{"id": "b0", "kind": "para"}], "codec": "loud", "text": ""})),
-        Err(ParseError::UnknownName { axis: "codec", name: "loud".into() })
+        Content::from_value(
+            &json!({"blocks": [{"id": "b0", "kind": "para"}], "codec": "loud", "text": ""})
+        ),
+        Err(ParseError::UnknownName {
+            axis: "codec",
+            name: "loud".into()
+        })
     );
 }
 
@@ -40,11 +52,17 @@ fn the_codec_rides_the_wire_and_the_hash_bytes() {
 fn a_plain_value_holds_only_plain_paragraphs() {
     let mut v = plain("a b").to_value();
     v["marks"] = json!([{ "start": 0, "end": 1, "type": "strong" }]);
-    assert_eq!(Content::from_value(&v), Err(ParseError::Invalid(Invariant::NotPlain)));
+    assert_eq!(
+        Content::from_value(&v),
+        Err(ParseError::Invalid(Invariant::NotPlain))
+    );
 
     let bold = from_markdown("**a** b").unwrap().content;
     let change = diff(&plain("a b"), &bold).unwrap();
-    assert!(apply(&plain("a b"), &change).is_err(), "no step formats a plain value");
+    assert!(
+        apply(&plain("a b"), &change).is_err(),
+        "no step formats a plain value"
+    );
 }
 
 #[test]
@@ -62,7 +80,10 @@ fn every_write_keeps_the_codec() {
     let mut v = before.to_value();
     v["marks"] = json!([{ "start": 0, "end": 3, "type": "emph" }]);
     let (repaired, _, _) = repair(Raw::from_value(&v).unwrap());
-    assert_eq!(repaired, before, "repair strips what a plain value cannot hold");
+    assert_eq!(
+        repaired, before,
+        "repair strips what a plain value cannot hold"
+    );
 }
 
 #[test]
@@ -71,7 +92,13 @@ fn a_plain_value_reads_and_revises_as_its_literal_text() {
     assert_eq!(to_text(&c), "a *literal* line");
     let read = to_text_annotated(&c);
     assert_eq!(read.markdown, "a *literal* line", "no tag in a plain read");
-    assert_eq!(read.anchors.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["c1"]);
+    assert_eq!(
+        read.anchors
+            .iter()
+            .map(|a| a.id.as_str())
+            .collect::<Vec<_>>(),
+        ["c1"]
+    );
 
     let revised = revise(&c, "so a *literal* line").unwrap();
     assert_eq!(revised.content.codec, Codec::Plain);
@@ -87,9 +114,15 @@ fn a_blank_line_is_a_paragraph_break_both_ways() {
     assert_eq!((two.text.as_str(), two.blocks.len()), ("a\nb", 2));
     assert_eq!(to_plaintext(&two), "a\n\nb");
     let broken = plain("a\nb");
-    assert_eq!((broken.text.as_str(), broken.blocks.len()), ("a\u{2028}b", 1));
+    assert_eq!(
+        (broken.text.as_str(), broken.blocks.len()),
+        ("a\u{2028}b", 1)
+    );
     let revised = revise(&two, "a\n\nB").unwrap();
-    assert_eq!((revised.content.text.as_str(), revised.content.blocks.len()), ("a\nB", 2));
+    assert_eq!(
+        (revised.content.text.as_str(), revised.content.blocks.len()),
+        ("a\nB", 2)
+    );
 }
 
 mod properties {

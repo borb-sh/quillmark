@@ -5,13 +5,13 @@
 //! table has its own case.
 
 use proptest::prelude::*;
+use quillmark_content::change::{Assoc, Change, Mapping};
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::markdown::from_markdown;
+use quillmark_content::model::Pos;
 use quillmark_content::model::{
     Anchor, Block, BlockKind, ContainerKind, Content, ISLAND_SLOT, Invariant, Mark, MarkKind,
 };
-use quillmark_content::change::{Assoc, Change, Mapping};
-use quillmark_content::model::Pos;
 use quillmark_content::repair::{Raw, RawAnchor, RawIsland, Repair, repair};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -752,8 +752,11 @@ fn a_raw_in_utf16_clamps_an_offset_inside_a_character_or_past_the_text() {
 /// Text from the characters the offsets in UTF-16 split or the model treats
 /// apart: astral, a break, a slot, a line separator.
 fn json_text() -> impl Strategy<Value = String> {
-    prop::collection::vec(prop::sample::select(&["a", "😀", "\n", "\u{FFFC}", "\u{2028}", " ", "é"][..]), 0..8)
-        .prop_map(|v| v.concat())
+    prop::collection::vec(
+        prop::sample::select(&["a", "😀", "\n", "\u{FFFC}", "\u{2028}", " ", "é"][..]),
+        0..8,
+    )
+    .prop_map(|v| v.concat())
 }
 
 fn json_offset() -> impl Strategy<Value = serde_json::Value> {
@@ -766,7 +769,9 @@ fn json_block() -> impl Strategy<Value = serde_json::Value> {
         prop::sample::select(&["para", "heading", "rule", "code", "x-a"][..]),
         prop::collection::vec(prop::sample::select(&["l0", "i0", "q0", "zz"][..]), 0..3),
     )
-        .prop_map(|(id, kind, path)| json!({"id": id, "kind": kind, "attrs": {"level": 2}, "path": path}))
+        .prop_map(
+            |(id, kind, path)| json!({"id": id, "kind": kind, "attrs": {"level": 2}, "path": path}),
+        )
 }
 
 fn json_island() -> impl Strategy<Value = serde_json::Value> {

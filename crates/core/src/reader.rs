@@ -64,7 +64,11 @@ impl<'a> TypedReader<'a> {
     /// when a content leaf holds a value that does not decode (a scalar an
     /// opaque [`store_field`](crate::document::Card::store_field) wrote).
     pub fn get<'t>(&self, target: impl Into<Target<'t>>) -> Result<Option<QuillValue>, EditError> {
-        read_field(self.doc.main(), Some(&self.config.main.fields), target.into())
+        read_field(
+            self.doc.main(),
+            Some(&self.config.main.fields),
+            target.into(),
+        )
     }
 
     /// Read the main card's body or a content field as its [`Content`], a
@@ -80,7 +84,10 @@ impl<'a> TypedReader<'a> {
     /// `array<richtext>` carries content without having one [`Content`]);
     /// [`EditError::FieldDecode`] when the stored value decodes under
     /// neither encoding.
-    pub fn get_content<'t>(&self, target: impl Into<Target<'t>>) -> Result<Option<Content>, EditError> {
+    pub fn get_content<'t>(
+        &self,
+        target: impl Into<Target<'t>>,
+    ) -> Result<Option<Content>, EditError> {
         match target.into() {
             Target::Body => Ok(Some(self.doc.main().body().clone())),
             Target::Field(name) => self.get_content_at(name, &[]),
@@ -165,7 +172,10 @@ impl CardReader<'_> {
 
     /// Read a content field on this card as its [`Content`]: the card twin
     /// of [`TypedReader::get_content`], carrying the same outcomes.
-    pub fn get_content<'t>(&self, target: impl Into<Target<'t>>) -> Result<Option<Content>, EditError> {
+    pub fn get_content<'t>(
+        &self,
+        target: impl Into<Target<'t>>,
+    ) -> Result<Option<Content>, EditError> {
         match target.into() {
             Target::Body => Ok(Some(self.card.body().clone())),
             Target::Field(name) => self.get_content_at(name, &[]),
@@ -191,7 +201,11 @@ fn read_field(
     target: Target<'_>,
 ) -> Result<Option<QuillValue>, EditError> {
     let name = match target {
-        Target::Body => return Ok(Some(QuillValue::from_json(serde_json::Value::String(card.body_markdown())))),
+        Target::Body => {
+            return Ok(Some(QuillValue::from_json(serde_json::Value::String(
+                card.body_markdown(),
+            ))));
+        }
         Target::Field(name) => name,
     };
     let schema = fields_schema
@@ -547,7 +561,8 @@ card_kinds:
 
         let mut authored = blank_doc();
         authored
-            .unchecked().store_field(None, "qty", QuillValue::from_json(serde_json::json!("3")))
+            .unchecked()
+            .store_field(None, "qty", QuillValue::from_json(serde_json::json!("3")))
             .unwrap();
         assert_eq!(
             TypedReader::new(&config, &authored).get("qty").unwrap(),
@@ -561,7 +576,8 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         for name in ["subject", "note", "qty", "paragraphs"] {
-            doc.unchecked().store_field(None, name, QuillValue::from_json(serde_json::Value::Null))
+            doc.unchecked()
+                .store_field(None, name, QuillValue::from_json(serde_json::Value::Null))
                 .unwrap();
         }
         let view = TypedReader::new(&config, &doc);
@@ -598,7 +614,8 @@ card_kinds:
     fn richtext_field_holding_scalar_raises_mismatch() {
         let config = config();
         let mut doc = blank_doc();
-        doc.unchecked().store_field(None, "subject", QuillValue::from_json(serde_json::json!(3)))
+        doc.unchecked()
+            .store_field(None, "subject", QuillValue::from_json(serde_json::json!(3)))
             .unwrap();
         let err = TypedReader::new(&config, &doc).get("subject").unwrap_err();
         assert!(
@@ -612,7 +629,9 @@ card_kinds:
     fn parse_lane_text_reads_through_the_literal_codec() {
         let config = config();
         let mut doc = blank_doc();
-        doc.unchecked().store_field(None, 
+        doc.unchecked()
+            .store_field(
+                None,
                 "note",
                 QuillValue::from_json(serde_json::json!("a *literal* line")),
             )
@@ -630,7 +649,9 @@ card_kinds:
         let committed = seeded_doc(&config);
         let mut authored = blank_doc();
         authored
-            .unchecked().store_field(None, 
+            .unchecked()
+            .store_field(
+                None,
                 "subject",
                 QuillValue::from_json(serde_json::json!("Hello **world**")),
             )
@@ -788,7 +809,9 @@ card_kinds:
 
     fn cui_doc() -> Document {
         let mut doc = blank_doc();
-        doc.unchecked().store_field(None, 
+        doc.unchecked()
+            .store_field(
+                None,
                 "classification",
                 QuillValue::from_json(serde_json::json!({
                     "value": "CUI",
@@ -842,7 +865,9 @@ card_kinds:
     fn a_dormant_worlds_cell_reads_absent() {
         let config = config();
         let mut doc = blank_doc();
-        doc.unchecked().store_field(None, 
+        doc.unchecked()
+            .store_field(
+                None,
                 "classification",
                 QuillValue::from_json(serde_json::json!("UNCLASSIFIED")),
             )
@@ -916,7 +941,9 @@ card_kinds:
     fn element_read_out_of_range_and_absent_field_return_none() {
         let config = config();
         let mut doc = blank_doc();
-        doc.unchecked().store_field(None, 
+        doc.unchecked()
+            .store_field(
+                None,
                 "recipients",
                 QuillValue::from_json(serde_json::json!(["a"])),
             )
@@ -934,7 +961,12 @@ card_kinds:
     fn element_read_without_a_content_leaf_raises_not_content() {
         let config = config();
         let mut doc = blank_doc();
-        doc.unchecked().store_field(None, "tags", QuillValue::from_json(serde_json::json!(["x"])))
+        doc.unchecked()
+            .store_field(
+                None,
+                "tags",
+                QuillValue::from_json(serde_json::json!(["x"])),
+            )
             .unwrap();
         let view = TypedReader::new(&config, &doc);
         assert!(matches!(
@@ -993,7 +1025,9 @@ card_kinds:
     fn element_decode_failure_anchors_at_the_element() {
         let config = config();
         let mut doc = blank_doc();
-        doc.unchecked().store_field(None, 
+        doc.unchecked()
+            .store_field(
+                None,
                 "paragraphs",
                 QuillValue::from_json(serde_json::json!(["ok", 3])),
             )
@@ -1019,7 +1053,12 @@ card_kinds:
     fn card_element_read_reaches_the_kind_schema() {
         let config = config();
         let mut doc = seeded_doc(&config);
-        doc.unchecked().store_field(Some(0), "lines", QuillValue::from_json(serde_json::json!(["a *b*"])))
+        doc.unchecked()
+            .store_field(
+                Some(0),
+                "lines",
+                QuillValue::from_json(serde_json::json!(["a *b*"])),
+            )
             .unwrap();
         let view = TypedReader::new(&config, &doc);
         assert_eq!(
@@ -1094,7 +1133,12 @@ card_kinds:
     fn a_content_free_composite_reads_verbatim() {
         let config = config();
         let mut doc = blank_doc();
-        doc.unchecked().store_field(None, "tags", QuillValue::from_json(serde_json::json!(["x", "y"])))
+        doc.unchecked()
+            .store_field(
+                None,
+                "tags",
+                QuillValue::from_json(serde_json::json!(["x", "y"])),
+            )
             .unwrap();
         assert_eq!(
             TypedReader::new(&config, &doc).get("tags").unwrap(),
@@ -1106,7 +1150,9 @@ card_kinds:
     fn a_composite_leaf_that_does_not_decode_raises_at_the_leaf() {
         let config = config();
         let mut doc = blank_doc();
-        doc.unchecked().store_field(None, 
+        doc.unchecked()
+            .store_field(
+                None,
                 "paragraphs",
                 QuillValue::from_json(serde_json::json!(["ok", 3])),
             )

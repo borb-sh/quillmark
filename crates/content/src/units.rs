@@ -99,7 +99,11 @@ struct Index {
 
 impl Index {
     fn new(u: impl Units, text: &str) -> Index {
-        Index { wide: Index::read(u, text, 0, 0), len: text.chars().count(), units: u.len(text) }
+        Index {
+            wide: Index::read(u, text, 0, 0),
+            len: text.chars().count(),
+            units: u.len(text),
+        }
     }
 
     /// The characters of `text` of other than one unit, as `wide` holds them,
@@ -175,7 +179,10 @@ impl Index {
         let (dn, du) = (delete.chars().count(), u.len(delete));
         let (m, mu) = (insert.chars().count(), u.len(insert));
         let from = self.to_units(at);
-        let (i0, i1) = (self.wide.partition_point(|w| w.0 < at), self.wide.partition_point(|w| w.0 < at + dn));
+        let (i0, i1) = (
+            self.wide.partition_point(|w| w.0 < at),
+            self.wide.partition_point(|w| w.0 < at + dn),
+        );
         for w in &mut self.wide[i1..] {
             w.0 = w.0 - dn + m;
             w.1 = w.1 - du + mu;
@@ -247,7 +254,10 @@ impl Content {
     }
 
     /// [`from_value_lenient`](Self::from_value_lenient) with offsets in `u`.
-    pub fn from_value_lenient_in(v: &Value, u: impl Units) -> Result<crate::wire::Lenient, ParseError> {
+    pub fn from_value_lenient_in(
+        v: &Value,
+        u: impl Units,
+    ) -> Result<crate::wire::Lenient, ParseError> {
         if crate::model::json_too_deep(v) || crate::wire::is_v1(v) {
             return Content::from_value_lenient(v);
         }
@@ -311,12 +321,20 @@ fn value_offsets(v: &mut Value, u: impl Units, dir: Dir, raw: bool) -> Option<()
     }
     let index = Index::new(u, v["text"].as_str().unwrap_or_default());
     for key in ["marks", "anchors"] {
-        let Some(Value::Array(items)) = v.get_mut(key) else { continue };
+        let Some(Value::Array(items)) = v.get_mut(key) else {
+            continue;
+        };
         for item in items {
             for edge in ["start", "end"] {
-                let Some(n) = item.get(edge).and_then(Value::as_u64) else { continue };
+                let Some(n) = item.get(edge).and_then(Value::as_u64) else {
+                    continue;
+                };
                 let n = usize::try_from(n).unwrap_or(usize::MAX);
-                let n = if raw { index.clamped(n) } else { index.offset(dir, n)? };
+                let n = if raw {
+                    index.clamped(n)
+                } else {
+                    index.offset(dir, n)?
+                };
                 item[edge] = n.into();
             }
         }
@@ -339,16 +357,29 @@ fn value_offsets(v: &mut Value, u: impl Units, dir: Dir, raw: bool) -> Option<()
 /// `change`, its offsets in `u`, in scalar values, read against `before`.
 /// Refused as [`apply`](crate::change::apply) refuses it, and a step whose
 /// offset falls inside a character is stale.
-pub fn change_to_scalars(change: &Change, before: &Content, u: impl Units) -> Result<Change, ApplyError> {
+pub fn change_to_scalars(
+    change: &Change,
+    before: &Content,
+    u: impl Units,
+) -> Result<Change, ApplyError> {
     convert(change, before, u, Dir::In)
 }
 
 /// `change`, read against `before`, its offsets in `u`.
-pub fn change_from_scalars(change: &Change, before: &Content, u: impl Units) -> Result<Change, ApplyError> {
+pub fn change_from_scalars(
+    change: &Change,
+    before: &Content,
+    u: impl Units,
+) -> Result<Change, ApplyError> {
     convert(change, before, u, Dir::Out)
 }
 
-fn convert(change: &Change, before: &Content, u: impl Units, dir: Dir) -> Result<Change, ApplyError> {
+fn convert(
+    change: &Change,
+    before: &Content,
+    u: impl Units,
+    dir: Dir,
+) -> Result<Change, ApplyError> {
     steps(before.clone(), &change.steps, u, dir)
 }
 
@@ -365,7 +396,8 @@ fn steps(c: Content, steps_: &[Step], u: impl Units, dir: Dir) -> Result<Change,
             Dir::In => &conv,
             Dir::Out => step,
         };
-        run.step(&mut draft, scalar, n).map_err(|e| renumber(e, n))?;
+        run.step(&mut draft, scalar, n)
+            .map_err(|e| renumber(e, n))?;
         index.follow(u, scalar);
         out.push(conv);
     }
@@ -380,9 +412,19 @@ fn renumber(e: ApplyError, n: usize) -> ApplyError {
     }
 }
 
-fn step_in(d: &Draft, index: &Index, step: &Step, n: usize, u: impl Units, dir: Dir) -> Result<Step, ApplyError> {
+fn step_in(
+    d: &Draft,
+    index: &Index,
+    step: &Step,
+    n: usize,
+    u: impl Units,
+    dir: Dir,
+) -> Result<Step, ApplyError> {
     let stale = || ApplyError::Stale { step: n };
-    let bad = || ApplyError::BadStep { step: n, reason: SPLIT };
+    let bad = || ApplyError::BadStep {
+        step: n,
+        reason: SPLIT,
+    };
     let at = |p: usize| index.offset(dir, p).ok_or_else(stale);
     let mut step = step.clone();
     match &mut step {
@@ -409,12 +451,18 @@ fn step_in(d: &Draft, index: &Index, step: &Step, n: usize, u: impl Units, dir: 
             *p = at(*p)?;
             islands(u, dir, std::slice::from_mut(island)).ok_or_else(bad)?;
         }
-        Step::Nested { island, slot, change } => {
-            let inner = d
-                .c
-                .slot(island, slot)
-                .cloned()
-                .ok_or_else(|| ApplyError::UnknownSlot { island: island.clone(), slot: slot.clone() })?;
+        Step::Nested {
+            island,
+            slot,
+            change,
+        } => {
+            let inner =
+                d.c.slot(island, slot)
+                    .cloned()
+                    .ok_or_else(|| ApplyError::UnknownSlot {
+                        island: island.clone(),
+                        slot: slot.clone(),
+                    })?;
             *change = steps(inner, &change.steps, u, dir)?;
         }
     }

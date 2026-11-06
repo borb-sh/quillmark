@@ -21,7 +21,6 @@ pub mod anchors;
 pub mod change;
 pub mod diff;
 mod draft;
-pub mod structural;
 pub mod ids;
 #[doc(hidden)]
 pub mod lines;
@@ -32,6 +31,7 @@ pub mod migrate;
 pub mod mint;
 pub mod model;
 pub mod repair;
+pub mod structural;
 pub mod table;
 pub mod units;
 pub mod wire;

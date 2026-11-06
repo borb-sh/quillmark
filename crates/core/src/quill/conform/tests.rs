@@ -144,7 +144,10 @@ fn rest_is_per_codec_at_every_depth() {
     let tags = payload.get("tags").unwrap().as_json();
     assert!(tags.as_array().unwrap().iter().all(|e| e.is_object()));
     let meta = payload.get("meta").unwrap().as_json();
-    assert_eq!(crate::quill::text_of(meta.get("label").unwrap()), "keep *this*");
+    assert_eq!(
+        crate::quill::text_of(meta.get("label").unwrap()),
+        "keep *this*"
+    );
     assert!(meta.get("blurb").unwrap().is_object());
 
     let card = &doc.cards()[0];
@@ -253,7 +256,9 @@ fn non_conforming_value_rests_authored_with_a_diagnostic() {
 
     let mut legacy = doc;
     legacy
-        .unchecked().store_field(None, 
+        .unchecked()
+        .store_field(
+            None,
             "subject",
             QuillValue::from_json(json!({ "prose": "older" })),
         )
@@ -407,12 +412,19 @@ Body.
         .revise(crate::document::Target::from("note"), &text, None)
         .expect("revise")
         .applied;
-    assert!(applied.steps.is_empty(), "a no-change revise changes nothing: {applied:?}");
+    assert!(
+        applied.steps.is_empty(),
+        "a no-change revise changes nothing: {applied:?}"
+    );
     assert_eq!(bytes(&doc), before, "a no-change revise moves no bytes");
 
     let _ = quill
         .writer(&mut doc)
-        .revise(crate::document::Target::from("note"), r"a \*b\* line, revised", None)
+        .revise(
+            crate::document::Target::from("note"),
+            r"a \*b\* line, revised",
+            None,
+        )
         .expect("revise");
     assert_eq!(
         crate::quill::text_of(doc.main().payload().get("note").unwrap().as_json()),
@@ -425,7 +437,9 @@ Body.
 fn a_0_124_0_row_migrates_then_converges() {
     let quill = quill();
     let body = |md: &str| {
-        quillmark_content::lines::serial::to_canonical_value(&crate::document::import_body(md).unwrap())
+        quillmark_content::lines::serial::to_canonical_value(
+            &crate::document::import_body(md).unwrap(),
+        )
     };
     let legacy = json!({
         "schema": "quillmark/document@0.124.0",

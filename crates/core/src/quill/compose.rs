@@ -100,7 +100,10 @@ impl QuillConfig {
                     // No ladder, as `resolved::card_states` leaves it.
                     None => card.payload().to_index_map(),
                 };
-                Card::from_parts(rebuild_payload_with_meta(card, fields), card.body_lines().clone())
+                Card::from_parts(
+                    rebuild_payload_with_meta(card, fields),
+                    card.body_lines().clone(),
+                )
             })
             .collect();
 
@@ -1237,17 +1240,20 @@ impl QuillConfig {
         if declined.is_empty() {
             return diags;
         }
-        self.each_plate_content(data, &mut |at: &DocPath, content: &quillmark_content::lines::model::Content| {
-            let counts = super::BlockConstruct::tally(content);
-            for &construct in declined {
-                let count = counts[construct as usize];
-                if count > 0 {
-                    diags.push(crate::backend::declined_construct(
-                        backend, construct, count, at,
-                    ));
+        self.each_plate_content(
+            data,
+            &mut |at: &DocPath, content: &quillmark_content::lines::model::Content| {
+                let counts = super::BlockConstruct::tally(content);
+                for &construct in declined {
+                    let count = counts[construct as usize];
+                    if count > 0 {
+                        diags.push(crate::backend::declined_construct(
+                            backend, construct, count, at,
+                        ));
+                    }
                 }
-            }
-        });
+            },
+        );
         diags
     }
 

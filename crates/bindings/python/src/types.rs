@@ -546,7 +546,10 @@ impl PyDocument {
             .into_iter()
             .map(|a| serde_json::json!({ "id": a.id, "path": a.path.to_string(), "card_id": a.card_id, "line": a.line }))
             .collect();
-        json_to_py(py, &serde_json::json!({ "markdown": read.markdown, "anchors": anchors }))
+        json_to_py(
+            py,
+            &serde_json::json!({ "markdown": read.markdown, "anchors": anchors }),
+        )
     }
 
     /// The hash of the document's stored form, the quill-free twin of
@@ -907,7 +910,12 @@ impl PyDocument {
     /// bad card index, a malformed field name, or a present field value that is
     /// not content.
     #[pyo3(signature = (field=None, card=None))]
-    fn read<'py>(&self, py: Python<'py>, field: Option<&str>, card: Option<CardSel>) -> PyResult<Bound<'py, PyAny>> {
+    fn read<'py>(
+        &self,
+        py: Python<'py>,
+        field: Option<&str>,
+        card: Option<CardSel>,
+    ) -> PyResult<Bound<'py, PyAny>> {
         let target = Target::resolve(&self.inner, card)?;
         let content = self
             .card_at(target.index)
@@ -957,7 +965,15 @@ impl PyDocument {
         let target = Target::resolve(&self.inner, card)?;
         let change = crate::content::change_from_py(change, "apply")?;
         let edit = quillmark_core::document::Edit::Apply(change);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base })
+        crate::content::write(
+            py,
+            &mut self.inner,
+            target.index,
+            &target.base,
+            field,
+            edit,
+            quillmark_core::document::WriteOptions { base },
+        )
     }
 
     /// Rewrite the value at `field` on `card` as `markdown`: the anchors and
@@ -976,7 +992,15 @@ impl PyDocument {
         require_card_id(&card, "revise")?;
         let target = Target::resolve(&self.inner, card)?;
         let edit = quillmark_core::document::Edit::Revise(markdown);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base })
+        crate::content::write(
+            py,
+            &mut self.inner,
+            target.index,
+            &target.base,
+            field,
+            edit,
+            quillmark_core::document::WriteOptions { base },
+        )
     }
 
     /// Write `content` over the value at `field` on `card`, carrying each
@@ -995,7 +1019,15 @@ impl PyDocument {
         let target = Target::resolve(&self.inner, card)?;
         let content = crate::content::content_from_py(content, "replace")?;
         let edit = quillmark_core::document::Edit::Replace(content);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base })
+        crate::content::write(
+            py,
+            &mut self.inner,
+            target.index,
+            &target.base,
+            field,
+            edit,
+            quillmark_core::document::WriteOptions { base },
+        )
     }
 }
 
@@ -1146,12 +1178,20 @@ impl PyUnchecked {
     /// value in `value`, at any depth, decodes as a body write's does, raising
     /// `edit::field_decode` where one does not.
     #[pyo3(signature = (name, value, card=None))]
-    fn store_field(&self, py: Python<'_>, name: &str, value: Bound<'_, PyAny>, card: Option<CardSel>) -> PyResult<()> {
+    fn store_field(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        value: Bound<'_, PyAny>,
+        card: Option<CardSel>,
+    ) -> PyResult<()> {
         let qv = py_to_quillvalue(&value)?;
         let mut doc = self.doc.borrow_mut(py);
         let card = card_position(&doc.inner, card)?;
         let base = doc.addr_base(card);
-        let index = card.map(|i| card_index(i, doc.inner.cards().len())).transpose()?;
+        let index = card
+            .map(|i| card_index(i, doc.inner.cards().len()))
+            .transpose()?;
         doc.inner
             .unchecked()
             .store_field(index, name, qv)
@@ -1165,7 +1205,12 @@ impl PyUnchecked {
     /// `remove_card`, and `seed_card` return. A card spelling no `id` mints
     /// one.
     #[pyo3(signature = (card, at=None))]
-    fn insert_card(&self, py: Python<'_>, card: Bound<'_, PyAny>, at: Option<isize>) -> PyResult<String> {
+    fn insert_card(
+        &self,
+        py: Python<'_>,
+        card: Bound<'_, PyAny>,
+        at: Option<isize>,
+    ) -> PyResult<String> {
         let core_card = py_dict_to_card(&card)?;
         let mut doc = self.doc.borrow_mut(py);
         let at = at
@@ -1399,7 +1444,11 @@ impl PyWriter {
         }
         .map_err(|e| raise_summarized(e.to_diagnostics()))?;
         doc.parse_warnings.clear();
-        let dropped: Vec<_> = revised.dropped_anchors.into_iter().map(selector_json).collect();
+        let dropped: Vec<_> = revised
+            .dropped_anchors
+            .into_iter()
+            .map(selector_json)
+            .collect();
         let receipt = PyDict::new(py);
         receipt.set_item(
             "dropped_anchors",
@@ -1854,7 +1903,9 @@ fn content_to_py<'py>(
     py: Python<'py>,
     content: Option<quillmark_content::model::Content>,
 ) -> PyResult<Option<Bound<'py, PyAny>>> {
-    content.map(|c| crate::content::content_to_py(py, &c)).transpose()
+    content
+        .map(|c| crate::content::content_to_py(py, &c))
+        .transpose()
 }
 
 fn read_value_to_py<'py>(
@@ -1901,7 +1952,10 @@ fn card_to_pydict<'py>(
     Ok(d)
 }
 
-pub(crate) fn json_to_py<'py>(py: Python<'py>, value: &serde_json::Value) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn json_to_py<'py>(
+    py: Python<'py>,
+    value: &serde_json::Value,
+) -> PyResult<Bound<'py, PyAny>> {
     match value {
         serde_json::Value::Null => py.None().into_bound_py_any(py),
         serde_json::Value::Bool(b) => b.into_bound_py_any(py),

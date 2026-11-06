@@ -5,14 +5,14 @@
 //! [`Codec::Plain`]) and exports with [`to_plaintext`]. [`to_text`] and
 //! [`to_text_annotated`] export under the value's own codec.
 
+use crate::ids::prefix;
 use crate::lines;
 use crate::lines::export::ExportLoss;
 pub use crate::lines::export::{AnchorRead, Annotated};
 pub use crate::lines::import::{DroppedConstruct, ImportError, ImportWarning};
 use crate::migrate::{from_lines, to_lines};
-use crate::ids::prefix;
-use crate::model::{Block, BlockKind, Codec, Content, HARD_BREAK, ISLAND_SLOT, MarkKind};
 use crate::model::Scalar;
+use crate::model::{Block, BlockKind, Codec, Content, HARD_BREAK, ISLAND_SLOT, MarkKind};
 
 /// A markdown import: the content and what the markdown spelled that it
 /// could not carry.
@@ -34,7 +34,12 @@ pub struct Exported {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Loss {
     /// A mark the markdown writes over other text, `now`, or not at all.
-    Mark { kind: MarkKind, start: Scalar, end: Scalar, now: Option<(Scalar, Scalar)> },
+    Mark {
+        kind: MarkKind,
+        start: Scalar,
+        end: Scalar,
+        now: Option<(Scalar, Scalar)>,
+    },
     /// An island that reads back with other props, or not at all.
     Island { id: String },
     /// The text or its blocks read back otherwise.
@@ -47,7 +52,12 @@ pub enum Loss {
     ExtBlock { id: String, name: String },
     /// An `x-` mark, which markdown does not write. Positions are the
     /// content's, or the slot's where `slot` names one.
-    ExtMark { start: Scalar, end: Scalar, name: String, slot: Option<(String, String)> },
+    ExtMark {
+        start: Scalar,
+        end: Scalar,
+        name: String,
+        slot: Option<(String, String)>,
+    },
 }
 
 /// The import: `markdown` read cold, its ids minted positionally and no
@@ -55,7 +65,10 @@ pub enum Loss {
 /// revise reads back; read cold, they hold nothing.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let lines::import::Imported { content, warnings } = lines::import::from_markdown(markdown)?;
-    Ok(Imported { content: from_lines(&content), warnings })
+    Ok(Imported {
+        content: from_lines(&content),
+        warnings,
+    })
 }
 
 /// The literal codec: each blank line a paragraph break and each other `\n`
@@ -75,7 +88,11 @@ pub fn from_plaintext(s: &str) -> Content {
         }
         *breaks = 0;
     };
-    for c in s.chars().filter(|&c| c != ISLAND_SLOT).filter_map(lines::normalize::admit_char) {
+    for c in s
+        .chars()
+        .filter(|&c| c != ISLAND_SLOT)
+        .filter_map(lines::normalize::admit_char)
+    {
         match c {
             '\n' => breaks += 1,
             c => {
@@ -85,13 +102,22 @@ pub fn from_plaintext(s: &str) -> Content {
         }
     }
     flush(&mut text, &mut breaks);
-    let blocks = (0..blocks).map(|n| Block::new(format!("{}{n}", prefix::BLOCK), BlockKind::Para)).collect();
-    Content { text, blocks, ..Content::empty() }
+    let blocks = (0..blocks)
+        .map(|n| Block::new(format!("{}{n}", prefix::BLOCK), BlockKind::Para))
+        .collect();
+    Content {
+        text,
+        blocks,
+        ..Content::empty()
+    }
 }
 
 /// [`from_plaintext`] under [`Codec::Plain`]: a `text` field's value.
 pub fn plain(s: &str) -> Content {
-    Content { codec: Codec::Plain, ..from_plaintext(s) }
+    Content {
+        codec: Codec::Plain,
+        ..from_plaintext(s)
+    }
 }
 
 /// The text a value's codec projects it to: a [`Codec::Plain`] value its
@@ -112,14 +138,26 @@ pub fn to_markdown(c: &Content) -> String {
 /// [`to_markdown`] and each part of `c` it does not spell as itself, read
 /// back through [`from_markdown`]. Costs an import beyond the export.
 pub fn to_markdown_checked(c: &Content) -> Exported {
-    let lines::export::Exported { markdown, losses } = lines::export::to_markdown_checked(&to_lines(c));
+    let lines::export::Exported { markdown, losses } =
+        lines::export::to_markdown_checked(&to_lines(c));
     let mut losses: Vec<Loss> = losses
         .into_iter()
         .filter_map(|loss| match loss {
-            ExportLoss::Mark { kind, start, end, now } => {
-                MarkKind::from_line(&kind).map(|kind| Loss::Mark { kind, start, end, now })
-            }
-            ExportLoss::Island { index, .. } => c.islands.get(index).map(|i| Loss::Island { id: i.id.clone() }),
+            ExportLoss::Mark {
+                kind,
+                start,
+                end,
+                now,
+            } => MarkKind::from_line(&kind).map(|kind| Loss::Mark {
+                kind,
+                start,
+                end,
+                now,
+            }),
+            ExportLoss::Island { index, .. } => c
+                .islands
+                .get(index)
+                .map(|i| Loss::Island { id: i.id.clone() }),
             ExportLoss::Text => Some(Loss::Text),
         })
         .collect();
@@ -127,13 +165,21 @@ pub fn to_markdown_checked(c: &Content) -> Exported {
         c.marks
             .iter()
             .filter_map(|m| match &m.kind {
-                MarkKind::Ext { name, .. } => Some(Loss::ExtMark { start: m.start, end: m.end, name: name.clone(), slot: slot.clone() }),
+                MarkKind::Ext { name, .. } => Some(Loss::ExtMark {
+                    start: m.start,
+                    end: m.end,
+                    name: name.clone(),
+                    slot: slot.clone(),
+                }),
                 _ => None,
             })
             .collect::<Vec<_>>()
     };
     losses.extend(c.blocks.iter().filter_map(|b| match &b.kind {
-        BlockKind::Ext { name, .. } => Some(Loss::ExtBlock { id: b.id.clone(), name: name.clone() }),
+        BlockKind::Ext { name, .. } => Some(Loss::ExtBlock {
+            id: b.id.clone(),
+            name: name.clone(),
+        }),
         _ => None,
     }));
     losses.extend(ext_marks(c, None));
@@ -142,7 +188,10 @@ pub fn to_markdown_checked(c: &Content) -> Exported {
         for (id, slot) in &island.slots {
             let held = lifted.island(&island.id).and_then(|i| i.slots.get(id));
             if held.map(|s| &s.text) != Some(&slot.text) {
-                losses.push(Loss::SlotBreaks { island: island.id.clone(), slot: id.clone() });
+                losses.push(Loss::SlotBreaks {
+                    island: island.id.clone(),
+                    slot: id.clone(),
+                });
             }
             losses.extend(ext_marks(slot, Some((island.id.clone(), id.clone()))));
         }
@@ -162,7 +211,10 @@ pub fn to_markdown_annotated(c: &Content) -> Annotated {
 pub fn to_text_annotated(c: &Content) -> Annotated {
     match c.codec {
         Codec::Rich => to_markdown_annotated(c),
-        Codec::Plain => Annotated { markdown: to_plaintext(c), anchors: anchors_where(c, |_| true) },
+        Codec::Plain => Annotated {
+            markdown: to_plaintext(c),
+            anchors: anchors_where(c, |_| true),
+        },
     }
 }
 
@@ -210,43 +262,78 @@ mod tests {
         use crate::model::Invariant;
         use crate::repair::{Raw, Repair, repair};
         use crate::wire::ParseError;
-        let pipe = from_markdown("| h |\n| - |\n| one<br><br>two |").unwrap().content;
-        let html = from_markdown("<table><tr><td>h</td></tr><tr><td><p>one</p>\n<p>two</p></td></tr></table>").unwrap();
+        let pipe = from_markdown("| h |\n| - |\n| one<br><br>two |")
+            .unwrap()
+            .content;
+        let html = from_markdown(
+            "<table><tr><td>h</td></tr><tr><td><p>one</p>\n<p>two</p></td></tr></table>",
+        )
+        .unwrap();
         assert_eq!(html.warnings, []);
         let joined = format!("one{HARD_BREAK}two");
         for c in [&pipe, &html.content] {
             let cell = &c.islands[0].slots[&c.islands[0].slot_order()[1]];
-            assert_eq!((cell.text.as_str(), cell.blocks.len()), (joined.as_str(), 1));
+            assert_eq!(
+                (cell.text.as_str(), cell.blocks.len()),
+                (joined.as_str(), 1)
+            );
             assert_eq!(from_markdown(&to_markdown(c)).unwrap().content, *c);
         }
         let mut edited = pipe.clone();
         edited.islands[0].slots.get_mut("s1").unwrap().text = format!("one{HARD_BREAK}three");
         let change = crate::diff::replace(&pipe, &edited).unwrap();
-        assert_eq!(crate::change::apply(&pipe, &change).unwrap().content, edited);
+        assert_eq!(
+            crate::change::apply(&pipe, &change).unwrap().content,
+            edited
+        );
 
         let mut stored = pipe.to_value();
         stored["islands"][0]["slots"]["s1"]["text"] = "one\ntwo".into();
-        stored["islands"][0]["slots"]["s1"]["blocks"] = serde_json::json!([{"id": "b0", "kind": "para"}, {"id": "b1", "kind": "para"}]);
-        let refused = Invariant::BreakInCell { island: "isl-0".into(), slot: "s1".into() };
-        assert_eq!(Content::from_value(&stored), Err(ParseError::Invalid(refused.clone())));
+        stored["islands"][0]["slots"]["s1"]["blocks"] =
+            serde_json::json!([{"id": "b0", "kind": "para"}, {"id": "b1", "kind": "para"}]);
+        let refused = Invariant::BreakInCell {
+            island: "isl-0".into(),
+            slot: "s1".into(),
+        };
+        assert_eq!(
+            Content::from_value(&stored),
+            Err(ParseError::Invalid(refused.clone()))
+        );
         let read = Content::from_value_lenient(&stored).unwrap();
         assert_eq!((read.content.clone(), read.rewritten), (pipe.clone(), true));
         let (repaired, repairs, _) = repair(Raw::from_value(&stored).unwrap());
         assert_eq!(repaired, pipe);
-        assert!(matches!(repairs.as_slice(), [r @ Repair::Invalid(inv)] if *inv == refused && r.inserts()));
+        assert!(
+            matches!(repairs.as_slice(), [r @ Repair::Invalid(inv)] if *inv == refused && r.inserts())
+        );
 
-        let note = from_markdown("a[^1]\n\n[^1]: one\n\n    two").unwrap().content;
+        let note = from_markdown("a[^1]\n\n[^1]: one\n\n    two")
+            .unwrap()
+            .content;
         let mut noted = note.to_value();
         assert_eq!(note.islands[0].slots[NOTE_SLOT].text, joined);
-        for md in ["a[^1]\n\n[^1]: one<br><br>two", "a[^1]\n\n[^1]: one<br>\n\n    two"] {
+        for md in [
+            "a[^1]\n\n[^1]: one<br><br>two",
+            "a[^1]\n\n[^1]: one<br>\n\n    two",
+        ] {
             let c = from_markdown(md).unwrap().content;
             let slot = &c.islands[0].slots[NOTE_SLOT];
-            assert_eq!((slot.text.as_str(), slot.blocks.len()), (joined.as_str(), 1), "{md:?}");
+            assert_eq!(
+                (slot.text.as_str(), slot.blocks.len()),
+                (joined.as_str(), 1),
+                "{md:?}"
+            );
             assert_eq!(from_markdown(&to_markdown(&c)).unwrap().content, c);
         }
         noted["islands"][0]["slots"][NOTE_SLOT] = stored["islands"][0]["slots"]["s1"].clone();
-        let refused = Invariant::BreakInCell { island: "isl-0".into(), slot: NOTE_SLOT.into() };
-        assert_eq!(Content::from_value(&noted), Err(ParseError::Invalid(refused.clone())));
+        let refused = Invariant::BreakInCell {
+            island: "isl-0".into(),
+            slot: NOTE_SLOT.into(),
+        };
+        assert_eq!(
+            Content::from_value(&noted),
+            Err(ParseError::Invalid(refused.clone()))
+        );
         assert_eq!(Content::from_value_lenient(&noted).unwrap().content, note);
         let (repaired, repairs, _) = repair(Raw::from_value(&noted).unwrap());
         assert_eq!(repaired, note);
@@ -256,7 +343,13 @@ mod tests {
         let cell = c.islands[0].slots.get_mut("s1").unwrap();
         cell.text = format!("d{HARD_BREAK}{HARD_BREAK}e");
         let out = to_markdown_checked(&c);
-        assert_eq!(out.losses, [Loss::SlotBreaks { island: "isl-0".into(), slot: "s1".into() }]);
+        assert_eq!(
+            out.losses,
+            [Loss::SlotBreaks {
+                island: "isl-0".into(),
+                slot: "s1".into()
+            }]
+        );
     }
 
     #[test]
@@ -269,8 +362,16 @@ mod tests {
         assert_eq!(
             to_markdown_checked(&c).losses,
             [
-                Loss::ExtBlock { id: "b0".into(), name: "x-call".into() },
-                Loss::ExtMark { start: 3, end: 5, name: "x-hi".into(), slot: None },
+                Loss::ExtBlock {
+                    id: "b0".into(),
+                    name: "x-call".into()
+                },
+                Loss::ExtMark {
+                    start: 3,
+                    end: 5,
+                    name: "x-hi".into(),
+                    slot: None
+                },
             ]
         );
     }

@@ -48,13 +48,20 @@ impl StaleBase {
 }
 
 /// Refuses a write whose `base` is not `current`, the hash of the value now.
-pub(crate) fn check_base(base: Option<&str>, current: impl FnOnce() -> Result<String, EditError>, field: Option<&str>) -> Result<(), EditError> {
+pub(crate) fn check_base(
+    base: Option<&str>,
+    current: impl FnOnce() -> Result<String, EditError>,
+    field: Option<&str>,
+) -> Result<(), EditError> {
     let Some(base) = base else { return Ok(()) };
     let current = current()?;
     if base == current {
         return Ok(());
     }
-    Err(EditError::StaleBase(StaleBase { current, field: field.map(str::to_string) }))
+    Err(EditError::StaleBase(StaleBase {
+        current,
+        field: field.map(str::to_string),
+    }))
 }
 
 /// The tag [`value_hash`] prefixes, versioning the hash scheme itself: the
@@ -80,7 +87,12 @@ fn digesting(write: impl FnOnce(&mut Hashing) -> std::io::Result<()>) -> String 
     hashing.0.update(HASH_TAG.as_bytes());
     hashing.0.update(b"\n");
     write(&mut hashing).expect("writing to a hasher does not fail");
-    hashing.0.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    hashing
+        .0
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// A hasher taking bytes as a writer.
@@ -140,7 +152,9 @@ impl Card {
     /// stored under `codec: "plain"` reads as its literal text, its anchors
     /// listed and no tag spelled.
     pub(crate) fn field_annotated(&self, name: &str) -> Result<Annotated, EditError> {
-        Ok(quillmark_content::markdown::to_text_annotated(&self.richtext_value(name)?))
+        Ok(quillmark_content::markdown::to_text_annotated(
+            &self.richtext_value(name)?,
+        ))
     }
 
     /// The hash of the richtext field's content, decoded as a schema-blind
@@ -197,7 +211,11 @@ impl Card {
     }
 
     /// [`revise_body`](Self::revise_body) while the body hashes to `base`.
-    pub(crate) fn revise_body_against(&mut self, base: &str, body: impl Into<String>) -> Result<Receipt, EditError> {
+    pub(crate) fn revise_body_against(
+        &mut self,
+        base: &str,
+        body: impl Into<String>,
+    ) -> Result<Receipt, EditError> {
         check_base(Some(base), || Ok(self.body_hash()), None)?;
         self.revise_counted(Target::Body, &body.into())
     }
@@ -212,7 +230,11 @@ impl Card {
         body: impl Into<String>,
         schema: &FieldSchema,
     ) -> Result<Receipt, EditError> {
-        check_base(Some(base), || self.field_hash_checked(name, schema), Some(name))?;
+        check_base(
+            Some(base),
+            || self.field_hash_checked(name, schema),
+            Some(name),
+        )?;
         self.revise_field_checked(name, body, schema)
     }
 }

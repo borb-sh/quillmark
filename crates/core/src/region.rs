@@ -468,7 +468,8 @@ fn is_blank(field: &FieldSchema, value: &serde_json::Value) -> bool {
 }
 
 fn content_is_blank(value: &serde_json::Value) -> bool {
-    quillmark_content::model::Content::from_value_lenient(value).map_or(true, |read| read.content.is_blank())
+    quillmark_content::model::Content::from_value_lenient(value)
+        .map_or(true, |read| read.content.is_blank())
 }
 
 /// How precisely a [`ContentHit::pos`] resolved. Never sub-cluster.
@@ -758,10 +759,10 @@ card_kinds:
     #[test]
     fn coverage_reaches_each_filled_address_through_its_nearest_region() {
         let config = QuillConfig::from_yaml(YAML).expect("config");
-        let empty = crate::document::stored_over(None, 
-            &quillmark_content::lines::model::Lines::empty(),
-        );
-        let body = crate::document::stored_over(None, 
+        let empty =
+            crate::document::stored_over(None, &quillmark_content::lines::model::Lines::empty());
+        let body = crate::document::stored_over(
+            None,
             &quillmark_content::lines::import::from_markdown("A body.")
                 .expect("import")
                 .content,

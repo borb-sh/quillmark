@@ -240,10 +240,11 @@ impl Payload {
         };
         *slot = value;
         let value = slot.as_json().clone();
-        self.nested_comments.retain(|nc| match nc.container_path.split_first() {
-            Some((PathSegment::Key(k), rest)) if k == key => holds_container(&value, rest),
-            _ => true,
-        });
+        self.nested_comments
+            .retain(|nc| match nc.container_path.split_first() {
+                Some((PathSegment::Key(k), rest)) if k == key => holds_container(&value, rest),
+                _ => true,
+            });
     }
 
     /// Ordered iterator over raw items (`$` entries, fields, comments).

@@ -7,7 +7,7 @@
 
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::lines::model::{
-    Container, Content, ISLAND_SLOT, LineKind, Mark, MarkKind, Lines,
+    Container, Content, ISLAND_SLOT, LineKind, Lines, Mark, MarkKind,
 };
 use quillmark_content::lines::normalize::is_line_separator;
 use quillmark_core::error::MAX_NESTING_DEPTH;

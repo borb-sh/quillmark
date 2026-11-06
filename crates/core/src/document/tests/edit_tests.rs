@@ -67,15 +67,20 @@ fn test_document_store_field_rejects_invalid_names() {
 #[test]
 fn test_document_insert_and_remove_card() {
     let mut doc = make_doc_with_cards();
-    doc.unchecked().insert_card(Some(0), Card::new("intro").unwrap()).unwrap();
-    doc.unchecked().insert_card(Some(3), Card::new("footer").unwrap()).unwrap();
+    doc.unchecked()
+        .insert_card(Some(0), Card::new("intro").unwrap())
+        .unwrap();
+    doc.unchecked()
+        .insert_card(Some(3), Card::new("footer").unwrap())
+        .unwrap();
     let kinds: Vec<_> = doc.cards().iter().map(|c| c.kind()).collect();
     assert_eq!(
         kinds,
         [Some("intro"), Some("note"), Some("summary"), Some("footer")]
     );
     assert_eq!(
-        doc.unchecked().insert_card(Some(5), Card::new("note").unwrap()),
+        doc.unchecked()
+            .insert_card(Some(5), Card::new("note").unwrap()),
         Err(EditError::IndexOutOfRange { index: 5, len: 4 })
     );
     assert_eq!(doc.remove_card(0).unwrap().kind(), Some("intro"));
@@ -91,15 +96,22 @@ fn test_placing_a_card_past_the_card_ceiling_is_refused() {
 
     let mut doc = make_doc();
     for _ in 0..MAX_CARD_COUNT {
-        doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
+        doc.unchecked()
+            .insert_card(None, Card::new("note").unwrap())
+            .unwrap();
     }
     assert!(Document::parse(&doc.to_markdown()).is_ok());
     let full = EditError::TooManyCards {
         max: MAX_CARD_COUNT,
     };
-    assert_eq!(doc.unchecked().insert_card(None, Card::new("note").unwrap()), Err(full.clone()));
     assert_eq!(
-        doc.unchecked().insert_card(Some(0), Card::new("note").unwrap()),
+        doc.unchecked()
+            .insert_card(None, Card::new("note").unwrap()),
+        Err(full.clone())
+    );
+    assert_eq!(
+        doc.unchecked()
+            .insert_card(Some(0), Card::new("note").unwrap()),
         Err(full.clone())
     );
     assert_eq!(full.code(), "edit::too_many_cards");
@@ -153,7 +165,9 @@ fn test_document_new_blank_canvas() {
     assert!(doc.cards().is_empty());
     assert_eq!(doc.main().body_markdown(), "");
 
-    doc.main_card_mut().store_fields([("title", "Hello")]).unwrap();
+    doc.main_card_mut()
+        .store_fields([("title", "Hello")])
+        .unwrap();
     let mut card = Card::new("note").unwrap();
     card.store_field("qty", 3).unwrap();
     doc.unchecked().insert_card(None, card).unwrap();
@@ -301,7 +315,13 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
     use quillmark_content::lines::model::{Mark, MarkKind};
 
     let mut card = Card::new("note").unwrap();
-    let revised = card.revise(crate::document::Target::from("intro"), "hello target world", None).unwrap();
+    let revised = card
+        .revise(
+            crate::document::Target::from("intro"),
+            "hello target world",
+            None,
+        )
+        .unwrap();
     assert!(!revised.applied.steps.is_empty());
 
     let mut base = card
@@ -315,7 +335,11 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
     let base = base.into_lines();
     card.overwrite_field("intro", base).unwrap();
     let _ = card
-        .revise(crate::document::Target::from("intro"), "why keep the target here", None)
+        .revise(
+            crate::document::Target::from("intro"),
+            "why keep the target here",
+            None,
+        )
         .unwrap();
     let read = card
         .field_content("intro", Codec::Richtext)
@@ -333,7 +357,9 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
     )
     .unwrap();
     assert_eq!(
-        card.revise(crate::document::Target::from("count"), "x", None).unwrap_err().code(),
+        card.revise(crate::document::Target::from("count"), "x", None)
+            .unwrap_err()
+            .code(),
         "edit::field_decode"
     );
 }
@@ -622,8 +648,13 @@ fn test_revise_body_returns_its_change_and_updates_body() {
     use quillmark_content::model::Pos;
 
     let mut card = Card::new("note").unwrap();
-    let _ = card.revise(crate::document::Target::Body, "hello world", None).unwrap();
-    let applied = card.revise(crate::document::Target::Body, "hello brave world", None).unwrap().applied;
+    let _ = card
+        .revise(crate::document::Target::Body, "hello world", None)
+        .unwrap();
+    let applied = card
+        .revise(crate::document::Target::Body, "hello brave world", None)
+        .unwrap()
+        .applied;
     assert_eq!(card.body_lines().text, "hello brave world");
     let mapping = Mapping::from_change(&applied).unwrap();
     assert_eq!(mapping.map(&Pos::at(6), Assoc::Before).pos, Pos::at(6));
@@ -691,7 +722,10 @@ fn store_field_rejects_value_past_depth_limit() {
     assert!(doc.unchecked().store_field(None, "x", ok).is_ok());
 
     let too_deep = crate::value::QuillValue::from_json(deep_value(150));
-    let err = doc.unchecked().store_field(None, "y", too_deep).unwrap_err();
+    let err = doc
+        .unchecked()
+        .store_field(None, "y", too_deep)
+        .unwrap_err();
     assert!(
         matches!(err, crate::document::EditError::ValueTooDeep { max: 128 }),
         "expected ValueTooDeep, got {err:?}"
@@ -800,15 +834,18 @@ fn test_insert_card_refuses_root_only_entries() {
         mutate(&mut wire);
         let card = Card::try_from(wire).expect("the wire stays permissive on placement metadata");
         let mut doc = make_doc();
-        doc.unchecked().insert_card(None, card.clone()).map(|_| doc).map_err(|e| {
-            let mut doc = make_doc();
-            assert_eq!(
-                doc.unchecked().insert_card(Some(0), card),
-                Err(e.clone()),
-                "push and insert agree"
-            );
-            e
-        })
+        doc.unchecked()
+            .insert_card(None, card.clone())
+            .map(|_| doc)
+            .map_err(|e| {
+                let mut doc = make_doc();
+                assert_eq!(
+                    doc.unchecked().insert_card(Some(0), card),
+                    Err(e.clone()),
+                    "push and insert agree"
+                );
+                e
+            })
     };
 
     assert_eq!(
@@ -971,12 +1008,21 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
         .expect("a batch that fills the card exactly to the cap lands");
     assert_eq!(doc.main().payload().len(), max);
 
-    doc.unchecked().store_field(None, "f0", qv("replaced"))
+    doc.unchecked()
+        .store_field(None, "f0", qv("replaced"))
         .expect("a replace is not a growth");
 
     let mut refused = Vec::new();
-    refused.push(doc.unchecked().store_field(None, "late", qv("v")).unwrap_err());
-    refused.push(doc.main_mut().revise(crate::document::Target::from("late"), "text", None).unwrap_err());
+    refused.push(
+        doc.unchecked()
+            .store_field(None, "late", qv("v"))
+            .unwrap_err(),
+    );
+    refused.push(
+        doc.main_mut()
+            .revise(crate::document::Target::from("late"), "text", None)
+            .unwrap_err(),
+    );
     refused.push(
         doc.main_mut()
             .overwrite_field("late", Lines::empty())
@@ -1074,8 +1120,12 @@ fn no_verb_on_a_placed_card_moves_it_between_roles() {
         ("overwrite_field", |c| {
             ignore(c.overwrite_field("f", Lines::empty()))
         }),
-        ("revise_body", |c| ignore(c.revise(crate::document::Target::Body, "body", None))),
-        ("revise_field", |c| ignore(c.revise(crate::document::Target::from("f"), "text", None))),
+        ("revise_body", |c| {
+            ignore(c.revise(crate::document::Target::Body, "body", None))
+        }),
+        ("revise_field", |c| {
+            ignore(c.revise(crate::document::Target::from("f"), "text", None))
+        }),
         ("commit_field", |c| {
             ignore(c.commit_field("f", qv("v"), &richtext()))
         }),
@@ -1110,7 +1160,12 @@ fn stored(doc: &Document) -> String {
 /// bytes.
 fn reversed_keys(v: &serde_json::Value) -> serde_json::Value {
     let map = v.as_object().unwrap();
-    serde_json::Value::Object(map.iter().rev().map(|(k, v)| (k.clone(), v.clone())).collect())
+    serde_json::Value::Object(
+        map.iter()
+            .rev()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+    )
 }
 
 /// A field's content holds as a body's does: stored in its canonical form,
@@ -1119,41 +1174,89 @@ fn reversed_keys(v: &serde_json::Value) -> serde_json::Value {
 /// write, the wire and the load.
 #[test]
 fn a_field_write_holds_its_content_as_a_body_write_does() {
-    let mut content = quillmark_content::markdown::from_markdown("Hello *world*").unwrap().content;
-    content.anchors.push(quillmark_content::model::Anchor::new("a1", 0, 5));
+    let mut content = quillmark_content::markdown::from_markdown("Hello *world*")
+        .unwrap()
+        .content;
+    content
+        .anchors
+        .push(quillmark_content::model::Anchor::new("a1", 0, 5));
     let canonical = content.to_value();
     let shuffled = reversed_keys(&canonical);
-    assert_ne!(serde_json::to_string(&shuffled).unwrap(), serde_json::to_string(&canonical).unwrap());
+    assert_ne!(
+        serde_json::to_string(&shuffled).unwrap(),
+        serde_json::to_string(&canonical).unwrap()
+    );
 
     let mut a = make_doc();
-    a.unchecked().store_field(None, "f", QuillValue::from_json(shuffled.clone())).unwrap();
+    a.unchecked()
+        .store_field(None, "f", QuillValue::from_json(shuffled.clone()))
+        .unwrap();
     let mut b = make_doc();
-    b.unchecked().store_field(None, "f", QuillValue::from_json(canonical.clone())).unwrap();
+    b.unchecked()
+        .store_field(None, "f", QuillValue::from_json(canonical.clone()))
+        .unwrap();
     assert_eq!(a, b);
     assert_eq!(stored(&a), stored(&b));
-    assert!(a.to_markdown().contains("f: Hello *world*"), "{}", a.to_markdown());
+    assert!(
+        a.to_markdown().contains("f: Hello *world*"),
+        "{}",
+        a.to_markdown()
+    );
     assert!(!a.to_markdown().contains("a1"));
 
     let mut nested = make_doc();
-    nested.unchecked().store_field(None, "rows", QuillValue::from_json(serde_json::json!([{ "f": shuffled }]))).unwrap();
-    assert_eq!(nested.main().payload().get("rows").unwrap().as_json(), &serde_json::json!([{ "f": canonical }]));
+    nested
+        .unchecked()
+        .store_field(
+            None,
+            "rows",
+            QuillValue::from_json(serde_json::json!([{ "f": shuffled }])),
+        )
+        .unwrap();
+    assert_eq!(
+        nested.main().payload().get("rows").unwrap().as_json(),
+        &serde_json::json!([{ "f": canonical }])
+    );
 
     let mut bad = canonical.clone();
     bad["anchors"][0]["end"] = 99.into();
-    let refused = make_doc().unchecked().store_field(None, "f", QuillValue::from_json(bad.clone())).unwrap_err();
+    let refused = make_doc()
+        .unchecked()
+        .store_field(None, "f", QuillValue::from_json(bad.clone()))
+        .unwrap_err();
     assert_eq!(refused.code(), "edit::field_decode");
     let refused = make_doc()
         .unchecked()
-        .store_field(None, "rows", QuillValue::from_json(serde_json::json!([{ "f": bad }])))
+        .store_field(
+            None,
+            "rows",
+            QuillValue::from_json(serde_json::json!([{ "f": bad }])),
+        )
         .unwrap_err();
-    assert!(matches!(&refused, EditError::FieldDecode { at, .. } if at.len() == 2), "{refused:?}");
+    assert!(
+        matches!(&refused, EditError::FieldDecode { at, .. } if at.len() == 2),
+        "{refused:?}"
+    );
 
     let mut wire = crate::document::CardWire::new("note".to_string(), serde_json::Value::Null);
-    wire.payload_items.push(crate::document::PayloadItemWire::Field { key: "f".into(), value: bad.clone() });
-    assert_eq!(Card::try_from(wire).unwrap_err().code(), "edit::field_decode");
+    wire.payload_items
+        .push(crate::document::PayloadItemWire::Field {
+            key: "f".into(),
+            value: bad.clone(),
+        });
+    assert_eq!(
+        Card::try_from(wire).unwrap_err().code(),
+        "edit::field_decode"
+    );
 
-    let row = stored(&b).replace(&serde_json::to_string(&canonical).unwrap(), &serde_json::to_string(&bad).unwrap());
-    assert!(Document::from_stored(&row).is_err(), "a load refuses a field it would refuse as a body");
+    let row = stored(&b).replace(
+        &serde_json::to_string(&canonical).unwrap(),
+        &serde_json::to_string(&bad).unwrap(),
+    );
+    assert!(
+        Document::from_stored(&row).is_err(),
+        "a load refuses a field it would refuse as a body"
+    );
 }
 
 /// A card placed with no `$id` mints one positionally, the same in every
@@ -1162,7 +1265,10 @@ fn a_field_write_holds_its_content_as_a_body_write_does() {
 fn a_placed_card_mints_positionally_or_keeps_its_id() {
     let place = || {
         let mut doc = make_doc();
-        let id = doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
+        let id = doc
+            .unchecked()
+            .insert_card(None, Card::new("note").unwrap())
+            .unwrap();
         assert_eq!(doc.cards()[0].id(), Some(id.as_str()));
         id
     };

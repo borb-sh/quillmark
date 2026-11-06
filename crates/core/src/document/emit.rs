@@ -145,10 +145,12 @@ fn annotated(content: &Lines, path: &DocPath, anchors: &Anchors) -> String {
 fn annotated_as(codec: super::Codec, content: &Lines, path: &DocPath, anchors: &Anchors) -> String {
     let read = match codec {
         super::Codec::Richtext => to_markdown_annotated(content),
-        super::Codec::Text => quillmark_content::markdown::to_text_annotated(&quillmark_content::model::Content {
-            codec: quillmark_content::model::Codec::Plain,
-            ..quillmark_content::migrate::from_lines(content)
-        }),
+        super::Codec::Text => {
+            quillmark_content::markdown::to_text_annotated(&quillmark_content::model::Content {
+                codec: quillmark_content::model::Codec::Plain,
+                ..quillmark_content::migrate::from_lines(content)
+            })
+        }
     };
     anchors
         .found
@@ -247,7 +249,12 @@ impl<'a> EmitCtx<'a> {
                     .path
                     .iter()
                     .fold(field.clone(), |p, seg| p.segment(seg));
-                annotated_as(super::Codec::of_object(value), &canonical_content(value)?, &path, anchors)
+                annotated_as(
+                    super::Codec::of_object(value),
+                    &canonical_content(value)?,
+                    &path,
+                    anchors,
+                )
             }
         };
         Some(JsonValue::String(markdown))
@@ -439,9 +446,11 @@ pub(super) fn canonical_content(value: &JsonValue) -> Option<Lines> {
     if quillmark_content::wire::is_v1(value) {
         let rt = quillmark_content::lines::serial::from_canonical_value(value).ok()?;
         let as_written =
-            serde_json::to_string(&quillmark_content::lines::serial::respell_retired(value)).ok()?;
+            serde_json::to_string(&quillmark_content::lines::serial::respell_retired(value))
+                .ok()?;
         let canonical =
-            serde_json::to_string(&quillmark_content::lines::serial::to_canonical_value(&rt)).ok()?;
+            serde_json::to_string(&quillmark_content::lines::serial::to_canonical_value(&rt))
+                .ok()?;
         return (as_written == canonical).then_some(rt);
     }
     let content = quillmark_content::model::Content::from_value(value).ok()?;

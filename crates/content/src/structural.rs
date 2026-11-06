@@ -24,7 +24,11 @@ pub enum StructuralEdit {
     /// [`outdent`].
     Outdent { first: String, last: String },
     /// [`wrap`].
-    Wrap { first: String, last: String, with: Wrap },
+    Wrap {
+        first: String,
+        last: String,
+        with: Wrap,
+    },
 }
 
 impl StructuralEdit {
@@ -43,11 +47,23 @@ impl StructuralEdit {
     /// The edit with its offsets, counted in `u` over `content`'s text,
     /// as scalar offsets; `Stale` where one falls inside a character or past
     /// the text.
-    pub fn to_scalars(&self, content: &Content, u: impl crate::units::Units) -> Result<StructuralEdit, ApplyError> {
-        let at = |n: Scalar| crate::units::to_scalars(u, &content.text, n).ok_or(ApplyError::Stale { step: 0 });
+    pub fn to_scalars(
+        &self,
+        content: &Content,
+        u: impl crate::units::Units,
+    ) -> Result<StructuralEdit, ApplyError> {
+        let at = |n: Scalar| {
+            crate::units::to_scalars(u, &content.text, n).ok_or(ApplyError::Stale { step: 0 })
+        };
         Ok(match self {
-            StructuralEdit::SplitBlock { at: n, id } => StructuralEdit::SplitBlock { at: at(*n)?, id: id.clone() },
-            StructuralEdit::DeleteRange { start, end } => StructuralEdit::DeleteRange { start: at(*start)?, end: at(*end)? },
+            StructuralEdit::SplitBlock { at: n, id } => StructuralEdit::SplitBlock {
+                at: at(*n)?,
+                id: id.clone(),
+            },
+            StructuralEdit::DeleteRange { start, end } => StructuralEdit::DeleteRange {
+                start: at(*start)?,
+                end: at(*end)?,
+            },
             g => g.clone(),
         })
     }
@@ -65,14 +81,31 @@ fn placeholder(n: usize) -> String {
 /// opens the block; anywhere else it is what follows `at`. A split at the start
 /// of the first block moves its text to `new_id`, since no `\n` opens it.
 /// `Stale` where `at` is past the text.
-pub fn split_block(content: &Content, at: Scalar, new_id: Option<&str>) -> Result<Change, ApplyError> {
+pub fn split_block(
+    content: &Content,
+    at: Scalar,
+    new_id: Option<&str>,
+) -> Result<Change, ApplyError> {
     let ranges = content.block_ranges();
-    let k = ranges.iter().position(|&(s, e)| s <= at && at <= e).ok_or(ApplyError::Stale { step: 0 })?;
+    let k = ranges
+        .iter()
+        .position(|&(s, e)| s <= at && at <= e)
+        .ok_or(ApplyError::Stale { step: 0 })?;
     let (start, end) = ranges[k];
-    let at = if k > 0 && at == start && start < end { start - 1 } else { at };
+    let at = if k > 0 && at == start && start < end {
+        start - 1
+    } else {
+        at
+    };
     let id = new_id.map_or_else(|| placeholder(0), str::to_string);
-    let record = Block { id, ..content.blocks[k].clone() };
-    Ok(Change::new(vec![Step::Splice(Splice { blocks: vec![record], ..Splice::new(at, "", "\n") })]))
+    let record = Block {
+        id,
+        ..content.blocks[k].clone()
+    };
+    Ok(Change::new(vec![Step::Splice(Splice {
+        blocks: vec![record],
+        ..Splice::new(at, "", "\n")
+    })]))
 }
 
 /// Backspace at the start of block `id`: the change that deletes the `\n`
@@ -81,9 +114,16 @@ pub fn split_block(content: &Content, at: Scalar, new_id: Option<&str>) -> Resul
 /// first block, which no block precedes. `apply` refuses the change where the
 /// joined block would be invalid, as text joined into a rule is.
 pub fn join_blocks(content: &Content, id: &str) -> Result<Change, ApplyError> {
-    let k = content.blocks.iter().position(|b| b.id == id).ok_or_else(|| ApplyError::UnknownBlock { id: id.into() })?;
+    let k = content
+        .blocks
+        .iter()
+        .position(|b| b.id == id)
+        .ok_or_else(|| ApplyError::UnknownBlock { id: id.into() })?;
     if k == 0 {
-        return Err(ApplyError::BadStep { step: 0, reason: "the first block has no block before it to join" });
+        return Err(ApplyError::BadStep {
+            step: 0,
+            reason: "the first block has no block before it to join",
+        });
     }
     let at = content.block_ranges()[k].0 - 1;
     Ok(Change::new(vec![Step::Splice(Splice::new(at, "\n", ""))]))
@@ -106,9 +146,12 @@ pub fn inherited_marks(content: &Content, at: Scalar) -> Result<Vec<MarkKind>, A
     let after = around.next();
     let held = |i: Scalar, c: Option<char>| -> Vec<&MarkKind> {
         match c {
-            Some(c) if c != '\n' && c != HARD_BREAK => {
-                content.marks.iter().filter(|m| m.start <= i && i < m.end).map(|m| &m.kind).collect()
-            }
+            Some(c) if c != '\n' && c != HARD_BREAK => content
+                .marks
+                .iter()
+                .filter(|m| m.start <= i && i < m.end)
+                .map(|m| &m.kind)
+                .collect(),
             _ => Vec::new(),
         }
     };
@@ -117,9 +160,11 @@ pub fn inherited_marks(content: &Content, at: Scalar) -> Result<Vec<MarkKind>, A
     let mut out: Vec<MarkKind> = Vec::new();
     for kind in &before {
         let grows = match kind {
-            MarkKind::Strong | MarkKind::Emph | MarkKind::Underline | MarkKind::Strike | MarkKind::FontFamily { .. } => {
-                true
-            }
+            MarkKind::Strong
+            | MarkKind::Emph
+            | MarkKind::Underline
+            | MarkKind::Strike
+            | MarkKind::FontFamily { .. } => true,
             MarkKind::Code | MarkKind::Link { .. } | MarkKind::Ext { .. } => after.contains(kind),
         };
         if grows && !out.contains(kind) {
@@ -176,15 +221,22 @@ pub fn delete_range(content: &Content, start: Scalar, end: Scalar) -> Result<Cha
 pub fn indent(content: &Content, first: &str, last: &str) -> Result<Change, ApplyError> {
     let (k0, k1) = block_span(content, first, last)?;
     let path = &content.blocks[k0].path;
-    let j = innermost(content, path, |k| matches!(k, ContainerKind::Item { .. }))
-        .ok_or(ApplyError::BadStep { step: 0, reason: "the block is in no list item" })?;
+    let j = innermost(content, path, |k| matches!(k, ContainerKind::Item { .. })).ok_or(
+        ApplyError::BadStep {
+            step: 0,
+            reason: "the block is in no list item",
+        },
+    )?;
     let base = &path[..j];
     let (start, end) = sibling_run(content, base, k0, k1)?;
     let before = start
         .checked_sub(1)
         .map(|b| &content.blocks[b].path)
         .filter(|p| p.len() > j && p.starts_with(base))
-        .ok_or(ApplyError::BadStep { step: 0, reason: "the first item has no item before it to nest under" })?;
+        .ok_or(ApplyError::BadStep {
+            step: 0,
+            reason: "the first item has no item before it to nest under",
+        })?;
     let mut steps = Vec::new();
     let nested = before
         .get(j + 1)
@@ -195,16 +247,28 @@ pub fn indent(content: &Content, first: &str, last: &str) -> Result<Change, Appl
         None => {
             let id = placeholder(0);
             let kind = match kind_of(content, &path[j - 1]) {
-                Some(ContainerKind::List { ordered, .. }) => ContainerKind::List { ordered: *ordered, start: 1 },
-                _ => ContainerKind::List { ordered: false, start: 1 },
+                Some(ContainerKind::List { ordered, .. }) => ContainerKind::List {
+                    ordered: *ordered,
+                    start: 1,
+                },
+                _ => ContainerKind::List {
+                    ordered: false,
+                    start: 1,
+                },
             };
-            steps.push(Step::Container(ContainerStep::Set(Container::new(id.clone(), kind))));
+            steps.push(Step::Container(ContainerStep::Set(Container::new(
+                id.clone(),
+                kind,
+            ))));
             id
         }
     };
     let head: Vec<String> = base.iter().chain([&before[j], &list]).cloned().collect();
     for b in &content.blocks[start..=end] {
-        steps.push(set_path(b, head.iter().chain(&b.path[j..]).cloned().collect()));
+        steps.push(set_path(
+            b,
+            head.iter().chain(&b.path[j..]).cloned().collect(),
+        ));
     }
     Ok(Change::new(steps))
 }
@@ -221,12 +285,24 @@ pub fn indent(content: &Content, first: &str, last: &str) -> Result<Change, Appl
 pub fn outdent(content: &Content, first: &str, last: &str) -> Result<Change, ApplyError> {
     let (k0, k1) = block_span(content, first, last)?;
     let path = &content.blocks[k0].path;
-    let j = innermost(content, path, |k| !matches!(k, ContainerKind::List { .. }))
-        .ok_or(ApplyError::BadStep { step: 0, reason: "the block is in no list item or quote" })?;
+    let j = innermost(content, path, |k| !matches!(k, ContainerKind::List { .. })).ok_or(
+        ApplyError::BadStep {
+            step: 0,
+            reason: "the block is in no list item or quote",
+        },
+    )?;
     let mut steps = Vec::new();
     let quoted = matches!(kind_of(content, &path[j]), Some(ContainerKind::Quote));
-    let (base, depth) = if quoted { (&path[..=j], j + 1) } else { (&path[..j], j) };
-    let (start, end) = if quoted { child_run(content, base, k0, k1)? } else { sibling_run(content, base, k0, k1)? };
+    let (base, depth) = if quoted {
+        (&path[..=j], j + 1)
+    } else {
+        (&path[..j], j)
+    };
+    let (start, end) = if quoted {
+        child_run(content, base, k0, k1)?
+    } else {
+        sibling_run(content, base, k0, k1)?
+    };
     let held = |b: usize| content.blocks[b].path.starts_with(base);
     let mut tail = end + 1;
     while tail < content.blocks.len() && held(tail) {
@@ -236,48 +312,85 @@ pub fn outdent(content: &Content, first: &str, last: &str) -> Result<Change, App
     let rest = if split {
         let id = placeholder(0);
         let kind = match kind_of(content, &base[depth - 1]) {
-            Some(ContainerKind::List { ordered, .. }) => ContainerKind::List { ordered: *ordered, start: 1 },
+            Some(ContainerKind::List { ordered, .. }) => ContainerKind::List {
+                ordered: *ordered,
+                start: 1,
+            },
             Some(k) => k.clone(),
             None => ContainerKind::Quote,
         };
-        steps.push(Step::Container(ContainerStep::Set(Container::new(id.clone(), kind))));
+        steps.push(Step::Container(ContainerStep::Set(Container::new(
+            id.clone(),
+            kind,
+        ))));
         Some(id)
     } else {
         None
     };
     let parent_item = !quoted
         && j >= 2
-        && matches!(kind_of(content, &path[j - 2]), Some(ContainerKind::Item { .. }));
+        && matches!(
+            kind_of(content, &path[j - 2]),
+            Some(ContainerKind::Item { .. })
+        );
     if parent_item {
         let outer = &path[..j - 2];
         let parent = &path[j - 2];
         let last_item = content.blocks[end].path[j].clone();
         for b in &content.blocks[start..=end] {
-            steps.push(set_path(b, outer.iter().chain(&b.path[j..]).cloned().collect()));
+            steps.push(set_path(
+                b,
+                outer.iter().chain(&b.path[j..]).cloned().collect(),
+            ));
         }
         let list = rest.unwrap_or_else(|| path[j - 1].clone());
         for b in &content.blocks[end + 1..tail] {
-            let to = outer.iter().chain([&last_item, &list]).chain(&b.path[j..]).cloned().collect();
+            let to = outer
+                .iter()
+                .chain([&last_item, &list])
+                .chain(&b.path[j..])
+                .cloned()
+                .collect();
             steps.push(set_path(b, to));
         }
         let mut after = tail;
-        while after < content.blocks.len() && content.blocks[after].path.starts_with(&path[..j - 1]) {
+        while after < content.blocks.len() && content.blocks[after].path.starts_with(&path[..j - 1])
+        {
             let b = &content.blocks[after];
             if b.path[j - 2] != *parent {
                 break;
             }
-            steps.push(set_path(b, outer.iter().chain([&last_item]).chain(&b.path[j - 1..]).cloned().collect()));
+            steps.push(set_path(
+                b,
+                outer
+                    .iter()
+                    .chain([&last_item])
+                    .chain(&b.path[j - 1..])
+                    .cloned()
+                    .collect(),
+            ));
             after += 1;
         }
     } else {
         let outer = &base[..depth - 1];
         let skip = if quoted { depth } else { depth + 1 };
         for b in &content.blocks[start..=end] {
-            steps.push(set_path(b, outer.iter().chain(&b.path[skip..]).cloned().collect()));
+            steps.push(set_path(
+                b,
+                outer.iter().chain(&b.path[skip..]).cloned().collect(),
+            ));
         }
         if let Some(id) = rest {
             for b in &content.blocks[end + 1..tail] {
-                steps.push(set_path(b, outer.iter().chain([&id]).chain(&b.path[depth..]).cloned().collect()));
+                steps.push(set_path(
+                    b,
+                    outer
+                        .iter()
+                        .chain([&id])
+                        .chain(&b.path[depth..])
+                        .cloned()
+                        .collect(),
+                ));
             }
         }
     }
@@ -289,7 +402,10 @@ pub fn outdent(content: &Content, first: &str, last: &str) -> Result<Change, App
 pub enum Wrap {
     Quote,
     /// A list with an item per child it wraps, each `checked` as given.
-    List { ordered: bool, checked: Option<bool> },
+    List {
+        ordered: bool,
+        checked: Option<bool>,
+    },
 }
 
 /// Wrapping the blocks `first` to `last` in a quote or a list: the change that
@@ -301,7 +417,11 @@ pub fn wrap(content: &Content, first: &str, last: &str, with: &Wrap) -> Result<C
     let (k0, k1) = block_span(content, first, last)?;
     let mut shared: &[String] = &content.blocks[k0].path;
     for b in &content.blocks[k0..=k1] {
-        let n = shared.iter().zip(&b.path).take_while(|(x, y)| x == y).count();
+        let n = shared
+            .iter()
+            .zip(&b.path)
+            .take_while(|(x, y)| x == y)
+            .count();
         shared = &shared[..n];
     }
     if let Some(id) = shared.last()
@@ -316,9 +436,15 @@ pub fn wrap(content: &Content, first: &str, last: &str, with: &Wrap) -> Result<C
     let mut minted = 1;
     let kind = match with {
         Wrap::Quote => ContainerKind::Quote,
-        Wrap::List { ordered, .. } => ContainerKind::List { ordered: *ordered, start: 1 },
+        Wrap::List { ordered, .. } => ContainerKind::List {
+            ordered: *ordered,
+            start: 1,
+        },
     };
-    steps.push(Step::Container(ContainerStep::Set(Container::new(outer.clone(), kind))));
+    steps.push(Step::Container(ContainerStep::Set(Container::new(
+        outer.clone(),
+        kind,
+    ))));
     let mut item: Option<(Option<&String>, String)> = None;
     let mut sets = Vec::new();
     for (i, b) in content.blocks[start..=end].iter().enumerate() {
@@ -350,11 +476,18 @@ pub fn wrap(content: &Content, first: &str, last: &str, with: &Wrap) -> Result<C
 
 fn block_span(content: &Content, first: &str, last: &str) -> Result<(usize, usize), ApplyError> {
     let at = |id: &str| {
-        content.blocks.iter().position(|b| b.id == id).ok_or_else(|| ApplyError::UnknownBlock { id: id.into() })
+        content
+            .blocks
+            .iter()
+            .position(|b| b.id == id)
+            .ok_or_else(|| ApplyError::UnknownBlock { id: id.into() })
     };
     let (k0, k1) = (at(first)?, at(last)?);
     if k1 < k0 {
-        return Err(ApplyError::BadStep { step: 0, reason: "the last block comes before the first" });
+        return Err(ApplyError::BadStep {
+            step: 0,
+            reason: "the last block comes before the first",
+        });
     }
     Ok((k0, k1))
 }
@@ -364,29 +497,52 @@ fn kind_of<'a>(content: &'a Content, id: &str) -> Option<&'a ContainerKind> {
 }
 
 /// The index in `path` of its innermost container `is` admits.
-fn innermost(content: &Content, path: &[String], is: impl Fn(&ContainerKind) -> bool) -> Option<usize> {
-    path.iter().rposition(|id| kind_of(content, id).is_some_and(&is))
+fn innermost(
+    content: &Content,
+    path: &[String],
+    is: impl Fn(&ContainerKind) -> bool,
+) -> Option<usize> {
+    path.iter()
+        .rposition(|id| kind_of(content, id).is_some_and(&is))
 }
 
 /// The blocks of the children of `base` from the one holding block `k0` to
 /// the one holding `k1`, where every child is an item: `base` ends in a list.
-fn sibling_run(content: &Content, base: &[String], k0: usize, k1: usize) -> Result<(usize, usize), ApplyError> {
+fn sibling_run(
+    content: &Content,
+    base: &[String],
+    k0: usize,
+    k1: usize,
+) -> Result<(usize, usize), ApplyError> {
     if content.blocks[k1].path.len() <= base.len() || !content.blocks[k1].path.starts_with(base) {
-        return Err(ApplyError::BadStep { step: 0, reason: "the range leaves the list" });
+        return Err(ApplyError::BadStep {
+            step: 0,
+            reason: "the range leaves the list",
+        });
     }
     child_run(content, base, k0, k1)
 }
 
 /// The blocks of the children of `base` from the one holding block `k0` to
 /// the one holding `k1`; a block whose path is `base` is a child of its own.
-fn child_run(content: &Content, base: &[String], k0: usize, k1: usize) -> Result<(usize, usize), ApplyError> {
+fn child_run(
+    content: &Content,
+    base: &[String],
+    k0: usize,
+    k1: usize,
+) -> Result<(usize, usize), ApplyError> {
     let d = base.len();
     let paths: Vec<&Vec<String>> = content.blocks.iter().map(|b| &b.path).collect();
     if !paths[k1].starts_with(base) {
-        return Err(ApplyError::BadStep { step: 0, reason: "the range leaves its container" });
+        return Err(ApplyError::BadStep {
+            step: 0,
+            reason: "the range leaves its container",
+        });
     }
     let child = |k: usize| paths[k].get(d);
-    let same = |k: usize, of: usize| paths[k].starts_with(base) && child(k).is_some() && child(k) == child(of);
+    let same = |k: usize, of: usize| {
+        paths[k].starts_with(base) && child(k).is_some() && child(k) == child(of)
+    };
     let mut start = k0;
     while start > 0 && child(k0).is_some() && same(start - 1, k0) {
         start -= 1;
@@ -399,5 +555,10 @@ fn child_run(content: &Content, base: &[String], k0: usize, k1: usize) -> Result
 }
 
 fn set_path(b: &Block, path: Vec<String>) -> Step {
-    Step::SetBlock(SetBlock { id: b.id.clone(), kind: None, attrs: None, path: Some(path) })
+    Step::SetBlock(SetBlock {
+        id: b.id.clone(),
+        kind: None,
+        attrs: None,
+        path: Some(path),
+    })
 }

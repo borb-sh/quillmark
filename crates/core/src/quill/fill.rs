@@ -46,7 +46,8 @@ pub fn blank(field: &FieldSchema) -> QuillValue {
         // It is single-`Para`, so it is one line and plain.
         FieldType::RichText { .. } => quillmark_content::model::Content::empty().to_value(),
         FieldType::Text { .. } => {
-            quillmark_content::model::Content::empty_as(quillmark_content::model::Codec::Plain).to_value()
+            quillmark_content::model::Content::empty_as(quillmark_content::model::Codec::Plain)
+                .to_value()
         }
         // String, Date, DateTime and an `enum`, whose blank every domain
         // admits: a date's `""` lowers to Typst `none`.
@@ -62,7 +63,8 @@ mod tests {
     use crate::quill::field;
 
     fn empty_text() -> serde_json::Value {
-        quillmark_content::model::Content::empty_as(quillmark_content::model::Codec::Plain).to_value()
+        quillmark_content::model::Content::empty_as(quillmark_content::model::Codec::Plain)
+            .to_value()
     }
 
     #[test]

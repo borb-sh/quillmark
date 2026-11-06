@@ -783,10 +783,9 @@ mod args_canon {
             EditError::UnknownCardId("gone".into()),
             EditError::TooManyCards { max: 1 },
             EditError::ValueTooDeep { max: 8 },
-            EditError::Import(quillmark_content::lines::import::ImportError::NestingTooDeep {
-                depth: 9,
-                max: 8,
-            }),
+            EditError::Import(
+                quillmark_content::lines::import::ImportError::NestingTooDeep { depth: 9, max: 8 },
+            ),
             EditError::FieldDecode {
                 field: "body".into(),
                 at: Vec::new(),
@@ -982,7 +981,10 @@ card_kinds:
             .expect("no `parse::dropped_construct` sample from the drop probe");
         add(crate::document::DROPPED_CONSTRUCT, sample.args.clone());
         let noncanonical = crate::document::noncanonical_read();
-        add(crate::document::NONCANONICAL_READ, noncanonical.args.clone());
+        add(
+            crate::document::NONCANONICAL_READ,
+            noncanonical.args.clone(),
+        );
         let reminted = crate::document::Document::parse(
             "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~\n$kind: note\n$id: -x\n~~~\n",
         )
