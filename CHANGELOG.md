@@ -1,5 +1,204 @@
 # Changelog
 
+## Unreleased
+
+Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md). Core is
+single-writer: a write under a stale base throws `edit::stale_base` where it
+rebased, and writers that answer late merge through `@quillmark/collab`.
+Saves move to `quillmark/document@0.135.0`, which a 0.134 build refuses, so
+every reader of a store upgrades before any writer. Breaks no type checker
+reports: a write refuses a `Content` that `normalize` would rewrite, an
+`anchor` step naming a held id needs `move: true`, and a conformed `text`
+field stores as content spelling `codec: "plain"`, so its stored value and
+hash change.
+
+### Single writer
+
+- refactor(core)!: **core is single-writer; a stale base refuses.** A
+  write's base is the hash its writer read. A value that hashes otherwise
+  refuses with `edit::stale_base`, carrying `current`, and writes nothing.
+  The rebase engine (`quillmark_content::rebase`), the per-card change log,
+  `read_at`, the structural document merge and `Receipt::rebased` are gone,
+  and `edit::rebase_conflict` is retired. The writer's revise and
+  `reviseDocument` take `{ baseHash }` alone in WASM and `base_hash=` in
+  Python; `baseMarkdown` is gone. `EditError::StaleBase(StaleBase)` and
+  `BoundParseError::StaleBase` carry the refusal.
+- refactor!: **collab policy leaves core.** Core says which repair
+  write-backs land twice (`Repair::inserts`) and leaves who writes one back
+  to `@quillmark/collab`. The `Delta` type leaves `@quillmark/wasm`, since no
+  verb takes or answers one.
+
+### Ids
+
+- feat(content)!: **a write mints the ids its change leaves open.** A record
+  a change puts may carry a placeholder id opening with `?`, which the write
+  fills and names in the receipt's new `minted`; a value holding such an id
+  is invalid. The `mint` module and `ids::is_placeholder` are new.
+- feat(core)!: **a write mints from the value it lands on**, never from the
+  card's history of writes, so one write over equal values stores equal
+  bytes on every card.
+- feat(core)!: **`addCard` and `unchecked.insertCard` answer the placed
+  card's `$id`**: `CardAdded { id, warnings }` in Rust and WASM, a dict in
+  Python.
+- fix(content): **a mint past an id at the top of `u64`** takes the lowest
+  number free under its prefix, where it overflowed.
+
+### Structural edits
+
+- feat(wasm)!: **the structural edits are `Document` verbs.**
+  `doc.splitBlock`, `joinBlocks`, `deleteRange`, `indent`, `outdent` and
+  `wrap` write and answer a `Receipt`, refusing a stale `base`, where module
+  functions answered a `Change`. `diffRange(before, after, { from, to })`
+  lowers the range a ProseMirror `ReplaceStep` names as one exact splice, and
+  `doc.blockAt(addr, offset)` answers the block at an offset. In Rust,
+  `gestures` is `structural`, `Gesture` is `StructuralEdit`, `Edit::Gesture`
+  is `Edit::Structural`, and `Card` gains the verbs, `block_at` and
+  `diff::diff_range`.
+
+### One spelling per value
+
+- feat(content)!: **a write takes a `Content` only in its canonical form.**
+  Every verb taking one but `normalize` refuses a value `normalize` would
+  rewrite (`Invariant::NotCanonical`). A stored row reads leniently through
+  `Content::from_value_lenient`, warning `content::noncanonical_read` at each
+  rewritten value so the host stores it again.
+- feat(content)!: **a value, change or step holding a key its shape does
+  not define is refused** (`ParseError::UnknownKey`), a remove step holding
+  its set twin's keys included, and a built-in member's `attrs` hold only the
+  entries it names. Island `props` and `x-` `attrs` stay open; a stored value
+  drops the key and warns.
+- feat(content)!: **a table cell and a footnote's note are each one
+  paragraph**, its lines parted by `U+2028`. `<br><br>` and a `<p>` boundary
+  in a cell import as one hard break, a value holding a `\n` there is
+  refused (`Invariant::BreakInCell`), and a stored read and `repair` join
+  one.
+- feat(core)!: **every write on `Document` validates.** A content value in a
+  field, at any depth, decodes and stores canonical as a body's does, and an
+  invalid one throws `edit::field_decode`. The writes no schema checks move
+  under `unchecked`: `doc.unchecked.storeField` and `insertCard` in WASM,
+  `doc.unchecked.store_field` and `insert_card` in Python, `doc.unchecked()`
+  in Rust.
+
+### Text fields
+
+- feat(core)!: **a `text` field is stored as content spelling `codec:
+  "plain"`**, so it holds comment anchors and ids, and `toMarkdown` writes
+  its literal text. `getStored` answers the object and `reader.get` the
+  literal text. `field_hash` hashes the content, `Invariant::NotPlain`
+  refuses a plain value holding a mark, island, container or block other
+  than a paragraph, and `reattach` answers a whole-field selector as
+  reattached, so a comment can sit on a field of any type.
+- fix(content)!: **the plain codec spells a paragraph break as a blank
+  line** and a hard break as a lone `\n`, both ways.
+- fix(core): **a typed revise of a `text` field still at rest as a string**
+  answers one splice over its literal text.
+
+### Anchors
+
+- feat(content)!: **an `anchor` step places or moves, never both.**
+  `{id, start, end}` refuses an id the value holds (`ApplyError::AnchorHeld`),
+  and `move: true` moves the held one. `AnchorStep::Set` is `Place` and
+  `Move`.
+- feat(content)!: **`movedAnchors` names every surviving anchor a write
+  moved**, a point included, each with a `reason`: `position`, `block` or
+  `context`.
+- feat(content)!: **anchor contexts read off the stored text**: a selector's
+  `quote`, `prefix` and `suffix` spell a hard break `U+2028` and a cell's
+  block break one `\n`. `reattach` places a selector in either spelling.
+- fix(content): **a revise carries anchors through one word diff.** Word
+  tokens follow UAX #29 boundaries with each punctuation mark its own, a
+  replaced run's lines pair by greatest similarity, and a quote moves within
+  text the revise itself inserted.
+
+### Revise and markdown
+
+- feat!: **the body is an address.** `writer.revise(addr, text, opts)`
+  replaces `reviseBody` and `reviseField` (Python `writer.revise(text,
+  field=None, card=None)`), `reader.get` and `getContent` read the body with
+  no field, and Rust's typed writers and readers take a `Target` in
+  `revise`, `hash_of`, `get` and `get_content`.
+- feat(core)!: **the writer's revise answers the content `Receipt`**,
+  `{ applied, hash, droppedAnchors, movedAnchors, warnings, minted }`.
+  `Revised` is gone: `mapPos` maps a position through `applied`, and
+  `reattach` takes each path's `applied`.
+- feat(wasm,python)!: **one markdown door each way.** `Document.parse`
+  replaces `fromMarkdown`, and `doc.toMarkdown(addr?, { annotated })`
+  replaces `toAnnotatedMarkdown`, `annotatedAt`, `annotated` and
+  `bodyMarkdown`. An annotated export answers `{ markdown, anchors }`, and
+  `DocumentRevised.dropped_anchors` holds the selectors `reattach` takes.
+  Python gains `import_markdown`, `export_markdown`, `normalize`,
+  `is_inline` and `is_plain`.
+- feat(core)!: **every revise is the content `revise`.** A typed
+  `reviseField` or `reviseDocument` relocates a moved quote of four
+  characters or more, a `text` field diffs by word, a typed `richtext`
+  revise refuses to drop an `x-` island, and `reviseDocument` keeps a value
+  whose markdown would not validate, warning `edit::content_apply` at its
+  path.
+- fix(content): **formatting inside a link's text** writes inside its
+  brackets, so a revise keeps it, and `to_markdown_checked` names an `x-`
+  block or mark among its losses (`Loss::ExtBlock`, `Loss::ExtMark`).
+- fix(content): **a revise of a short paragraph keeps its neighbours'
+  records**: lines pair by the diff's word tokens, and a rewrite of the first
+  block keeps the `\n` that opens the next.
+- feat(core): **`edit::content_apply` names its failure** in `reason`
+  (`stale`, `unknown_block`, `anchor_held`, `bad_step`, `invalid` and the
+  rest), with the `step` it refuses at for `stale` and `bad_step`.
+
+### Repair and mapping
+
+- feat(content)!: **`repair` answers its change**, `{content, repairs,
+  change}`, from the merged state, so a peer maps a caret through it.
+  `repair::change_in` counts it in a host's units, and Python gains
+  `repair`. A range anchor on a heading's repaired hard break shrinks off it.
+- fix(content): **a position maps through an island a change moves**, each
+  removal paired with the insert that carries its slots, and `invert`'s
+  inverse splice carries what it deletes.
+
+### Bounds
+
+- feat(content)!: **content values, changes and markdown are bounded at
+  every door**: marks per text (64, plus 4 per character), 100 000 anchors
+  per value, 10 MiB of markdown per import and of text per binding input,
+  16 384 steps per change, and 1 000 000 characters of footnote note copies.
+  Each refuses under its own code (`edit::too_many_marks`,
+  `too_many_anchors`, `input_too_large`, `too_many_steps`); a note
+  reference past the budget stays as its text, warning `footnote:size`.
+
+### Storage and the line form
+
+- feat(core)!: **saves write `quillmark/document@0.135.0`**, whose content
+  values may carry `codec`, so a 0.134 build refuses a row 0.135 saves. A
+  `0.134.0` row loads unchanged.
+- feat(core): **a line-form value loads migrated, and warns.** A v1 body,
+  field at any depth or `$seed` value, under any tag, loads as the content
+  model with `content::noncanonical_read` at its path, so a resave over
+  every row finds and rewrites the rows still holding the line form. A
+  `$ext` value stays as stored.
+- refactor(content,core)!: **one content model.** `quillmark_core::Content`
+  is the content model, and the line form lives under the hidden
+  `quillmark_content::lines`. Markdown import and export, the Typst emitter,
+  acroform, card bodies and a revise's anchor carry read the model, with
+  output unchanged across the parity corpus. `quillmark::Lines`, `Delta` and
+  the line-form verbs (`body_lines`, `overwrite_body`, `revise_body_content`
+  and their kin) are gone; the migration guide lists the renames.
+
+### Surface
+
+- refactor!: **error enums are `#[non_exhaustive]`**: `EditError`,
+  `StorageError`, `WireError`, `ParseError`, `ApplyError`, `MoveReason`,
+  `Repair`, `Reason` and `Invariant`. `quillmark` re-exports the content
+  write types: `CardMut`, `Edit`, `Located`, `Target`, `Unchecked`,
+  `WriteOptions`, `Change`, `Dropped`, `Moved` and `MoveReason`.
+
+### Performance
+
+- perf(content): **revise, replace and repair find ids by index.** A
+  one-word revise of a 40 000-item list takes about a second where it took
+  26 s, and repair of a valid 10 000-item list tens of milliseconds where it
+  took 0.7 s.
+- perf(core): **a write hashes once**, streamed over the canonical bytes
+  with no `Value` tree, and a card keeps the hash each write left.
+
 ## v0.134.1 - 2026-11-02
 
 - feat(wasm): **`repair(raw)` reads a merged state as a valid value.** It
