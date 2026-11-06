@@ -771,8 +771,6 @@ pub(crate) struct Revising {
 pub struct Card {
     payload: Payload,
     body: Content,
-    /// `body` lowered to the line form the codecs and renderers read, made
-    /// when first read.
     hashes: Hashes,
     #[cfg(test)]
     lines: Lowered,

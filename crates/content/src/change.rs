@@ -1394,7 +1394,7 @@ fn moved_anchors(before: &Content, after: &Content, applied: &Change, run: &Run)
             let w = was.remove(&id)?;
             let placed = || match &maps {
                 _ if w.path != n.path => true,
-                Some(maps) => carried(maps, &w) != Some((n.start, n.end)),
+                Some(maps) => carried(maps, &w) != (n.start, n.end),
                 None => true,
             };
             let reason = if run.stepped.contains(&id) && placed() {
@@ -1419,7 +1419,7 @@ fn moved_anchors(before: &Content, after: &Content, applied: &Change, run: &Run)
 }
 
 /// Where an anchor read in `site` lands across `maps`, as `apply` moves it.
-fn carried(maps: &Mapping, site: &Site) -> Option<(Scalar, Scalar)> {
+fn carried(maps: &Mapping, site: &Site) -> (Scalar, Scalar) {
     let at = |p: Scalar| {
         site.path
             .iter()
@@ -1439,7 +1439,7 @@ fn carried(maps: &Mapping, site: &Site) -> Option<(Scalar, Scalar)> {
             }
         }
     };
-    Some(match site.start == site.end {
+    match site.start == site.end {
         true => {
             let p = local(maps.map_point(&at(site.start)));
             (p, p)
@@ -1448,7 +1448,7 @@ fn carried(maps: &Mapping, site: &Site) -> Option<(Scalar, Scalar)> {
             local(maps.map(&at(site.start), Assoc::After)),
             local(maps.map(&at(site.end), Assoc::Before)),
         ),
-    })
+    }
 }
 
 /// An anchor as one value holds it: the slots it sits in, its range, the id

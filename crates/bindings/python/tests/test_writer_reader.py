@@ -243,7 +243,7 @@ def test_a_dropped_anchor_is_named_and_reattached_where_its_text_is_found_once()
 
 
 def test_markdown_writes_return_their_drops_at_the_body_written():
-    """revise_body and add_card return the import's drops, each at the body
+    """revise and add_card return the import's drops, each at the body
     it wrote."""
     quill = taro_quill()
     doc = Document("taro@0.1.0")
