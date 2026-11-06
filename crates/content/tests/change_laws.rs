@@ -831,6 +831,48 @@ fn a_step_holding_a_key_it_does_not_define_is_refused() {
     ));
 }
 
+/// A remove step holds only its own keys: the keys of the set it undoes are
+/// refused, not dropped.
+#[test]
+fn a_remove_step_refuses_the_keys_of_its_set_twin() {
+    for (step, key) in [
+        (
+            json!({"anchor": {"id": "c1", "remove": true, "start": 0}}),
+            "start",
+        ),
+        (
+            json!({"anchor": {"id": "c1", "remove": true, "end": 2}}),
+            "end",
+        ),
+        (
+            json!({"anchor": {"id": "c1", "remove": true, "quote": "he"}}),
+            "quote",
+        ),
+        (
+            json!({"anchor": {"id": "c1", "remove": true, "move": false}}),
+            "move",
+        ),
+        (
+            json!({"container": {"id": "l9", "remove": true, "kind": "list"}}),
+            "kind",
+        ),
+        (
+            json!({"container": {"id": "l9", "remove": true, "attrs": {}}}),
+            "attrs",
+        ),
+        (
+            json!({"mark": {"start": 0, "end": 2, "type": "link", "add": false, "attrs": {"url": "u"}}}),
+            "attrs",
+        ),
+    ] {
+        let refused = Change::from_value(&json!({"steps": [step.clone()]}));
+        assert!(
+            matches!(&refused, Err(quillmark_content::wire::ParseError::UnknownKey { key: k, .. }) if k == key),
+            "{step}: {refused:?}"
+        );
+    }
+}
+
 #[test]
 fn a_typed_run_composes_into_one_splice() {
     let d = from_markdown("ab").unwrap().content;

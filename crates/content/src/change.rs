@@ -2057,6 +2057,7 @@ mod wire {
                 only(body, "a container step", &["id", "kind", "attrs", "remove"])?;
                 let id = str_key(body, "id")?;
                 if removing(body)? {
+                    only(body, "a container remove", &["id", "remove"])?;
                     Step::Container(ContainerStep::Remove { id })
                 } else {
                     check_container_attrs(body)?;
@@ -2082,6 +2083,11 @@ mod wire {
                         quote,
                     })
                 } else {
+                    only(
+                        body,
+                        "a mark remove",
+                        &["start", "end", "type", "add", "quote"],
+                    )?;
                     let tag = str_key(body, "type")?;
                     if !MARK_TAGS.contains(&tag.as_str()) && !crate::ids::is_ext_name(&tag) {
                         return Err(ParseError::UnknownName {
@@ -2107,9 +2113,12 @@ mod wire {
                     (true, true) => {
                         return Err(shape("an anchor step names `remove` or `move`, not both"));
                     }
-                    (true, false) => Step::Anchor(AnchorStep::Remove {
-                        id: str_key(body, "id")?,
-                    }),
+                    (true, false) => {
+                        only(body, "an anchor remove", &["id", "remove"])?;
+                        Step::Anchor(AnchorStep::Remove {
+                            id: str_key(body, "id")?,
+                        })
+                    }
                     (false, true) => Step::Anchor(AnchorStep::Move {
                         anchor: anchor_from_value(body)?,
                         quote: opt_str(body, "quote")?,
