@@ -18,6 +18,7 @@
 //! it.
 
 pub mod anchors;
+pub mod carry;
 pub mod change;
 pub mod diff;
 mod draft;

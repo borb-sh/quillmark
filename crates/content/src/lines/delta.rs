@@ -752,25 +752,37 @@ fn carry_mark(
     inserted: &[(usize, usize)],
     m: &Mark,
 ) -> Option<(usize, usize)> {
-    if m.start == m.end {
+    carry_range(delta, base_chars, new_chars, inserted, m.start, m.end)
+}
+
+/// [`carry_mark`] over the range `[start, end)`.
+pub(crate) fn carry_range(
+    delta: &Delta,
+    base_chars: &[char],
+    new_chars: &[char],
+    inserted: &[(usize, usize)],
+    start: usize,
+    end: usize,
+) -> Option<(usize, usize)> {
+    if start == end {
         // Zero-width point mark.
-        if !delta.is_deleted(m.start) {
-            let p = delta.map_pos(m.start, Assoc::Before);
+        if !delta.is_deleted(start) {
+            let p = delta.map_pos(start, Assoc::Before);
             return Some((p, p));
         }
         // Its surrounding text was deleted: relocate only if that text was
         // re-inserted verbatim elsewhere (a move).
-        return relocate_point(base_chars, new_chars, inserted, m.start);
+        return relocate_point(base_chars, new_chars, inserted, start);
     }
 
-    let ns = delta.map_pos(m.start, Assoc::After);
-    let ne = delta.map_pos(m.end, Assoc::Before);
+    let ns = delta.map_pos(start, Assoc::After);
+    let ne = delta.map_pos(end, Assoc::Before);
     if ns < ne {
         return Some((ns, ne)); // survived a surrounding edit
     }
     // Collapsed, try a verbatim block move: the annotated span must reappear
     // inside inserted text (not merely somewhere in the surviving content).
-    relocate_span(base_chars, new_chars, inserted, m.start, m.end)
+    relocate_span(base_chars, new_chars, inserted, start, end)
 }
 
 /// Where `new` re-homes `[start, end)` of `base` that the change to `new`

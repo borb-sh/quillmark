@@ -4,13 +4,14 @@
 //! [`replace`] are the producers a markdown rewrite and a whole-value write
 //! use.
 
+use crate::carry::carry_pinned;
 use crate::change::{
     AnchorStep, ApplyError, Change, ContainerStep, IslandStep, SetBlock, Splice, Step, apply,
     mark_fixups, run,
 };
 use crate::ids::{Minter, prefix};
-use crate::lines::delta::{Op, carry_pinned, diff_words as text_diff, relocate, without_sentinel};
-use crate::lines::import::{Against, ImportError, ImportWarning, from_markdown_against};
+use crate::lines::delta::{Op, diff_words as text_diff, relocate, without_sentinel};
+use crate::lines::import::{ImportError, ImportWarning, from_markdown_against};
 use crate::lines::island::IslandType;
 use crate::migrate::{from_lines, to_lines};
 use crate::model::{
@@ -963,30 +964,19 @@ pub fn revise_holding(
     markdown: &str,
     now: &Content,
 ) -> Result<Revision, ReviseError> {
-    revise_lines(before, &to_lines(before), markdown, now)
-}
-
-/// [`revise_holding`] with `before` already lowered to `lines`.
-fn revise_lines(
-    before: &Content,
-    lines: &crate::lines::model::Lines,
-    markdown: &str,
-    now: &Content,
-) -> Result<Revision, ReviseError> {
-    let Against {
-        content: imported,
-        warnings,
-        pins,
-    } = match before.codec {
-        Codec::Rich => from_markdown_against(markdown, lines)?,
-        Codec::Plain => Against {
-            content: to_lines(&crate::markdown::from_plaintext(markdown)),
-            warnings: Vec::new(),
-            pins: Vec::new(),
-        },
+    let (imported, warnings, pins) = match before.codec {
+        Codec::Rich => {
+            let read = from_markdown_against(markdown, &to_lines(before))?;
+            (from_lines(&read.content), read.warnings, read.pins)
+        }
+        Codec::Plain => (
+            crate::markdown::from_plaintext(markdown),
+            Vec::new(),
+            Vec::new(),
+        ),
     };
-    let (imported, _) = carry_pinned(lines, imported, &pins);
-    let mut content = holding(before, &align(before, from_lines(&imported)), now, true);
+    let (imported, _) = carry_pinned(before, imported, &pins);
+    let mut content = holding(before, &align(before, imported), now, true);
     content.codec = before.codec;
     // A pinned anchor stands where its tag does; every other rides the diff's
     // splices, as a replace's do.

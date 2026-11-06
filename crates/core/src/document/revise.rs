@@ -1,8 +1,8 @@
 //! The whole-document revise: a markdown write that keeps what markdown cannot
 //! spell.
 
+use quillmark_content::carry::carry_anchors;
 use quillmark_content::change::ApplyError;
-use quillmark_content::lines::delta::carry_anchors;
 use quillmark_content::model::Content;
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
@@ -244,11 +244,9 @@ fn revise_card(
     let body = revised.and_then(|revised| match revised {
         Some(revised) => Ok(revised),
         None => {
-            let lines = carry_anchors(
-                &quillmark_content::migrate::to_lines(stored.body()),
-                quillmark_content::migrate::to_lines(incoming.body()),
-            );
-            let lifted = quillmark_content::diff::lift(stored.body(), &lines);
+            let carried = carry_anchors(stored.body(), incoming.body().clone());
+            let mut lifted = quillmark_content::diff::align(stored.body(), carried);
+            lifted.codec = stored.body().codec;
             lifted
                 .validate()
                 .map(|()| lifted)
