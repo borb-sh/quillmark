@@ -567,8 +567,8 @@ impl QuillConfig {
                 }
             }
             FieldType::Text { multiline } => {
-                let mut plain_check = |rt: quillmark_content::lines::model::Lines| -> Result<
-                    quillmark_content::lines::model::Lines,
+                let mut plain_check = |rt: quillmark_content::model::Content| -> Result<
+                    quillmark_content::model::Content,
                     CoercionError,
                 > {
                     if !rt.is_plain() {
@@ -598,18 +598,18 @@ impl QuillConfig {
                     }
                     Ok(rt)
                 };
-                let commit =
-                    |old: Option<&serde_json::Value>,
-                     rt: &quillmark_content::lines::model::Lines| {
-                        QuillValue::from_json(crate::document::stored_as(
-                            old,
-                            rt,
-                            quillmark_content::model::Codec::Plain,
-                        ))
-                    };
+                let commit = |old: Option<&serde_json::Value>,
+                              rt: &quillmark_content::model::Content| {
+                    QuillValue::from_json(crate::document::stored_as(
+                        old,
+                        rt,
+                        quillmark_content::model::Codec::Plain,
+                    ))
+                };
                 if json_value.is_object() {
-                    let rt =
-                        quillmark_content::migrate::lines_from_value(json_value).map_err(|e| {
+                    let rt = quillmark_content::model::Content::from_value_lenient(json_value)
+                        .map(|read| read.content)
+                        .map_err(|e| {
                             CoercionError::uncoercible(
                                 path,
                                 "<object>",
@@ -630,9 +630,7 @@ impl QuillConfig {
                         )),
                     };
                 };
-                let rt = quillmark_content::migrate::to_lines(
-                    &quillmark_content::markdown::from_plaintext(&text),
-                );
+                let rt = quillmark_content::markdown::plain(&text);
                 Ok(commit(None, &plain_check(rt)?))
             }
             FieldType::RichText { multiline } => {

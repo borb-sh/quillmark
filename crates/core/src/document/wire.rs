@@ -424,7 +424,7 @@ mod tests {
             &quillmark_content::lines::model::Lines::empty()
         );
         assert_eq!(
-            Codec::Richtext.project(with_body(json!("hi *there*")).unwrap().body_lines()),
+            Codec::Richtext.project(with_body(json!("hi *there*")).unwrap().body()),
             "hi *there*"
         );
 
