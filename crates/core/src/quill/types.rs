@@ -1144,7 +1144,7 @@ impl FieldSchema {
             &lenient
         };
         let content = codec.decode_field(value).ok()?;
-        let text = quillmark_content::lines::export::to_plaintext(&content);
+        let text = quillmark_content::view::plaintext(&content);
         let text = match self.r#type {
             FieldType::Text { multiline: false } => text.trim_end(),
             _ => text.as_str(),

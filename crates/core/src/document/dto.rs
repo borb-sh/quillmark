@@ -390,9 +390,9 @@ impl From<DocumentV0_129_0> for DocumentV0_134_0 {
 /// True where one migrated.
 fn migrate_field(value: &mut serde_json::Value) -> bool {
     if quillmark_content::wire::is_v1(value)
-        && let Some(lines) = super::emit::canonical_content(value)
+        && let Some(content) = super::emit::canonical_content(value)
     {
-        *value = quillmark_content::migrate::from_lines(&lines).to_value();
+        *value = content.to_value();
         return true;
     }
     match value {
@@ -1254,17 +1254,13 @@ This body and the metadata above are an indorsement card.
                 .decode_field(&value)
                 .expect("the legacy spelling still decodes");
             assert_eq!(
-                content.lines[0].kind,
-                quillmark_content::lines::model::LineKind::Code {
+                content.blocks[0].kind,
+                quillmark_content::model::BlockKind::Code {
                     lang: Some("rust".into())
                 },
                 "{schema}"
             );
-            assert_eq!(
-                content.marks[0].kind,
-                quillmark_content::lines::model::MarkKind::Anchor { id: "a1".into() },
-                "{schema}"
-            );
+            assert_eq!(content.anchors[0].id, "a1", "{schema}");
         }
     }
 

@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 use quillmark_content::lines::export::ExportLoss;
-use quillmark_content::lines::import::{Imported, from_markdown as import_markdown};
+use quillmark_content::lines::import::from_markdown as import_markdown;
 use quillmark_content::lines::model::Lines;
 use quillmark_content::model::Content;
 
@@ -20,29 +20,32 @@ use crate::version::QuillReference;
 /// none.
 #[cfg(test)]
 pub(crate) fn stored_over(old: Option<&serde_json::Value>, lines: &Lines) -> serde_json::Value {
-    lifted_over(old, lines).to_value()
+    match held_value(old) {
+        Some(held) => quillmark_content::diff::lift(&held, lines),
+        None => quillmark_content::migrate::from_lines(lines),
+    }
+    .to_value()
 }
 
-/// [`stored_over`] under `codec`, whatever `old` held.
+/// `content` stored under `codec` over `old`, the value it is written over:
+/// under the ids of what it kept from `old`, or its own where there is none.
 pub(crate) fn stored_as(
     old: Option<&serde_json::Value>,
-    lines: &Lines,
+    content: &Content,
     codec: quillmark_content::model::Codec,
 ) -> serde_json::Value {
-    let mut content = lifted_over(old, lines);
+    let mut content = match held_value(old) {
+        Some(held) => quillmark_content::diff::align(&held, content.clone()),
+        None => content.clone(),
+    };
     content.codec = codec;
     content.to_value()
 }
 
-fn lifted_over(old: Option<&serde_json::Value>, lines: &Lines) -> Content {
-    let held = old
-        .filter(|v| v.is_object())
+fn held_value(old: Option<&serde_json::Value>) -> Option<Content> {
+    old.filter(|v| v.is_object())
         .and_then(|v| Content::from_value_lenient(v).ok())
-        .map(|read| read.content);
-    match held {
-        Some(held) => quillmark_content::diff::lift(&held, lines),
-        None => quillmark_content::migrate::from_lines(lines),
-    }
+        .map(|read| read.content)
 }
 
 pub(crate) fn import_body(md: &str) -> Result<Lines, ImportError> {
@@ -487,24 +490,21 @@ impl Codec {
     pub(crate) fn decode_value(
         self,
         value: &serde_json::Value,
-    ) -> Option<Result<Imported, ContentDecodeError>> {
-        let whole = |content| Imported {
+    ) -> Option<Result<quillmark_content::markdown::Imported, ContentDecodeError>> {
+        let whole = |content| quillmark_content::markdown::Imported {
             content,
             warnings: Vec::new(),
         };
         match value {
             serde_json::Value::Object(_) => Some(
-                quillmark_content::migrate::lines_from_value(value)
-                    .map(whole)
+                Content::from_value_lenient(value)
+                    .map(|read| whole(read.content))
                     .map_err(|e| ContentDecodeError::NotContent(e.to_string())),
             ),
             serde_json::Value::String(s) => Some(match self {
-                Codec::Richtext => {
-                    import_markdown(s).map_err(|e| ContentDecodeError::BadMarkdown(e.to_string()))
-                }
-                Codec::Text => Ok(whole(quillmark_content::migrate::to_lines(
-                    &quillmark_content::markdown::from_plaintext(s),
-                ))),
+                Codec::Richtext => quillmark_content::markdown::from_markdown(s)
+                    .map_err(|e| ContentDecodeError::BadMarkdown(e.to_string())),
+                Codec::Text => Ok(whole(quillmark_content::markdown::plain(s))),
             }),
             _ => None,
         }
@@ -533,10 +533,10 @@ impl Codec {
     pub(crate) fn decode_field(
         self,
         value: &serde_json::Value,
-    ) -> Result<Lines, ContentDecodeError> {
+    ) -> Result<Content, ContentDecodeError> {
         match self.decode_value(value) {
             Some(result) => result.map(|imported| imported.content),
-            None if value.is_null() => Ok(Lines::empty()),
+            None if value.is_null() => Ok(Content::empty_as(self.content())),
             None => Err(ContentDecodeError::NotContent(self.unshaped_message(value))),
         }
     }
@@ -578,12 +578,10 @@ impl Codec {
 
     /// Project a content back to this codec's text: the inverse of its string
     /// encoding.
-    pub(crate) fn project(self, content: &Lines) -> String {
+    pub(crate) fn project(self, content: &Content) -> String {
         match self {
-            Codec::Richtext => quillmark_content::lines::export::to_markdown(content),
-            Codec::Text => quillmark_content::markdown::to_plaintext(
-                &quillmark_content::migrate::from_lines(content),
-            ),
+            Codec::Richtext => quillmark_content::markdown::to_markdown(content),
+            Codec::Text => quillmark_content::markdown::to_plaintext(content),
         }
     }
 }
@@ -630,52 +628,52 @@ pub(crate) fn canonical_richtext_value(
     Ok((content.to_value(), warnings))
 }
 
-/// Plain content less its trailing whitespace: a one-line `text` value's form
-/// before its single-line check, so the newline a clip-chomped YAML `|` scalar
-/// keeps is no second line. Its anchors hold, cut at the new end.
-pub(crate) fn trim_line_end(
-    content: quillmark_content::lines::model::Lines,
-) -> quillmark_content::lines::model::Lines {
-    let text = quillmark_content::lines::export::to_plaintext(&content);
-    let trimmed = text.trim_end();
-    if trimmed.len() == text.len() {
-        content
-    } else {
-        with_anchors_of(
-            &content,
-            quillmark_content::lines::import::from_plaintext(trimmed),
-        )
+/// Plain content less its trailing whitespace and breaks: a one-line `text`
+/// value's form before its single-line check, so the newline a clip-chomped
+/// YAML `|` scalar keeps is no second line. Its anchors hold, cut at the new
+/// end.
+pub(crate) fn trim_line_end(mut content: Content) -> Content {
+    let keep = content.text.trim_end().len();
+    if keep == content.text.len() {
+        return content;
     }
+    content.text.truncate(keep);
+    content
+        .blocks
+        .truncate(content.text.matches('\n').count() + 1);
+    cut_anchors(&mut content);
+    content
 }
 
-/// Plain content on one line, each line break a space. The length holds, so a
-/// rendered region's offsets still index the stored value, and so do its
+/// Plain content as one paragraph, each break a space. The length holds, so
+/// a rendered region's offsets still index the stored value, and so do its
 /// anchors.
-pub(crate) fn fold_line_breaks(
-    content: quillmark_content::lines::model::Lines,
-) -> quillmark_content::lines::model::Lines {
-    let text = quillmark_content::lines::export::to_plaintext(&content);
-    with_anchors_of(
-        &content,
-        quillmark_content::lines::import::from_plaintext(&text.replace('\n', " ")),
-    )
+pub(crate) fn fold_line_breaks(mut content: Content) -> Content {
+    content.text = content
+        .text
+        .chars()
+        .map(|c| match c {
+            '\n' | quillmark_content::model::HARD_BREAK => ' ',
+            c => c,
+        })
+        .collect();
+    content.blocks.truncate(1);
+    if let Some(block) = content.blocks.first_mut() {
+        block.kind = quillmark_content::model::BlockKind::Para;
+        block.path.clear();
+    }
+    content.containers.clear();
+    cut_anchors(&mut content);
+    content
 }
 
-/// `to` holding `from`'s anchors, each cut to `to`'s length.
-fn with_anchors_of(
-    from: &quillmark_content::lines::model::Lines,
-    to: quillmark_content::lines::model::Lines,
-) -> quillmark_content::lines::model::Lines {
-    use quillmark_content::lines::model::{Mark, MarkKind};
-    let mut to = to.into_content();
-    let len = to.text.chars().count();
-    to.marks.extend(
-        from.marks
-            .iter()
-            .filter(|m| matches!(m.kind, MarkKind::Anchor { .. }))
-            .map(|m| Mark::new(m.start.min(len), m.end.min(len), m.kind.clone())),
-    );
-    to.into()
+fn cut_anchors(content: &mut Content) {
+    let len = content.len_scalars();
+    for a in &mut content.anchors {
+        a.start = a.start.min(len);
+        a.end = a.end.min(len);
+    }
+    content.normalize();
 }
 
 pub(crate) mod align;
@@ -949,7 +947,11 @@ impl Card {
         name: &str,
         codec: Codec,
     ) -> Option<Result<Lines, ContentDecodeError>> {
-        Some(codec.decode_field(self.payload.get(name)?.as_json()))
+        Some(
+            codec
+                .decode_field(self.payload.get(name)?.as_json())
+                .map(|c| quillmark_content::migrate::to_lines(&c)),
+        )
     }
 
     /// The text projection of a content-valued field (`project ∘ decode`),
@@ -960,7 +962,11 @@ impl Card {
         name: &str,
         codec: Codec,
     ) -> Option<Result<String, ContentDecodeError>> {
-        Some(self.field_content(name, codec)?.map(|c| codec.project(&c)))
+        Some(
+            codec
+                .decode_field(self.payload.get(name)?.as_json())
+                .map(|c| codec.project(&c)),
+        )
     }
 }
 

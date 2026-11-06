@@ -159,7 +159,7 @@ pub enum DroppedConstruct {
 
 impl DroppedConstruct {
     /// Whether this reports a `qm-anchor` tag or a `qm-island` token, which
-    /// [`from_markdown_unresolved`] drops silently.
+    /// [`crate::markdown::from_markdown_unresolved`] drops silently.
     pub fn is_held_tag(&self) -> bool {
         match self {
             DroppedConstruct::Element(element) => element == carrier::ISLAND,
@@ -214,33 +214,39 @@ pub(crate) fn options() -> Options {
     options
 }
 
-/// Import markdown into a normalized, validated [`Content`], with an
-/// [`ImportWarning`] per construct it dropped: each dropped opening tag, a
-/// `<pre>`, `<script>`, `<style>` or `<textarea>` block's included, a block
-/// holding no other opening tag under its first where it drops markdown with
-/// it, each footnote no reference reads and each equation that stays as its
-/// markup's text, and each bidi control the text drops. A comment, the content
-/// of a type 1–5 HTML block, and any other
-/// closing tag or `qm-anchor` tag drop silently. What a footnote nothing
-/// reads holds reports nothing of its own. A `qm-island` token, which only a revise reads, drops reported under
-/// `qm-island`.
+/// [`crate::markdown::from_markdown`] lowered to the line form, for the
+/// readers still on it.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
-    let (content, warnings) = import(markdown, Tags::Cold)?;
+    let imported = crate::markdown::from_markdown(markdown)?;
     Ok(Imported {
-        content: content.into_lines(),
-        warnings,
+        content: crate::migrate::to_lines(&imported.content),
+        warnings: imported.warnings,
     })
 }
 
-/// [`from_markdown`] with each `qm-island` token dropped silently: the read
-/// of a markdown whose tokens a [`from_markdown_against`] of the same
-/// markdown resolves once the stored value it revises is known.
+/// [`crate::markdown::from_markdown_unresolved`] lowered to the line form.
 pub fn from_markdown_unresolved(markdown: &str) -> Result<Imported, ImportError> {
-    let (content, warnings) = import(markdown, Tags::Unresolved)?;
+    let imported = crate::markdown::from_markdown_unresolved(markdown)?;
     Ok(Imported {
-        content: content.into_lines(),
-        warnings,
+        content: crate::migrate::to_lines(&imported.content),
+        warnings: imported.warnings,
     })
+}
+
+/// The walk of `markdown` before its lift onto the content model, which
+/// [`crate::migrate::from_lines`] normalizes: a cold import, or with
+/// `unresolved` each `qm-island` token dropped silently.
+pub(crate) fn walk(
+    markdown: &str,
+    unresolved: bool,
+) -> Result<(Content, Vec<ImportWarning>), ImportError> {
+    import(
+        markdown,
+        match unresolved {
+            true => Tags::Unresolved,
+            false => Tags::Cold,
+        },
+    )
 }
 
 /// A [`from_markdown_against`] import.

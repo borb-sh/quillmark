@@ -80,12 +80,30 @@ pub enum Loss {
 }
 
 /// The import: `markdown` read cold, its ids minted positionally and no
-/// anchor in it. Its `qm-anchor` tags and `qm-island` tokens are what a
-/// revise reads back; read cold, they hold nothing.
+/// anchor in it, with an [`ImportWarning`] per construct it dropped: each
+/// dropped opening tag, a `<pre>`, `<script>`, `<style>` or `<textarea>`
+/// block's included, a block holding no other opening tag under its first
+/// where it drops markdown with it, each footnote no reference reads and each
+/// equation that stays as its markup's text, and each bidi control the text
+/// drops. A comment, the content of a type 1–5 HTML block, and any other
+/// closing tag or `qm-anchor` tag drop silently. What a footnote nothing reads
+/// holds reports nothing of its own. A `qm-island` token, which only a revise
+/// reads, drops reported under `qm-island`.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
-    let lines::import::Imported { content, warnings } = lines::import::from_markdown(markdown)?;
+    let (walked, warnings) = lines::import::walk(markdown, false)?;
     Ok(Imported {
-        content: from_lines(&content),
+        content: from_lines(&walked),
+        warnings,
+    })
+}
+
+/// [`from_markdown`] with each `qm-island` token dropped silently: the read
+/// of a markdown whose tokens a revise of the same markdown resolves once the
+/// stored value it revises is known.
+pub fn from_markdown_unresolved(markdown: &str) -> Result<Imported, ImportError> {
+    let (walked, warnings) = lines::import::walk(markdown, true)?;
+    Ok(Imported {
+        content: from_lines(&walked),
         warnings,
     })
 }

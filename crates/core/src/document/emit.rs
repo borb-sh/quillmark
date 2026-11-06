@@ -14,8 +14,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
-use quillmark_content::lines::export::to_markdown_annotated;
-use quillmark_content::lines::model::Lines;
+use quillmark_content::model::Content;
 use serde_json::Value as JsonValue;
 use serde_saphyr::SerializerOptions;
 
@@ -82,7 +81,7 @@ impl Document {
     }
 
     /// [`to_markdown`](Self::to_markdown) with every body and content field, at
-    /// any depth, projected through [`to_markdown_annotated`]: each prose
+    /// any depth, projected through [`to_markdown_annotated`](quillmark_content::markdown::to_markdown_annotated): each prose
     /// anchor spelled at its start where its line can hold the tag, and listed
     /// at its field's [`DocPath`] either way.
     ///
@@ -129,28 +128,31 @@ impl Document {
 fn emit_card(out: &mut String, card: &Card, at: &DocPath, anchors: Option<&Anchors>) {
     emit_block(out, card, at, anchors);
     let body = match anchors {
-        None => quillmark_content::lines::export::to_markdown(card.body_lines()),
-        Some(anchors) => annotated(card.body_lines(), &at.body(), anchors),
+        None => quillmark_content::markdown::to_markdown(card.body()),
+        Some(anchors) => annotated(card.body(), &at.body(), anchors),
     };
     append_body(out, &body);
 }
 
 /// `content`'s annotated markdown, its anchors pushed at `path`.
-fn annotated(content: &Lines, path: &DocPath, anchors: &Anchors) -> String {
+fn annotated(content: &Content, path: &DocPath, anchors: &Anchors) -> String {
     annotated_as(super::Codec::Richtext, content, path, anchors)
 }
 
 /// [`annotated`] under `codec`: a `text` value reads as its literal text, its
 /// anchors listed and no tag spelled.
-fn annotated_as(codec: super::Codec, content: &Lines, path: &DocPath, anchors: &Anchors) -> String {
+fn annotated_as(
+    codec: super::Codec,
+    content: &Content,
+    path: &DocPath,
+    anchors: &Anchors,
+) -> String {
     let read = match codec {
-        super::Codec::Richtext => to_markdown_annotated(content),
-        super::Codec::Text => {
-            quillmark_content::markdown::to_text_annotated(&quillmark_content::model::Content {
-                codec: quillmark_content::model::Codec::Plain,
-                ..quillmark_content::migrate::from_lines(content)
-            })
-        }
+        super::Codec::Richtext => quillmark_content::markdown::to_markdown_annotated(content),
+        super::Codec::Text => quillmark_content::markdown::to_text_annotated(&Content {
+            codec: quillmark_content::model::Codec::Plain,
+            ..content.clone()
+        }),
     };
     anchors
         .found
@@ -439,7 +441,7 @@ pub(super) fn project_content_field(value: &JsonValue) -> Option<String> {
 }
 
 /// The content `value` is, when [`project_content_field`] projects it.
-pub(super) fn canonical_content(value: &JsonValue) -> Option<Lines> {
+pub(super) fn canonical_content(value: &JsonValue) -> Option<Content> {
     if !value.is_object() {
         return None;
     }
@@ -451,11 +453,11 @@ pub(super) fn canonical_content(value: &JsonValue) -> Option<Lines> {
         let canonical =
             serde_json::to_string(&quillmark_content::lines::serial::to_canonical_value(&rt))
                 .ok()?;
-        return (as_written == canonical).then_some(rt);
+        return (as_written == canonical).then(|| quillmark_content::migrate::from_lines(&rt));
     }
-    let content = quillmark_content::model::Content::from_value(value).ok()?;
+    let content = Content::from_value(value).ok()?;
     let as_written = serde_json::to_string(value).ok()?;
-    (as_written == content.to_json()).then(|| quillmark_content::migrate::to_lines(&content))
+    (as_written == content.to_json()).then_some(content)
 }
 
 /// Ensure `out` ends with `\n\n` so the next fence has a blank line above it.

@@ -1275,7 +1275,7 @@ impl QuillConfig {
                 } else if let Some(field) = schema.fields.get(key.as_str()) {
                     each_content_leaf(field, value, &path.field(key), &mut |at, codec, leaf| {
                         if let Some(Ok(imported)) = codec.decode_value(leaf) {
-                            each(at, &imported.content);
+                            each(at, &quillmark_content::migrate::to_lines(&imported.content));
                         }
                     });
                 }
