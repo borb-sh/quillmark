@@ -308,7 +308,7 @@ Markdown is a projection of a value, not its storage, so `from_markdown(to_markd
 
 ## The line form
 
-The line form under the `lines` module, one line per block with marks and islands inline, is what a revise's carry and the anchor contexts still read. It is internal to the workspace: hidden from the documented surface, and no public API takes or answers it. `migrate::to_lines` lowers a value to it and `migrate::from_lines` lifts a v1 value, minting ids deterministically. The markdown import walks markdown into lines and `from_lines` lifts the walk, normalizing it once, as the model ([CONVERT.md](CONVERT.md)); core's card bodies, field decodes, projections and text coercion hold the value that lift makes, and a revise lowers the bodies it carries anchors across.
+The line form under the `lines` module, one line per block with marks and islands inline, is what the anchor contexts and a revise's tag read still read. It is internal to the workspace: hidden from the documented surface, and no public API takes or answers it. `migrate::to_lines` lowers a value to it and `migrate::from_lines` lifts a v1 value, minting ids deterministically. The markdown import walks markdown into lines and `from_lines` lifts the walk, normalizing it once, as the model ([CONVERT.md](CONVERT.md)); core's card bodies, field decodes, projections and text coercion hold the value that lift makes, and `carry` takes a revise's anchors and island ids across a rewrite of the model.
 
 The markdown export and the renderers read the value itself, through `view`: one line per run of text between block and hard breaks, with the container path, the item ordinals and the run parity markdown spells computed from the blocks and containers.
 
