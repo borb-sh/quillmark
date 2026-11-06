@@ -2011,7 +2011,7 @@ impl QuillConfig {
                 match value {
                     serde_json::Value::Null => true,
                     serde_json::Value::String(md) => crate::document::import_body(md)
-                        .is_ok_and(|body| body == quillmark_content::lines::model::Lines::empty()),
+                        .is_ok_and(|body| body == quillmark_content::model::Content::empty()),
                     _ => false,
                 }
             } else {

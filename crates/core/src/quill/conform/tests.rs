@@ -438,7 +438,7 @@ fn a_0_124_0_row_migrates_then_converges() {
     let quill = quill();
     let body = |md: &str| {
         quillmark_content::lines::serial::to_canonical_value(
-            &crate::document::import_body(md).unwrap(),
+            &crate::document::import_body_lines(md).unwrap(),
         )
     };
     let legacy = json!({
