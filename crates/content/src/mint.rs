@@ -16,17 +16,6 @@ pub struct Filled {
     pub minted: BTreeMap<String, String>,
 }
 
-/// The kind of part an id names: each kind holds its ids apart.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Scope {
-    Block,
-    Container,
-    Island,
-}
-
-/// Where an id sits: the value's own records, or one slot's.
-type Level = Option<(String, String)>;
-
 /// What a step does with an id: puts a record under it, minting under the
 /// prefix where it is to be minted, or names one.
 #[derive(Clone, Copy)]
@@ -43,7 +32,7 @@ pub fn fill(change: &Change, held: &[&Content]) -> Result<Filled, ApplyError> {
     let mut out = change.clone();
     let mut put: Vec<(usize, String, &'static str)> = Vec::new();
     let mut named: Vec<(usize, String)> = Vec::new();
-    visit(&mut out.steps, &None, &mut |n, _, _, role, id| {
+    visit(&mut out.steps, &mut |n, role, id| {
         if is_placeholder(id) {
             match role {
                 Role::Puts(p) => put.push((n, id.clone(), p)),
@@ -73,7 +62,7 @@ pub fn fill(change: &Change, held: &[&Content]) -> Result<Filled, ApplyError> {
             reason: "a placeholder no step puts",
         });
     }
-    visit(&mut out.steps, &None, &mut |_, _, _, _, id| {
+    visit(&mut out.steps, &mut |_, _, id| {
         if let Some(to) = minted.get(id.as_str()) {
             *id = to.clone();
         }
@@ -90,8 +79,8 @@ fn minter(change: &mut Change, held: &[&Content]) -> Minter {
     for c in held {
         hold_content(&mut ids, c);
     }
-    let mut hold = |_: usize, _: &Level, _: Scope, _: Role, id: &mut String| ids.hold(id.clone());
-    visit(&mut change.steps, &None, &mut hold);
+    let mut hold = |_: usize, _: Role, id: &mut String| ids.hold(id.clone());
+    visit(&mut change.steps, &mut hold);
     ids
 }
 
@@ -104,107 +93,78 @@ fn hold_content(ids: &mut Minter, c: &Content) {
     }
 }
 
-type Visit<'f> = dyn FnMut(usize, &Level, Scope, Role, &mut String) + 'f;
+type Visit<'f> = dyn FnMut(usize, Role, &mut String) + 'f;
 
 /// Calls `f` on each block, container and island id `steps` put or name,
-/// with the index of the step holding it at the top, the level it sits at and
-/// what the step does with it.
-fn visit(steps: &mut [Step], level: &Level, f: &mut Visit<'_>) {
+/// with the index of the step holding it at the top and what the step does
+/// with it. Ids are one namespace, whatever part or slot they sit in.
+fn visit(steps: &mut [Step], f: &mut Visit<'_>) {
     for (n, step) in steps.iter_mut().enumerate() {
-        visit_step(n, step, level, f);
+        visit_step(n, step, f);
     }
 }
 
-fn visit_step(n: usize, step: &mut Step, level: &Level, f: &mut Visit<'_>) {
-    let path = |f: &mut Visit<'_>, p: &mut Vec<String>| {
-        p.iter_mut()
-            .for_each(|k| f(n, level, Scope::Container, Role::Names, k))
-    };
+fn visit_step(n: usize, step: &mut Step, f: &mut Visit<'_>) {
+    let path =
+        |f: &mut Visit<'_>, p: &mut Vec<String>| p.iter_mut().for_each(|k| f(n, Role::Names, k));
     match step {
         Step::Splice(s) => {
             for b in &mut s.blocks {
-                f(n, level, Scope::Block, Role::Puts(prefix::BLOCK), &mut b.id);
+                f(n, Role::Puts(prefix::BLOCK), &mut b.id);
                 path(f, &mut b.path);
             }
             for island in &mut s.islands {
-                visit_island(n, island, level, f);
+                visit_island(n, island, f);
             }
         }
         Step::SetBlock(s) => {
-            f(n, level, Scope::Block, Role::Names, &mut s.id);
+            f(n, Role::Names, &mut s.id);
             if let Some(p) = &mut s.path {
                 path(f, p);
             }
         }
-        Step::Container(ContainerStep::Set(k)) => f(
-            n,
-            level,
-            Scope::Container,
-            Role::Puts(prefix::container(&k.kind)),
-            &mut k.id,
-        ),
-        Step::Container(ContainerStep::Remove { id }) => {
-            f(n, level, Scope::Container, Role::Names, id)
+        Step::Container(ContainerStep::Set(k)) => {
+            f(n, Role::Puts(prefix::container(&k.kind)), &mut k.id)
         }
+        Step::Container(ContainerStep::Remove { id }) => f(n, Role::Names, id),
         Step::Island(IslandStep::Props { id, slots, .. }) => {
-            let at = id.clone();
-            f(n, level, Scope::Island, Role::Names, id);
-            for (slot, c) in slots {
-                visit_content(n, c, &Some((at.clone(), slot.clone())), f);
+            f(n, Role::Names, id);
+            for c in slots.values_mut() {
+                visit_content(n, c, f);
             }
         }
         Step::Island(IslandStep::Insert { island, block, .. }) => {
-            visit_island(n, island, level, f);
+            visit_island(n, island, f);
             if let Some(b) = block {
-                f(n, level, Scope::Block, Role::Names, b);
+                f(n, Role::Names, b);
             }
         }
-        Step::Nested {
-            island,
-            slot,
-            change,
-        } => {
-            let inner = Some((island.clone(), slot.clone()));
-            f(n, level, Scope::Island, Role::Names, island);
+        Step::Nested { island, change, .. } => {
+            f(n, Role::Names, island);
             for step in &mut change.steps {
-                visit_step(n, step, &inner, f);
+                visit_step(n, step, f);
             }
         }
         Step::Mark(_) | Step::Anchor(_) => {}
     }
 }
 
-fn visit_island(n: usize, island: &mut crate::model::Island, level: &Level, f: &mut Visit<'_>) {
-    let at = island.id.clone();
-    f(
-        n,
-        level,
-        Scope::Island,
-        Role::Puts(prefix::ISLAND),
-        &mut island.id,
-    );
-    for (slot, c) in &mut island.slots {
-        visit_content(n, c, &Some((at.clone(), slot.clone())), f);
+fn visit_island(n: usize, island: &mut crate::model::Island, f: &mut Visit<'_>) {
+    f(n, Role::Puts(prefix::ISLAND), &mut island.id);
+    for c in island.slots.values_mut() {
+        visit_content(n, c, f);
     }
 }
 
-fn visit_content(n: usize, c: &mut Content, level: &Level, f: &mut Visit<'_>) {
+fn visit_content(n: usize, c: &mut Content, f: &mut Visit<'_>) {
     for k in &mut c.containers {
-        f(
-            n,
-            level,
-            Scope::Container,
-            Role::Puts(prefix::container(&k.kind)),
-            &mut k.id,
-        );
+        f(n, Role::Puts(prefix::container(&k.kind)), &mut k.id);
     }
     for b in &mut c.blocks {
-        f(n, level, Scope::Block, Role::Puts(prefix::BLOCK), &mut b.id);
-        b.path
-            .iter_mut()
-            .for_each(|k| f(n, level, Scope::Container, Role::Names, k));
+        f(n, Role::Puts(prefix::BLOCK), &mut b.id);
+        b.path.iter_mut().for_each(|k| f(n, Role::Names, k));
     }
     for island in &mut c.islands {
-        visit_island(n, island, level, f);
+        visit_island(n, island, f);
     }
 }

@@ -250,7 +250,6 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 - A document keeps no history of its writes, so the check reads alike in every process, a document loaded from its stored row included.
 - Writers that answer late and must merge with what landed since, a person typing beside an LLM, share a `@quillmark/collab` session, whose Yjs document merges them, and land the merged value through `replace`.
 
-- Each block, container and island id a revise or replace introduces is minted afresh where the value holds it, past the ids of the value and the write (`diff::revise_holding`, `diff::replace_holding`), a replace's own id among them.
 - Minting reads the value and the write alone, so equal values written over equal values store equal bytes, and `normalize` predicts what `replace` stores up to the first block's id, which a replace keeps.
 - A card keeps the hash each write left on its body or field, which the next write reads as the value's hash instead of hashing it again; a write with no base hashes nothing before it applies. Any other write to the body or the payload forgets it.
 

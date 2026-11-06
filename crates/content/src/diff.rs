@@ -242,11 +242,6 @@ fn reachable(before: &Content, after: &Content, top: bool) -> Content {
     want
 }
 
-/// The block ids of `c`.
-fn block_ids(c: &Content) -> HashSet<&str> {
-    c.blocks.iter().map(|b| b.id.as_str()).collect()
-}
-
 /// Each island of `c` by its id.
 fn islands_by_id(c: &Content) -> HashMap<&str, &Island> {
     c.islands.iter().map(|i| (i.id.as_str(), i)).collect()
@@ -950,20 +945,6 @@ impl From<ImportError> for ReviseError {
 /// keeps. What `before` holds and markdown does not spell is gone from the
 /// result. A [`Codec::Plain`] value reads `markdown` as its literal text.
 pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ReviseError> {
-    revise_holding(before, markdown, before)
-}
-
-/// `markdown` imported and aligned to `before`, so what `before` holds and
-/// the markdown does not spell is gone from it, for a write that lands on
-/// `now` rather than on `before`: each block, container and island id the
-/// revision introduces that `now` holds is minted afresh, past the ids of
-/// `before`, `now` and the revision. The ids are a function of the three
-/// values alone, so equal values write equal bytes.
-pub fn revise_holding(
-    before: &Content,
-    markdown: &str,
-    now: &Content,
-) -> Result<Revision, ReviseError> {
     let (imported, warnings, pins) = match before.codec {
         Codec::Rich => {
             let read = from_markdown_against(markdown, &to_lines(before))?;
@@ -976,7 +957,7 @@ pub fn revise_holding(
         ),
     };
     let (imported, _) = carry_pinned(before, imported, &pins);
-    let mut content = holding(before, &align(before, imported), now, true);
+    let mut content = holding(before, &align(before, imported), true);
     content.codec = before.codec;
     // A pinned anchor stands where its tag does; every other rides the diff's
     // splices, as a replace's do.
@@ -1055,105 +1036,28 @@ fn relocating(
 /// Refuses a `content` that is not valid or not canonical
 /// ([`Content::check_canonical`]), as the decode a write reads it through does.
 pub fn replace(before: &Content, content: &Content) -> Result<Change, Invariant> {
-    replace_holding(before, content, before)
-}
-
-/// [`replace`] for a write that lands on `now` rather than on `before`, its
-/// ids minted as [`revise_holding`] mints them.
-pub fn replace_holding(
-    before: &Content,
-    content: &Content,
-    now: &Content,
-) -> Result<Change, Invariant> {
     content.validate()?;
     content.check_canonical()?;
     let named: HashSet<String> = content.anchor_ids().into_iter().collect();
     Ok(diff_with(
         before,
-        &holding(before, content, now, true),
+        &holding(before, content, true),
         Some(&named),
     ))
 }
 
-/// `want` under the ids a change from `before` can give it, each block,
-/// container and island id it holds and `before` does not that `now` holds
-/// minted past the ids of all of them, and so in each slot of an island all
-/// three hold.
-fn holding(before: &Content, want: &Content, now: &Content, top: bool) -> Content {
+/// `want` under the ids a change from `before` can give it, and so in each
+/// slot of an island both hold.
+fn holding(before: &Content, want: &Content, top: bool) -> Content {
     let mut want = reachable(before, want, top);
-    let held_ids = |cs: [&Content; 3]| {
-        let mut ids = Minter::default();
-        for c in cs {
-            c.blocks
-                .iter()
-                .map(|b| &b.id)
-                .chain(c.containers.iter().map(|k| &k.id))
-                .for_each(|id| ids.hold(id));
-        }
-        ids
-    };
-    let mut ids: Option<Minter> = None;
-    let containers =
-        |c: &Content| -> HashSet<String> { c.containers.iter().map(|k| k.id.clone()).collect() };
-    let mut renamed = HashMap::new();
-    let (was, held) = (containers(before), containers(now));
-    for k in 0..want.containers.len() {
-        let id = &want.containers[k].id;
-        if !was.contains(id) && held.contains(id) {
-            let fresh = ids
-                .get_or_insert_with(|| held_ids([before, now, &want]))
-                .mint(container_prefix(&want.containers[k]));
-            renamed.insert(
-                std::mem::replace(&mut want.containers[k].id, fresh.clone()),
-                fresh,
-            );
-        }
-    }
-    let (was, held) = (block_ids(before), block_ids(now));
-    let clash: Vec<usize> = (0..want.blocks.len())
-        .filter(|&k| {
-            !was.contains(want.blocks[k].id.as_str()) && held.contains(want.blocks[k].id.as_str())
-        })
-        .collect();
-    for k in clash {
-        let fresh = ids
-            .get_or_insert_with(|| held_ids([before, now, &want]))
-            .mint(prefix::BLOCK);
-        want.blocks[k].id = fresh;
-    }
-    for b in &mut want.blocks {
-        for id in &mut b.path {
-            if let Some(to) = renamed.get(id) {
-                *id = to.clone();
-            }
-        }
-    }
-    let (was, held) = (islands_by_id(before), islands_by_id(now));
-    let mut island_ids: Option<Minter> = None;
-    for k in 0..want.islands.len() {
-        match (
-            was.get(want.islands[k].id.as_str()),
-            held.get(want.islands[k].id.as_str()),
-        ) {
-            (Some(was), Some(held)) => {
-                for (slot, inner) in &mut want.islands[k].slots {
-                    if let (Some(w), Some(n)) = (was.slots.get(slot), held.slots.get(slot)) {
-                        *inner = holding(w, inner, n, false);
-                    }
+    let was = islands_by_id(before);
+    for island in &mut want.islands {
+        if let Some(was) = was.get(island.id.as_str()) {
+            for (slot, inner) in &mut island.slots {
+                if let Some(w) = was.slots.get(slot) {
+                    *inner = holding(w, inner, false);
                 }
             }
-            (None, Some(_)) => {
-                let ids = island_ids.get_or_insert_with(|| {
-                    let mut ids = Minter::default();
-                    [before, now, &want]
-                        .iter()
-                        .flat_map(|c| &c.islands)
-                        .for_each(|i| ids.hold(&i.id));
-                    ids
-                });
-                want.islands[k].id = ids.mint(prefix::ISLAND);
-            }
-            _ => {}
         }
     }
     want
