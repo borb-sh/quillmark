@@ -4,16 +4,18 @@
 //! settles, but for a covered cell's alignment, which no spelling holds, in
 //! pipes exactly where nothing needs HTML. Separately, generated
 //! HTML around the subset's tags imports without a panic to a content that
-//! is the fixed point of a re-import.
+//! is the fixed point of a re-import. Both read the content model, and leave
+//! out a cell whose breaks its `<br>`s read back otherwise
+//! (`Loss::SlotBreaks`).
 
 use proptest::prelude::*;
 use serde_json::{Value, json};
 
-use crate::lines::export::to_markdown;
 use crate::lines::html_table::writes_html;
-use crate::lines::import::from_markdown;
 use crate::lines::island::IslandType;
 use crate::lines::model::{Content, ISLAND_SLOT, Island, Line, LineKind};
+use crate::markdown;
+use crate::migrate::from_lines;
 
 /// A cell: literal text over characters the HTML and pipe spellings both
 /// escape, or a word under one mark.
@@ -163,11 +165,13 @@ proptest! {
     fn a_table_reads_back_from_the_spelling_its_storage_picks(table in table()) {
         let rt = table.into_lines();
         prop_assert_eq!(rt.validate(), Ok(()));
-        let md = to_markdown(&rt);
+        let checked = markdown::to_markdown_checked(&from_lines(&rt));
+        prop_assume!(!checked.losses.iter().any(|l| matches!(l, markdown::Loss::SlotBreaks { .. })));
+        let md = checked.markdown;
         prop_assert_eq!(md.starts_with("<table"), writes_html(&rt.islands[0].props), "{}", md);
-        let back = from_markdown(&md).unwrap();
+        let back = markdown::from_markdown(&md).unwrap();
         prop_assert!(back.warnings.is_empty(), "{:?}\n{}", back.warnings, md);
-        prop_assert_eq!(&back.content, &without_covered_alignment(&rt), "{}", md);
+        prop_assert_eq!(&back.content, &from_lines(&without_covered_alignment(&rt)), "{}", md);
     }
 
     /// The prose a table's block sets apart after its `</table>` reads as
@@ -175,10 +179,12 @@ proptest! {
     /// the tables and the text are what read back.
     #[test]
     fn html_soup_imports_to_a_fixed_point(md in soup()) {
-        let imported = from_markdown(&md).unwrap();
+        let imported = markdown::from_markdown(&md).unwrap();
         prop_assert_eq!(imported.content.validate(), Ok(()), "{:?}", md);
-        let out = to_markdown(&imported.content);
-        let back = from_markdown(&out).unwrap();
+        let checked = markdown::to_markdown_checked(&imported.content);
+        prop_assume!(!checked.losses.iter().any(|l| matches!(l, markdown::Loss::SlotBreaks { .. })));
+        let out = checked.markdown;
+        let back = markdown::from_markdown(&out).unwrap();
         prop_assert!(back.warnings.is_empty(), "{:?}\n{:?}\n{}", back.warnings, md, out);
         prop_assert_eq!(&back.content.islands, &imported.content.islands, "{:?}\n{}", md, out);
         prop_assert_eq!(&back.content.text, &imported.content.text, "{:?}\n{}", md, out);

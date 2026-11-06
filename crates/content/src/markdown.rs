@@ -7,10 +7,8 @@
 
 use crate::ids::prefix;
 use crate::lines;
-use crate::lines::export::ExportLoss;
-pub use crate::lines::export::{AnchorRead, Annotated};
 pub use crate::lines::import::{DroppedConstruct, ImportError, ImportWarning};
-use crate::migrate::{from_lines, to_lines};
+use crate::migrate::from_lines;
 use crate::model::Scalar;
 use crate::model::{Block, BlockKind, Codec, Content, HARD_BREAK, ISLAND_SLOT, MarkKind};
 
@@ -21,6 +19,27 @@ use crate::model::{Block, BlockKind, Codec, Content, HARD_BREAK, ISLAND_SLOT, Ma
 pub struct Imported {
     pub content: Content,
     pub warnings: Vec<ImportWarning>,
+}
+
+/// A [`to_markdown_annotated`] read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Annotated {
+    /// [`to_markdown`]'s markdown with the anchor tags it can hold.
+    pub markdown: String,
+    /// Every anchor, spelled or not, in the prose and in each island's slots,
+    /// in reading order: by the position in the text where each stands, a
+    /// slot's at its island's, then prose before slots, by start and id.
+    pub anchors: Vec<AnchorRead>,
+}
+
+/// One anchor of an [`Annotated`] read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnchorRead {
+    pub id: String,
+    /// The text of the line the anchor's start sits on, island slots
+    /// removed, or of the table cell or footnote note that holds it: what
+    /// locates the anchor where a writer lost its tag.
+    pub line: String,
 }
 
 /// An export and what of the content it does not carry.
@@ -132,35 +151,13 @@ pub fn to_text(c: &Content) -> String {
 /// The plain export: what the content's markdown spells, every anchor and
 /// every `x-` construct dropped ([`to_markdown_checked`] names them).
 pub fn to_markdown(c: &Content) -> String {
-    lines::export::to_markdown(&to_lines(c))
+    crate::export::to_markdown(c)
 }
 
 /// [`to_markdown`] and each part of `c` it does not spell as itself, read
 /// back through [`from_markdown`]. Costs an import beyond the export.
 pub fn to_markdown_checked(c: &Content) -> Exported {
-    let lines::export::Exported { markdown, losses } =
-        lines::export::to_markdown_checked(&to_lines(c));
-    let mut losses: Vec<Loss> = losses
-        .into_iter()
-        .filter_map(|loss| match loss {
-            ExportLoss::Mark {
-                kind,
-                start,
-                end,
-                now,
-            } => MarkKind::from_line(&kind).map(|kind| Loss::Mark {
-                kind,
-                start,
-                end,
-                now,
-            }),
-            ExportLoss::Island { index, .. } => c
-                .islands
-                .get(index)
-                .map(|i| Loss::Island { id: i.id.clone() }),
-            ExportLoss::Text => Some(Loss::Text),
-        })
-        .collect();
+    let (markdown, mut losses) = crate::export::to_markdown_checked(c);
     let ext_marks = |c: &Content, slot: Option<(String, String)>| {
         c.marks
             .iter()
@@ -183,11 +180,11 @@ pub fn to_markdown_checked(c: &Content) -> Exported {
         _ => None,
     }));
     losses.extend(ext_marks(c, None));
-    let lifted = crate::diff::lift(c, &to_lines(c));
     for island in &c.islands {
+        let held = crate::export::held_slots(island);
         for (id, slot) in &island.slots {
-            let held = lifted.island(&island.id).and_then(|i| i.slots.get(id));
-            if held.map(|s| &s.text) != Some(&slot.text) {
+            let kept = held.iter().find(|(at, _)| at == id).map(|(_, s)| &s.text);
+            if kept != Some(&slot.text) {
                 losses.push(Loss::SlotBreaks {
                     island: island.id.clone(),
                     slot: id.clone(),
@@ -202,7 +199,7 @@ pub fn to_markdown_checked(c: &Content) -> Exported {
 /// The two-way read: [`to_markdown`] with each anchor's tag and each
 /// unwritable island's token, and every anchor listed (markdown-spec §6.4).
 pub fn to_markdown_annotated(c: &Content) -> Annotated {
-    lines::export::to_markdown_annotated(&to_lines(c))
+    crate::export::to_markdown_annotated(c)
 }
 
 /// The annotated read under the value's codec: [`to_markdown_annotated`], or
@@ -220,7 +217,7 @@ pub fn to_text_annotated(c: &Content) -> Annotated {
 
 /// The anchors [`to_markdown_annotated`] lists whose id `keep` holds.
 pub fn anchors_where(c: &Content, keep: impl Fn(&str) -> bool) -> Vec<AnchorRead> {
-    lines::export::anchors_where(&to_lines(c), keep)
+    crate::export::anchors_where(c, keep)
 }
 
 /// The text with every block break a blank line and every hard break a `\n`,

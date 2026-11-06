@@ -21,6 +21,7 @@ pub mod anchors;
 pub mod change;
 pub mod diff;
 mod draft;
+mod export;
 pub mod ids;
 #[doc(hidden)]
 pub mod lines;

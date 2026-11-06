@@ -54,10 +54,11 @@ The leaf rich-text primitive `quillmark-core` depends on: the content model
 whose slots nest content; [CONTENT.md](CONTENT.md)), its canonical
 byte-deterministic wire form (`wire`, which storage and the binding seam carry),
 the `Change` that edits it (`change`) and the producers that build one (`diff`),
-merge repair (`repair`), and each host's offsets (`units`). Under `lines` sits
-the line form the renderers and markdown codecs read: the markdown⇄content
-import/export codecs with a table's HTML spelling, the `qm-*` carrier grammar,
-and the comment-anchor contexts and exact re-attachment
+merge repair (`repair`), and each host's offsets (`units`). The markdown
+export (`export`, behind `markdown`) writes a value from the model itself.
+Under `lines` sits the line form the renderers and the markdown import read:
+the markdown→content import with a table's HTML spelling, the `qm-*` carrier
+grammar, and the comment-anchor contexts and exact re-attachment
 ([COMMENTS.md](COMMENTS.md)); `migrate` moves values between the two.
 The workspace's only markdown parser (`pulldown-cmark`) lives here, in
 `quillmark-content::lines::import`, run once at ingest. **Invariant:** the Markdown

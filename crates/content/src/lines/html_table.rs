@@ -841,9 +841,9 @@ pub(crate) fn writes_html(props: &Value) -> bool {
 
 /// The table's HTML spelling: the `<table>` tag's layout attributes, its head
 /// rows in a `thead` and the rest in a `tbody`, each row on its own line and
-/// each drawn cell's content as `cell` writes it. A covered cell is left out,
-/// as HTML leaves one out.
-pub(crate) fn write(props: &Value, cell: impl Fn(&Value) -> String) -> String {
+/// each drawn cell's content as `cell` writes the one at its row and column.
+/// A covered cell is left out, as HTML leaves one out.
+pub(crate) fn write(props: &Value, cell: impl Fn(usize, usize) -> String) -> String {
     let layout = TableLayout::of(props);
     let rows = table_rows(props);
     let spans = table_spans(props);
@@ -907,7 +907,7 @@ pub(crate) fn write(props: &Value, cell: impl Fn(&Value) -> String) -> String {
                 }
             }
             out.push('>');
-            out.push_str(&cell(value));
+            out.push_str(&cell(r, c));
             out.push_str(&format!("</{tag}>"));
         }
         out.push_str("</tr>");
