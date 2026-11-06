@@ -153,8 +153,8 @@ fn element_text(e: &Value) -> Option<String> {
 /// value, an empty line as an array element, the session's
 /// `backend::declined_construct` warning naming the table.
 fn richtext_plaintext(v: &Value) -> Option<String> {
-    let rt = quillmark_content::migrate::lines_from_value(v).ok()?;
-    Some(quillmark_content::lines::export::to_plaintext(&rt))
+    let read = quillmark_content::model::Content::from_value_lenient(v).ok()?;
+    Some(quillmark_content::view::plaintext(&read.content))
 }
 
 /// A choice value binds only if it matches one of the declared options exactly.

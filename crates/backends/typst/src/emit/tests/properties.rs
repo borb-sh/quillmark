@@ -17,7 +17,7 @@ fn mark_to_typst(markdown: &str) -> Result<String, String> {
     let rt = quillmark_content::lines::import::from_markdown(markdown)
         .map_err(|e| e.to_string())?
         .content;
-    crate::emit::emit_content(&rt)
+    crate::emit::emit_content(&quillmark_content::migrate::from_lines(&rt))
         .map(|ec| ec.markup)
         .map_err(|e| e.to_string())
 }

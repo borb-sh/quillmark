@@ -308,9 +308,9 @@ Markdown is a projection of a value, not its storage, so `from_markdown(to_markd
 
 ## The line form
 
-The renderers and the markdown import read the line form under the `lines` module, one line per block with marks and islands inline; core's revise, merge and align reach it too. It is internal to the workspace: hidden from the documented surface, and no public API takes or answers it. `migrate::to_lines` lowers a value to it and `migrate::from_lines` lifts a v1 value, minting ids deterministically; a markdown import runs through the line form and lifts ([CONVERT.md](CONVERT.md)). A card lowers its body when the line form is first read, not on each write, so a write no renderer reads pays nothing for it.
+The markdown import reads the line form under the `lines` module, one line per block with marks and islands inline; core's revise, merge and align reach it too. It is internal to the workspace: hidden from the documented surface, and no public API takes or answers it. `migrate::to_lines` lowers a value to it and `migrate::from_lines` lifts a v1 value, minting ids deterministically; a markdown import runs through the line form and lifts ([CONVERT.md](CONVERT.md)). A card lowers its body when the line form is first read, not on each write, so a write no renderer reads pays nothing for it.
 
-The markdown export reads the value itself, through a per-line view of its blocks that computes the item ordinals and the run parity markdown spells.
+The markdown export and the renderers read the value itself, through `view`: one line per run of text between block and hard breaks, with the container path, the item ordinals and the run parity markdown spells computed from the blocks and containers.
 
 The line form is a faithful view of a value but for what `to_markdown_checked` names as its loss, which a law holds over generated values (`tests/change_laws.rs`), and the anchor contexts and receipts read the stored text, not the line form.
 
