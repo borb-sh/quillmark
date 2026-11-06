@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.135.0 - 2026-11-06
 
 Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md). Core is
 single-writer: a write under a stale base throws `edit::stale_base` where it
