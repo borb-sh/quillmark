@@ -35,6 +35,7 @@ pub mod repair;
 pub mod structural;
 pub mod table;
 pub mod units;
+pub mod view;
 pub mod wire;
 
 /// Maximum container nesting depth the markdown codecs accept before erroring.

@@ -5,9 +5,9 @@
 ## TL;DR
 
 The Typst backend lowers a `Content` value to Typst markup with
-`emit_content`, which walks its line form (`migrate::to_lines`,
-[CONTENT.md](CONTENT.md) § "The line form"): lines, anchored marks, embedded
-islands, and never re-parses markdown. Alongside the markup it records a
+`emit_content`, which walks its view (`quillmark_content::view`,
+[CONTENT.md](CONTENT.md) § "The line form"): lines, marks, embedded islands,
+and never re-parses markdown. Alongside the markup it records a
 per-segment source map (`content ↔ generated` byte windows). This is the render
 path's only markup producer. Markdown reaches the content once, at
 ingest, in `quillmark-content::markdown`; the normative rules for *which* markdown

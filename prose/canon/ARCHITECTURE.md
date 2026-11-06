@@ -55,8 +55,8 @@ whose slots nest content; [CONTENT.md](CONTENT.md)), its canonical
 byte-deterministic wire form (`wire`, which storage and the binding seam carry),
 the `Change` that edits it (`change`) and the producers that build one (`diff`),
 merge repair (`repair`), and each host's offsets (`units`). The markdown
-export (`export`, behind `markdown`) writes a value from the model itself.
-Under `lines` sits the line form the renderers and the markdown import read:
+export (`export`, behind `markdown`) and the renderers read a value through
+its per-line `view`. Under `lines` sits the line form the markdown import reads:
 the markdown→content import with a table's HTML spelling, the `qm-*` carrier
 grammar, and the comment-anchor contexts and exact re-attachment
 ([COMMENTS.md](COMMENTS.md)); `migrate` moves values between the two.

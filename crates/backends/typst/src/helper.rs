@@ -243,7 +243,7 @@ impl<'m> Codegen<'m> {
         } else {
             emit_content
         };
-        match quillmark_content::migrate::lines_from_value(value) {
+        match quillmark_content::model::Content::from_value_lenient(value).map(|r| r.content) {
             Ok(rt) if !rt.is_blank() => match emit(&rt) {
                 Ok(ec) => {
                     let id = self.content_block(path, ec, inline && rt.is_inline());
