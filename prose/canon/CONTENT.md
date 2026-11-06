@@ -83,7 +83,7 @@ Offsets are Unicode scalar values in storage. Each binding speaks its host's uni
 Each axis is a closed set, and a name outside it is `ParseError::UnknownName` at every decoder, so a value holding one does not open. Block kinds, mark types and island types also hold the reserved `x-` names: `x-` and at least one more character, an id as a whole. One decodes into the axis's `Ext` member, `attrs` or `props` held as written, so a value a newer build wrote opens and re-encodes to the same bytes ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies"). Container kinds hold none, since a reader cannot check a path through a nesting rule it does not know.
 
 - Validation of an `x-` member is structural only: the name, the ranges, and its bag's JSON depth. An `x-` island holds any slots, each of paragraphs.
-- The line form lowers an `x-` block to a paragraph, drops an `x-` mark, and keeps an `x-` island with its slots as cells. The renderers draw the island as nothing, and markdown writes it as nothing, reporting the loss; the annotated read spells it as its token, so a revise keeps it.
+- The renderers and the markdown export read an `x-` block as a paragraph, drop an `x-` mark, and keep an `x-` island with its slots as cells. The renderers draw the island as nothing, and markdown writes it as nothing, reporting the loss; the annotated read spells it as its token, so a revise keeps it.
 - A revise keeps a kept block's `x-` kind where the markdown reads back as a paragraph, and an `x-` mark over the text the diff keeps.
 - A revise or replace at one address (`Card::revise`, `Card::replace`, the typed field revise) whose change removes an `x-` island refuses with `edit::drops_ext_island`, since its writer may never have seen it; a change through `apply` removes one. A whole-document revise (`Document::revise`) does not check, and a plain markdown revise of the document drops the island.
 - Steps set and remove `x-` names like any other.
@@ -308,7 +308,9 @@ Markdown is a projection of a value, not its storage, so `from_markdown(to_markd
 
 ## The line form
 
-The renderers and the markdown codecs read the line form under the `lines` module, one line per block with marks and islands inline; core's revise, merge and align reach it too. It is internal to the workspace: hidden from the documented surface, and no public API takes or answers it. `migrate::to_lines` lowers a value to it and `migrate::from_lines` lifts a v1 value, minting ids deterministically; a markdown import runs through the line form and lifts ([CONVERT.md](CONVERT.md)). A card lowers its body when the line form is first read, not on each write, so a write no renderer reads pays nothing for it.
+The renderers and the markdown import read the line form under the `lines` module, one line per block with marks and islands inline; core's revise, merge and align reach it too. It is internal to the workspace: hidden from the documented surface, and no public API takes or answers it. `migrate::to_lines` lowers a value to it and `migrate::from_lines` lifts a v1 value, minting ids deterministically; a markdown import runs through the line form and lifts ([CONVERT.md](CONVERT.md)). A card lowers its body when the line form is first read, not on each write, so a write no renderer reads pays nothing for it.
+
+The markdown export reads the value itself, through a per-line view of its blocks that computes the item ordinals and the run parity markdown spells.
 
 The line form is a faithful view of a value but for what `to_markdown_checked` names as its loss, which a law holds over generated values (`tests/change_laws.rs`), and the anchor contexts and receipts read the stored text, not the line form.
 

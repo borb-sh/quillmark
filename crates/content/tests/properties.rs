@@ -733,9 +733,10 @@ proptest! {
             prop_assert_eq!(row.as_array().unwrap().len(), cols);
         }
 
-        let md = to_markdown(&rt);
-        let rt2 = from_markdown(&md).unwrap().content;
-        prop_assert_eq!(&rt, &rt2, "table not a fixed point.\n  md: {:?}", md);
+        let c = quillmark_content::migrate::from_lines(&rt);
+        let md = quillmark_content::markdown::to_markdown(&c);
+        let back = quillmark_content::markdown::from_markdown(&md).unwrap().content;
+        prop_assert_eq!(&c, &back, "table not a fixed point.\n  md: {:?}", md);
     }
 }
 
@@ -743,8 +744,10 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
     /// Editor marks over a cell holding `\n`: the shapes import never mints, a
-    /// mark edge on a break and a code span across one. The text and the row
-    /// survive whatever the marks, and a break costs no mark.
+    /// mark edge on a break and a code span across one, read as the content
+    /// model holds the cell: its marks parted at each break, and a cell it
+    /// holds otherwise left out. The text and the row survive whatever the
+    /// marks, and a break costs no mark.
     #[test]
     fn editor_marks_over_a_cell_break_are_text_safe(
         chars in prop::collection::vec(
@@ -772,7 +775,12 @@ proptest! {
         prop_assert_eq!(rt.validate(), Ok(()), "normalized table invalid");
         prop_assert_eq!(&renormalized(&rt), &*rt, "the table mint is not a fixed point");
 
-        let md = to_markdown(&rt);
+        let model = quillmark_content::migrate::from_lines(&rt);
+        let held = quillmark_content::migrate::to_lines(&model);
+        prop_assume!(held.islands[0].props["rows"][0][0]["text"].as_str() == Some(text.as_str()));
+        let checked = quillmark_content::markdown::to_markdown_checked(&model);
+        prop_assume!(!checked.losses.iter().any(|l| matches!(l, quillmark_content::markdown::Loss::SlotBreaks { .. })));
+        let md = checked.markdown;
         let rt2 = from_markdown(&md).unwrap().content;
         let rows = rt2.islands.first().map(|i| i.props["rows"].clone());
         prop_assert_eq!(rows.as_ref().and_then(|r| r.as_array()).map(Vec::len), Some(1),
@@ -787,7 +795,7 @@ proptest! {
         // an edge off a break. A code span is left out: one across a break
         // re-imports as two spans, and its clip can land a wrap's edge on a
         // space the trim exposes.
-        let (stored, kept) = quillmark_content::lines::serial::parse_cell(&rt.islands[0].props["rows"][0][0]);
+        let (stored, kept) = quillmark_content::lines::serial::parse_cell(&held.islands[0].props["rows"][0][0]);
         let cs: Vec<char> = stored.chars().collect();
         if !kept.iter().any(|m| m.kind == MarkKind::Code) {
             let commas: String = cs.iter().map(|&c| if c == '\n' { ',' } else { c }).collect();
