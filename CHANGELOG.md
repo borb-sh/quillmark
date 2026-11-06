@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.135.0 - 2026-11-06
 
 Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md). Core is
 single-writer: a write under a stale base throws `edit::stale_base` where it
@@ -198,6 +198,79 @@ hash change.
   took 0.7 s.
 - perf(core): **a write hashes once**, streamed over the canonical bytes
   with no `Value` tree, and a card keeps the hash each write left.
+
+### Commits since v0.134.1
+
+- docs(release): curate the 0.135.0 changelog and true the guide to HEAD
+- refactor(content): small cleanups from the 0.135.0 review
+- refactor(content): drop the rebase-era holding mint and the unread mint scopes
+- fix(content): a remove step refuses the keys of its set twin
+- fix(core): a typed revise of a text field at rest as a string answers its literal splice
+- refactor(content): a revise carries anchors on the content model
+- refactor(core): card bodies, plate reads and backend checks hold the model
+- refactor(content): the markdown import builds the content model
+- refactor(typst): the emitter and acroform read the content model
+- refactor(content): the markdown export reads the content model
+- feat(core): soft-cut the line form: every migrated value warns and saves back (#2416)
+- refactor!: drop collab policy from core; the anchor carry is named so
+- refactor(core)!: a write mints positionally; actor is gone
+- refactor(core)!: drop the line merge; a stale base is one StaleBase error
+- refactor(core)!: core is single-writer; a stale base refuses
+- feat!: a revise's base is the canonical value it read (#2393)
+- feat!: the body is an address, revised and read through the field door (#2392)
+- feat(core): edit::content_apply names its failure (#2390)
+- docs(content): a Change is session-scoped, not a storage format (#2389)
+- fix!: 0.135 storage tag, strict content decode, short-paragraph rebase, and 1.0 surface hygiene (#2388)
+- feat!: one actor, one dropped-anchor shape, one stale base and one annotated export (#2387)
+- refactor!: keep the line form and retired words off the 0.135 surface, and align the docs (#2386)
+- fix(core)!: add_card answers the $id it minted beside its warnings
+- fix(content)!: the plain codec reads and writes a paragraph break as a blank line
+- fix(core): an actor never mints an id it minted before in a document's life
+- fix(content): a revise relocates a quote within the text its own change inserted
+- fix(core): a document revise and parse land only valid values
+- fix(content): a footnote note imports as one paragraph, a run of breaks joined
+- docs(migrations): one markdown door each way, and one revise
+- docs(canon): one markdown door each way, one revise, and one loss list
+- fix(core): a typed richtext revise refuses to drop an x- island
+- test(parity)!: restate the corpus over Content
+- feat(wasm,python)!: one markdown door each way
+- refactor(content,core)!: demote the line form; one revise
+- feat(core)!: every write on Document validates, the schema-free writes are unchecked, and a card's $id mints under the writer's actor
+- feat(content)!: a footnote's note is one paragraph with hard breaks
+- docs(canon): pin the content vocabulary in a glossary, and gate the retired words
+- docs(canon): name the session's mark-edge merge, and fold the 0.135 guide's sections under one title
+- test(wasm): replace refuses a value normalize would rewrite
+- test(content): gate the interactive target's budgets
+- perf(content): build revise's minters lazily and lower its read once
+- feat(core)!: the writer's revise answers the content receipt
+- feat(content)!: name every anchor a write moves and what moved
+- feat(content)!: repair answers the change from the merged state
+- test(wasm): read a conformed text field as plain content
+- test(python): read a conformed text field as plain content
+- feat(core)!: rest text fields as codec: plain content, and take whole-field comments
+- feat(content)!: take one spelling per value at a write, read a stored one leniently, and hold a table cell to one paragraph
+- test(bindings): write the gestures, diffRange, locate and a placeholder under an actor
+- feat(content)!: mint ids under the writer's actor, fill placeholders, and write gestures as document verbs
+- feat(content)!: split the anchor step into place and move, and hold marks and anchors under rebase
+- test(content): hold a Tab undone by Shift-Tab to the whole value
+- docs(canon): say what the code does where the review found the canon drifted
+- test(content): let the annotated-read law name a mark markdown cannot write
+- test(content): time a long value's splice, revise, replace, repair, import and decode
+- perf(core): hash a write once, streamed, and lower the body when read
+- perf(content): find ids by index in revise, replace and repair
+- feat(content)!: bound marks, anchors, inputs and note copies at every door
+- feat(content)!: read anchor contexts off the stored text
+- fix(content): carry anchors through one word diff and pair lines by similarity
+- fix(content): write formatting inside link text, and report x- losses
+- feat(core)!: rebase a revise over what its markdown read does not spell
+- feat(content)!: judge identity by incarnation in rebase, and mint from values alone
+- fix(content): pair an island move step by step
+- fix(content): map a position through an island a change moves
+- test(content): state the UTF-16 JSON doors of a merge state and a change
+- feat(content)!: refuse a step holding a key it does not define
+- fix(content): mint past an id at the top of u64 without overflow
+- test(bindings): read the document receipt's conflicts
+- feat(core)!: merge a whole-document write under a read base by structure
 
 ## v0.134.1 - 2026-11-02
 
