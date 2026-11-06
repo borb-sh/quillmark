@@ -1,7 +1,7 @@
 //! Markdown export: content → markdown, per island type.
 //!
 //! Marks become syntax; identity ([`MarkKind::Anchor`]) marks are **omitted**,
-//! surviving across edits via diff-rebase rather than the projection.
+//! surviving a revise through the diff that carries them rather than the projection.
 //! [`to_markdown_annotated`] spells each at its start as a read-only tag the
 //! import drops. The contract is the **content fixed point**: for a content `rt` from
 //! [`crate::lines::import::from_markdown`], `from_markdown(to_markdown(rt)) == rt`.

@@ -393,12 +393,12 @@ pub enum MarkKind {
         name: String,
     },
     // Identity: a handle, not a property. Never merged, may be zero-width.
-    /// A comment thread or stable anchor, carried by id and rebased across
+    /// A comment thread or stable anchor, carried by id and moved across
     /// edits like any position. The id is caller-supplied, unique per `Content`,
     /// and invariant while the mark lives; moved-and-rewritten text drops the
     /// mark whole. No markdown projection: it is omitted on export, spelled
     /// read-only by [`to_markdown_annotated`](crate::lines::export::to_markdown_annotated),
-    /// and survives via diff-rebase.
+    /// and survives a revise through the diff that carries it.
     Anchor {
         id: String,
     },

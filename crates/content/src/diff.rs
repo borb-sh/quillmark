@@ -6,7 +6,7 @@
 
 use crate::change::{AnchorStep, ApplyError, Change, ContainerStep, IslandStep, SetBlock, Splice, Step, apply, mark_fixups, run};
 use crate::ids::{Minter, prefix};
-use crate::lines::delta::{Op, diff_words as text_diff, rebase_pinned, relocate, without_sentinel};
+use crate::lines::delta::{Op, diff_words as text_diff, carry_pinned, relocate, without_sentinel};
 use crate::lines::import::{Against, ImportError, ImportWarning, from_markdown_against};
 use crate::lines::island::IslandType;
 use crate::migrate::{from_lines, to_lines};
@@ -792,7 +792,7 @@ fn revise_lines(before: &Content, lines: &crate::lines::model::Lines, markdown: 
             pins: Vec::new(),
         },
     };
-    let (imported, _) = rebase_pinned(lines, imported, &pins);
+    let (imported, _) = carry_pinned(lines, imported, &pins);
     let mut content = holding(before, &align(before, from_lines(&imported)), now, true);
     content.codec = before.codec;
     // A pinned anchor stands where its tag does; every other rides the diff's

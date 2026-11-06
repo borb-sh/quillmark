@@ -2,8 +2,8 @@
 //! concurrent edits can merge into a state no step allows. [`repair`] makes any
 //! such state valid by fixed rules: it is total, the same raw value always
 //! repairs to the same content, and every id it mints is derived from the ids
-//! involved, so peers holding one merged state read one value. A rule that
-//! [inserts](Repair::inserts) is written back by no peer.
+//! involved, so peers holding one merged state read one value. A mend that
+//! [inserts](Repair::inserts) lands twice when it is written back twice.
 
 use crate::change::{Change, IslandStep, Removed as Gone, Splice, Step};
 use crate::ids::{MAX_ID_LEN, is_id};
@@ -130,11 +130,10 @@ impl Repair {
         }
     }
 
-    /// Whether writing this repair back inserts text or a slot. Two peers
-    /// writing one back at once each insert their own: text lands twice and
-    /// stays valid, and a slot minted twice keeps one peer's under its id. So
-    /// no peer writes back a report holding one; any peer may write back a
-    /// report whose repairs only delete or set.
+    /// Whether writing this mend back inserts text or a slot. Written back
+    /// twice, it inserts twice: the text lands twice and stays valid, and a
+    /// slot minted twice keeps one write's under its id. A mend that only
+    /// deletes or sets writes back the same however often it is written.
     pub fn inserts(&self) -> bool {
         match self {
             Repair::SplitBlock { .. } | Repair::EmptyCell { .. } => true,

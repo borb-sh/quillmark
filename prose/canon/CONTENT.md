@@ -219,7 +219,7 @@ Each law is a property test over generated values and generated changes (`tests/
 3. `map_pos(c, p)` agrees with `apply`: the two edges of a character both say it was deleted, or land around it afterwards in the same order, a character inside a nested slot included, and one in an island the change moves keeps its place. A change's maps followed by their mirrored inverses take every position home.
 4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes. `parse` refuses a value `normalize` would change, and the lenient read of it reaches one `parse` accepts (`tests/properties.rs`).
 5. Every `Change` yields a valid value or fails and changes nothing.
-6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported. A write-back reads as the merged state it repaired, by any number of peers, where no repair inserts, since the value then holds no character or island the state does not; no peer writes back a repair that inserts.
+6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported. A write-back of a repair none of whose mends inserts reads as the merged state it repaired, however many times it is written, since the value then holds no character or island the state does not.
 
 ## Writing a value
 
@@ -272,11 +272,10 @@ A single step cannot break the model, but two valid concurrent edits can merge i
 
 Its `Change` takes the merged text to the value's: each character a rule deletes, inserts or rewrites as a splice, a slot's edits as a `nested` step, and a table's slots a rule removed or added as a props step. A position mapped through it lands where repair puts an anchor there, which a law holds (`tests/repair_laws.rs`), so a peer maps its caret, or lowers an exact change into the merged state's coordinates, through it.
 
-Repair is how a merged state reads: it is total and deterministic, so peers holding one merged state compute one value without writing anything. Writing a repair back into the shared state is the session's to decide; what core says is which write-backs are idempotent:
+Repair is how a merged state reads: it is total and deterministic, so peers holding one merged state compute one value without writing anything. Whether and by whom a repair is written back into the shared state is `@quillmark/collab`'s; what core states is which write-backs are idempotent:
 
-- A repair whose rules only delete or set an attribute may be written back by any peer. Two peers writing back one repair delete the same characters and records and set the same values, so their merge is one write-back, and it reads as the merged state did. A record minted for a `\n` that holds none, a split run's container and a re-minted id are sets too, each under an id derived from the ids involved.
-- A rule that inserts, `Repair::inserts` (`inserts: true` on the wire), is not idempotent: a split block's `\n` and record, the space a heading's hard break becomes, the hard break a cell's paragraph break becomes, and a missing cell's empty slot. Two peers inserting at once each insert their own: text lands twice and stays, since the extra copy is valid, and a cell minted twice keeps one peer's slot under its id. A session writes one back from one peer only; `@quillmark/collab` names that peer.
-- Every peer reads the merged state through repair until a write-back lands, and maps through its change. A save stores the repaired value, so the stored document holds what an inserting repair made.
+- A mend that only deletes or sets an attribute is idempotent. Two write-backs of it delete the same characters and records and set the same values, so their merge is one write-back, and it reads as the merged state did. A record minted for a `\n` that holds none, a split run's container and a re-minted id are sets too, each under an id derived from the ids involved.
+- A mend that inserts, `Repair::inserts` (`inserts: true` on the wire), is not: a split block's `\n` and record, the space a heading's hard break becomes, the hard break a cell's paragraph break becomes, and a missing cell's empty slot. Two write-backs of it each insert their own: text lands twice and stays, since the extra copy is valid, and a cell minted twice keeps one write's slot under its id.
 
 | Merged state | How it arises | Repair |
 |---|---|---|

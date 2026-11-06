@@ -409,7 +409,7 @@ mod tests {
     mod properties;
 
     use super::*;
-    use crate::lines::delta::{diff_import, rebase_onto};
+    use crate::lines::delta::{diff_import, carry_onto};
     use crate::lines::import::from_markdown;
     use crate::lines::model::Mark;
 
@@ -619,7 +619,7 @@ mod tests {
         let moved = span(&revised, "c1").expect("revise relocates it into the inserted line");
         assert_eq!(text(&revised, moved), "approved the budget");
 
-        let (mut next, delta) = rebase_onto(&without_anchors(&base), content(&new_md));
+        let (mut next, delta) = carry_onto(&without_anchors(&base), content(&new_md));
         let out = next.reattach(&ctxs, Some(&delta.inserted_spans()), &none());
         assert!(out.orphaned.is_empty(), "{out:?}");
         assert_eq!(span(&next, "c1"), Some(moved));
