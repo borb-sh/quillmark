@@ -598,18 +598,25 @@ impl QuillConfig {
                     }
                     Ok(rt)
                 };
-                let commit = |old: Option<&serde_json::Value>, rt: &quillmark_content::lines::model::Lines| {
-                    QuillValue::from_json(crate::document::stored_as(old, rt, quillmark_content::model::Codec::Plain))
-                };
+                let commit =
+                    |old: Option<&serde_json::Value>,
+                     rt: &quillmark_content::lines::model::Lines| {
+                        QuillValue::from_json(crate::document::stored_as(
+                            old,
+                            rt,
+                            quillmark_content::model::Codec::Plain,
+                        ))
+                    };
                 if json_value.is_object() {
-                    let rt = quillmark_content::migrate::lines_from_value(json_value).map_err(|e| {
-                        CoercionError::uncoercible(
-                            path,
-                            "<object>",
-                            "text",
-                            format!("not a valid content object: {e}"),
-                        )
-                    })?;
+                    let rt =
+                        quillmark_content::migrate::lines_from_value(json_value).map_err(|e| {
+                            CoercionError::uncoercible(
+                                path,
+                                "<object>",
+                                "text",
+                                format!("not a valid content object: {e}"),
+                            )
+                        })?;
                     return Ok(commit(Some(json_value), &plain_check(rt)?));
                 }
                 let Some(text) = lenient_string(json_value) else {
@@ -623,7 +630,9 @@ impl QuillConfig {
                         )),
                     };
                 };
-                let rt = quillmark_content::migrate::to_lines(&quillmark_content::markdown::from_plaintext(&text));
+                let rt = quillmark_content::migrate::to_lines(
+                    &quillmark_content::markdown::from_plaintext(&text),
+                );
                 Ok(commit(None, &plain_check(rt)?))
             }
             FieldType::RichText { multiline } => {
@@ -642,12 +651,13 @@ impl QuillConfig {
                              container and no islands; declare multiline: true to admit blocks",
                     )
                 };
-                let inline_check = |rt: &quillmark_content::model::Content| -> Result<(), CoercionError> {
-                    if !multiline && !rt.is_inline() {
-                        return Err(inline_err());
-                    }
-                    Ok(())
-                };
+                let inline_check =
+                    |rt: &quillmark_content::model::Content| -> Result<(), CoercionError> {
+                        if !multiline && !rt.is_inline() {
+                            return Err(inline_err());
+                        }
+                        Ok(())
+                    };
                 // The messages mirror `Card::commit_field`'s richtext error
                 // variants, which the bindings key on.
                 if mode == Leniency::Write {
@@ -674,14 +684,15 @@ impl QuillConfig {
                         });
                 }
                 if json_value.is_object() {
-                    let mut rt = quillmark_content::model::Content::from_value(json_value).map_err(|e| {
-                        CoercionError::uncoercible(
-                            path,
-                            "<object>",
-                            "richtext",
-                            format!("not a valid richtext content: {e}"),
-                        )
-                    })?;
+                    let mut rt = quillmark_content::model::Content::from_value(json_value)
+                        .map_err(|e| {
+                            CoercionError::uncoercible(
+                                path,
+                                "<object>",
+                                "richtext",
+                                format!("not a valid richtext content: {e}"),
+                            )
+                        })?;
                     inline_check(&rt)?;
                     rt.codec = quillmark_content::model::Codec::Rich;
                     return Ok(QuillValue::from_json(rt.to_value()));

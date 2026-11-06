@@ -228,9 +228,10 @@ mod tests {
 
     #[test]
     fn richtext_content_lowers_to_plaintext() {
-        let rt = quillmark_content::lines::import::from_markdown("A **bold** claim.\n\nSecond line.")
-            .unwrap()
-            .content;
+        let rt =
+            quillmark_content::lines::import::from_markdown("A **bold** claim.\n\nSecond line.")
+                .unwrap()
+                .content;
         let content = quillmark_content::lines::serial::to_canonical_value(&rt);
         assert_eq!(
             coerce_text(&content).as_deref(),

@@ -17,7 +17,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use quillmark_content::lines::import::ImportError;
-use quillmark_content::lines::model::{Container, Content, MarkKind, Lines};
+use quillmark_content::lines::model::{Container, Content, Lines, MarkKind};
 use quillmark_content::model::Content as ContentModel;
 
 use super::meta::validate_composable_kind;
@@ -155,7 +155,10 @@ pub struct StoredContent {
 
 impl From<ContentModel> for StoredContent {
     fn from(content: ContentModel) -> Self {
-        StoredContent { content, rewritten: false }
+        StoredContent {
+            content,
+            rewritten: false,
+        }
     }
 }
 
@@ -178,7 +181,10 @@ impl<'de> Deserialize<'de> for StoredContent {
     {
         let value = serde_json::Value::deserialize(deserializer)?;
         ContentModel::from_value_lenient(&value)
-            .map(|read| StoredContent { content: read.content, rewritten: read.rewritten })
+            .map(|read| StoredContent {
+                content: read.content,
+                rewritten: read.rewritten,
+            })
             .map_err(serde::de::Error::custom)
     }
 }
@@ -362,37 +368,41 @@ impl From<&Card> for CardV0_134_0 {
     }
 }
 
-/// The hop from the line form: each body, and each field value that decodes
-/// as line-form content at any depth, migrates, minting its ids.
+/// The hop from the line form: each body migrates, minting its ids. Field and
+/// `$seed` values migrate as a `0.134.0` row's do, in [`card_from_stored`].
 impl From<DocumentV0_129_0> for DocumentV0_134_0 {
     fn from(d: DocumentV0_129_0) -> Self {
-        let card = |mut c: CardV0_129_0| {
-            for item in &mut c.payload.items {
-                if let PayloadItemV0_124_0::Field { value, .. } = item {
-                    migrate_field(value);
-                }
-            }
-            CardV0_134_0 {
-                payload: c.payload,
-                body: StoredContent::from(quillmark_content::migrate::from_lines(&c.body.0)),
-            }
+        let card = |c: CardV0_129_0| CardV0_134_0 {
+            payload: c.payload,
+            body: StoredContent {
+                content: quillmark_content::migrate::from_lines(&c.body.0),
+                rewritten: true,
+            },
         };
-        DocumentV0_134_0 { main: card(d.main), cards: d.cards.into_iter().map(card).collect() }
+        DocumentV0_134_0 {
+            main: card(d.main),
+            cards: d.cards.into_iter().map(card).collect(),
+        }
     }
 }
 
 /// A field's line-form content, at any depth of its value, as the model.
-fn migrate_field(value: &mut serde_json::Value) {
+/// True where one migrated.
+fn migrate_field(value: &mut serde_json::Value) -> bool {
     if quillmark_content::wire::is_v1(value)
         && let Some(lines) = super::emit::canonical_content(value)
     {
         *value = quillmark_content::migrate::from_lines(&lines).to_value();
-        return;
+        return true;
     }
     match value {
-        serde_json::Value::Object(map) => map.values_mut().for_each(migrate_field),
-        serde_json::Value::Array(items) => items.iter_mut().for_each(migrate_field),
-        _ => {}
+        serde_json::Value::Object(map) => map
+            .values_mut()
+            .fold(false, |any, v| migrate_field(v) | any),
+        serde_json::Value::Array(items) => items
+            .iter_mut()
+            .fold(false, |any, v| migrate_field(v) | any),
+        _ => false,
     }
 }
 
@@ -400,7 +410,9 @@ fn migrate_field(value: &mut serde_json::Value) {
 /// value is: one spelled otherwise than its canonical form is rewritten to
 /// it, and one that does not read refuses the load, as a body's does. True
 /// where one was rewritten.
-fn canonicalize_field(value: &mut serde_json::Value) -> Result<bool, quillmark_content::wire::ParseError> {
+fn canonicalize_field(
+    value: &mut serde_json::Value,
+) -> Result<bool, quillmark_content::wire::ParseError> {
     if quillmark_content::units::is_content_value(value) && !quillmark_content::wire::is_v1(value) {
         let read = ContentModel::from_value_lenient(value)?;
         if read.rewritten {
@@ -526,7 +538,9 @@ impl TryFrom<DocumentV0_134_0> for Document {
 /// value the read rewrote to its canonical form.
 pub fn from_stored(stored: StoredDocument) -> Result<super::Parsed, StorageError> {
     match stored {
-        StoredDocument::V0_135_0(payload) | StoredDocument::V0_134_0(payload) => document_from_stored(payload),
+        StoredDocument::V0_135_0(payload) | StoredDocument::V0_134_0(payload) => {
+            document_from_stored(payload)
+        }
         StoredDocument::V0_131_0(payload) | StoredDocument::V0_129_0(payload) => {
             document_from_stored(DocumentV0_134_0::from(payload))
         }
@@ -770,15 +784,36 @@ impl TryFrom<CardV0_134_0> for Card {
 /// A stored card, with what of it the read rewrote to its canonical form: its
 /// body, and each field holding a content value spelled otherwise.
 fn card_from_stored(mut card: CardV0_134_0) -> Result<(Card, Rewritten), StorageError> {
-    let mut rewritten = Rewritten { body: card.body.rewritten, fields: Vec::new() };
+    let mut rewritten = Rewritten {
+        body: card.body.rewritten,
+        fields: Vec::new(),
+        seed: false,
+    };
     for item in &mut card.payload.items {
-        if let PayloadItemV0_124_0::Field { key, value } = item {
-            migrate_field(value);
-            let changed = canonicalize_field(value)
-                .map_err(|e| StorageError::Malformed(format!("field `{key}` holds content that does not read: {e}")))?;
-            if changed {
-                rewritten.fields.push(key.clone());
+        match item {
+            PayloadItemV0_124_0::Field { key, value } => {
+                let migrated = migrate_field(value);
+                let changed = canonicalize_field(value).map_err(|e| {
+                    StorageError::Malformed(format!(
+                        "field `{key}` holds content that does not read: {e}"
+                    ))
+                })?;
+                if migrated || changed {
+                    rewritten.fields.push(key.clone());
+                }
             }
+            PayloadItemV0_124_0::Seed { value } => {
+                for (kind, overlay) in value.iter_mut() {
+                    let migrated = migrate_field(overlay);
+                    let changed = canonicalize_field(overlay).map_err(|e| {
+                        StorageError::Malformed(format!(
+                            "`$seed` overlay `{kind}` holds content that does not read: {e}"
+                        ))
+                    })?;
+                    rewritten.seed |= migrated || changed;
+                }
+            }
+            _ => {}
         }
     }
     let payload = Payload::try_from(card.payload)?;
@@ -790,6 +825,8 @@ fn card_from_stored(mut card: CardV0_134_0) -> Result<(Card, Rewritten), Storage
 struct Rewritten {
     body: bool,
     fields: Vec<String>,
+    /// Whether a `$seed` overlay held a content value spelled otherwise.
+    seed: bool,
 }
 
 impl Rewritten {
@@ -798,7 +835,11 @@ impl Rewritten {
     fn warnings(self, at: &crate::path::DocPath) -> impl Iterator<Item = crate::error::Diagnostic> {
         let body = self.body.then(|| at.body());
         let fields = self.fields.into_iter().map(|name| at.field(&name));
-        body.into_iter().chain(fields).map(|path| super::noncanonical_read().with_path(path.to_string()))
+        let seed = self.seed.then(|| at.clone());
+        body.into_iter()
+            .chain(fields)
+            .chain(seed)
+            .map(|path| super::noncanonical_read().with_path(path.to_string()))
     }
 }
 
@@ -1095,7 +1136,9 @@ This body and the metadata above are an indorsement card.
             .unwrap()
             .document;
         for _ in 0..MAX_CARD_COUNT {
-            doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
+            doc.unchecked()
+                .insert_card(None, Card::new("note").unwrap())
+                .unwrap();
         }
         let row = serde_json::to_value(&doc).unwrap();
         let loads = |row: serde_json::Value| -> Result<Document, String> {
@@ -1285,13 +1328,15 @@ title: Hi
             )
         };
 
-        let content =
-            quillmark_content::lines::import::from_markdown("see ![a](u.png)\n\n| h |\n|---|\n| c |")
-                .expect("content")
-                .content;
-        let canonical =
-            serde_json::to_string(&quillmark_content::lines::serial::to_canonical_value(&content))
-                .expect("canonical content serializes");
+        let content = quillmark_content::lines::import::from_markdown(
+            "see ![a](u.png)\n\n| h |\n|---|\n| c |",
+        )
+        .expect("content")
+        .content;
+        let canonical = serde_json::to_string(
+            &quillmark_content::lines::serial::to_canonical_value(&content),
+        )
+        .expect("canonical content serializes");
         let retired = canonical
             .replace(r#""id":"isl-0","#, r#""id":"isl-0","loss":"lossless","#)
             .replace(r#""id":"isl-1","#, r#""id":"isl-1","loss":"degraded","#)
@@ -1487,7 +1532,8 @@ title: Hi
 
         for (above, below) in [("> a", "> b"), ("1. a", "1. b"), ("- a", "- b")] {
             let body = fold(above, serde_json::json!({}), below);
-            let top = |line: &quillmark_content::lines::model::Line| line.containers.first().cloned();
+            let top =
+                |line: &quillmark_content::lines::model::Line| line.containers.first().cloned();
             assert_ne!(
                 top(&body.lines[0]),
                 top(body.lines.last().unwrap()),
@@ -1674,23 +1720,49 @@ title: Hi
             "marks": [{"start": 3, "end": 5, "type": "strong"}, {"start": 0, "end": 2, "type": "strong"}, {"start": 1, "end": 1, "type": "emph"}],
         });
         row["main"]["body"] = noncanonical.clone();
-        row["main"]["payload"]["items"].as_array_mut().unwrap().push(serde_json::json!({"type": "field", "key": "note", "value": noncanonical}));
+        row["main"]["payload"]["items"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"type": "field", "key": "note", "value": noncanonical}));
         let json = row.to_string();
         assert!(ContentModel::from_value(&noncanonical).is_err());
 
         let parsed = Document::from_stored(&json).unwrap();
-        let at: Vec<_> = parsed.warnings.iter().map(|w| (w.code.as_deref(), w.path.as_deref())).collect();
-        assert_eq!(at, [(Some(super::super::NONCANONICAL_READ), Some("main.body")), (Some(super::super::NONCANONICAL_READ), Some("main.note"))]);
+        let at: Vec<_> = parsed
+            .warnings
+            .iter()
+            .map(|w| (w.code.as_deref(), w.path.as_deref()))
+            .collect();
+        assert_eq!(
+            at,
+            [
+                (Some(super::super::NONCANONICAL_READ), Some("main.body")),
+                (Some(super::super::NONCANONICAL_READ), Some("main.note"))
+            ]
+        );
         let doc = parsed.document;
         assert_eq!(serde_json::from_str::<Document>(&json).unwrap(), doc);
-        let canonical = ContentModel::from_value_lenient(&noncanonical).unwrap().content;
+        let canonical = ContentModel::from_value_lenient(&noncanonical)
+            .unwrap()
+            .content;
         assert_eq!(doc.main().body(), &canonical);
-        assert_eq!(doc.main().payload().get("note").map(|v| v.as_json().clone()), Some(canonical.to_value()));
+        assert_eq!(
+            doc.main()
+                .payload()
+                .get("note")
+                .map(|v| v.as_json().clone()),
+            Some(canonical.to_value())
+        );
 
         let restored = serde_json::to_string(&doc).unwrap();
         let again = Document::from_stored(&restored).unwrap();
         assert_eq!((again.document, again.warnings), (doc, Vec::new()));
-        assert_eq!(Document::from_stored(&serde_json::to_string(&sample()).unwrap()).unwrap().warnings, []);
+        assert_eq!(
+            Document::from_stored(&serde_json::to_string(&sample()).unwrap())
+                .unwrap()
+                .warnings,
+            []
+        );
     }
 
     /// A document holding a composable card saves under the newest tag, each card's
@@ -1763,7 +1835,12 @@ title: Hi
         let intro = quillmark_content::lines::serial::to_canonical_value(
             &super::super::import_body("**hi** there").unwrap(),
         );
-        for schema in [STORAGE_V0_135_0, STORAGE_V0_134_0, STORAGE_V0_131_0, STORAGE_V0_129_0] {
+        for schema in [
+            STORAGE_V0_135_0,
+            STORAGE_V0_134_0,
+            STORAGE_V0_131_0,
+            STORAGE_V0_129_0,
+        ] {
             let row = serde_json::json!({
                 "schema": schema,
                 "main": {
@@ -1785,10 +1862,63 @@ title: Hi
             assert_eq!(first.main().body().text, "one\u{2028}two", "{schema}");
             assert_eq!(first.main().body().anchors.len(), 1, "{schema}");
             let field = first.main().payload().get("intro").unwrap().as_json();
-            assert!(ContentModel::from_value(field).is_ok() && field.get("lines").is_none(), "{schema}");
+            assert!(
+                ContentModel::from_value(field).is_ok() && field.get("lines").is_none(),
+                "{schema}"
+            );
             let saved = serde_json::to_value(&first).unwrap();
             assert_eq!(saved["schema"], STORAGE_V0_135_0);
             assert_eq!(serde_json::from_value::<Document>(saved).unwrap(), first);
+        }
+    }
+
+    /// A line-form value in a field or a `$seed` overlay, under any tag,
+    /// loads as the model and warns at its card, so a host stores the row
+    /// again before the line form stops being read.
+    #[test]
+    fn a_line_form_field_or_seed_value_migrates_and_warns() {
+        let intro = quillmark_content::lines::serial::to_canonical_value(
+            &super::super::import_body("**hi** there").unwrap(),
+        );
+        for schema in [
+            STORAGE_V0_135_0,
+            STORAGE_V0_134_0,
+            STORAGE_V0_131_0,
+            STORAGE_V0_129_0,
+        ] {
+            let row = serde_json::json!({
+                "schema": schema,
+                "main": {
+                    "payload": {"items": [
+                        {"type": "quill", "value": "q@0.1"},
+                        {"type": "kind", "value": "main"},
+                        {"type": "seed", "value": {"note": {"blurb": intro}}},
+                        {"type": "field", "key": "intro", "value": intro}
+                    ]},
+                    "body": {"text": "x", "lines": [{"kind": "para", "containers": []}], "marks": [], "islands": []}
+                },
+                "cards": []
+            });
+            let parsed = from_stored(serde_json::from_value(row).unwrap()).unwrap();
+            let paths: Vec<_> = parsed
+                .warnings
+                .iter()
+                .filter(|w| w.code.as_deref() == Some(super::super::NONCANONICAL_READ))
+                .filter_map(|w| w.path.clone())
+                .collect();
+            assert!(
+                paths.iter().any(|p| p == "main.intro"),
+                "{schema}: {paths:?}"
+            );
+            assert!(paths.iter().any(|p| p == "main"), "{schema}: {paths:?}");
+            let seed = parsed.document.main().seed().unwrap();
+            let blurb = &seed["note"]["blurb"];
+            assert!(
+                ContentModel::from_value(blurb).is_ok() && blurb.get("lines").is_none(),
+                "{schema}"
+            );
+            let saved = serde_json::to_value(&parsed.document).unwrap();
+            assert!(!saved.to_string().contains("\"lines\""), "{schema}");
         }
     }
 

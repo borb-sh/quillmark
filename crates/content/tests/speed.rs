@@ -13,12 +13,13 @@ use quillmark_content::diff::{diff, replace, revise};
 use quillmark_content::markdown::{from_markdown, to_markdown};
 use quillmark_content::model::{Anchor, Block, BlockKind, Content, Mark, MarkKind};
 use quillmark_content::repair::{Raw, repair};
-use serde_json::{Map, Value, json};
 use quillmark_content::units::{Utf16, change_from_scalars, change_to_scalars};
+use serde_json::{Map, Value, json};
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-const PARA: &str = "holds **some bold words**, _a few italic ones_, and a [link](https://x.io) to end it.";
+const PARA: &str =
+    "holds **some bold words**, _a few italic ones_, and a [link](https://x.io) to end it.";
 
 fn document(n: usize) -> Content {
     let md: Vec<String> = (0..n)
@@ -27,7 +28,9 @@ fn document(n: usize) -> Content {
             _ => format!("Para {i:05} {PARA}"),
         })
         .collect();
-    let mut c = quillmark_content::markdown::from_markdown(&md.join("\n\n")).unwrap().content;
+    let mut c = quillmark_content::markdown::from_markdown(&md.join("\n\n"))
+        .unwrap()
+        .content;
     let anchors: Vec<Anchor> = c
         .block_ranges()
         .iter()
@@ -50,16 +53,27 @@ fn change(d: &Content, word: &str, to: &str, tag: &str) -> Change {
     let mut steps = Vec::new();
     for (k, &(start, _)) in d.block_ranges().iter().enumerate() {
         let text = &texts[k];
-        let Some(byte) = text.find(word) else { continue };
+        let Some(byte) = text.find(word) else {
+            continue;
+        };
         let at = (start + text[..byte].chars().count()).wrapping_add_signed(shift);
         let len = word.chars().count();
         steps.push(match k % 10 {
-            7 => Step::Mark(MarkStep::Add { mark: Mark::new(at, at + len, MarkKind::Strong), quote: None }),
-            8 => Step::Anchor(AnchorStep::Place { anchor: Anchor::new(format!("{tag}-{k}"), at, at + len), quote: None }),
+            7 => Step::Mark(MarkStep::Add {
+                mark: Mark::new(at, at + len, MarkKind::Strong),
+                quote: None,
+            }),
+            8 => Step::Anchor(AnchorStep::Place {
+                anchor: Anchor::new(format!("{tag}-{k}"), at, at + len),
+                quote: None,
+            }),
             9 => {
                 shift += 1;
                 let block = Block::new(format!("{tag}{k}"), BlockKind::Para);
-                Step::Splice(Splice { blocks: vec![block], ..Splice::new(at + len, "", "\n") })
+                Step::Splice(Splice {
+                    blocks: vec![block],
+                    ..Splice::new(at + len, "", "\n")
+                })
             }
             _ => {
                 shift += to.chars().count() as isize - len as isize;
@@ -71,7 +85,10 @@ fn change(d: &Content, word: &str, to: &str, tag: &str) -> Change {
 }
 
 fn time<T>(f: impl Fn() -> T) -> Duration {
-    let runs: usize = std::env::var("SPEED_RUNS").ok().and_then(|r| r.parse().ok()).unwrap_or(3);
+    let runs: usize = std::env::var("SPEED_RUNS")
+        .ok()
+        .and_then(|r| r.parse().ok())
+        .unwrap_or(3);
     let mut best = Duration::MAX;
     for _ in 0..runs {
         let t = Instant::now();
@@ -84,7 +101,12 @@ fn time<T>(f: impl Fn() -> T) -> Duration {
 /// The 288k-character case's limits in milliseconds: five times the targets
 /// of 100 to apply and 200 to invert, and about ten times what a laptop takes
 /// for the rest, which a pass that walks the whole text per step overruns.
-const BUDGET: [(&str, f64); 4] = [("apply", 500.0), ("invert", 1000.0), ("diff", 1500.0), ("utf16", 500.0)];
+const BUDGET: [(&str, f64); 4] = [
+    ("apply", 500.0),
+    ("invert", 1000.0),
+    ("diff", 1500.0),
+    ("utf16", 500.0),
+];
 
 fn measure(n: usize) -> (usize, usize, [f64; 4]) {
     let d = document(n);
@@ -94,9 +116,15 @@ fn measure(n: usize) -> (usize, usize, [f64; 4]) {
         time(|| apply(&d, &mine).unwrap()),
         time(|| invert(&mine, &d).unwrap()),
         time(|| apply(&d, &diff(&d, &after).unwrap()).unwrap()),
-        time(|| change_to_scalars(&change_from_scalars(&mine, &d, Utf16).unwrap(), &d, Utf16).unwrap()),
+        time(|| {
+            change_to_scalars(&change_from_scalars(&mine, &d, Utf16).unwrap(), &d, Utf16).unwrap()
+        }),
     ];
-    (d.text.chars().count(), mine.steps.len(), times.map(|t| t.as_secs_f64() * 1000.0))
+    (
+        d.text.chars().count(),
+        mine.steps.len(),
+        times.map(|t| t.as_secs_f64() * 1000.0),
+    )
 }
 
 #[test]
@@ -114,7 +142,13 @@ fn a_long_change_applies_inverts_and_diffs_in_time() {
             table += &format!(" {t:>10.1}");
         }
         if n == 4000 {
-            over.extend(BUDGET.iter().zip(times).filter(|((_, limit), t)| t > limit).map(|((what, limit), t)| format!("{what} {t:.1} ms > {limit} ms")));
+            over.extend(
+                BUDGET
+                    .iter()
+                    .zip(times)
+                    .filter(|((_, limit), t)| t > limit)
+                    .map(|((what, limit), t)| format!("{what} {t:.1} ms > {limit} ms")),
+            );
         }
     }
     println!("{table}");
@@ -124,7 +158,10 @@ fn a_long_change_applies_inverts_and_diffs_in_time() {
 fn ext(name: &str, n: usize) -> MarkKind {
     let mut attrs = Map::new();
     attrs.insert("n".into(), n.into());
-    MarkKind::Ext { name: format!("x-{name}"), attrs }
+    MarkKind::Ext {
+        name: format!("x-{name}"),
+        attrs,
+    }
 }
 
 /// `n` items: runs of a nested bullet list, an ordered list and a quote
@@ -144,11 +181,27 @@ fn long_value(n: usize) -> (String, Content) {
     let md = md.join("\n");
     let mut c = from_markdown(&md).unwrap().content;
     let ranges = c.block_ranges();
-    c.marks.extend(ranges.iter().enumerate().filter(|(k, _)| k % 3 == 1).map(|(k, &(s, e))| Mark::new(s, e.min(s + 6), ext("tag", k % 4))));
-    c.anchors = ranges.iter().enumerate().filter(|(k, _)| k % 7 == 2).map(|(k, &(s, _))| Anchor::new(format!("a-{k}"), s + 2, s + 4)).collect();
+    c.marks.extend(
+        ranges
+            .iter()
+            .enumerate()
+            .filter(|(k, _)| k % 3 == 1)
+            .map(|(k, &(s, e))| Mark::new(s, e.min(s + 6), ext("tag", k % 4))),
+    );
+    c.anchors = ranges
+        .iter()
+        .enumerate()
+        .filter(|(k, _)| k % 7 == 2)
+        .map(|(k, &(s, _))| Anchor::new(format!("a-{k}"), s + 2, s + 4))
+        .collect();
     c.normalize();
     c.validate().unwrap();
-    assert!(!c.containers.is_empty() && c.marks.iter().any(|m| matches!(m.kind, MarkKind::Ext { .. })));
+    assert!(
+        !c.containers.is_empty()
+            && c.marks
+                .iter()
+                .any(|m| matches!(m.kind, MarkKind::Ext { .. }))
+    );
     (md, c)
 }
 
@@ -157,8 +210,12 @@ fn long_value(n: usize) -> (String, Content) {
 fn multiplying_value(n: usize) -> Value {
     let text = vec!["ab"; n].join("\n");
     let len = text.chars().count();
-    let blocks: Vec<Value> = (0..n).map(|i| json!({"id": format!("b{i}"), "kind": "para"})).collect();
-    let marks: Vec<Value> = (0..n).map(|i| json!({"start": 0, "end": len, "type": "x-a", "attrs": {"n": i}})).collect();
+    let blocks: Vec<Value> = (0..n)
+        .map(|i| json!({"id": format!("b{i}"), "kind": "para"}))
+        .collect();
+    let marks: Vec<Value> = (0..n)
+        .map(|i| json!({"start": 0, "end": len, "type": "x-a", "attrs": {"n": i}}))
+        .collect();
     json!({"text": text, "blocks": blocks, "marks": marks})
 }
 
@@ -166,8 +223,15 @@ fn multiplying_value(n: usize) -> Value {
 /// loaded laptop takes: a lookup by scan per block overruns revise and
 /// replace, a walk per repaired container overruns repair, and a mark cut at
 /// every break before it is counted overruns refuse.
-const VALUE_BUDGET: [(&str, f64); 7] =
-    [("splice", 600.0), ("revise", 2500.0), ("replace", 1500.0), ("repair", 1000.0), ("import", 600.0), ("decode", 600.0), ("refuse", 100.0)];
+const VALUE_BUDGET: [(&str, f64); 7] = [
+    ("splice", 600.0),
+    ("revise", 2500.0),
+    ("replace", 1500.0),
+    ("repair", 1000.0),
+    ("import", 600.0),
+    ("decode", 600.0),
+    ("refuse", 100.0),
+];
 
 fn measure_value(n: usize) -> (usize, [f64; 7]) {
     let (md, d) = long_value(n);
@@ -188,7 +252,10 @@ fn measure_value(n: usize) -> (usize, [f64; 7]) {
         time(|| Content::from_value(&value).unwrap()),
         time(|| Content::from_value(&multiplying).unwrap_err()),
     ];
-    (d.text.chars().count(), times.map(|t| t.as_secs_f64() * 1000.0))
+    (
+        d.text.chars().count(),
+        times.map(|t| t.as_secs_f64() * 1000.0),
+    )
 }
 
 #[test]
@@ -206,7 +273,13 @@ fn a_long_value_writes_revises_repairs_and_decodes_in_time() {
             table += &format!(" {t:>11.1}");
         }
         if n == 20000 {
-            over.extend(VALUE_BUDGET.iter().zip(times).filter(|((_, limit), t)| t > limit).map(|((what, limit), t)| format!("{what} {t:.1} ms > {limit} ms")));
+            over.extend(
+                VALUE_BUDGET
+                    .iter()
+                    .zip(times)
+                    .filter(|((_, limit), t)| t > limit)
+                    .map(|((what, limit), t)| format!("{what} {t:.1} ms > {limit} ms")),
+            );
         }
     }
     println!("{table}");
@@ -226,7 +299,9 @@ const HEADROOM: f64 = 2.0;
 const LINEAR: f64 = 3.0;
 
 fn plain_list(n: usize) -> (String, Content) {
-    let md: Vec<String> = (0..n).map(|i| format!("- item {i:05} carries a word")).collect();
+    let md: Vec<String> = (0..n)
+        .map(|i| format!("- item {i:05} carries a word"))
+        .collect();
     let md = md.join("\n");
     let c = from_markdown(&md).unwrap().content;
     (md, c)
@@ -262,8 +337,16 @@ fn the_interactive_target_holds_its_budgets_and_grows_linearly() {
     let (md_large, large) = long_value(20000);
     let (v_small, v_large) = (small.to_value(), large.to_value());
     let growth = [
-        ("import", ms(time(|| from_markdown(&md_large).unwrap())) / ms(time(|| from_markdown(&md_small).unwrap()))),
-        ("decode", ms(time(|| Content::from_value(&v_large).unwrap())) / ms(time(|| Content::from_value(&v_small).unwrap()))),
+        (
+            "import",
+            ms(time(|| from_markdown(&md_large).unwrap()))
+                / ms(time(|| from_markdown(&md_small).unwrap())),
+        ),
+        (
+            "decode",
+            ms(time(|| Content::from_value(&v_large).unwrap()))
+                / ms(time(|| Content::from_value(&v_small).unwrap())),
+        ),
     ];
     for (what, ratio) in growth {
         println!("{what:>8} x{ratio:.2} from 10000 items to 20000");

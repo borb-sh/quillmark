@@ -42,7 +42,10 @@ impl Draft {
         if !marks_within_blocks(&c) {
             c.normalize_marks();
         }
-        if !c.anchors.is_sorted_by_key(|a| (a.start, a.end, a.id.as_str())) {
+        if !c
+            .anchors
+            .is_sorted_by_key(|a| (a.start, a.end, a.id.as_str()))
+        {
             c.sort_anchors();
         }
         let text = std::mem::take(&mut c.text);
@@ -64,15 +67,29 @@ impl Draft {
                 own.push(Mark::new(m.start - at, m.end - at, m.kind));
             }
             starts.push(at);
-            segs.push(Seg { text: piece.to_string(), len, marks: own });
+            segs.push(Seg {
+                text: piece.to_string(),
+                len,
+                marks: own,
+            });
             at += len + 1;
         }
         if let Some(last) = segs.last_mut() {
             let from = at - last.len - 1;
-            last.marks.extend(marks.map(|m| Mark::new(m.start - from, m.end - from, m.kind)));
+            last.marks
+                .extend(marks.map(|m| Mark::new(m.start - from, m.end - from, m.kind)));
         }
         let marks = segs.iter().map(|s| s.marks.len()).sum();
-        Draft { c, segs, starts, len: at - 1, slots, ids: None, scans: 0, marks }
+        Draft {
+            c,
+            segs,
+            starts,
+            len: at - 1,
+            slots,
+            ids: None,
+            scans: 0,
+            marks,
+        }
     }
 
     pub(crate) fn finish(mut self) -> Content {
@@ -84,7 +101,11 @@ impl Draft {
             }
             text.push_str(&seg.text);
             let at = self.starts[k];
-            marks.extend(seg.marks.into_iter().map(|m| Mark::new(m.start + at, m.end + at, m.kind)));
+            marks.extend(
+                seg.marks
+                    .into_iter()
+                    .map(|m| Mark::new(m.start + at, m.end + at, m.kind)),
+            );
         }
         self.c.text = text;
         self.c.marks = marks;
@@ -124,7 +145,11 @@ impl Draft {
             }
             let seg = &self.segs[k];
             let lo = if k == k0 { start - self.starts[k] } else { 0 };
-            let hi = if k == k1 { end - self.starts[k] } else { seg.len };
+            let hi = if k == k1 {
+                end - self.starts[k]
+            } else {
+                seg.len
+            };
             out.push_str(&seg.text[seg.byte(lo)..seg.byte(hi)]);
         }
         out
@@ -141,7 +166,12 @@ impl Draft {
             }
             text.push_str(&self.segs[k].text);
             let at = self.starts[k];
-            marks.extend(self.segs[k].marks.iter().map(|m| Mark::new(m.start + at, m.end + at, m.kind.clone())));
+            marks.extend(
+                self.segs[k]
+                    .marks
+                    .iter()
+                    .map(|m| Mark::new(m.start + at, m.end + at, m.kind.clone())),
+            );
         }
         (self.starts[k0], text, marks)
     }
@@ -166,7 +196,14 @@ impl Draft {
     /// blocks, the marks over it `marks`, as [`set_marks`](Self::set_marks)
     /// takes them, and the records of the blocks after the first `records`,
     /// one per `\n` in `text`. Answers the records it replaced.
-    pub(crate) fn rewrite(&mut self, k0: usize, k1: usize, text: &str, marks: Vec<Mark>, records: Vec<Block>) -> Vec<Block> {
+    pub(crate) fn rewrite(
+        &mut self,
+        k0: usize,
+        k1: usize,
+        text: &str,
+        marks: Vec<Mark>,
+        records: Vec<Block>,
+    ) -> Vec<Block> {
         let at = self.starts[k0];
         let old_end = self.block_end(k1);
         let mut segs = Vec::with_capacity(records.len() + 1);
@@ -182,12 +219,19 @@ impl Draft {
                 len += 1;
             }
             starts.push(p);
-            segs.push(Seg { text: piece.to_string(), len, marks: Vec::new() });
+            segs.push(Seg {
+                text: piece.to_string(),
+                len,
+                marks: Vec::new(),
+            });
             p += len + 1;
         }
         let new_end = p - 1;
         let n = segs.len();
-        self.marks -= self.segs[k0..=k1].iter().map(|s| s.marks.len()).sum::<usize>();
+        self.marks -= self.segs[k0..=k1]
+            .iter()
+            .map(|s| s.marks.len())
+            .sum::<usize>();
         self.segs.splice(k0..=k1, segs);
         for s in &mut self.starts[k1 + 1..] {
             *s = *s - old_end + new_end;
@@ -213,7 +257,9 @@ impl Draft {
         if self.ids.is_none() && self.scans >= SCANS {
             let mut ids = HashMap::with_capacity(self.c.blocks.len());
             for (k, b) in self.c.blocks.iter().enumerate() {
-                ids.entry(b.id.clone()).and_modify(|e| *e = None).or_insert(Some(k));
+                ids.entry(b.id.clone())
+                    .and_modify(|e| *e = None)
+                    .or_insert(Some(k));
             }
             self.ids = Some(ids);
         }
@@ -225,7 +271,13 @@ impl Draft {
             },
             None => {
                 self.scans += 1;
-                let mut held = self.c.blocks.iter().enumerate().filter(|(_, b)| b.id == id).map(|(k, _)| k);
+                let mut held = self
+                    .c
+                    .blocks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, b)| b.id == id)
+                    .map(|(k, _)| k);
                 match (held.next(), held.next()) {
                     (Some(_), Some(_)) => Err(HeldTwice),
                     (k, _) => Ok(k),
@@ -241,18 +293,28 @@ impl Seg {
         if self.len == self.text.len() {
             return n;
         }
-        self.text.char_indices().nth(n).map_or(self.text.len(), |(b, _)| b)
+        self.text
+            .char_indices()
+            .nth(n)
+            .map_or(self.text.len(), |(b, _)| b)
     }
 }
 
 /// Whether each mark lies inside one block and the marks run in order.
 fn marks_within_blocks(c: &Content) -> bool {
-    let mut ends: Vec<Scalar> = c.text.chars().enumerate().filter(|&(_, ch)| ch == '\n').map(|(i, _)| i).collect();
+    let mut ends: Vec<Scalar> = c
+        .text
+        .chars()
+        .enumerate()
+        .filter(|&(_, ch)| ch == '\n')
+        .map(|(i, _)| i)
+        .collect();
     ends.push(c.len_scalars());
     let mut last = (0, 0);
     c.marks.iter().all(|m| {
         let k = ends.partition_point(|&e| e < m.start);
-        let fits = m.start < m.end && k < ends.len() && m.end <= ends[k] && (m.start, m.end) >= last;
+        let fits =
+            m.start < m.end && k < ends.len() && m.end <= ends[k] && (m.start, m.end) >= last;
         last = (m.start, m.end);
         fits
     })

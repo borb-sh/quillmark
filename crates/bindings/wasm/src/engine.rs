@@ -4,10 +4,10 @@ use crate::types::Diagnostic;
 use crate::types::{ChangeSet, ContentHit, FieldRegion, RenderOptions, RenderResult};
 use js_sys::{Array, Uint8Array};
 #[cfg(feature = "render")]
+use quillmark_content::units::Utf16;
+#[cfg(feature = "render")]
 use serde::Serialize;
 use std::collections::HashMap;
-#[cfg(feature = "render")]
-use quillmark_content::units::Utf16;
 #[cfg(feature = "render")]
 use tsify::Ts;
 use wasm_bindgen::prelude::*;
@@ -982,7 +982,9 @@ impl Document {
         let target = quillmark_core::document::Target::from(addr.field.as_deref());
         let content = card.read(target).map_err(|e| edit_error_to_js(&e, &base))?;
         if !annotated {
-            return Ok(JsValue::from_str(&quillmark_content::markdown::to_text(&content)));
+            return Ok(JsValue::from_str(&quillmark_content::markdown::to_text(
+                &content,
+            )));
         }
         let read = quillmark_content::markdown::to_text_annotated(&content);
         let path = match &addr.field {
@@ -1035,7 +1037,9 @@ impl Document {
     ) -> Result<String, JsValue> {
         let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         self.addr_card_ref(&addr)?
-            .hash_of(quillmark_core::document::Target::from(addr.field.as_deref()))
+            .hash_of(quillmark_core::document::Target::from(
+                addr.field.as_deref(),
+            ))
             .map_err(|e| edit_error_to_js(&e, &self.addr_base(&addr)))
     }
 
@@ -1116,7 +1120,9 @@ impl Document {
                 by_path.insert(parse_path(&path)?, change);
             }
         }
-        let out = self.inner.reattach_in(&selectors, &by_path, quillmark_content::units::Utf16);
+        let out = self
+            .inner
+            .reattach_in(&selectors, &by_path, quillmark_content::units::Utf16);
         let js = ReattachedJs {
             reattached: out.reattached.into_iter().map(Into::into).collect(),
             orphaned: out.orphaned.into_iter().map(Into::into).collect(),
@@ -1536,7 +1542,6 @@ impl Document {
         Ok(())
     }
 
-
     /// The ABI under `writer.revise`: **revise** the body or content field at
     /// `addr` from authored text, typed *and* anchor-preserving. The codec is
     /// the declared type's, the body's being `richtext`: `richtext` imports the
@@ -1582,10 +1587,13 @@ impl Document {
             None => base.body(),
             Some(field) => base.field(field),
         };
-        let receipt = content::receipt_js(receipt.in_units(quillmark_content::units::Utf16), &path, card_id);
+        let receipt = content::receipt_js(
+            receipt.in_units(quillmark_content::units::Utf16),
+            &path,
+            card_id,
+        );
         serialize_or_throw(&receipt, "revise")
     }
-
 
     /// The ABI under `writer.reviseDocument`: a whole-document revise, then
     /// conform against `quill`. Throws when `markdown` declares a `$quill` this quill
@@ -1754,7 +1762,13 @@ impl Document {
             .writer(&mut self.inner)
             .add_card(kind, batch, body.as_deref(), at)
             .map_err(|errs| edit_errors_to_js(errs, &quillmark_core::path::DocPath::new()))?;
-        serialize_or_throw(&CardAddedJs { id: added.id, warnings: diags(added.warnings) }, "addCard")
+        serialize_or_throw(
+            &CardAddedJs {
+                id: added.id,
+                warnings: diags(added.warnings),
+            },
+            "addCard",
+        )
     }
 
     /// The ABI under `doc.unchecked.insertCard`: place a card whole, `at`
@@ -1873,10 +1887,14 @@ impl<'de> serde::Deserialize<'de> for CardSel {
                 f.write_str("a card index or a card id")
             }
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<CardSel, E> {
-                usize::try_from(v).map(CardSel::Index).map_err(|_| E::custom("card index out of range"))
+                usize::try_from(v)
+                    .map(CardSel::Index)
+                    .map_err(|_| E::custom("card index out of range"))
             }
             fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<CardSel, E> {
-                usize::try_from(v).map(CardSel::Index).map_err(|_| E::custom("a card index is not negative"))
+                usize::try_from(v)
+                    .map(CardSel::Index)
+                    .map_err(|_| E::custom("a card index is not negative"))
             }
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<CardSel, E> {
                 Ok(CardSel::Id(v.to_string()))
@@ -1912,7 +1930,10 @@ impl Addr {
 
     /// A bare string is shorthand for `{ field: name }`; a bare number is not an
     /// addr.
-    fn from_js_or_string(value: &JsValue, doc: &quillmark_core::document::Document) -> Result<Addr, JsValue> {
+    fn from_js_or_string(
+        value: &JsValue,
+        doc: &quillmark_core::document::Document,
+    ) -> Result<Addr, JsValue> {
         match value.as_string() {
             Some(field) => Ok(Addr {
                 card: None,
@@ -1925,7 +1946,11 @@ impl Addr {
     /// The address of a content write, which names a composable card by its
     /// `$id` alone: an index another writer's move or insert can shift would
     /// land the write on another card.
-    fn for_write(value: &JsValue, doc: &quillmark_core::document::Document, verb: &str) -> Result<Addr, JsValue> {
+    fn for_write(
+        value: &JsValue,
+        doc: &quillmark_core::document::Document,
+        verb: &str,
+    ) -> Result<Addr, JsValue> {
         if value.as_string().is_none() && matches!(Addr::parse(value)?.0, Some(CardSel::Index(_))) {
             return Err(WasmError::from(format!(
                 "{verb}: a content write names its card by `$id` (`{{ card: card.id }}`), not by index"
@@ -1942,8 +1967,9 @@ impl Addr {
         reject_unknown_keys(value, &["card", "field"], "addr", |k| {
             format!("addr has unknown key `{k}`; an address takes only `card` and `field`")
         })?;
-        let addr: AddrJs = serde_wasm_bindgen::from_value(value.clone())
-            .map_err(|e| WasmError::from(format!("addr must be an Addr object: {e}")).to_js_value())?;
+        let addr: AddrJs = serde_wasm_bindgen::from_value(value.clone()).map_err(|e| {
+            WasmError::from(format!("addr must be an Addr object: {e}")).to_js_value()
+        })?;
         Ok((addr.card, addr.field))
     }
 
@@ -1979,13 +2005,16 @@ impl Addr {
 #[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Imported")]
 pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
     let imported = quillmark_content::markdown::from_markdown(markdown).map_err(|e| match e {
-        quillmark_content::lines::import::ImportError::TooLarge { .. } => {
-            WasmError { diagnostics: vec![quillmark_core::document::EditError::import(e).to_diagnostic(None)] }.to_js_value()
+        quillmark_content::lines::import::ImportError::TooLarge { .. } => WasmError {
+            diagnostics: vec![quillmark_core::document::EditError::import(e).to_diagnostic(None)],
         }
+        .to_js_value(),
         e => WasmError::from(format!("importMarkdown: {e}")).to_js_value(),
     })?;
     let out = ImportedJs {
-        content: imported.content.to_value_in(quillmark_content::units::Utf16),
+        content: imported
+            .content
+            .to_value_in(quillmark_content::units::Utf16),
         warnings: diags(quillmark_core::document::dropped_constructs(
             imported.warnings,
             None,
@@ -2008,7 +2037,9 @@ pub fn export_markdown(
     let annotated = markdown_options(&opts, "exportMarkdown")?;
     let content = content::content_in(rt, "exportMarkdown")?;
     if !annotated {
-        return Ok(JsValue::from_str(&quillmark_content::markdown::to_text(&content)));
+        return Ok(JsValue::from_str(&quillmark_content::markdown::to_text(
+            &content,
+        )));
     }
     let read = quillmark_content::markdown::to_text_annotated(&content);
     let out = serde_json::json!({
@@ -2028,8 +2059,10 @@ fn markdown_options(opts: &JsValue, verb: &str) -> Result<bool, JsValue> {
     if opts.is_undefined() || opts.is_null() {
         return Ok(false);
     }
-    let opts: Opts = serde_json::from_value(js_value_to_json(opts.clone(), verb)?)
-        .map_err(|e| WasmError::from(format!("{verb}: options must be MarkdownOptions: {e}")).to_js_value())?;
+    let opts: Opts =
+        serde_json::from_value(js_value_to_json(opts.clone(), verb)?).map_err(|e| {
+            WasmError::from(format!("{verb}: options must be MarkdownOptions: {e}")).to_js_value()
+        })?;
     Ok(opts.annotated.unwrap_or(false))
 }
 
@@ -2047,7 +2080,9 @@ fn base_hash(opts: JsValue, verb: &str) -> Result<Option<String>, JsValue> {
     for key in keys.iter() {
         let key = key.as_string().unwrap_or_default();
         if key != "baseHash" {
-            return Err(invalid(format!("unknown option `{key}`; expected baseHash")));
+            return Err(invalid(format!(
+                "unknown option `{key}`; expected baseHash"
+            )));
         }
     }
     if !js_sys::Reflect::has(&opts, &"baseHash".into()).unwrap_or(false) {
@@ -2058,9 +2093,13 @@ fn base_hash(opts: JsValue, verb: &str) -> Result<Option<String>, JsValue> {
     // unguarded write.
     let hash = js_sys::Reflect::get(&opts, &"baseHash".into()).unwrap_or(JsValue::UNDEFINED);
     if hash.is_undefined() || hash.is_null() {
-        return Err(invalid("baseHash must be given a value when present".into()));
+        return Err(invalid(
+            "baseHash must be given a value when present".into(),
+        ));
     }
-    hash.as_string().map(Some).ok_or_else(|| invalid("baseHash must be a string".into()))
+    hash.as_string()
+        .map(Some)
+        .ok_or_else(|| invalid("baseHash must be a string".into()))
 }
 
 /// The canonical form of `rt`, read without a document: the one spelling
@@ -2682,8 +2721,10 @@ fn js_to_card(value: &JsValue) -> Result<quillmark_core::document::Card, JsValue
         )
     })?;
     reject_deep_js_value(value, "insertCard")?;
-    let mut wire: quillmark_core::document::CardWire = serde_wasm_bindgen::from_value(value.clone())
-        .map_err(|e| WasmError::from(format!("card must be a Card object: {e}")).to_js_value())?;
+    let mut wire: quillmark_core::document::CardWire =
+        serde_wasm_bindgen::from_value(value.clone()).map_err(|e| {
+            WasmError::from(format!("card must be a Card object: {e}")).to_js_value()
+        })?;
     content::payload_in(&mut wire.body, "insertCard")?;
     for item in &mut wire.payload_items {
         if let quillmark_core::document::PayloadItemWire::Field { value, .. } = item {
@@ -2864,11 +2905,13 @@ impl LiveSession {
     /// `fieldAt`. Empty for backends that place no schema fields.
     #[wasm_bindgen(js_name = regions, unchecked_return_type = "FieldRegion[]")]
     pub fn regions(&self) -> Result<JsValue, JsValue> {
-        let regions: Vec<FieldRegion> =
-            quillmark_core::region::regions_to_doc_path(self.inner.regions_in(Utf16), &self.kinds())
-                .into_iter()
-                .map(Into::into)
-                .collect();
+        let regions: Vec<FieldRegion> = quillmark_core::region::regions_to_doc_path(
+            self.inner.regions_in(Utf16),
+            &self.kinds(),
+        )
+        .into_iter()
+        .map(Into::into)
+        .collect();
         serialize_or_throw(&regions, "regions")
     }
 
@@ -2881,11 +2924,13 @@ impl LiveSession {
     pub fn field_boxes(&self, field: &str) -> Result<JsValue, JsValue> {
         let kinds = self.kinds();
         let plate = docpath_to_plate(field, &kinds);
-        let boxes: Vec<FieldRegion> =
-            quillmark_core::region::regions_to_doc_path(self.inner.field_boxes_in(&plate, Utf16), &kinds)
-                .into_iter()
-                .map(Into::into)
-                .collect();
+        let boxes: Vec<FieldRegion> = quillmark_core::region::regions_to_doc_path(
+            self.inner.field_boxes_in(&plate, Utf16),
+            &kinds,
+        )
+        .into_iter()
+        .map(Into::into)
+        .collect();
         serialize_or_throw(&boxes, "fieldBoxes")
     }
 

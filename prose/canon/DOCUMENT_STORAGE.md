@@ -93,11 +93,9 @@ the v1 content encoding ([CONTENT.md](CONTENT.md) § "The line form"). A row
 under one loads through the `0.134.0` hop: its body, and each field value
 that decodes as line-form content at any depth, migrates through
 `migrate::from_lines`, minting ids deterministically, so the same row
-always migrates to the same bytes. A `$seed` or `$ext` value stays as stored,
-and the decoders read a line-form value wherever they meet one. A row
-under `0.134.0` holding a line-form body or field loads the same way:
-`StoredContent` migrates a line-form body, and the load walks each field value
-as the hop does.
+always migrates to the same bytes. Each `$seed` overlay value migrates the same way; a `$ext` value stays as stored. A row under `0.134.0` or `0.135.0` holding a line-form body, field or `$seed` value loads the same way: `StoredContent` migrates a line-form body, and the load walks each field and overlay value as the hop does.
+
+Every migrated value is a rewrite: `content::noncanonical_read` warns at its path (a `$seed` value at its card's path), so a resave over every row reports the rows still holding the line form and writes them back in the model encoding. The line form stays readable until that resave reports none.
 
 `0.124.0` carries the content vocabulary without the `footnote` and `math`
 islands, the `term` line kind or the `description` container. It is the oldest

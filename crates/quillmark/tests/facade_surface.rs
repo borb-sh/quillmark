@@ -5,10 +5,9 @@
 use std::collections::HashMap;
 
 use quillmark::{
-    AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, CalendarDate, CardReader,
-    DocPath, Document, DocumentAnchor, DocumentRevised, EditError, ImportError, Content,
-    ParseDateError, Parsed, Quill, QuillReference, QuillValue, Reattached, Receipt, TypedReader,
-    TypedWriter,
+    AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, CalendarDate, CardReader, Content,
+    DocPath, Document, DocumentAnchor, DocumentRevised, EditError, ImportError, ParseDateError,
+    Parsed, Quill, QuillReference, QuillValue, Reattached, Receipt, TypedReader, TypedWriter,
 };
 
 mod common;
@@ -81,10 +80,19 @@ fn content_lane_spells_through_the_facade() {
     let _: &Content = doc.main().body();
     let reader: TypedReader = quill.reader(&doc);
     let _: Option<Content> = reader.get_content("subject").expect("subject is declared");
-    let _: Annotated = doc.main().annotated(quillmark::Target::Body).expect("the body reads");
+    let _: Annotated = doc
+        .main()
+        .annotated(quillmark::Target::Body)
+        .expect("the body reads");
 
-    let revised: Result<Receipt, EditError> = doc.main_mut().revise(quillmark::Target::Body, "# Body", None);
-    let Receipt { applied, dropped_anchors, .. } = revised.expect("a heading imports");
+    let revised: Result<Receipt, EditError> =
+        doc.main_mut()
+            .revise(quillmark::Target::Body, "# Body", None);
+    let Receipt {
+        applied,
+        dropped_anchors,
+        ..
+    } = revised.expect("a heading imports");
     let _: quillmark::Change = applied;
     let _: Vec<quillmark::Dropped> = dropped_anchors;
     let _: fn(ImportError) -> EditError = EditError::Import;

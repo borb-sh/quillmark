@@ -116,7 +116,13 @@ fn decode_entities(s: &str) -> String {
 /// digits naming a Unicode scalar value, U+0000 reading as U+FFFD as
 /// CommonMark reads it.
 fn entity(s: &str) -> Option<(char, usize)> {
-    for (name, c) in [("&amp;", '&'), ("&lt;", '<'), ("&gt;", '>'), ("&quot;", '"'), ("&apos;", '\'')] {
+    for (name, c) in [
+        ("&amp;", '&'),
+        ("&lt;", '<'),
+        ("&gt;", '>'),
+        ("&quot;", '"'),
+        ("&apos;", '\''),
+    ] {
         if s.starts_with(name) {
             return Some((c, name.len()));
         }
@@ -126,7 +132,10 @@ fn entity(s: &str) -> Option<(char, usize)> {
         Some(hex) => (hex, 16, 6, 3),
         None => (num, 10, 7, 2),
     };
-    let n = digits.bytes().take_while(|b| (*b as char).is_digit(radix)).count();
+    let n = digits
+        .bytes()
+        .take_while(|b| (*b as char).is_digit(radix))
+        .count();
     if n == 0 || n > max || digits.as_bytes().get(n) != Some(&b';') {
         return None;
     }
@@ -180,7 +189,10 @@ impl Element {
     }
 
     /// The carrier's own spelling, a [reserved](RESERVED) name included.
-    pub(crate) fn spelling(name: impl Into<String>, attrs: BTreeMap<String, String>) -> Result<Self, Refused> {
+    pub(crate) fn spelling(
+        name: impl Into<String>,
+        attrs: BTreeMap<String, String>,
+    ) -> Result<Self, Refused> {
         let name = name.into();
         if !is_element_name(&name) {
             return Err(Refused::Name(name));
@@ -256,7 +268,10 @@ mod tests {
     use super::*;
 
     fn attrs(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -282,7 +297,8 @@ mod tests {
             assert!(is_attr_name(name), "{name:?}");
         }
         for name in [
-            "onclick", "on", "one", "style", "class", "id", "href", "src", "data-x", "_a", "1a", "A", "$name",
+            "onclick", "on", "one", "style", "class", "id", "href", "src", "data-x", "_a", "1a",
+            "A", "$name",
         ] {
             assert!(!is_attr_name(name), "{name:?}");
         }
@@ -294,7 +310,10 @@ mod tests {
             ("widths", "\"3\""),
             ("hidden", ""),
         ]);
-        assert_eq!(read.values, attrs(&[("widths", "1 2"), ("align", "center"), ("hidden", "")]));
+        assert_eq!(
+            read.values,
+            attrs(&[("widths", "1 2"), ("align", "center"), ("hidden", "")])
+        );
         assert_eq!(read.refused, ["onclick", "style", "widths"]);
     }
 
@@ -319,7 +338,11 @@ mod tests {
 
     #[test]
     fn the_open_tag_sorts_its_attributes_and_escapes_their_values() {
-        let values = attrs(&[("widths", "1 2"), ("align", "a&b<c>\"d'e"), ("note", "x\ny\u{202E}|")]);
+        let values = attrs(&[
+            ("widths", "1 2"),
+            ("align", "a&b<c>\"d'e"),
+            ("note", "x\ny\u{202E}|"),
+        ]);
         let e = Element::new("box", values).unwrap();
         assert_eq!(
             e.open_tag(),
@@ -327,8 +350,14 @@ mod tests {
         );
         assert_eq!(e.close_tag(), "</qm-box>");
 
-        assert_eq!(Element::new("A", BTreeMap::new()), Err(Refused::Name("A".into())));
-        assert_eq!(Element::new(ANCHOR, BTreeMap::new()), Err(Refused::Reserved(ANCHOR.into())));
+        assert_eq!(
+            Element::new("A", BTreeMap::new()),
+            Err(Refused::Name("A".into()))
+        );
+        assert_eq!(
+            Element::new(ANCHOR, BTreeMap::new()),
+            Err(Refused::Reserved(ANCHOR.into()))
+        );
         assert_eq!(
             Element::new("keep", attrs(&[("onclick", "x")])),
             Err(Refused::Attr("onclick".into()))

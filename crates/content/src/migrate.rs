@@ -10,14 +10,18 @@
 use crate::ids::{Minter, prefix};
 use crate::lines::model::{self as line, Container as LineContainer, Line, LineKind};
 use crate::model::{
-    Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, HARD_BREAK, Island, Mark, MarkKind,
+    Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, HARD_BREAK, Island, Mark,
+    MarkKind,
 };
 use std::collections::{HashMap, HashSet};
 
 /// A line-form value as content, ids minted in reading order.
 pub fn from_lines(rt: &line::Content) -> Content {
     let mut split;
-    let rt = if line::inline_block_islands(&rt.text.chars().collect::<Vec<_>>(), &rt.islands).next().is_some() {
+    let rt = if line::inline_block_islands(&rt.text.chars().collect::<Vec<_>>(), &rt.islands)
+        .next()
+        .is_some()
+    {
         split = rt.clone();
         split.split_block_islands();
         &split
@@ -51,17 +55,31 @@ pub fn from_lines(rt: &line::Content) -> Content {
         let mut opened = false;
         for (d, here) in l.containers.iter().enumerate() {
             let before = prev.and_then(|p| p.get(d));
-            let same_run =
-                !opened && before.is_some_and(|b| b.same_run(here) && b.instance() == here.instance());
+            let same_run = !opened
+                && before.is_some_and(|b| b.same_run(here) && b.instance() == here.instance());
             if !same_run {
                 open.truncate(d);
                 opened = true;
                 let open_here = match here {
-                    LineContainer::ListItem { ordered, start, checked, .. } => {
+                    LineContainer::ListItem {
+                        ordered,
+                        start,
+                        checked,
+                        ..
+                    } => {
                         let list = minter.mint(prefix::LIST);
                         let item = minter.mint(prefix::ITEM);
-                        containers.push(Container::new(&list, ContainerKind::List { ordered: *ordered, start: *start }));
-                        containers.push(Container::new(&item, ContainerKind::Item { checked: *checked }));
+                        containers.push(Container::new(
+                            &list,
+                            ContainerKind::List {
+                                ordered: *ordered,
+                                start: *start,
+                            },
+                        ));
+                        containers.push(Container::new(
+                            &item,
+                            ContainerKind::Item { checked: *checked },
+                        ));
                         Open::List { list, item }
                     }
                     LineContainer::Quote { .. } => {
@@ -77,7 +95,10 @@ pub fn from_lines(rt: &line::Content) -> Content {
                 open.truncate(d + 1);
                 opened = true;
                 let item = minter.mint(prefix::ITEM);
-                containers.push(Container::new(&item, ContainerKind::Item { checked: *checked }));
+                containers.push(Container::new(
+                    &item,
+                    ContainerKind::Item { checked: *checked },
+                ));
                 if let Some(Open::List { item: held, .. }) = open.get_mut(d) {
                     *held = item;
                 }
@@ -95,7 +116,9 @@ pub fn from_lines(rt: &line::Content) -> Content {
         let kind = match &l.kind {
             LineKind::Para => BlockKind::Para,
             LineKind::Heading { level } => BlockKind::Heading { level: *level },
-            LineKind::Code { lang } => BlockKind::Code { lang: lang.clone().filter(|l| !l.is_empty()) },
+            LineKind::Code { lang } => BlockKind::Code {
+                lang: lang.clone().filter(|l| !l.is_empty()),
+            },
             LineKind::Rule => BlockKind::Rule,
         };
         blocks.push(Block::new(format!("{}{n}", prefix::BLOCK), kind).with_path(path));
@@ -118,11 +141,25 @@ pub fn from_lines(rt: &line::Content) -> Content {
         .iter()
         .map(|i| {
             let id = island_ids.keep_or_mint(&i.id, prefix::ISLAND);
-            let (props, slots) = crate::table::from_line_props(&i.island_type, &i.props, &mut Minter::default());
-            Island { id, island_type: i.island_type.clone(), props: object(props), slots }
+            let (props, slots) =
+                crate::table::from_line_props(&i.island_type, &i.props, &mut Minter::default());
+            Island {
+                id,
+                island_type: i.island_type.clone(),
+                props: object(props),
+                slots,
+            }
         })
         .collect();
-    let mut out = Content { text, blocks, containers, marks, anchors, islands, codec: Codec::Rich };
+    let mut out = Content {
+        text,
+        blocks,
+        containers,
+        marks,
+        anchors,
+        islands,
+        codec: Codec::Rich,
+    };
     keep_first_holder(&mut out, &mut HashSet::new());
     out.normalize();
     out
@@ -161,16 +198,26 @@ pub fn lines_from_value(v: &serde_json::Value) -> Result<line::Lines, crate::wir
 /// continuation line, each list and item one list-item container with its
 /// ordinal, adjacent runs told apart by `instance`, anchors as anchor marks.
 pub fn to_lines(c: &Content) -> line::Lines {
-    let text: String = c.text.chars().map(|ch| if ch == HARD_BREAK { '\n' } else { ch }).collect();
-    let kinds: HashMap<&str, (usize, &ContainerKind)> =
-        c.containers.iter().enumerate().map(|(n, k)| (k.id.as_str(), (n, &k.kind))).collect();
+    let text: String = c
+        .text
+        .chars()
+        .map(|ch| if ch == HARD_BREAK { '\n' } else { ch })
+        .collect();
+    let kinds: HashMap<&str, (usize, &ContainerKind)> = c
+        .containers
+        .iter()
+        .enumerate()
+        .map(|(n, k)| (k.id.as_str(), (n, &k.kind)))
+        .collect();
     let mut ordinals: HashMap<&str, HashMap<&str, u64>> = HashMap::new();
     let mut lines = Vec::with_capacity(c.blocks.len());
     for (b, seg) in c.blocks.iter().zip(c.text.split('\n')) {
         let mut path = Vec::new();
         let mut ids = b.path.iter().map(String::as_str).peekable();
         while let Some(id) = ids.next() {
-            let Some(&(n, kind)) = kinds.get(id) else { continue };
+            let Some(&(n, kind)) = kinds.get(id) else {
+                continue;
+            };
             match kind {
                 ContainerKind::List { ordered, start } => {
                     let Some(item) = ids.next() else { break };
@@ -202,11 +249,18 @@ pub fn to_lines(c: &Content) -> line::Lines {
         };
         lines.push(Line::new(kind.clone()).with_containers(path.clone()));
         for _ in seg.chars().filter(|&ch| ch == HARD_BREAK) {
-            lines.push(Line::new(kind.clone()).with_containers(path.clone()).with_continues(true));
+            lines.push(
+                Line::new(kind.clone())
+                    .with_containers(path.clone())
+                    .with_continues(true),
+            );
         }
     }
-    let mut marks: Vec<line::Mark> =
-        c.marks.iter().filter_map(|m| Some(line::Mark::new(m.start, m.end, m.kind.to_line()?))).collect();
+    let mut marks: Vec<line::Mark> = c
+        .marks
+        .iter()
+        .filter_map(|m| Some(line::Mark::new(m.start, m.end, m.kind.to_line()?)))
+        .collect();
     marks.extend(
         c.anchors
             .iter()
@@ -215,7 +269,13 @@ pub fn to_lines(c: &Content) -> line::Lines {
     let islands = c
         .islands
         .iter()
-        .map(|i| line::Island::new(i.id.clone(), i.island_type.clone()).with_props(crate::table::to_line_props(i)))
+        .map(|i| {
+            line::Island::new(i.id.clone(), i.island_type.clone())
+                .with_props(crate::table::to_line_props(i))
+        })
         .collect();
-    line::Content::new(text, lines).with_marks(marks).with_islands(islands).into_lines()
+    line::Content::new(text, lines)
+        .with_marks(marks)
+        .with_islands(islands)
+        .into_lines()
 }

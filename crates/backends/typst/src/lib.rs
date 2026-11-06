@@ -915,8 +915,7 @@ mod tests {
             Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
         };
         let counts = |rt: &quillmark_content::lines::model::Lines| {
-            let json =
-                serde_json::json!({ "prose": quillmark_content::lines::serial::to_canonical_value(rt) });
+            let json = serde_json::json!({ "prose": quillmark_content::lines::serial::to_canonical_value(rt) });
             let q = quill();
             let plate_content = read_plate(&q).expect("plate");
             let transform_schema =

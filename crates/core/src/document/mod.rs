@@ -35,7 +35,10 @@ pub(crate) fn stored_as(
 }
 
 fn lifted_over(old: Option<&serde_json::Value>, lines: &Lines) -> Content {
-    let held = old.filter(|v| v.is_object()).and_then(|v| Content::from_value_lenient(v).ok()).map(|read| read.content);
+    let held = old
+        .filter(|v| v.is_object())
+        .and_then(|v| Content::from_value_lenient(v).ok())
+        .map(|read| read.content);
     match held {
         Some(held) => quillmark_content::diff::lift(&held, lines),
         None => quillmark_content::migrate::from_lines(lines),
@@ -100,9 +103,12 @@ pub const NONCANONICAL_READ: &str = "content::noncanonical_read";
 /// form: the value loads canonical, and storing the document again writes
 /// those bytes.
 pub fn noncanonical_read() -> Diagnostic {
-    Diagnostic::new(Severity::Warning, "a stored content value is not in canonical form, and reads as it".to_string())
-        .with_code(NONCANONICAL_READ.to_string())
-        .with_hint("store the document again to write its canonical form".to_string())
+    Diagnostic::new(
+        Severity::Warning,
+        "a stored content value is not in canonical form, and reads as it".to_string(),
+    )
+    .with_code(NONCANONICAL_READ.to_string())
+    .with_hint("store the document again to write its canonical form".to_string())
 }
 
 /// The diagnostic code a markdown export's loss rides.
@@ -496,7 +502,9 @@ impl Codec {
                 Codec::Richtext => {
                     import_markdown(s).map_err(|e| ContentDecodeError::BadMarkdown(e.to_string()))
                 }
-                Codec::Text => Ok(whole(quillmark_content::migrate::to_lines(&quillmark_content::markdown::from_plaintext(s)))),
+                Codec::Text => Ok(whole(quillmark_content::migrate::to_lines(
+                    &quillmark_content::markdown::from_plaintext(s),
+                ))),
             }),
             _ => None,
         }
@@ -535,11 +543,13 @@ impl Codec {
 
     /// [`decode_field`](Self::decode_field) as a content value: an object
     /// keeps its ids, and a string imports with fresh ones.
-    pub(crate) fn decode_content(self, value: &serde_json::Value) -> Result<Content, ContentDecodeError> {
+    pub(crate) fn decode_content(
+        self,
+        value: &serde_json::Value,
+    ) -> Result<Content, ContentDecodeError> {
         match value {
-            serde_json::Value::Object(_) => {
-                Content::from_value(value).map_err(|e| ContentDecodeError::NotContent(e.to_string()))
-            }
+            serde_json::Value::Object(_) => Content::from_value(value)
+                .map_err(|e| ContentDecodeError::NotContent(e.to_string())),
             serde_json::Value::String(s) => match self {
                 Codec::Richtext => quillmark_content::markdown::from_markdown(s)
                     .map(|i| i.content)
@@ -554,7 +564,10 @@ impl Codec {
     /// [`decode_content`](Self::decode_content) for a value the document
     /// already holds: an object reads as a stored value does
     /// ([`Content::from_value_lenient`]), the canonical form of what it spells.
-    pub(crate) fn read_content(self, value: &serde_json::Value) -> Result<Content, ContentDecodeError> {
+    pub(crate) fn read_content(
+        self,
+        value: &serde_json::Value,
+    ) -> Result<Content, ContentDecodeError> {
         match value {
             serde_json::Value::Object(_) => Content::from_value_lenient(value)
                 .map(|read| read.content)
@@ -568,7 +581,9 @@ impl Codec {
     pub(crate) fn project(self, content: &Lines) -> String {
         match self {
             Codec::Richtext => quillmark_content::lines::export::to_markdown(content),
-            Codec::Text => quillmark_content::markdown::to_plaintext(&quillmark_content::migrate::from_lines(content)),
+            Codec::Text => quillmark_content::markdown::to_plaintext(
+                &quillmark_content::migrate::from_lines(content),
+            ),
         }
     }
 }
@@ -595,13 +610,15 @@ pub(crate) fn canonical_richtext_value(
 ) -> Result<(serde_json::Value, Vec<ImportWarning>), RichtextValueError> {
     let (mut content, warnings) = match value {
         serde_json::Value::Object(_) => (
-            Content::from_value(value)
-                .map_err(|e| RichtextValueError::Decode(ContentDecodeError::NotContent(e.to_string())))?,
+            Content::from_value(value).map_err(|e| {
+                RichtextValueError::Decode(ContentDecodeError::NotContent(e.to_string()))
+            })?,
             Vec::new(),
         ),
         serde_json::Value::String(s) => {
-            let imported = quillmark_content::markdown::from_markdown(s)
-                .map_err(|e| RichtextValueError::Decode(ContentDecodeError::BadMarkdown(e.to_string())))?;
+            let imported = quillmark_content::markdown::from_markdown(s).map_err(|e| {
+                RichtextValueError::Decode(ContentDecodeError::BadMarkdown(e.to_string()))
+            })?;
             (imported.content, imported.warnings)
         }
         _ => return Err(RichtextValueError::Unshaped),
@@ -624,7 +641,10 @@ pub(crate) fn trim_line_end(
     if trimmed.len() == text.len() {
         content
     } else {
-        with_anchors_of(&content, quillmark_content::lines::import::from_plaintext(trimmed))
+        with_anchors_of(
+            &content,
+            quillmark_content::lines::import::from_plaintext(trimmed),
+        )
     }
 }
 
@@ -635,7 +655,10 @@ pub(crate) fn fold_line_breaks(
     content: quillmark_content::lines::model::Lines,
 ) -> quillmark_content::lines::model::Lines {
     let text = quillmark_content::lines::export::to_plaintext(&content);
-    with_anchors_of(&content, quillmark_content::lines::import::from_plaintext(&text.replace('\n', " ")))
+    with_anchors_of(
+        &content,
+        quillmark_content::lines::import::from_plaintext(&text.replace('\n', " ")),
+    )
 }
 
 /// `to` holding `from`'s anchors, each cut to `to`'s length.
@@ -646,9 +669,12 @@ fn with_anchors_of(
     use quillmark_content::lines::model::{Mark, MarkKind};
     let mut to = to.into_content();
     let len = to.text.chars().count();
-    to.marks.extend(from.marks.iter().filter(|m| matches!(m.kind, MarkKind::Anchor { .. })).map(|m| {
-        Mark::new(m.start.min(len), m.end.min(len), m.kind.clone())
-    }));
+    to.marks.extend(
+        from.marks
+            .iter()
+            .filter(|m| matches!(m.kind, MarkKind::Anchor { .. }))
+            .map(|m| Mark::new(m.start.min(len), m.end.min(len), m.kind.clone())),
+    );
     to.into()
 }
 
@@ -672,8 +698,8 @@ pub(crate) mod yaml_hints;
 pub use anchors::AnchorSelector;
 pub use base::{HASH_TAG, StaleBase, content_hash, value_hash};
 pub use dto::{
-    STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, STORAGE_V0_135_0, StorageError,
-    StoredDocument, peek_storage_version,
+    STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, STORAGE_V0_135_0,
+    StorageError, StoredDocument, peek_storage_version,
 };
 pub use edit::{CardMut, EditError, Unchecked};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
@@ -681,17 +707,20 @@ pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
 pub use payload::{MetaKey, Payload, PayloadItem};
 /// Returned by [`Document::reattach`], so nameable from here.
 pub use quillmark_content::anchors::Reattached;
-/// Answered by [`Card::annotated`] and the content crate's anchor reads, so nameable from here.
-pub use quillmark_content::markdown::{AnchorRead, Annotated};
 /// Carried by [`EditError::Import`], so nameable from here.
 pub use quillmark_content::markdown::ImportError;
+/// Answered by [`Card::annotated`] and the content crate's anchor reads, so nameable from here.
+pub use quillmark_content::markdown::{AnchorRead, Annotated};
 /// Taken by [`dropped_construct`], so nameable from here.
 pub use quillmark_content::markdown::{DroppedConstruct, ImportWarning};
 pub use revise::DocumentRevised;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};
-pub use write::{Edit, Located, MAX_CHANGE_STEPS, Receipt, Target, WriteOptions, check_change, check_content_value};
+pub use write::{
+    Edit, Located, MAX_CHANGE_STEPS, Receipt, Target, WriteOptions, check_change,
+    check_content_value,
+};
 
 /// Where Quillmark Markdown departs from plain Markdown and YAML, as rules
 /// surfaced verbatim to LLM/MCP consumers and to the bindings. The single
@@ -816,7 +845,12 @@ impl Card {
     /// Create a `Card` from its parts without validation.
     pub(crate) fn from_parts(payload: Payload, body: impl IntoBody) -> Self {
         let body = body.into_body();
-        Self { payload, body, lines: Lowered::default(), hashes: Hashes::default() }
+        Self {
+            payload,
+            body,
+            lines: Lowered::default(),
+            hashes: Hashes::default(),
+        }
     }
 
     pub fn quill(&self) -> Option<&QuillReference> {
@@ -861,7 +895,9 @@ impl Card {
     /// The body lowered to the line form the markdown codecs and the renderers
     /// read.
     pub(crate) fn body_lines(&self) -> &Lines {
-        self.lines.0.get_or_init(|| quillmark_content::migrate::to_lines(&self.body))
+        self.lines
+            .0
+            .get_or_init(|| quillmark_content::migrate::to_lines(&self.body))
     }
 
     /// The card body rendered back to its markdown projection. This is a
@@ -1182,10 +1218,7 @@ impl Document {
         // object, byte-identical to `to_canonical_json`, never a lossy markdown
         // string. The markdown projection is `body_markdown`.
         if main_body {
-            map.insert(
-                "$body".to_string(),
-                self.main.body().to_value(),
-            );
+            map.insert("$body".to_string(), self.main.body().to_value());
         }
 
         let cards_array: Vec<serde_json::Value> = self
@@ -1202,10 +1235,7 @@ impl Document {
                 }
                 // `$body` iff the caller's schema defines a body for this card.
                 if card_bodies.map_or(true, |f| f.get(i).copied().unwrap_or(true)) {
-                    card_map.insert(
-                        "$body".to_string(),
-                        card.body().to_value(),
-                    );
+                    card_map.insert("$body".to_string(), card.body().to_value());
                 }
                 for (key, value) in card.payload.iter() {
                     card_map.insert(key.clone(), value.as_json().clone());

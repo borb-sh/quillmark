@@ -8,15 +8,27 @@
 use crate::ids::{Minter, is_id, prefix};
 use crate::lines::island::IslandType;
 use crate::lines::model::{self as line, canonicalize_keys};
-use crate::model::{Anchor, Block, BlockKind, Content, HARD_BREAK, Invariant, Island, Mark, MarkKind, NOTE_SLOT};
+use crate::model::{
+    Anchor, Block, BlockKind, Content, HARD_BREAK, Invariant, Island, Mark, MarkKind, NOTE_SLOT,
+};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The props keys a table names.
-pub const TABLE_KEYS: [&str; 7] = ["columns", "rows", "head", "aligns", "widths", "align", "cell_attrs"];
+pub const TABLE_KEYS: [&str; 7] = [
+    "columns",
+    "rows",
+    "head",
+    "aligns",
+    "widths",
+    "align",
+    "cell_attrs",
+];
 
 /// The keys the line form's table names.
-const LINE_TABLE_KEYS: [&str; 7] = ["header", "rows", "aligns", "widths", "align", "head", "headless"];
+const LINE_TABLE_KEYS: [&str; 7] = [
+    "header", "rows", "aligns", "widths", "align", "head", "headless",
+];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Table {
@@ -61,7 +73,10 @@ impl Table {
     }
 
     pub fn slot_order(&self) -> Vec<String> {
-        self.rows.iter().flat_map(|r| r.cells.iter().cloned()).collect()
+        self.rows
+            .iter()
+            .flat_map(|r| r.cells.iter().cloned())
+            .collect()
     }
 
     /// The slot at `(row, column)`.
@@ -71,7 +86,10 @@ impl Table {
 
     /// Writes `columns` and `rows` into `props`.
     pub fn write_into(&self, props: &mut Map<String, Value>) {
-        props.insert("columns".into(), self.columns.iter().cloned().map(Value::String).collect());
+        props.insert(
+            "columns".into(),
+            self.columns.iter().cloned().map(Value::String).collect(),
+        );
         props.insert(
             "rows".into(),
             self.rows
@@ -101,25 +119,43 @@ pub(crate) fn rename(
     rows: &HashMap<String, String>,
     slots: &HashMap<String, String>,
 ) {
-    let Some(mut table) = Table::read(&island.props) else { return };
-    let to = |m: &HashMap<String, String>, id: &String| m.get(id).cloned().unwrap_or_else(|| id.clone());
+    let Some(mut table) = Table::read(&island.props) else {
+        return;
+    };
+    let to =
+        |m: &HashMap<String, String>, id: &String| m.get(id).cloned().unwrap_or_else(|| id.clone());
     table.columns = table.columns.iter().map(|c| to(columns, c)).collect();
     for row in &mut table.rows {
         row.id = to(rows, &row.id);
         row.cells = row.cells.iter().map(|s| to(slots, s)).collect();
     }
-    let Some(props) = island.props.as_object_mut() else { return };
+    let Some(props) = island.props.as_object_mut() else {
+        return;
+    };
     table.write_into(props);
-    for (key, map) in [("aligns", columns), ("widths", columns), ("cell_attrs", slots)] {
+    for (key, map) in [
+        ("aligns", columns),
+        ("widths", columns),
+        ("cell_attrs", slots),
+    ] {
         if let Some(Value::Object(keyed)) = props.get_mut(key) {
-            *keyed = std::mem::take(keyed).into_iter().map(|(k, v)| (to(map, &k), v)).collect();
+            *keyed = std::mem::take(keyed)
+                .into_iter()
+                .map(|(k, v)| (to(map, &k), v))
+                .collect();
         }
     }
-    island.slots = std::mem::take(&mut island.slots).into_iter().map(|(k, v)| (to(slots, &k), v)).collect();
+    island.slots = std::mem::take(&mut island.slots)
+        .into_iter()
+        .map(|(k, v)| (to(slots, &k), v))
+        .collect();
 }
 
 pub(crate) fn check(island: &Island) -> Result<(), Invariant> {
-    let bad = |reason| Invariant::BadIsland { id: island.id.clone(), reason };
+    let bad = |reason| Invariant::BadIsland {
+        id: island.id.clone(),
+        reason,
+    };
     let Some(table) = Table::read(&island.props) else {
         return Err(bad("a table's `columns` and `rows` do not spell a grid"));
     };
@@ -128,7 +164,10 @@ pub(crate) fn check(island: &Island) -> Result<(), Invariant> {
     }
     let cells = table.columns.len().saturating_mul(table.rows.len());
     if cells > crate::MAX_TABLE_CELLS {
-        return Err(Invariant::TableTooLarge { cells, max: crate::MAX_TABLE_CELLS });
+        return Err(Invariant::TableTooLarge {
+            cells,
+            max: crate::MAX_TABLE_CELLS,
+        });
     }
     let mut ids = HashSet::new();
     for id in &table.columns {
@@ -154,7 +193,8 @@ pub(crate) fn check(island: &Island) -> Result<(), Invariant> {
             }
         }
     }
-    if slots.len() != island.slots.len() || !island.slots.keys().all(|k| slots.contains(k.as_str())) {
+    if slots.len() != island.slots.len() || !island.slots.keys().all(|k| slots.contains(k.as_str()))
+    {
         return Err(bad("a table's slots are not the ones its rows name"));
     }
     Ok(())
@@ -172,7 +212,9 @@ pub(crate) fn normalize_island(island: &mut Island) {
 }
 
 fn normalize_table(island: &mut Island) {
-    let Some(table) = Table::read(&island.props) else { return };
+    let Some(table) = Table::read(&island.props) else {
+        return;
+    };
     let mut lined = to_line_props(island);
     IslandType::Table.normalize_props(&mut lined);
     let mut props = Map::new();
@@ -214,12 +256,22 @@ fn layout_from_line(lined: &Value, table: &Table, props: &mut Map<String, Value>
         props.insert("widths".into(), widths);
     }
     let mut attrs = Map::new();
-    for (r, row) in crate::lines::island::table_rows(lined).into_iter().enumerate() {
+    for (r, row) in crate::lines::island::table_rows(lined)
+        .into_iter()
+        .enumerate()
+    {
         for (c, cell) in row.iter().enumerate() {
-            let Some(slot) = table.slot(r, c) else { continue };
-            let Some(obj) = cell.as_object() else { continue };
-            let rest: Map<String, Value> =
-                obj.iter().filter(|(k, _)| *k != "text" && *k != "marks").map(|(k, v)| (k.clone(), v.clone())).collect();
+            let Some(slot) = table.slot(r, c) else {
+                continue;
+            };
+            let Some(obj) = cell.as_object() else {
+                continue;
+            };
+            let rest: Map<String, Value> = obj
+                .iter()
+                .filter(|(k, _)| *k != "text" && *k != "marks")
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
             if !rest.is_empty() {
                 attrs.insert(slot.to_string(), Value::Object(rest));
             }
@@ -236,8 +288,12 @@ fn layout_from_line(lined: &Value, table: &Table, props: &mut Map<String, Value>
 pub(crate) fn to_line_props(island: &Island) -> Value {
     match island.island_type {
         IslandType::Table => {
-            let Some(table) = Table::read(&island.props) else { return island.props.clone() };
-            let Some((header, body)) = table.rows.split_first() else { return island.props.clone() };
+            let Some(table) = Table::read(&island.props) else {
+                return island.props.clone();
+            };
+            let Some((header, body)) = table.rows.split_first() else {
+                return island.props.clone();
+            };
             let mut out = Map::new();
             let obj = island.props.as_object().cloned().unwrap_or_default();
             for (k, v) in &obj {
@@ -253,7 +309,13 @@ pub(crate) fn to_line_props(island: &Island) -> Value {
                     None => Map::new(),
                 };
                 let (text, marks) = slot_to_cell(&content);
-                cell.insert("marks".into(), marks.iter().map(crate::lines::serial::mark_to_value).collect());
+                cell.insert(
+                    "marks".into(),
+                    marks
+                        .iter()
+                        .map(crate::lines::serial::mark_to_value)
+                        .collect(),
+                );
                 cell.insert("text".into(), Value::String(text));
                 Value::Object(cell)
             };
@@ -262,12 +324,23 @@ pub(crate) fn to_line_props(island: &Island) -> Value {
             out.insert("rows".into(), body.iter().map(row).collect());
             let by_column = |key: &str, default: Value| -> Option<Value> {
                 let map = obj.get(key)?.as_object()?;
-                Some(table.columns.iter().map(|c| map.get(c).cloned().unwrap_or_else(|| default.clone())).collect())
+                Some(
+                    table
+                        .columns
+                        .iter()
+                        .map(|c| map.get(c).cloned().unwrap_or_else(|| default.clone()))
+                        .collect(),
+                )
             };
             out.insert(
                 "aligns".into(),
-                by_column("aligns", Value::String("none".into()))
-                    .unwrap_or_else(|| table.columns.iter().map(|_| Value::String("none".into())).collect()),
+                by_column("aligns", Value::String("none".into())).unwrap_or_else(|| {
+                    table
+                        .columns
+                        .iter()
+                        .map(|_| Value::String("none".into()))
+                        .collect()
+                }),
             );
             if let Some(widths) = by_column("widths", Value::Null) {
                 out.insert("widths".into(), widths);
@@ -287,7 +360,13 @@ pub(crate) fn to_line_props(island: &Island) -> Value {
             let mut out = island.props.as_object().cloned().unwrap_or_default();
             let note = island.slots.get(NOTE_SLOT).cloned().unwrap_or_default();
             let (text, marks) = slot_to_cell(&note);
-            out.insert("marks".into(), marks.iter().map(crate::lines::serial::mark_to_value).collect());
+            out.insert(
+                "marks".into(),
+                marks
+                    .iter()
+                    .map(crate::lines::serial::mark_to_value)
+                    .collect(),
+            );
             out.insert("text".into(), Value::String(text));
             Value::Object(out)
         }
@@ -297,11 +376,23 @@ pub(crate) fn to_line_props(island: &Island) -> Value {
                 .iter()
                 .map(|(id, slot)| {
                     let (text, marks) = slot_to_cell(slot);
-                    let marks = marks.iter().map(crate::lines::serial::mark_to_value).collect();
-                    (id.clone(), Value::Object(Map::from_iter([("marks".into(), marks), ("text".into(), Value::String(text))])))
+                    let marks = marks
+                        .iter()
+                        .map(crate::lines::serial::mark_to_value)
+                        .collect();
+                    (
+                        id.clone(),
+                        Value::Object(Map::from_iter([
+                            ("marks".into(), marks),
+                            ("text".into(), Value::String(text)),
+                        ])),
+                    )
                 })
                 .collect();
-            Value::Object(Map::from_iter([("props".into(), island.props.clone()), ("slots".into(), Value::Object(cells))]))
+            Value::Object(Map::from_iter([
+                ("props".into(), island.props.clone()),
+                ("slots".into(), Value::Object(cells)),
+            ]))
         }
         IslandType::Image | IslandType::Math => island.props.clone(),
     }
@@ -326,7 +417,10 @@ pub(crate) fn from_line_props(
                 let mut cells = Vec::new();
                 for c in 0..cols {
                     let slot = minter.mint(prefix::SLOT);
-                    let (text, marks) = r.get(c).map(crate::lines::serial::parse_cell).unwrap_or_default();
+                    let (text, marks) = r
+                        .get(c)
+                        .map(crate::lines::serial::parse_cell)
+                        .unwrap_or_default();
                     slots.insert(slot.clone(), cell_to_slot(&text, &marks, false));
                     cells.push(slot);
                 }
@@ -371,7 +465,13 @@ pub(crate) fn from_line_props(
                     .collect(),
                 _ => BTreeMap::new(),
             };
-            (props.get("props").cloned().unwrap_or_else(|| Value::Object(Map::new())), slots)
+            (
+                props
+                    .get("props")
+                    .cloned()
+                    .unwrap_or_else(|| Value::Object(Map::new())),
+                slots,
+            )
         }
         IslandType::Image | IslandType::Math => (props.clone(), BTreeMap::new()),
     }
@@ -396,13 +496,18 @@ pub(crate) fn slot_to_cell(slot: &Content) -> (String, Vec<line::Mark>) {
     }
     shift.push(extra);
     let at = |p: usize| p + shift[p.min(shift.len() - 1)];
-    let mut marks: Vec<line::Mark> =
-        slot.marks.iter().filter_map(|m| Some(line::Mark::new(at(m.start), at(m.end), m.kind.to_line()?))).collect();
-    marks.extend(
-        slot.anchors
-            .iter()
-            .map(|a| line::Mark::new(at(a.start), at(a.end), line::MarkKind::Anchor { id: a.id.clone() })),
-    );
+    let mut marks: Vec<line::Mark> = slot
+        .marks
+        .iter()
+        .filter_map(|m| Some(line::Mark::new(at(m.start), at(m.end), m.kind.to_line()?)))
+        .collect();
+    marks.extend(slot.anchors.iter().map(|a| {
+        line::Mark::new(
+            at(a.start),
+            at(a.end),
+            line::MarkKind::Anchor { id: a.id.clone() },
+        )
+    }));
     let chars: Vec<char> = text.chars().collect();
     let marks = line::split_marks_at_newlines(&chars, marks);
     (text, line::normalize_marks(marks))
@@ -441,8 +546,14 @@ pub(crate) fn cell_to_slot(text: &str, marks: &[line::Mark], paragraphs: bool) -
     }
     shift.push(dropped);
     let at = |p: usize| p - shift[p.min(shift.len() - 1)];
-    let blocks = (0..blocks).map(|n| Block::new(format!("{}{n}", prefix::BLOCK), BlockKind::Para)).collect();
-    let mut slot = Content { text: out, blocks, ..Content::empty() };
+    let blocks = (0..blocks)
+        .map(|n| Block::new(format!("{}{n}", prefix::BLOCK), BlockKind::Para))
+        .collect();
+    let mut slot = Content {
+        text: out,
+        blocks,
+        ..Content::empty()
+    };
     for m in marks {
         let (start, end) = (at(m.start), at(m.end));
         match &m.kind {

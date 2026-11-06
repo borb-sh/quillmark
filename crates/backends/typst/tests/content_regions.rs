@@ -692,23 +692,48 @@ fn a_host_reads_spans_and_positions_in_its_own_units() {
     use quillmark_content::units::Utf16;
     const TEXT: &str = "Alpha 😀😀 beta gamma.";
     let session = body_session(content(TEXT));
-    let scalars = session.regions().into_iter().find(|r| r.field == "prose").expect("a region");
-    let utf16 = session.regions_in(Utf16).into_iter().find(|r| r.field == "prose").expect("a region");
+    let scalars = session
+        .regions()
+        .into_iter()
+        .find(|r| r.field == "prose")
+        .expect("a region");
+    let utf16 = session
+        .regions_in(Utf16)
+        .into_iter()
+        .find(|r| r.field == "prose")
+        .expect("a region");
     assert_eq!(scalars.span, Some([0, TEXT.chars().count()]));
     assert_eq!(utf16.span, Some([0, TEXT.encode_utf16().count()]));
     assert_eq!(session.field_boxes_in("prose", Utf16)[0].span, utf16.span);
 
     let b = &TEXT[..TEXT.find('b').unwrap()];
     let at = b.encode_utf16().count();
-    let caret = session.locate_in("prose", at, Utf16).expect("a caret at the b");
+    let caret = session
+        .locate_in("prose", at, Utf16)
+        .expect("a caret at the b");
     assert_eq!(caret.span, Some([at, at]));
-    assert_eq!(caret.rect, session.locate("prose", b.chars().count()).unwrap().rect);
-    assert_eq!(session.locate_in("prose", 7, Utf16), None, "inside a surrogate pair");
+    assert_eq!(
+        caret.rect,
+        session.locate("prose", b.chars().count()).unwrap().rect
+    );
+    assert_eq!(
+        session.locate_in("prose", 7, Utf16),
+        None,
+        "inside a surrogate pair"
+    );
 
     let (x, y) = centre(caret.rect);
     let hit = session.position_at(caret.page, x, y, 0.0).expect("a hit");
-    let hit16 = session.position_at_in(caret.page, x, y, 0.0, Utf16).expect("a hit");
-    assert_eq!(hit16.pos, TEXT.chars().take(hit.pos).map(char::len_utf16).sum::<usize>());
+    let hit16 = session
+        .position_at_in(caret.page, x, y, 0.0, Utf16)
+        .expect("a hit");
+    assert_eq!(
+        hit16.pos,
+        TEXT.chars()
+            .take(hit.pos)
+            .map(char::len_utf16)
+            .sum::<usize>()
+    );
     assert_eq!(hit16.pos, at, "past both astral characters");
 }
 

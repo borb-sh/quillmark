@@ -36,12 +36,68 @@ pub(crate) enum BlockKind {
 
 /// The type-6 start condition's names.
 const BLOCK_NAMES: [&str; 62] = [
-    "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", "center",
-    "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset",
-    "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5",
-    "h6", "head", "header", "hr", "html", "iframe", "legend", "li", "link", "main", "menu",
-    "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p", "param", "search", "section",
-    "summary", "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "track", "ul",
+    "address",
+    "article",
+    "aside",
+    "base",
+    "basefont",
+    "blockquote",
+    "body",
+    "caption",
+    "center",
+    "col",
+    "colgroup",
+    "dd",
+    "details",
+    "dialog",
+    "dir",
+    "div",
+    "dl",
+    "dt",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "frame",
+    "frameset",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "head",
+    "header",
+    "hr",
+    "html",
+    "iframe",
+    "legend",
+    "li",
+    "link",
+    "main",
+    "menu",
+    "menuitem",
+    "nav",
+    "noframes",
+    "ol",
+    "optgroup",
+    "option",
+    "p",
+    "param",
+    "search",
+    "section",
+    "summary",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "title",
+    "tr",
+    "track",
+    "ul",
 ];
 
 const VERBATIM: [(&str, &str); 4] = [
@@ -77,7 +133,9 @@ fn attr_value_end(b: &[u8], i: usize) -> Option<usize> {
         _ => {
             let n = b[i..]
                 .iter()
-                .take_while(|&&c| !is_tag_space(c) && !matches!(c, b'"' | b'\'' | b'=' | b'<' | b'>' | b'`'))
+                .take_while(|&&c| {
+                    !is_tag_space(c) && !matches!(c, b'"' | b'\'' | b'=' | b'<' | b'>' | b'`')
+                })
                 .count();
             (n > 0).then_some(i + n)
         }
@@ -99,7 +157,10 @@ pub(crate) fn tag_at(s: &str, at: usize) -> Option<Tag<'_>> {
     if !b.get(i).is_some_and(u8::is_ascii_alphabetic) {
         return None;
     }
-    while b.get(i).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'-') {
+    while b
+        .get(i)
+        .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'-')
+    {
         i += 1;
     }
     let name = &s[name_start..i];
@@ -116,13 +177,15 @@ pub(crate) fn tag_at(s: &str, at: usize) -> Option<Tag<'_>> {
             }
             i = ws;
             let attr_start = i;
-            if !b.get(i).is_some_and(|c| c.is_ascii_alphabetic() || matches!(c, b'_' | b':')) {
+            if !b
+                .get(i)
+                .is_some_and(|c| c.is_ascii_alphabetic() || matches!(c, b'_' | b':'))
+            {
                 return None;
             }
-            while b
-                .get(i)
-                .is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.' | b':' | b'-'))
-            {
+            while b.get(i).is_some_and(|c| {
+                c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.' | b':' | b'-')
+            }) {
                 i += 1;
             }
             let attr = &s[attr_start..i];
@@ -170,7 +233,11 @@ pub(crate) fn tag_line(line: &str) -> Option<Vec<Tag<'_>>> {
 /// content is not markup.
 pub(crate) fn block_tags(text: &str) -> Vec<Tag<'_>> {
     match block_start(text.lines().next().unwrap_or("")) {
-        Some(BlockKind::Verbatim) => text.find('<').and_then(|i| tag_at(text, i)).into_iter().collect(),
+        Some(BlockKind::Verbatim) => text
+            .find('<')
+            .and_then(|i| tag_at(text, i))
+            .into_iter()
+            .collect(),
         Some(BlockKind::Marked(_)) => Vec::new(),
         _ => tags(text),
     }
@@ -216,7 +283,8 @@ pub(crate) fn block_start(line: &str) -> Option<BlockKind> {
     for (name, _) in VERBATIM {
         if b.len() >= name.len()
             && b[..name.len()].eq_ignore_ascii_case(name.as_bytes())
-            && b.get(name.len()).is_none_or(|&c| c.is_ascii_whitespace() || c == b'>')
+            && b.get(name.len())
+                .is_none_or(|&c| c.is_ascii_whitespace() || c == b'>')
         {
             return Some(BlockKind::Verbatim);
         }
@@ -239,7 +307,10 @@ pub(crate) fn block_start(line: &str) -> Option<BlockKind> {
     }
     let at = line.len() - rest.len() - 1;
     let tag = tag_at(line, at)?;
-    line[tag.span.end..].trim().is_empty().then_some(BlockKind::Open)
+    line[tag.span.end..]
+        .trim()
+        .is_empty()
+        .then_some(BlockKind::Open)
 }
 
 /// The byte offset just past the marker on `line` that ends a block of `kind`,
@@ -276,7 +347,12 @@ mod tests {
         assert_eq!(t.name, "a");
         assert_eq!(
             t.attrs,
-            [("href", r#""u""#), ("title", "'t'"), ("data-n", "3"), ("hidden", "")]
+            [
+                ("href", r#""u""#),
+                ("title", "'t'"),
+                ("data-n", "3"),
+                ("hidden", "")
+            ]
         );
         assert!(!t.closing && t.self_closing);
         assert_eq!(t.span, 2..41);
@@ -306,9 +382,19 @@ mod tests {
 
     #[test]
     fn a_tag_line_is_tags_and_whitespace_only() {
-        assert_eq!(tag_line("  <p align=center> <img src=x>  ").map(|t| t.len()), Some(2));
+        assert_eq!(
+            tag_line("  <p align=center> <img src=x>  ").map(|t| t.len()),
+            Some(2)
+        );
         assert_eq!(tag_line("</div>").map(|t| t.len()), Some(1));
-        for not_tag_only in ["", "  ", "<span>text", "text <b>", "<!-- c -->", "<a> | <b>"] {
+        for not_tag_only in [
+            "",
+            "  ",
+            "<span>text",
+            "text <b>",
+            "<!-- c -->",
+            "<a> | <b>",
+        ] {
             assert!(tag_line(not_tag_only).is_none(), "{not_tag_only:?}");
         }
     }
@@ -346,11 +432,17 @@ mod tests {
 
     #[test]
     fn a_block_ends_past_its_marker() {
-        assert_eq!(block_end(BlockKind::Marked("-->"), "<!-- a --> b"), Some(10));
+        assert_eq!(
+            block_end(BlockKind::Marked("-->"), "<!-- a --> b"),
+            Some(10)
+        );
         assert_eq!(block_end(BlockKind::Marked("-->"), "<!-->x"), Some(5));
         assert_eq!(block_end(BlockKind::Verbatim, "x</PRE>"), Some(7));
         assert_eq!(block_end(BlockKind::Verbatim, "x</pre>y"), Some(7));
-        assert_eq!(block_end(BlockKind::Verbatim, "x</Script>y</pre>"), Some(10));
+        assert_eq!(
+            block_end(BlockKind::Verbatim, "x</Script>y</pre>"),
+            Some(10)
+        );
         assert_eq!(block_end(BlockKind::Verbatim, "x</pre >"), None);
         assert_eq!(block_end(BlockKind::Marked(">"), "<!X a>b"), Some(6));
         assert_eq!(block_end(BlockKind::Open, "</span>"), None);

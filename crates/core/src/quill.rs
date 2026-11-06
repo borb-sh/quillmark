@@ -154,7 +154,11 @@ pub(crate) fn text(s: &str) -> serde_json::Value {
 #[cfg(test)]
 pub(crate) fn text_of(v: &serde_json::Value) -> String {
     let content = quillmark_content::model::Content::from_value(v).expect("a content object");
-    assert_eq!(content.codec, quillmark_content::model::Codec::Plain, "rests under the plain codec: {v}");
+    assert_eq!(
+        content.codec,
+        quillmark_content::model::Codec::Plain,
+        "rests under the plain codec: {v}"
+    );
     quillmark_content::markdown::to_plaintext(&content)
 }
 
@@ -166,7 +170,11 @@ pub(crate) fn plain_leaves(v: &serde_json::Value) -> serde_json::Value {
         return Value::String(text_of(v));
     }
     match v {
-        Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), plain_leaves(v))).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(k, v)| (k.clone(), plain_leaves(v)))
+                .collect(),
+        ),
         Value::Array(items) => Value::Array(items.iter().map(plain_leaves).collect()),
         other => other.clone(),
     }

@@ -873,8 +873,7 @@ mod tests {
         let rt = quillmark_content::lines::import::from_markdown("Hello **bold**.\n\nSecond para.")
             .expect("import")
             .content;
-        let data =
-            serde_json::json!({ "intro": quillmark_content::lines::serial::to_canonical_value(&rt) });
+        let data = serde_json::json!({ "intro": quillmark_content::lines::serial::to_canonical_value(&rt) });
         let (lib, windows) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
 
         assert_eq!(windows.len(), 1);

@@ -6,13 +6,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use quillmark::{Diagnostic, Document, Engine, OutputFormat, Quill, RenderOptions};
-use quillmark_core::document::Target;
 use quillmark_content::{
     change::apply,
     diff::diff,
     markdown::{ImportWarning, from_markdown, to_markdown, to_markdown_annotated},
     model::{Content, ISLAND_SLOT},
 };
+use quillmark_core::document::Target;
 use quillmark_fixtures::{quills_path, resource_path};
 use serde_json::{Value, json};
 
@@ -205,7 +205,10 @@ fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
                 Err(e) => return [failures, vec![format!("a body does not parse: {e}")]].concat(),
             };
             if parsed.document.main().body().to_value() != *value {
-                failures.push(format!("a body stores {}", parsed.document.main().body().to_value()));
+                failures.push(format!(
+                    "a body stores {}",
+                    parsed.document.main().body().to_value()
+                ));
             }
             let dropped = dropped_constructs(&parsed.warnings);
             if dropped != *import_signals {
@@ -233,7 +236,11 @@ fn holding(content: &Content) -> Document {
     doc.main_mut()
         .replace(Target::Body, content, None)
         .expect("a canonical content replaces the empty body");
-    assert_eq!(doc.main().body(), content, "a replace over the empty body lands the content");
+    assert_eq!(
+        doc.main().body(),
+        content,
+        "a replace over the empty body lands the content"
+    );
     doc
 }
 
@@ -337,7 +344,10 @@ fn check_revise(content: &Content, reimports: &Content, markdown: &str) -> Vec<S
 
 /// `content` without its anchors.
 fn unanchored(content: &Content) -> Content {
-    Content { anchors: Vec::new(), ..content.clone() }
+    Content {
+        anchors: Vec::new(),
+        ..content.clone()
+    }
 }
 
 /// `annotated` is the content's annotated read. Holding no island token, it
@@ -417,8 +427,11 @@ fn check_document(content: &Content, reimports: &Content, annotated: Option<&str
         .iter()
         .map(|a| (a.path.to_string(), a.id.as_str()))
         .collect();
-    let held: Vec<(String, &str)> =
-        content.anchors.iter().map(|a| ("main.body".to_string(), a.id.as_str())).collect();
+    let held: Vec<(String, &str)> = content
+        .anchors
+        .iter()
+        .map(|a| ("main.body".to_string(), a.id.as_str()))
+        .collect();
     if listed != held {
         failures.push(format!("the annotated read lists {listed:?}"));
     }

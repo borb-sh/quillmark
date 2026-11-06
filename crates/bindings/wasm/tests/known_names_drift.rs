@@ -20,7 +20,10 @@ fn block_kind_tags() -> Vec<String> {
     ];
     for k in &all {
         match k {
-            BlockKind::Para | BlockKind::Heading { .. } | BlockKind::Code { .. } | BlockKind::Rule => {}
+            BlockKind::Para
+            | BlockKind::Heading { .. }
+            | BlockKind::Code { .. }
+            | BlockKind::Rule => {}
             BlockKind::Ext { .. } => {}
         }
     }
@@ -30,7 +33,10 @@ fn block_kind_tags() -> Vec<String> {
 /// The wire `kind` of every container vocabulary member.
 fn container_tags() -> Vec<String> {
     let all = [
-        ContainerKind::List { ordered: false, start: 1 },
+        ContainerKind::List {
+            ordered: false,
+            start: 1,
+        },
         ContainerKind::Item { checked: None },
         ContainerKind::Quote,
     ];
@@ -113,7 +119,10 @@ fn ts_unions_name_every_built_in() {
     }
 
     // An island type carries no payload, so it is its own tag list.
-    let island_types: Vec<_> = IslandType::ALL.iter().map(|k| k.as_str().to_string()).collect();
+    let island_types: Vec<_> = IslandType::ALL
+        .iter()
+        .map(|k| k.as_str().to_string())
+        .collect();
 
     for (union, names) in [
         (ts_union("ContentBlockKind"), block_kind_tags()),

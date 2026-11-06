@@ -178,7 +178,10 @@ impl Document {
         for (i, selector) in selectors.iter().enumerate() {
             if let Some(live) = known.get(&selector.id) {
                 answer.push(Some(live.clone()));
-            } else if let Some(path) = paths[i].as_ref().filter(|p| selector.is_whole() && self.holds_whole(p)) {
+            } else if let Some(path) = paths[i]
+                .as_ref()
+                .filter(|p| selector.is_whole() && self.holds_whole(p))
+            {
                 answer.push(Some(
                     AnchorSelector::new(&*selector.id, path.clone(), "", "", "")
                         .with_card_id(self.card_id_at(path).map(str::to_string)),
@@ -244,11 +247,13 @@ impl Document {
         let Some(value) = card.payload().get(name) else {
             return false;
         };
-        let leaf = tail.iter().try_fold(value.as_json(), |value, seg| match seg {
-            DocSeg::Field { name } => value.as_object()?.get(name),
-            DocSeg::Index { index } => value.as_array()?.get(*index),
-            _ => None,
-        });
+        let leaf = tail
+            .iter()
+            .try_fold(value.as_json(), |value, seg| match seg {
+                DocSeg::Field { name } => value.as_object()?.get(name),
+                DocSeg::Index { index } => value.as_array()?.get(*index),
+                _ => None,
+            });
         leaf.is_some_and(|leaf| !leaf.is_null() && content_of(leaf).is_none())
     }
 
@@ -379,5 +384,9 @@ fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut Visit<'_>) -> Cont
 }
 
 fn content_of(value: &JsonValue) -> Option<Content> {
-    value.is_object().then(|| Content::from_value_lenient(value).ok()).flatten().map(|read| read.content)
+    value
+        .is_object()
+        .then(|| Content::from_value_lenient(value).ok())
+        .flatten()
+        .map(|read| read.content)
 }

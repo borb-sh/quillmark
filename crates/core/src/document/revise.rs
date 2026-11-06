@@ -1,23 +1,23 @@
 //! The whole-document revise: a markdown write that keeps what markdown cannot
 //! spell.
 
-use quillmark_content::lines::delta::carry_anchors;
 use quillmark_content::change::ApplyError;
+use quillmark_content::lines::delta::carry_anchors;
 use quillmark_content::model::Content;
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 
 use super::align::{Pairing, Slot, align};
-use super::card_id::{is_card_id, reminted_warning, settle_reporting};
 use super::anchors::AnchorSelector;
+use super::card_id::{is_card_id, reminted_warning, settle_reporting};
 use super::edit::EditError;
 use super::emit::{canonical_content, emit_payload_fields};
-use quillmark_content::anchors::anchor_contexts;
-use quillmark_content::model::Content as ContentModel;
 use super::{Card, Document, Parsed, Revising, dropped_constructs};
 use crate::error::{Diagnostic, ParseError, Severity};
 use crate::path::DocPath;
 use crate::value::QuillValue;
+use quillmark_content::anchors::anchor_contexts;
+use quillmark_content::model::Content as ContentModel;
 
 /// The receipt of [`Document::revise`].
 #[derive(Debug, Clone, PartialEq)]
@@ -246,7 +246,10 @@ fn revise_card(
         None => {
             let lines = carry_anchors(stored.body_lines(), incoming.body_lines().clone());
             let lifted = quillmark_content::diff::lift(stored.body(), &lines);
-            lifted.validate().map(|()| lifted).map_err(ApplyError::Invalid)
+            lifted
+                .validate()
+                .map(|()| lifted)
+                .map_err(ApplyError::Invalid)
         }
     });
     match body {
@@ -281,7 +284,10 @@ fn revise_card(
 /// `markdown` revising `stored` as [`Card::revise`] revises a value with no
 /// base. `None` on an over-nested input, and the refusal where the markdown
 /// imports to a value that does not validate.
-fn revised(stored: &Content, markdown: &str) -> Result<Option<quillmark_content::diff::Revision>, ApplyError> {
+fn revised(
+    stored: &Content,
+    markdown: &str,
+) -> Result<Option<quillmark_content::diff::Revision>, ApplyError> {
     use quillmark_content::diff::{ReviseError, revise};
     match revise(stored, markdown) {
         Ok(revision) => Ok(Some(revision)),
@@ -301,11 +307,20 @@ fn kept_warning(e: ApplyError, at: &DocPath) -> Diagnostic {
 /// `source`, a body the parse read with its tokens unresolved, revising
 /// `stored`: [`revised`], and a `parse::dropped_construct` at `at` for each
 /// tag the parse did not report.
-fn revise_body(stored: &Content, source: &str, at: &DocPath, warnings: &mut Vec<Diagnostic>) -> Result<Option<Content>, ApplyError> {
+fn revise_body(
+    stored: &Content,
+    source: &str,
+    at: &DocPath,
+    warnings: &mut Vec<Diagnostic>,
+) -> Result<Option<Content>, ApplyError> {
     let Some(revision) = revised(stored, source)? else {
         return Ok(None);
     };
-    let tags = revision.warnings.into_iter().filter(|w| w.construct.is_held_tag()).collect();
+    let tags = revision
+        .warnings
+        .into_iter()
+        .filter(|w| w.construct.is_held_tag())
+        .collect();
     warnings.extend(dropped_constructs(tags, Some(at)));
     Ok(Some(revision.content))
 }
@@ -325,7 +340,10 @@ fn revise_value(
         let JsonValue::String(text) = incoming else {
             return;
         };
-        let Some(base) = Content::from_value_lenient(stored).ok().map(|read| read.content) else {
+        let Some(base) = Content::from_value_lenient(stored)
+            .ok()
+            .map(|read| read.content)
+        else {
             return;
         };
         let revision = match revised(&base, text) {
@@ -465,7 +483,11 @@ fn drop_value(
     let content_of = |value: &JsonValue| {
         value
             .is_object()
-            .then(|| ContentModel::from_value_lenient(value).ok().map(|read| read.content))
+            .then(|| {
+                ContentModel::from_value_lenient(value)
+                    .ok()
+                    .map(|read| read.content)
+            })
             .flatten()
     };
     if let Some(content) = content_of(stored) {
@@ -505,7 +527,9 @@ fn drop_content(
     at: &DocPath,
     out: &mut Vec<AnchorSelector>,
 ) {
-    let held: HashSet<String> = revised.map_or_else(HashSet::new, |r| anchor_contexts(r).into_iter().map(|c| c.id).collect());
+    let held: HashSet<String> = revised.map_or_else(HashSet::new, |r| {
+        anchor_contexts(r).into_iter().map(|c| c.id).collect()
+    });
     out.extend(
         anchor_contexts(stored)
             .into_iter()

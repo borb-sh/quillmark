@@ -65,7 +65,9 @@ fn a_text_field_under_a_stale_hash_is_refused_at_its_path() {
     let mut w = TypedWriter::new(&config, &mut doc);
     let read = w.hash_of("note").unwrap();
     let _ = w.revise(Target::from("note"), "x", Some(&read)).unwrap();
-    let err = w.revise(Target::from("note"), "y", Some(&read)).unwrap_err();
+    let err = w
+        .revise(Target::from("note"), "y", Some(&read))
+        .unwrap_err();
     assert_eq!(
         err.doc_path(&crate::path::DocPath::main())
             .map(|p| p.to_string()),
@@ -85,7 +87,10 @@ fn a_revise_of_a_date_under_a_fresh_hash_fails_as_a_plain_revise() {
     let config = config();
     let mut doc = parse("~~~\n$quill: memo@1.0.0\non: 2024-01-01\n~~~\n");
     let mut w = TypedWriter::new(&config, &mut doc);
-    let plain = w.revise(Target::from("on"), "2024-02-02", None).unwrap_err().code();
+    let plain = w
+        .revise(Target::from("on"), "2024-02-02", None)
+        .unwrap_err()
+        .code();
     let read = w.hash_of("on").unwrap();
     let err = w
         .revise(Target::from("on"), "2024-02-02", Some(&read))
@@ -101,7 +106,11 @@ fn a_richtext_field_hashes_its_content_however_it_rests() {
     let as_string = doc.main().hash_of("subject").unwrap();
     assert_eq!(
         as_string,
-        content_hash(&quillmark_content::markdown::from_markdown("Hello *world*").unwrap().content)
+        content_hash(
+            &quillmark_content::markdown::from_markdown("Hello *world*")
+                .unwrap()
+                .content
+        )
     );
     let mut w = TypedWriter::new(&config, &mut doc);
     assert_eq!(w.hash_of("subject").unwrap(), as_string);
@@ -110,7 +119,11 @@ fn a_richtext_field_hashes_its_content_however_it_rests() {
     assert_eq!(doc.main().hash_of("subject").unwrap(), as_string);
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
-        .revise(Target::from("subject"), "Hello _world_, hi", Some(&as_string))
+        .revise(
+            Target::from("subject"),
+            "Hello _world_, hi",
+            Some(&as_string),
+        )
         .unwrap();
     assert_eq!(
         w.hash_of("missing").unwrap_err().code(),

@@ -62,13 +62,19 @@ impl Minter {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        Minter { held: held.into_iter().map(Into::into).collect(), next: HashMap::new() }
+        Minter {
+            held: held.into_iter().map(Into::into).collect(),
+            next: HashMap::new(),
+        }
     }
 
     pub fn hold(&mut self, id: impl Into<String>) {
         let id = id.into();
         for (prefix, next) in &mut self.next {
-            if let Some(n) = id.strip_prefix(prefix.as_str()).and_then(|n| n.parse::<u64>().ok()) {
+            if let Some(n) = id
+                .strip_prefix(prefix.as_str())
+                .and_then(|n| n.parse::<u64>().ok())
+            {
                 if let Some(past) = n.checked_add(1) {
                     *next = (*next).max(past);
                 }

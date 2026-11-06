@@ -81,13 +81,20 @@ pub struct Block {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockKind {
     Para,
-    Heading { level: u8 },
-    Code { lang: Option<String> },
+    Heading {
+        level: u8,
+    },
+    Code {
+        lang: Option<String>,
+    },
     Rule,
     /// A kind this build does not know, by its reserved `x-` name
     /// ([`is_ext_name`](crate::ids::is_ext_name)), its attributes held as
     /// written. It reads as a paragraph.
-    Ext { name: String, attrs: JsonMap<String, JsonValue> },
+    Ext {
+        name: String,
+        attrs: JsonMap<String, JsonValue>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -117,12 +124,19 @@ pub enum MarkKind {
     Underline,
     Strike,
     Code,
-    Link { url: String },
-    FontFamily { name: String },
+    Link {
+        url: String,
+    },
+    FontFamily {
+        name: String,
+    },
     /// A type this build does not know, by its reserved `x-` name, its
     /// attributes held as written. It formats nothing, and unions with a mark
     /// of its name and attributes as formatting does.
-    Ext { name: String, attrs: JsonMap<String, JsonValue> },
+    Ext {
+        name: String,
+        attrs: JsonMap<String, JsonValue>,
+    },
 }
 
 /// A comment handle over `[start, end)`; a point when the two are equal.
@@ -145,7 +159,11 @@ pub struct Island {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pos {
     At(Scalar),
-    In { island: String, slot: String, at: Box<Pos> },
+    In {
+        island: String,
+        slot: String,
+        at: Box<Pos>,
+    },
 }
 
 impl BlockKind {
@@ -224,10 +242,13 @@ impl MarkKind {
     pub fn sort_key(&self) -> (String, String) {
         match (self, self.to_line()) {
             (_, Some(known)) => known.sort_key(),
-            (MarkKind::Ext { name, attrs }, None) if attrs.is_empty() => (name.clone(), String::new()),
-            (MarkKind::Ext { name, attrs }, None) => {
-                (name.clone(), line::canonical_json_string(&JsonValue::Object(attrs.clone())))
+            (MarkKind::Ext { name, attrs }, None) if attrs.is_empty() => {
+                (name.clone(), String::new())
             }
+            (MarkKind::Ext { name, attrs }, None) => (
+                name.clone(),
+                line::canonical_json_string(&JsonValue::Object(attrs.clone())),
+            ),
             (_, None) => (String::new(), String::new()),
         }
     }
@@ -241,7 +262,11 @@ impl Mark {
 
 impl Anchor {
     pub fn new(id: impl Into<String>, start: Scalar, end: Scalar) -> Self {
-        Anchor { id: id.into(), start, end }
+        Anchor {
+            id: id.into(),
+            start,
+            end,
+        }
     }
 
     pub fn is_point(&self) -> bool {
@@ -313,97 +338,201 @@ pub enum Invariant {
     /// A character the text cannot hold: `\r`, a bidi control, or a line
     /// separator other than [`HARD_BREAK`].
     ForbiddenChar(char),
-    BlockCountMismatch { blocks: usize, segments: usize },
-    IslandSlotMismatch { slots: usize, islands: usize },
-    BadId { id: String },
+    BlockCountMismatch {
+        blocks: usize,
+        segments: usize,
+    },
+    IslandSlotMismatch {
+        slots: usize,
+        islands: usize,
+    },
+    BadId {
+        id: String,
+    },
     /// A kind or type outside the vocabulary that is not an `x-` name.
-    BadName { name: String },
-    DuplicateId { id: String },
-    UnknownContainer { block: String, container: String },
+    BadName {
+        name: String,
+    },
+    DuplicateId {
+        id: String,
+    },
+    UnknownContainer {
+        block: String,
+        container: String,
+    },
     /// A path whose kinds do not nest: an item outside a list, a list holding
     /// anything but an item, or a path ending in a list.
-    BadPath { block: String },
-    NestingTooDeep { block: String, depth: usize, max: usize },
+    BadPath {
+        block: String,
+    },
+    NestingTooDeep {
+        block: String,
+        depth: usize,
+        max: usize,
+    },
     BadHeadingLevel(u8),
     BadLang(String),
-    BadMark { start: Scalar, end: Scalar, len: Scalar },
+    BadMark {
+        start: Scalar,
+        end: Scalar,
+        len: Scalar,
+    },
     BadMarkValue,
-    BadAnchor { id: String },
-    BadIsland { id: String, reason: &'static str },
-    JsonTooDeep { what: &'static str, max: usize },
-    TableTooLarge { cells: usize, max: usize },
+    BadAnchor {
+        id: String,
+    },
+    BadIsland {
+        id: String,
+        reason: &'static str,
+    },
+    JsonTooDeep {
+        what: &'static str,
+        max: usize,
+    },
+    TableTooLarge {
+        cells: usize,
+        max: usize,
+    },
     /// A [`Codec::Plain`] value holding what only a rich one may: a mark, an
     /// island, a container, or a block other than a paragraph.
     NotPlain,
     /// A text holding more marks than [`max_marks`](crate::max_marks) of its
     /// length, a mark counted once per block and line it spans before it is
     /// cut at each.
-    TooManyMarks { marks: usize, max: usize },
+    TooManyMarks {
+        marks: usize,
+        max: usize,
+    },
     /// A value holding more than [`MAX_ANCHORS`](crate::MAX_ANCHORS) anchors.
-    TooManyAnchors { anchors: usize, max: usize },
+    TooManyAnchors {
+        anchors: usize,
+        max: usize,
+    },
     /// A slot holds what only a field's own text may: anything but paragraphs.
-    BadSlot { island: String, slot: String },
+    BadSlot {
+        island: String,
+        slot: String,
+    },
     /// A table cell or a footnote's note holds a paragraph break: each is
     /// one paragraph, its lines parted by [`HARD_BREAK`].
-    BreakInCell { island: String, slot: String },
+    BreakInCell {
+        island: String,
+        slot: String,
+    },
     /// A value spelled otherwise than [`Content::normalize`] leaves it: `what`
     /// names the part normalizing would rewrite or drop.
-    NotCanonical { what: &'static str },
+    NotCanonical {
+        what: &'static str,
+    },
     /// A container whose blocks are not one contiguous run.
-    SplitContainer { id: String },
+    SplitContainer {
+        id: String,
+    },
     /// A container under two different parent paths.
-    TwoParents { id: String },
-    UnusedContainer { id: String },
-    BreakInHeading { block: String },
-    TextInRule { block: String },
-    SlotInCode { block: String },
-    BlockIslandNotAlone { island: String },
+    TwoParents {
+        id: String,
+    },
+    UnusedContainer {
+        id: String,
+    },
+    BreakInHeading {
+        block: String,
+    },
+    TextInRule {
+        block: String,
+    },
+    SlotInCode {
+        block: String,
+    },
+    BlockIslandNotAlone {
+        island: String,
+    },
 }
 
 impl std::fmt::Display for Invariant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Invariant::ForbiddenChar(c) => write!(f, "the text holds U+{:04X}, which it cannot", *c as u32),
+            Invariant::ForbiddenChar(c) => {
+                write!(f, "the text holds U+{:04X}, which it cannot", *c as u32)
+            }
             Invariant::BlockCountMismatch { blocks, segments } => {
                 write!(f, "{blocks} block records for {segments} segments")
             }
-            Invariant::IslandSlotMismatch { slots, islands } => write!(f, "{slots} island slots for {islands} islands"),
+            Invariant::IslandSlotMismatch { slots, islands } => {
+                write!(f, "{slots} island slots for {islands} islands")
+            }
             Invariant::BadId { id } => write!(f, "`{id}` is not an id"),
             Invariant::BadName { name } => write!(f, "`{name}` is not an `x-` name"),
             Invariant::DuplicateId { id } => write!(f, "the id `{id}` is held twice"),
             Invariant::UnknownContainer { block, container } => {
-                write!(f, "block `{block}` names container `{container}`, which does not exist")
+                write!(
+                    f,
+                    "block `{block}` names container `{container}`, which does not exist"
+                )
             }
-            Invariant::BadPath { block } => write!(f, "block `{block}` has a path whose containers do not nest"),
+            Invariant::BadPath { block } => {
+                write!(f, "block `{block}` has a path whose containers do not nest")
+            }
             Invariant::NestingTooDeep { block, depth, max } => {
-                write!(f, "block `{block}` nests {depth} deep, past the limit of {max}")
+                write!(
+                    f,
+                    "block `{block}` nests {depth} deep, past the limit of {max}"
+                )
             }
             Invariant::BadHeadingLevel(l) => write!(f, "heading level {l} is outside 1 to 6"),
             Invariant::BadLang(l) => write!(f, "`{l}` is not a code language"),
-            Invariant::BadMark { start, end, len } => write!(f, "mark [{start}, {end}) does not fit text of length {len}"),
+            Invariant::BadMark { start, end, len } => {
+                write!(f, "mark [{start}, {end}) does not fit text of length {len}")
+            }
             Invariant::BadMarkValue => write!(f, "a mark carries a value it cannot"),
             Invariant::BadAnchor { id } => write!(f, "anchor `{id}` is out of range or has no id"),
             Invariant::BadIsland { id, reason } => write!(f, "island `{id}`: {reason}"),
             Invariant::JsonTooDeep { what, max } => write!(f, "{what} nest past {max} levels"),
-            Invariant::TableTooLarge { cells, max } => write!(f, "a table of {cells} cells is past the limit of {max}"),
-            Invariant::NotPlain => write!(f, "a plain value holds a mark, an island, a container or a block other than a paragraph"),
-            Invariant::TooManyMarks { marks, max } => write!(f, "{marks} marks over a text that holds at most {max}"),
-            Invariant::TooManyAnchors { anchors, max } => write!(f, "{anchors} anchors, past the limit of {max}"),
+            Invariant::TableTooLarge { cells, max } => {
+                write!(f, "a table of {cells} cells is past the limit of {max}")
+            }
+            Invariant::NotPlain => write!(
+                f,
+                "a plain value holds a mark, an island, a container or a block other than a paragraph"
+            ),
+            Invariant::TooManyMarks { marks, max } => {
+                write!(f, "{marks} marks over a text that holds at most {max}")
+            }
+            Invariant::TooManyAnchors { anchors, max } => {
+                write!(f, "{anchors} anchors, past the limit of {max}")
+            }
             Invariant::BadSlot { island, slot } => {
-                write!(f, "slot `{slot}` of island `{island}` holds more than paragraphs")
+                write!(
+                    f,
+                    "slot `{slot}` of island `{island}` holds more than paragraphs"
+                )
             }
             Invariant::BreakInCell { island, slot } => {
-                write!(f, "slot `{slot}` of island `{island}` holds more than one paragraph")
+                write!(
+                    f,
+                    "slot `{slot}` of island `{island}` holds more than one paragraph"
+                )
             }
-            Invariant::NotCanonical { what } => write!(f, "the value's {what} are not in canonical form"),
-            Invariant::SplitContainer { id } => write!(f, "container `{id}` spans two separate runs"),
-            Invariant::TwoParents { id } => write!(f, "container `{id}` sits under two different paths"),
+            Invariant::NotCanonical { what } => {
+                write!(f, "the value's {what} are not in canonical form")
+            }
+            Invariant::SplitContainer { id } => {
+                write!(f, "container `{id}` spans two separate runs")
+            }
+            Invariant::TwoParents { id } => {
+                write!(f, "container `{id}` sits under two different paths")
+            }
             Invariant::UnusedContainer { id } => write!(f, "container `{id}` holds no block"),
-            Invariant::BreakInHeading { block } => write!(f, "heading `{block}` holds a line break"),
+            Invariant::BreakInHeading { block } => {
+                write!(f, "heading `{block}` holds a line break")
+            }
             Invariant::TextInRule { block } => write!(f, "rule `{block}` holds text"),
             Invariant::SlotInCode { block } => write!(f, "code block `{block}` holds an island"),
             Invariant::BlockIslandNotAlone { island } => {
-                write!(f, "island `{island}` is set as a block and shares its block with other text")
+                write!(
+                    f,
+                    "island `{island}` is set as a block and shares its block with other text"
+                )
             }
         }
     }
@@ -427,7 +556,10 @@ pub(crate) fn normalized_marks(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
             None => ext.push(m),
         }
     }
-    let known = line::normalize_marks(line::split_marks_at_newlines(chars, line::normalize_marks(known)));
+    let known = line::normalize_marks(line::split_marks_at_newlines(
+        chars,
+        line::normalize_marks(known),
+    ));
     let mut out: Vec<Mark> = known
         .into_iter()
         .filter_map(|m| MarkKind::from_line(&m.kind).map(|k| Mark::new(m.start, m.end, k)))
@@ -440,13 +572,20 @@ pub(crate) fn normalized_marks(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
 }
 
 /// A block record's id, kind and path, its path read against `containers`.
-pub(crate) fn check_block<'a>(b: &Block, containers: impl Fn(&str) -> Option<&'a ContainerKind>) -> Result<(), Invariant> {
+pub(crate) fn check_block<'a>(
+    b: &Block,
+    containers: impl Fn(&str) -> Option<&'a ContainerKind>,
+) -> Result<(), Invariant> {
     if !is_id(&b.id) {
         return Err(Invariant::BadId { id: b.id.clone() });
     }
     match &b.kind {
-        BlockKind::Heading { level } if !(1..=6).contains(level) => return Err(Invariant::BadHeadingLevel(*level)),
-        BlockKind::Code { lang: Some(lang) } if !is_lang(lang) => return Err(Invariant::BadLang(lang.clone())),
+        BlockKind::Heading { level } if !(1..=6).contains(level) => {
+            return Err(Invariant::BadHeadingLevel(*level));
+        }
+        BlockKind::Code { lang: Some(lang) } if !is_lang(lang) => {
+            return Err(Invariant::BadLang(lang.clone()));
+        }
         BlockKind::Ext { name, attrs } => check_ext(name, attrs, "block attrs")?,
         _ => {}
     }
@@ -484,7 +623,10 @@ impl Content {
 
     /// [`empty`](Self::empty) under `codec`.
     pub fn empty_as(codec: Codec) -> Self {
-        Content { codec, ..Content::empty() }
+        Content {
+            codec,
+            ..Content::empty()
+        }
     }
 
     pub fn len_scalars(&self) -> Scalar {
@@ -540,7 +682,10 @@ impl Content {
     pub fn is_plain(&self) -> bool {
         self.marks.is_empty()
             && self.islands.is_empty()
-            && self.blocks.iter().all(|b| b.kind == BlockKind::Para && b.path.is_empty())
+            && self
+                .blocks
+                .iter()
+                .all(|b| b.kind == BlockKind::Para && b.path.is_empty())
     }
 
     pub fn is_blank(&self) -> bool {
@@ -580,7 +725,10 @@ impl Content {
     /// Whether the text or a slot in it holds an anchor under `id`.
     pub fn holds_anchor(&self, id: &str) -> bool {
         self.anchors.iter().any(|a| a.id == id)
-            || self.islands.iter().any(|i| i.slots.values().any(|slot| slot.holds_anchor(id)))
+            || self
+                .islands
+                .iter()
+                .any(|i| i.slots.values().any(|slot| slot.holds_anchor(id)))
     }
 
     /// The content at `island`'s `slot`.
@@ -589,7 +737,11 @@ impl Content {
     }
 
     pub fn slot_mut(&mut self, island: &str, slot: &str) -> Option<&mut Content> {
-        self.islands.iter_mut().find(|i| i.id == island)?.slots.get_mut(slot)
+        self.islands
+            .iter_mut()
+            .find(|i| i.id == island)?
+            .slots
+            .get_mut(slot)
     }
 
     /// The canonical form: marks cut at each `\n` and [`HARD_BREAK`], merged
@@ -608,7 +760,8 @@ impl Content {
     }
 
     pub(crate) fn sort_anchors(&mut self) {
-        self.anchors.sort_by(|a, b| (a.start, a.end, &a.id).cmp(&(b.start, b.end, &b.id)));
+        self.anchors
+            .sort_by(|a, b| (a.start, a.end, &a.id).cmp(&(b.start, b.end, &b.id)));
     }
 
     pub(crate) fn normalize_marks(&mut self) {
@@ -646,7 +799,10 @@ impl Content {
         let mut ids = HashSet::new();
         self.check_anchor_ids(&mut ids)?;
         match ids.len() > crate::MAX_ANCHORS {
-            true => Err(Invariant::TooManyAnchors { anchors: ids.len(), max: crate::MAX_ANCHORS }),
+            true => Err(Invariant::TooManyAnchors {
+                anchors: ids.len(),
+                max: crate::MAX_ANCHORS,
+            }),
             false => Ok(()),
         }
     }
@@ -671,7 +827,10 @@ impl Content {
         }
         *anchors = anchors.saturating_add(self.anchors.len());
         if *anchors > crate::MAX_ANCHORS {
-            return Err(Invariant::TooManyAnchors { anchors: *anchors, max: crate::MAX_ANCHORS });
+            return Err(Invariant::TooManyAnchors {
+                anchors: *anchors,
+                max: crate::MAX_ANCHORS,
+            });
         }
         for island in &self.islands {
             for slot in island.slots.values() {
@@ -699,10 +858,16 @@ impl Content {
             len += 1;
         }
         if self.blocks.len() != segments {
-            return Err(Invariant::BlockCountMismatch { blocks: self.blocks.len(), segments });
+            return Err(Invariant::BlockCountMismatch {
+                blocks: self.blocks.len(),
+                segments,
+            });
         }
         if self.islands.len() != slots {
-            return Err(Invariant::IslandSlotMismatch { slots, islands: self.islands.len() });
+            return Err(Invariant::IslandSlotMismatch {
+                slots,
+                islands: self.islands.len(),
+            });
         }
         let mut containers: HashMap<&str, &ContainerKind> = HashMap::new();
         for c in &self.containers {
@@ -722,11 +887,18 @@ impl Content {
         }
         let max = crate::max_marks(len);
         if self.marks.len() > max {
-            return Err(Invariant::TooManyMarks { marks: self.marks.len(), max });
+            return Err(Invariant::TooManyMarks {
+                marks: self.marks.len(),
+                max,
+            });
         }
         for m in &self.marks {
             if m.start >= m.end || m.end > len {
-                return Err(Invariant::BadMark { start: m.start, end: m.end, len });
+                return Err(Invariant::BadMark {
+                    start: m.start,
+                    end: m.end,
+                    len,
+                });
             }
             check_mark_kind(&m.kind)?;
         }
@@ -738,10 +910,14 @@ impl Content {
         let mut island_ids = HashSet::new();
         for island in &self.islands {
             if !is_id(&island.id) {
-                return Err(Invariant::BadId { id: island.id.clone() });
+                return Err(Invariant::BadId {
+                    id: island.id.clone(),
+                });
             }
             if !island_ids.insert(island.id.as_str()) {
-                return Err(Invariant::DuplicateId { id: island.id.clone() });
+                return Err(Invariant::DuplicateId {
+                    id: island.id.clone(),
+                });
             }
             check_island(island)?;
         }
@@ -783,19 +959,31 @@ impl Content {
             let seg = &chars[s..e];
             match b.kind {
                 BlockKind::Heading { .. } if seg.contains(&HARD_BREAK) => {
-                    return Err(Invariant::BreakInHeading { block: b.id.clone() });
+                    return Err(Invariant::BreakInHeading {
+                        block: b.id.clone(),
+                    });
                 }
-                BlockKind::Rule if !seg.is_empty() => return Err(Invariant::TextInRule { block: b.id.clone() }),
+                BlockKind::Rule if !seg.is_empty() => {
+                    return Err(Invariant::TextInRule {
+                        block: b.id.clone(),
+                    });
+                }
                 BlockKind::Code { .. } if seg.contains(&ISLAND_SLOT) => {
-                    return Err(Invariant::SlotInCode { block: b.id.clone() });
+                    return Err(Invariant::SlotInCode {
+                        block: b.id.clone(),
+                    });
                 }
                 _ => {}
             }
             for &c in seg {
                 if c == ISLAND_SLOT {
                     let island = &self.islands[slot];
-                    if island.island_type.block_only() && (seg.len() != 1 || !b.kind.reads_as_para()) {
-                        return Err(Invariant::BlockIslandNotAlone { island: island.id.clone() });
+                    if island.island_type.block_only()
+                        && (seg.len() != 1 || !b.kind.reads_as_para())
+                    {
+                        return Err(Invariant::BlockIslandNotAlone {
+                            island: island.id.clone(),
+                        });
                     }
                     slot += 1;
                 }
@@ -810,7 +998,10 @@ impl Content {
     }
 
     /// Anchor ids unique over the text and every slot.
-    pub(crate) fn check_anchor_ids<'a>(&'a self, ids: &mut HashSet<&'a str>) -> Result<(), Invariant> {
+    pub(crate) fn check_anchor_ids<'a>(
+        &'a self,
+        ids: &mut HashSet<&'a str>,
+    ) -> Result<(), Invariant> {
         for a in &self.anchors {
             if !ids.insert(a.id.as_str()) {
                 return Err(Invariant::DuplicateId { id: a.id.clone() });
@@ -837,7 +1028,10 @@ impl Content {
                 return not("marks");
             }
         }
-        if !self.anchors.is_sorted_by(|a, b| (a.start, a.end, &a.id) <= (b.start, b.end, &b.id)) {
+        if !self
+            .anchors
+            .is_sorted_by(|a, b| (a.start, a.end, &a.id) <= (b.start, b.end, &b.id))
+        {
             return not("anchors");
         }
         if !self.containers.is_empty() {
@@ -864,7 +1058,11 @@ impl Content {
 
     /// The blocks and containers alone, what ordering containers reads.
     fn clone_shell(&self) -> Content {
-        Content { blocks: self.blocks.clone(), containers: self.containers.clone(), ..Content::empty() }
+        Content {
+            blocks: self.blocks.clone(),
+            containers: self.containers.clone(),
+            ..Content::empty()
+        }
     }
 
     /// [`Island::join_cells`] over each island; answers the `(island, slot)`
@@ -872,7 +1070,12 @@ impl Content {
     pub fn join_cells(&mut self) -> Vec<(String, String)> {
         let mut joined = Vec::new();
         for island in &mut self.islands {
-            joined.extend(island.join_cells().into_iter().map(|slot| (island.id.clone(), slot)));
+            joined.extend(
+                island
+                    .join_cells()
+                    .into_iter()
+                    .map(|slot| (island.id.clone(), slot)),
+            );
         }
         joined
     }
@@ -883,7 +1086,10 @@ impl Content {
     pub fn is_slot_shape(&self) -> bool {
         self.islands.is_empty()
             && self.containers.is_empty()
-            && self.blocks.iter().all(|b| b.kind.reads_as_para() && b.path.is_empty())
+            && self
+                .blocks
+                .iter()
+                .all(|b| b.kind.reads_as_para() && b.path.is_empty())
     }
 
     /// The text of each block, island slots and breaks as stored.
@@ -894,7 +1100,11 @@ impl Content {
 
 impl Block {
     pub fn new(id: impl Into<String>, kind: BlockKind) -> Self {
-        Block { id: id.into(), kind, path: Vec::new() }
+        Block {
+            id: id.into(),
+            kind,
+            path: Vec::new(),
+        }
     }
 
     pub fn with_path(mut self, path: Vec<String>) -> Self {
@@ -905,7 +1115,10 @@ impl Block {
 
 impl Container {
     pub fn new(id: impl Into<String>, kind: ContainerKind) -> Self {
-        Container { id: id.into(), kind }
+        Container {
+            id: id.into(),
+            kind,
+        }
     }
 }
 
@@ -922,16 +1135,24 @@ pub fn depth(path: &[String], kinds: impl Fn(&str) -> Option<ContainerKind>) -> 
         .count()
 }
 
-fn check_path<'a>(b: &Block, containers: impl Fn(&str) -> Option<&'a ContainerKind>) -> Result<(), Invariant> {
+fn check_path<'a>(
+    b: &Block,
+    containers: impl Fn(&str) -> Option<&'a ContainerKind>,
+) -> Result<(), Invariant> {
     let mut after_list = false;
     let mut levels = 0usize;
     for id in &b.path {
         let Some(kind) = containers(id.as_str()) else {
-            return Err(Invariant::UnknownContainer { block: b.id.clone(), container: id.clone() });
+            return Err(Invariant::UnknownContainer {
+                block: b.id.clone(),
+                container: id.clone(),
+            });
         };
         let is_item = matches!(kind, ContainerKind::Item { .. });
         if is_item != after_list {
-            return Err(Invariant::BadPath { block: b.id.clone() });
+            return Err(Invariant::BadPath {
+                block: b.id.clone(),
+            });
         }
         after_list = matches!(kind, ContainerKind::List { .. });
         if !after_list {
@@ -939,25 +1160,49 @@ fn check_path<'a>(b: &Block, containers: impl Fn(&str) -> Option<&'a ContainerKi
         }
     }
     if after_list {
-        return Err(Invariant::BadPath { block: b.id.clone() });
+        return Err(Invariant::BadPath {
+            block: b.id.clone(),
+        });
     }
     if levels > crate::MAX_NESTING_DEPTH {
-        return Err(Invariant::NestingTooDeep { block: b.id.clone(), depth: levels, max: crate::MAX_NESTING_DEPTH });
+        return Err(Invariant::NestingTooDeep {
+            block: b.id.clone(),
+            depth: levels,
+            max: crate::MAX_NESTING_DEPTH,
+        });
     }
-    if b.path.iter().enumerate().any(|(k, id)| b.path[..k].contains(id)) {
-        return Err(Invariant::BadPath { block: b.id.clone() });
+    if b.path
+        .iter()
+        .enumerate()
+        .any(|(k, id)| b.path[..k].contains(id))
+    {
+        return Err(Invariant::BadPath {
+            block: b.id.clone(),
+        });
     }
     Ok(())
 }
 
 /// A kind or type this build does not know: an `x-` name, its attributes
 /// within the JSON depth.
-fn check_ext(name: &str, attrs: &JsonMap<String, JsonValue>, what: &'static str) -> Result<(), Invariant> {
+fn check_ext(
+    name: &str,
+    attrs: &JsonMap<String, JsonValue>,
+    what: &'static str,
+) -> Result<(), Invariant> {
     if !crate::ids::is_ext_name(name) {
-        return Err(Invariant::BadName { name: name.to_string() });
+        return Err(Invariant::BadName {
+            name: name.to_string(),
+        });
     }
-    if attrs.values().any(|v| line::json_depth_exceeds(v, crate::MAX_JSON_DEPTH - 1)) {
-        return Err(Invariant::JsonTooDeep { what, max: crate::MAX_JSON_DEPTH });
+    if attrs
+        .values()
+        .any(|v| line::json_depth_exceeds(v, crate::MAX_JSON_DEPTH - 1))
+    {
+        return Err(Invariant::JsonTooDeep {
+            what,
+            max: crate::MAX_JSON_DEPTH,
+        });
     }
     Ok(())
 }
@@ -966,10 +1211,17 @@ fn check_ext(name: &str, attrs: &JsonMap<String, JsonValue>, what: &'static str)
 /// cut at each `\n` and [`HARD_BREAK`], one name and attributes unioned where
 /// they touch, an empty one dropped.
 fn settle_ext(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
-    let breaks: Vec<Scalar> = chars.iter().enumerate().filter(|(_, c)| is_break(**c)).map(|(i, _)| i).collect();
+    let breaks: Vec<Scalar> = chars
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| is_break(**c))
+        .map(|(i, _)| i)
+        .collect();
     let mut groups: BTreeMap<(String, String), (MarkKind, Vec<(Scalar, Scalar)>)> = BTreeMap::new();
     for m in marks {
-        let entry = groups.entry(m.kind.sort_key()).or_insert_with(|| (m.kind.clone(), Vec::new()));
+        let entry = groups
+            .entry(m.kind.sort_key())
+            .or_insert_with(|| (m.kind.clone(), Vec::new()));
         let mut start = m.start;
         let from = breaks.partition_point(|&b| b < m.start);
         for &at in breaks[from..].iter().take_while(|&&b| b < m.end) {
@@ -1007,25 +1259,46 @@ fn is_break(c: char) -> bool {
 
 /// The offset of each `\n` and [`HARD_BREAK`] in `text`.
 pub(crate) fn break_offsets(text: &str) -> Vec<Scalar> {
-    text.chars().enumerate().filter(|&(_, c)| is_break(c)).map(|(i, _)| i).collect()
+    text.chars()
+        .enumerate()
+        .filter(|&(_, c)| is_break(c))
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// How many marks `ranges` settle into at most: each one more than the
 /// `breaks` it spans, found by binary search.
-pub(crate) fn mark_spans(breaks: &[Scalar], ranges: impl Iterator<Item = (Scalar, Scalar)>) -> usize {
+pub(crate) fn mark_spans(
+    breaks: &[Scalar],
+    ranges: impl Iterator<Item = (Scalar, Scalar)>,
+) -> usize {
     ranges
-        .map(|(s, e)| breaks.partition_point(|&b| b < e).saturating_sub(breaks.partition_point(|&b| b < s)) + 1)
+        .map(|(s, e)| {
+            breaks
+                .partition_point(|&b| b < e)
+                .saturating_sub(breaks.partition_point(|&b| b < s))
+                + 1
+        })
         .fold(0usize, usize::saturating_add)
 }
 
 pub(crate) fn check_island(island: &Island) -> Result<(), Invariant> {
     if line::json_depth_exceeds(&island.props, crate::MAX_JSON_DEPTH) {
-        return Err(Invariant::JsonTooDeep { what: "island props", max: crate::MAX_JSON_DEPTH });
+        return Err(Invariant::JsonTooDeep {
+            what: "island props",
+            max: crate::MAX_JSON_DEPTH,
+        });
     }
     if !island.props.is_object() {
-        return Err(Invariant::BadIsland { id: island.id.clone(), reason: "props is not an object" });
+        return Err(Invariant::BadIsland {
+            id: island.id.clone(),
+            reason: "props is not an object",
+        });
     }
-    let bad = |reason| Invariant::BadIsland { id: island.id.clone(), reason };
+    let bad = |reason| Invariant::BadIsland {
+        id: island.id.clone(),
+        reason,
+    };
     match &island.island_type {
         IslandType::Table => crate::table::check(island)?,
         IslandType::Footnote => {
@@ -1051,7 +1324,9 @@ pub(crate) fn check_island(island: &Island) -> Result<(), Invariant> {
         }
         IslandType::Ext(name) => {
             if !crate::ids::is_ext_name(name) {
-                return Err(bad("an island type this build does not know is not an `x-` name"));
+                return Err(bad(
+                    "an island type this build does not know is not an `x-` name",
+                ));
             }
         }
     }
@@ -1061,10 +1336,16 @@ pub(crate) fn check_island(island: &Island) -> Result<(), Invariant> {
         }
         slot.check()?;
         if !slot.is_slot_shape() {
-            return Err(Invariant::BadSlot { island: island.id.clone(), slot: id.clone() });
+            return Err(Invariant::BadSlot {
+                island: island.id.clone(),
+                slot: id.clone(),
+            });
         }
         if !island.island_type.slot_holds_paragraphs() && slot.blocks.len() > 1 {
-            return Err(Invariant::BreakInCell { island: island.id.clone(), slot: id.clone() });
+            return Err(Invariant::BreakInCell {
+                island: island.id.clone(),
+                slot: id.clone(),
+            });
         }
     }
     Ok(())

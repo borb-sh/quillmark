@@ -28,7 +28,9 @@
 use indexmap::IndexMap;
 
 use crate::document::edit::{overflow_errors, resolve_field_write};
-use crate::document::{Card, Document, DocumentRevised, EditError, Receipt, Revising, StaleBase, Target};
+use crate::document::{
+    Card, Document, DocumentRevised, EditError, Receipt, Revising, StaleBase, Target,
+};
 use crate::error::Diagnostic;
 use crate::path::DocPath;
 use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
@@ -151,7 +153,11 @@ impl<'a> TypedWriter<'a> {
     ) -> Result<DocumentRevised, BoundParseError> {
         let current = self.hash()?;
         if current != base {
-            return Err(StaleBase { current, field: None }.into());
+            return Err(StaleBase {
+                current,
+                field: None,
+            }
+            .into());
         }
         let revising = Document::parse_revising(markdown)?;
         self.revise_parsed(revising)
@@ -173,7 +179,11 @@ impl<'a> TypedWriter<'a> {
     /// included, any other type its stored value. An undeclared name fails
     /// with [`EditError::UnknownField`].
     pub fn hash_of<'t>(&self, target: impl Into<Target<'t>>) -> Result<String, EditError> {
-        hash_impl(self.doc.main(), Some(&self.config.main.fields), target.into())
+        hash_impl(
+            self.doc.main(),
+            Some(&self.config.main.fields),
+            target.into(),
+        )
     }
 
     fn revise_parsed(&mut self, revising: Revising) -> Result<DocumentRevised, BoundParseError> {
@@ -680,7 +690,9 @@ card_kinds:
     fn card_writer_resolves_card_kind_schema() {
         let config = config();
         let mut doc = blank_doc();
-        doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
+        doc.unchecked()
+            .insert_card(None, Card::new("note").unwrap())
+            .unwrap();
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         let mut card_ed = ed.card(0).unwrap();
@@ -705,7 +717,9 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         let mut ed = TypedWriter::new(&config, &mut doc);
-        let _delta = ed.revise(crate::document::Target::from("subject"), "Hello", None).unwrap();
+        let _delta = ed
+            .revise(crate::document::Target::from("subject"), "Hello", None)
+            .unwrap();
         assert_eq!(
             doc.main()
                 .field_text("subject", Codec::Richtext)
@@ -716,11 +730,15 @@ card_kinds:
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         assert_eq!(
-            ed.revise(crate::document::Target::from("nope"), "x", None).unwrap_err().code(),
+            ed.revise(crate::document::Target::from("nope"), "x", None)
+                .unwrap_err()
+                .code(),
             "edit::unknown_field"
         );
         // A one-line `richtext` rejects a multi-block result.
-        let err = ed.revise(crate::document::Target::from("subject"), "a\n\nb", None).unwrap_err();
+        let err = ed
+            .revise(crate::document::Target::from("subject"), "a\n\nb", None)
+            .unwrap_err();
         assert_eq!(err.code(), "edit::field_not_single_line");
         assert_eq!(
             doc.main()
@@ -755,10 +773,16 @@ card_kinds:
     fn card_writer_revise_field_resolves_card_schema() {
         let config = config();
         let mut doc = blank_doc();
-        doc.unchecked().insert_card(None, Card::new("note").unwrap()).unwrap();
+        doc.unchecked()
+            .insert_card(None, Card::new("note").unwrap())
+            .unwrap();
 
         let mut ed = TypedWriter::new(&config, &mut doc);
-        let _ = ed.card(0).unwrap().revise(crate::document::Target::from("prose"), "**hi**", None).unwrap();
+        let _ = ed
+            .card(0)
+            .unwrap()
+            .revise(crate::document::Target::from("prose"), "**hi**", None)
+            .unwrap();
         assert_eq!(
             doc.cards()[0]
                 .field_text("prose", Codec::Richtext)
@@ -804,11 +828,23 @@ card_kinds:
             .add_card("note", [("prose", "a")], Some("<span>x</span>"), None)
             .unwrap();
         assert_eq!(anchors(&added.warnings), dropped("cards.note[0].body"));
-        let revised = ed.revise(crate::document::Target::Body, "<kbd>x</kbd>", None).unwrap();
+        let revised = ed
+            .revise(crate::document::Target::Body, "<kbd>x</kbd>", None)
+            .unwrap();
         assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
-        let revised = ed.revise(crate::document::Target::from("subject"), "<kbd>x</kbd>", None).unwrap();
+        let revised = ed
+            .revise(
+                crate::document::Target::from("subject"),
+                "<kbd>x</kbd>",
+                None,
+            )
+            .unwrap();
         assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
-        let revised = ed.card(0).unwrap().revise(crate::document::Target::Body, "<kbd>x</kbd>", None).unwrap();
+        let revised = ed
+            .card(0)
+            .unwrap()
+            .revise(crate::document::Target::Body, "<kbd>x</kbd>", None)
+            .unwrap();
         assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
         let revised = ed
             .card(0)
@@ -816,7 +852,11 @@ card_kinds:
             .revise(crate::document::Target::from("blurb"), "<kbd>x</kbd>", None)
             .unwrap();
         assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
-        let revised = ed.card(0).unwrap().revise(crate::document::Target::from("blurb"), "plain", None).unwrap();
+        let revised = ed
+            .card(0)
+            .unwrap()
+            .revise(crate::document::Target::from("blurb"), "plain", None)
+            .unwrap();
         assert!(revised.warnings.is_empty());
         let added = ed
             .add_card("note", [("prose", "b")], Some("<span>y</span>"), Some(0))

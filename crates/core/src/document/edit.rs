@@ -239,7 +239,9 @@ pub enum EditError {
     /// cannot spell one, and a host's own model may hold none, so the writer
     /// may never have seen it; removing one takes a change of its own through
     /// [`Card::apply`].
-    #[error("the write removes the {kind} island '{island}', which its writer may not have seen; remove it with apply")]
+    #[error(
+        "the write removes the {kind} island '{island}', which its writer may not have seen; remove it with apply"
+    )]
     DropsExtIsland { island: String, kind: String },
 
     /// A write's base no longer names the value: `edit::stale_base`.
@@ -252,7 +254,9 @@ impl EditError {
     /// [`TooManyAnchors`](Self::TooManyAnchors) where it passed a bound.
     pub fn change(e: quillmark_content::change::ApplyError) -> Self {
         match &e {
-            quillmark_content::change::ApplyError::Invalid(inv) => Self::bound(inv).unwrap_or(EditError::Change(e)),
+            quillmark_content::change::ApplyError::Invalid(inv) => {
+                Self::bound(inv).unwrap_or(EditError::Change(e))
+            }
             _ => EditError::Change(e),
         }
     }
@@ -271,8 +275,13 @@ impl EditError {
     pub fn bound(inv: &quillmark_content::model::Invariant) -> Option<Self> {
         use quillmark_content::model::Invariant;
         match *inv {
-            Invariant::TooManyMarks { marks, max } => Some(EditError::TooManyMarks { count: marks, max }),
-            Invariant::TooManyAnchors { anchors, max } => Some(EditError::TooManyAnchors { count: anchors, max }),
+            Invariant::TooManyMarks { marks, max } => {
+                Some(EditError::TooManyMarks { count: marks, max })
+            }
+            Invariant::TooManyAnchors { anchors, max } => Some(EditError::TooManyAnchors {
+                count: anchors,
+                max,
+            }),
             _ => None,
         }
     }
@@ -334,7 +343,9 @@ impl EditError {
                 "index" => index,
                 "len" => len,
             },
-            EditError::InvalidCardId(id) | EditError::DuplicateCardId(id) | EditError::UnknownCardId(id) => {
+            EditError::InvalidCardId(id)
+            | EditError::DuplicateCardId(id)
+            | EditError::UnknownCardId(id) => {
                 diag_args! { "id" => id }
             }
             EditError::TooManyCards { max } => diag_args! { "max" => max },
@@ -373,7 +384,9 @@ impl EditError {
             EditError::InputTooLarge { size, max } => diag_args! { "size" => size, "max" => max },
             EditError::TooManySteps { count, max }
             | EditError::TooManyMarks { count, max }
-            | EditError::TooManyAnchors { count, max } => diag_args! { "count" => count, "max" => max },
+            | EditError::TooManyAnchors { count, max } => {
+                diag_args! { "count" => count, "max" => max }
+            }
             // One code, four sentences: the variant that spoke is not on the
             // wire, so a consumer's template falls back to `message`.
             EditError::InvalidPayload(_) => diag_args! {},
@@ -533,14 +546,20 @@ fn check_field(name: &str, value: &serde_json::Value) -> Result<(), EditError> {
 /// validates, stores, compares and hashes as a body's does.
 /// [`EditError::FieldDecode`] at the first content value that does not
 /// decode.
-pub(crate) fn canonical_field(name: &str, mut value: serde_json::Value) -> Result<serde_json::Value, EditError> {
+pub(crate) fn canonical_field(
+    name: &str,
+    mut value: serde_json::Value,
+) -> Result<serde_json::Value, EditError> {
     let mut at = Vec::new();
     canonicalize_contents(&mut value, &mut at)
         .map_err(|(codec, e)| field_decode(name, &at, codec, ContentDecodeError::NotContent(e)))?;
     Ok(value)
 }
 
-fn canonicalize_contents(value: &mut serde_json::Value, at: &mut Vec<PathSegment>) -> Result<(), (Codec, String)> {
+fn canonicalize_contents(
+    value: &mut serde_json::Value,
+    at: &mut Vec<PathSegment>,
+) -> Result<(), (Codec, String)> {
     if quillmark_content::units::is_content_value(value) {
         let content = quillmark_content::model::Content::from_value(value)
             .map_err(|e| (Codec::of_object(value), e.to_string()))?;
@@ -767,8 +786,13 @@ pub(crate) fn resolve_field_write(
 /// The literal text a `text` field's strict write commits for `body`: the
 /// codec's boundary cleanup, so what a revise carries anchors onto is what
 /// lands.
-pub(crate) fn committed_text(name: &str, body: String, schema: &FieldSchema) -> Result<String, EditError> {
-    let (committed, _) = resolve_field_write(name, &QuillValue::from(body), schema, &DocPath::new())?;
+pub(crate) fn committed_text(
+    name: &str,
+    body: String,
+    schema: &FieldSchema,
+) -> Result<String, EditError> {
+    let (committed, _) =
+        resolve_field_write(name, &QuillValue::from(body), schema, &DocPath::new())?;
     Codec::Text
         .decode_field(committed.as_json())
         .map(|c| Codec::Text.project(&c))
@@ -848,7 +872,12 @@ impl<'a> CardMut<'a> {
     }
 
     /// [`Card::revise`].
-    pub fn revise<'o>(&mut self, target: super::Target<'_>, markdown: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+    pub fn revise<'o>(
+        &mut self,
+        target: super::Target<'_>,
+        markdown: &str,
+        opts: impl Into<super::WriteOptions<'o>>,
+    ) -> Result<super::Receipt, EditError> {
         self.0.revise(target, markdown, opts)
     }
 
@@ -863,27 +892,56 @@ impl<'a> CardMut<'a> {
     }
 
     /// [`Card::split_block`].
-    pub fn split_block<'o>(&mut self, target: super::Target<'_>, at: usize, id: Option<&str>, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+    pub fn split_block<'o>(
+        &mut self,
+        target: super::Target<'_>,
+        at: usize,
+        id: Option<&str>,
+        opts: impl Into<super::WriteOptions<'o>>,
+    ) -> Result<super::Receipt, EditError> {
         self.0.split_block(target, at, id, opts)
     }
 
     /// [`Card::join_blocks`].
-    pub fn join_blocks<'o>(&mut self, target: super::Target<'_>, id: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+    pub fn join_blocks<'o>(
+        &mut self,
+        target: super::Target<'_>,
+        id: &str,
+        opts: impl Into<super::WriteOptions<'o>>,
+    ) -> Result<super::Receipt, EditError> {
         self.0.join_blocks(target, id, opts)
     }
 
     /// [`Card::delete_range`].
-    pub fn delete_range<'o>(&mut self, target: super::Target<'_>, start: usize, end: usize, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+    pub fn delete_range<'o>(
+        &mut self,
+        target: super::Target<'_>,
+        start: usize,
+        end: usize,
+        opts: impl Into<super::WriteOptions<'o>>,
+    ) -> Result<super::Receipt, EditError> {
         self.0.delete_range(target, start, end, opts)
     }
 
     /// [`Card::indent`].
-    pub fn indent<'o>(&mut self, target: super::Target<'_>, first: &str, last: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+    pub fn indent<'o>(
+        &mut self,
+        target: super::Target<'_>,
+        first: &str,
+        last: &str,
+        opts: impl Into<super::WriteOptions<'o>>,
+    ) -> Result<super::Receipt, EditError> {
         self.0.indent(target, first, last, opts)
     }
 
     /// [`Card::outdent`].
-    pub fn outdent<'o>(&mut self, target: super::Target<'_>, first: &str, last: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+    pub fn outdent<'o>(
+        &mut self,
+        target: super::Target<'_>,
+        first: &str,
+        last: &str,
+        opts: impl Into<super::WriteOptions<'o>>,
+    ) -> Result<super::Receipt, EditError> {
         self.0.outdent(target, first, last, opts)
     }
 
@@ -900,7 +958,12 @@ impl<'a> CardMut<'a> {
     }
 
     /// [`Card::write`].
-    pub fn write<'o>(&mut self, target: super::Target<'_>, edit: super::Edit<'_>, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+    pub fn write<'o>(
+        &mut self,
+        target: super::Target<'_>,
+        edit: super::Edit<'_>,
+        opts: impl Into<super::WriteOptions<'o>>,
+    ) -> Result<super::Receipt, EditError> {
         self.0.write(target, edit, opts)
     }
 
@@ -991,7 +1054,11 @@ impl Document {
 
     /// Place `card` at `at` (`None` appends), its `$id` as
     /// [`Unchecked::insert_card`] takes it, answering that id.
-    pub(crate) fn place_card(&mut self, at: Option<usize>, mut card: Card) -> Result<String, EditError> {
+    pub(crate) fn place_card(
+        &mut self,
+        at: Option<usize>,
+        mut card: Card,
+    ) -> Result<String, EditError> {
         let len = self.cards().len();
         let index = at.unwrap_or(len);
         if index > len {
@@ -1383,7 +1450,11 @@ impl Card {
     /// `name` on a full card is [`EditError::InvalidPayload`].
     #[cfg(test)]
     fn store_field_content(&mut self, name: &str, content: &Lines) -> Result<(), EditError> {
-        let stored = self.payload.get(name).map(QuillValue::as_json).filter(|v| v.is_object());
+        let stored = self
+            .payload
+            .get(name)
+            .map(QuillValue::as_json)
+            .filter(|v| v.is_object());
         if stored.map_or(Codec::Richtext, Codec::of_object) == Codec::Text && !content.is_plain() {
             return Err(field_decode(
                 name,
@@ -1394,7 +1465,8 @@ impl Card {
                 ),
             ));
         }
-        let canonical = super::stored_over(self.payload.get(name).map(QuillValue::as_json), content);
+        let canonical =
+            super::stored_over(self.payload.get(name).map(QuillValue::as_json), content);
         self.payload_mut()
             .insert(name.to_string(), QuillValue::from_json(canonical))
             .map(|_| ())
@@ -1456,17 +1528,25 @@ impl Card {
     /// [`Target::Body`](super::Target::Body), its receipt's `applied` counted
     /// in scalars on the body it read, which
     /// [`Receipt::in_units`](super::Receipt::in_units) converts.
-    pub(crate) fn revise_body(&mut self, body: impl Into<String>) -> Result<super::Receipt, EditError> {
+    pub(crate) fn revise_body(
+        &mut self,
+        body: impl Into<String>,
+    ) -> Result<super::Receipt, EditError> {
         self.revise_counted(super::Target::Body, &body.into())
     }
 
     /// The field's current content value: a markdown string imports, an
     /// absent field is empty, and an object reads under the codec it names.
-    pub(crate) fn richtext_value(&self, name: &str) -> Result<quillmark_content::model::Content, EditError> {
+    pub(crate) fn richtext_value(
+        &self,
+        name: &str,
+    ) -> Result<quillmark_content::model::Content, EditError> {
         check_field_name(name)?;
         match self.payload.get(name) {
             None => Ok(quillmark_content::model::Content::empty()),
-            Some(v) => Codec::Richtext.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Richtext, e)),
+            Some(v) => Codec::Richtext
+                .read_content(v.as_json())
+                .map_err(|e| field_decode(name, &[], Codec::Richtext, e)),
         }
     }
 
@@ -1506,13 +1586,18 @@ impl Card {
             let text = committed_text(name, body.into(), schema)?;
             let mut before = match self.payload.get(name) {
                 None => quillmark_content::model::Content::empty(),
-                Some(v) => Codec::Text.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Text, e))?,
+                Some(v) => Codec::Text
+                    .read_content(v.as_json())
+                    .map_err(|e| field_decode(name, &[], Codec::Text, e))?,
             };
             before.codec = Codec::Text.content();
             let revised = self.revision(&before, &text)?;
             let stored = QuillValue::from_json(revised.content.to_value());
             return self.revising(target, Vec::new(), |card| {
-                card.payload_mut().insert(name.to_string(), stored).map(|_| ()).map_err(EditError::InvalidPayload)
+                card.payload_mut()
+                    .insert(name.to_string(), stored)
+                    .map(|_| ())
+                    .map_err(EditError::InvalidPayload)
             });
         }
         let before = self.richtext_value(name)?;

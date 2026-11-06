@@ -38,8 +38,8 @@ pub use quillmark_core::{
     backend::{Backend, FontFace},
     document::{
         AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, Card, CardMut, Document,
-        DocumentAnchor, DocumentRevised, Edit, EditError, ImportError, Located, Parsed,
-        Reattached, Receipt, StaleBase, Target, Unchecked, WriteOptions,
+        DocumentAnchor, DocumentRevised, Edit, EditError, ImportError, Located, Parsed, Reattached,
+        Receipt, StaleBase, Target, Unchecked, WriteOptions,
     },
     error::{DOCUMENT_FILE, Diagnostic, Location, ParseError, RenderError, RenderResult, Severity},
     path::DocPath,

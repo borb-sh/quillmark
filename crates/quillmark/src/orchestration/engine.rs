@@ -1,3 +1,4 @@
+use quillmark_content::units::{Scalars, Units};
 use quillmark_core::{
     backend::{Backend, FontFace},
     document::Document,
@@ -6,7 +7,6 @@ use quillmark_core::{
     session::LiveSession,
     types::{OutputFormat, RenderOptions},
 };
-use quillmark_content::units::{Scalars, Units};
 use std::collections::HashMap;
 use std::sync::Arc;
 

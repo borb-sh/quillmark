@@ -428,14 +428,28 @@ proptest! {
 }
 
 const SOUP_WORDS: &[&str] = &[
-    "alpha", "délta", "🎉", "**bold**", "*em*", "`code`", "[link](http://x)", "a\\", "[^1]", "$x$", "<br>", "~~s~~",
+    "alpha",
+    "délta",
+    "🎉",
+    "**bold**",
+    "*em*",
+    "`code`",
+    "[link](http://x)",
+    "a\\",
+    "[^1]",
+    "$x$",
+    "<br>",
+    "~~s~~",
 ];
 const SOUP_LEADS: &[&str] = &["", "- ", "1. ", "> ", "# ", "    ", "| ", "[^1]: ", "> - "];
 
 /// Markdown of blank-line-parted lines, each a block lead and words, a note
 /// definition and its indented continuation among them.
 fn arb_soup() -> impl Strategy<Value = String> {
-    let line = (prop::sample::select(SOUP_LEADS), prop::collection::vec(prop::sample::select(SOUP_WORDS), 0..5))
+    let line = (
+        prop::sample::select(SOUP_LEADS),
+        prop::collection::vec(prop::sample::select(SOUP_WORDS), 0..5),
+    )
         .prop_map(|(lead, words)| format!("{lead}{}", words.join(" ")));
     prop::collection::vec(line, 0..7).prop_map(|lines| lines.join("\n\n"))
 }

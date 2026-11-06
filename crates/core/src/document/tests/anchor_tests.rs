@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use quillmark_content::lines::model::{MarkKind, Lines};
+use quillmark_content::lines::model::{Lines, MarkKind};
 use serde_json::{Value as JsonValue, json};
 
 use crate::document::{AnchorSelector, Card, Codec, Document};
@@ -28,7 +28,8 @@ fn document() -> Document {
         crate::document::stored_over(None, &crate::document::import_body("a plain item").unwrap()),
         crate::document::stored_over(None, &anchored(&item, "worth a flag", "i1")),
     ]);
-    doc.unchecked().store_field(Some(0), "items", QuillValue::from_json(items))
+    doc.unchecked()
+        .store_field(Some(0), "items", QuillValue::from_json(items))
         .unwrap();
     doc
 }
@@ -194,7 +195,11 @@ fn a_delta_binds_only_the_path_it_is_keyed_by() {
     let mut bare = without_anchors(&doc);
     let revised = bare
         .main_mut()
-        .revise(crate::document::Target::Body, "Minutes.\n\nThe committee met on Monday to plan.", None)
+        .revise(
+            crate::document::Target::Body,
+            "Minutes.\n\nThe committee met on Monday to plan.",
+            None,
+        )
         .unwrap();
 
     let mut strict = bare.clone();
@@ -222,13 +227,19 @@ fn a_quote_found_again_in_inserted_text_is_placed_with_the_change() {
     let rewritten = "Intro.\n\nEverything else changed: one two three four five six seven eight \
                      nine ten eleven twelve thirteen fiscal year we approved the budget for roads.";
     let mut bare = without_anchors(&doc);
-    let revised = bare.main_mut().revise(crate::document::Target::Body, rewritten, None).unwrap();
+    let revised = bare
+        .main_mut()
+        .revise(crate::document::Target::Body, rewritten, None)
+        .unwrap();
     let changes = HashMap::from([(DocPath::main_body(), revised.applied)]);
     let out = bare.reattach(&before, &changes);
     assert!(out.orphaned.is_empty(), "{out:?}");
     assert_eq!(out.reattached[0].quote, "approved the budget");
 
-    let revised = doc.main_mut().revise(crate::document::Target::Body, rewritten, None).unwrap();
+    let revised = doc
+        .main_mut()
+        .revise(crate::document::Target::Body, rewritten, None)
+        .unwrap();
     assert!(
         revised.dropped_anchors.is_empty(),
         "revise relocates it itself"
@@ -260,7 +271,8 @@ fn every_field_revise_names_the_anchor_it_drops() {
             c.revise_body("Keep this line.").unwrap()
         }),
         ("revise_field", |c, _, _| {
-            c.revise(crate::document::Target::from("f"), "Keep this line.", None).unwrap()
+            c.revise(crate::document::Target::from("f"), "Keep this line.", None)
+                .unwrap()
         }),
         ("replace body", |c, n, _| {
             let n = quillmark_content::migrate::from_lines(n);
@@ -268,7 +280,8 @@ fn every_field_revise_names_the_anchor_it_drops() {
         }),
         ("replace field", |c, n, _| {
             let n = quillmark_content::migrate::from_lines(n);
-            c.replace(crate::document::Target::Field("f"), &n, None).unwrap()
+            c.replace(crate::document::Target::Field("f"), &n, None)
+                .unwrap()
         }),
         ("revise_field_checked", |c, _, s| {
             c.revise_field_checked("f", "Keep this line.", s).unwrap()
@@ -287,7 +300,11 @@ fn every_field_revise_names_the_anchor_it_drops() {
 
     let mut card = fresh();
     let kept = card
-        .revise(crate::document::Target::from("f"), "Keep this line.\n\nDrop this anchored line, edited.", None)
+        .revise(
+            crate::document::Target::from("f"),
+            "Keep this line.\n\nDrop this anchored line, edited.",
+            None,
+        )
         .unwrap();
     assert!(kept.dropped_anchors.is_empty(), "{kept:?}");
     let read = card.field_content("f", Codec::Richtext).unwrap().unwrap();
@@ -363,7 +380,10 @@ fn a_revise_names_a_cell_anchor_it_drops() {
     assert_eq!(line.as_deref(), Some("one cell"));
 
     let markdown = doc.main().body_markdown();
-    let kept = doc.main_mut().revise(crate::document::Target::Body, &markdown, None).unwrap();
+    let kept = doc
+        .main_mut()
+        .revise(crate::document::Target::Body, &markdown, None)
+        .unwrap();
     assert!(
         kept.dropped_anchors.is_empty(),
         "{:?}",
@@ -371,7 +391,11 @@ fn a_revise_names_a_cell_anchor_it_drops() {
     );
     let revised = doc
         .main_mut()
-        .revise(crate::document::Target::Body, "Lead line.\n\n| a | b |\n|---|---|\n| one row | 2 |", None)
+        .revise(
+            crate::document::Target::Body,
+            "Lead line.\n\n| a | b |\n|---|---|\n| one row | 2 |",
+            None,
+        )
         .unwrap();
     let dropped: Vec<(&str, &str)> = revised
         .dropped_anchors

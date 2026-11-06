@@ -61,27 +61,47 @@ pub enum StepMap {
     Identity,
     /// `deleted` units at `at` replaced by `inserted`, removing the islands
     /// `removed` and adding `added`, by id.
-    Replace { at: Scalar, deleted: usize, inserted: usize, removed: Vec<String>, added: Vec<String> },
+    Replace {
+        at: Scalar,
+        deleted: usize,
+        inserted: usize,
+        removed: Vec<String>,
+        added: Vec<String>,
+    },
     /// The slots of `island` a props step removed and added.
-    Slots { island: String, removed: Slots, added: Slots },
+    Slots {
+        island: String,
+        removed: Slots,
+        added: Slots,
+    },
     /// A change inside one slot.
-    Nested { island: String, slot: String, mapping: Mapping },
+    Nested {
+        island: String,
+        slot: String,
+        mapping: Mapping,
+    },
 }
 
-const UNNAMED: &str = "a splice that deletes an island names it in `removed`: map the normalized change";
+const UNNAMED: &str =
+    "a splice that deletes an island names it in `removed`: map the normalized change";
 
 impl StepMap {
     /// The map of `step`, its offsets counting `u`. A splice that deletes an
     /// island and names none in `removed` is refused: which island went is
     /// not in the step, and the normalized change (`Applied.applied`) says.
     pub fn of(step: &Step, u: impl Units) -> Result<StepMap, ApplyError> {
-        let unnamed = ApplyError::BadStep { step: 0, reason: UNNAMED };
+        let unnamed = ApplyError::BadStep {
+            step: 0,
+            reason: UNNAMED,
+        };
         Ok(match step {
             Step::Splice(s) => {
                 let slots = s.delete.chars().filter(|&c| c == ISLAND_SLOT).count();
                 let removed = match &s.removed {
                     _ if slots == 0 => Vec::new(),
-                    Some(r) if r.islands.len() == slots => r.islands.iter().map(|i| i.id.clone()).collect(),
+                    Some(r) if r.islands.len() == slots => {
+                        r.islands.iter().map(|i| i.id.clone()).collect()
+                    }
                     _ => return Err(unnamed),
                 };
                 StepMap::Replace {
@@ -107,12 +127,18 @@ impl StepMap {
                 },
                 added: Slots::Only(slots.keys().cloned().collect()),
             },
-            Step::Nested { island, slot, change } => StepMap::Nested {
+            Step::Nested {
+                island,
+                slot,
+                change,
+            } => StepMap::Nested {
                 island: island.clone(),
                 slot: slot.clone(),
                 mapping: Mapping::from_change_in(change, u)?,
             },
-            Step::SetBlock(_) | Step::Container(_) | Step::Mark(_) | Step::Anchor(_) => StepMap::Identity,
+            Step::SetBlock(_) | Step::Container(_) | Step::Mark(_) | Step::Anchor(_) => {
+                StepMap::Identity
+            }
         })
     }
 
@@ -120,19 +146,37 @@ impl StepMap {
     pub fn invert(&self) -> StepMap {
         match self {
             StepMap::Identity => StepMap::Identity,
-            StepMap::Replace { at, deleted, inserted, removed, added } => StepMap::Replace {
+            StepMap::Replace {
+                at,
+                deleted,
+                inserted,
+                removed,
+                added,
+            } => StepMap::Replace {
                 at: *at,
                 deleted: *inserted,
                 inserted: *deleted,
                 removed: added.clone(),
                 added: removed.clone(),
             },
-            StepMap::Slots { island, removed, added } => {
-                StepMap::Slots { island: island.clone(), removed: added.clone(), added: removed.clone() }
-            }
-            StepMap::Nested { island, slot, mapping } => {
-                StepMap::Nested { island: island.clone(), slot: slot.clone(), mapping: mapping.invert() }
-            }
+            StepMap::Slots {
+                island,
+                removed,
+                added,
+            } => StepMap::Slots {
+                island: island.clone(),
+                removed: added.clone(),
+                added: removed.clone(),
+            },
+            StepMap::Nested {
+                island,
+                slot,
+                mapping,
+            } => StepMap::Nested {
+                island: island.clone(),
+                slot: slot.clone(),
+                mapping: mapping.invert(),
+            },
         }
     }
 
@@ -142,27 +186,60 @@ impl StepMap {
 
     fn map_as(&self, pos: &Pos, bias: Bias) -> MapResult {
         match (self, pos) {
-            (StepMap::Replace { at, deleted, inserted, .. }, Pos::At(p)) => match bias {
+            (
+                StepMap::Replace {
+                    at,
+                    deleted,
+                    inserted,
+                    ..
+                },
+                Pos::At(p),
+            ) => match bias {
                 Bias::Side(assoc) => replace(*p, *at, *deleted, *inserted, assoc),
                 Bias::Point => point(*p, *at, *deleted, *inserted),
             },
-            (StepMap::Replace { at, inserted, removed, .. }, Pos::In { island, .. }) if removed.contains(island) => {
+            (
+                StepMap::Replace {
+                    at,
+                    inserted,
+                    removed,
+                    ..
+                },
+                Pos::In { island, .. },
+            ) if removed.contains(island) => {
                 let edge = match bias {
                     Bias::Side(Assoc::After) => at.saturating_add(*inserted),
                     _ => *at,
                 };
                 gone(Pos::At(edge), pos)
             }
-            (StepMap::Slots { island: id, removed, .. }, Pos::In { island, slot, .. })
-                if id == island && removed.contains(slot) =>
-            {
-                gone(pos.clone(), pos)
-            }
-            (StepMap::Nested { island: i, slot: s, mapping }, Pos::In { island, slot, at }) if i == island && s == slot => {
+            (
+                StepMap::Slots {
+                    island: id,
+                    removed,
+                    ..
+                },
+                Pos::In { island, slot, .. },
+            ) if id == island && removed.contains(slot) => gone(pos.clone(), pos),
+            (
+                StepMap::Nested {
+                    island: i,
+                    slot: s,
+                    mapping,
+                },
+                Pos::In { island, slot, at },
+            ) if i == island && s == slot => {
                 let (r, recover) = mapping.map_range(0, mapping.maps.len(), at, bias);
                 MapResult {
-                    pos: Pos::In { island: island.clone(), slot: slot.clone(), at: Box::new(r.pos) },
-                    recover: recover.map(|(index, inner)| Recover::Nested { index, inner: Box::new(inner) }),
+                    pos: Pos::In {
+                        island: island.clone(),
+                        slot: slot.clone(),
+                        at: Box::new(r.pos),
+                    },
+                    recover: recover.map(|(index, inner)| Recover::Nested {
+                        index,
+                        inner: Box::new(inner),
+                    }),
                     ..r
                 }
             }
@@ -176,12 +253,23 @@ impl StepMap {
         match (self, recover) {
             (_, Recover::Pos(p)) => Some(p.clone()),
             (StepMap::Replace { at, .. }, Recover::Offset(off)) => Some(Pos::At(at + off)),
-            (StepMap::Nested { island, slot, mapping }, Recover::Nested { index, inner }) => {
+            (
+                StepMap::Nested {
+                    island,
+                    slot,
+                    mapping,
+                },
+                Recover::Nested { index, inner },
+            ) => {
                 let n = mapping.maps.len();
                 let k = n.checked_sub(index + 1)?;
                 let at = mapping.maps[k].recover(inner, bias)?;
                 let (r, _) = mapping.map_range(k + 1, n, &at, bias);
-                Some(Pos::In { island: island.clone(), slot: slot.clone(), at: Box::new(r.pos) })
+                Some(Pos::In {
+                    island: island.clone(),
+                    slot: slot.clone(),
+                    at: Box::new(r.pos),
+                })
             }
             _ => None,
         }
@@ -189,7 +277,14 @@ impl StepMap {
 }
 
 fn kept(pos: Pos) -> MapResult {
-    MapResult { pos, deleted: false, deleted_before: false, deleted_after: false, deleted_across: false, recover: None }
+    MapResult {
+        pos,
+        deleted: false,
+        deleted_before: false,
+        deleted_after: false,
+        deleted_across: false,
+        recover: None,
+    }
 }
 
 fn gone(pos: Pos, was: &Pos) -> MapResult {
@@ -217,7 +312,10 @@ enum Bias {
 /// it followed.
 fn point(p: Scalar, at: Scalar, d: usize, m: usize) -> MapResult {
     if d > 0 && p == at.saturating_add(d) {
-        return MapResult { recover: Some(Recover::Offset(d)), ..replace(p, at, d, m, Assoc::After) };
+        return MapResult {
+            recover: Some(Recover::Offset(d)),
+            ..replace(p, at, d, m, Assoc::After)
+        };
     }
     replace(p, at, d, m, Assoc::Before)
 }
@@ -258,7 +356,9 @@ fn replace(p: Scalar, at: Scalar, d: usize, m: usize, assoc: Assoc) -> MapResult
 /// id: a step removing it paired with the next step inserting it, or the
 /// other way round, the slots going as they came. A position in its slots
 /// keeps its address across the two.
-pub(crate) fn moved_islands<'a>(steps: impl IntoIterator<Item = &'a Step>) -> BTreeSet<(usize, &'a str)> {
+pub(crate) fn moved_islands<'a>(
+    steps: impl IntoIterator<Item = &'a Step>,
+) -> BTreeSet<(usize, &'a str)> {
     let mut seen: BTreeMap<&str, Vec<(usize, bool, &Island)>> = BTreeMap::new();
     for (n, step) in steps.into_iter().enumerate() {
         match step {
@@ -270,7 +370,10 @@ pub(crate) fn moved_islands<'a>(steps: impl IntoIterator<Item = &'a Step>) -> BT
                     seen.entry(i.id.as_str()).or_default().push((n, true, i));
                 }
             }
-            Step::Island(IslandStep::Insert { island, .. }) => seen.entry(island.id.as_str()).or_default().push((n, true, island)),
+            Step::Island(IslandStep::Insert { island, .. }) => seen
+                .entry(island.id.as_str())
+                .or_default()
+                .push((n, true, island)),
             _ => {}
         }
     }
@@ -318,8 +421,21 @@ struct Span {
 impl Span {
     fn of(map: &StepMap) -> Span {
         match map {
-            StepMap::Replace { at, deleted, inserted, .. } => Span { at: *at, deleted: *deleted, inserted: *inserted },
-            _ => Span { at: Scalar::MAX, deleted: 0, inserted: 0 },
+            StepMap::Replace {
+                at,
+                deleted,
+                inserted,
+                ..
+            } => Span {
+                at: *at,
+                deleted: *deleted,
+                inserted: *inserted,
+            },
+            _ => Span {
+                at: Scalar::MAX,
+                deleted: 0,
+                inserted: 0,
+            },
         }
     }
 }
@@ -357,7 +473,11 @@ impl Mapping {
             }
         }
         let spans = maps.iter().map(Span::of).collect();
-        Ok(Mapping { maps, spans, mirror: BTreeMap::new() })
+        Ok(Mapping {
+            maps,
+            spans,
+            mirror: BTreeMap::new(),
+        })
     }
 
     pub fn maps(&self) -> &[StepMap] {
@@ -394,7 +514,10 @@ impl Mapping {
     pub fn append_mapping_inverted(&mut self, other: &Mapping) {
         let total = self.maps.len() + other.maps.len();
         for i in (0..other.maps.len()).rev() {
-            let mirror = other.get_mirror(i).filter(|&m| m > i).map(|m| total - m - 1);
+            let mirror = other
+                .get_mirror(i)
+                .filter(|&m| m > i)
+                .map(|m| total - m - 1);
             self.append_map(other.maps[i].invert(), mirror);
         }
     }
@@ -423,7 +546,12 @@ impl Mapping {
         Mapping {
             maps: self.maps[from..to].to_vec(),
             spans: self.spans[from..to].to_vec(),
-            mirror: self.mirror.range(from..to).filter(|(_, b)| (from..to).contains(*b)).map(|(a, b)| (a - from, b - from)).collect(),
+            mirror: self
+                .mirror
+                .range(from..to)
+                .filter(|(_, b)| (from..to).contains(*b))
+                .map(|(a, b)| (a - from, b - from))
+                .collect(),
         }
     }
 
@@ -441,7 +569,8 @@ impl Mapping {
 
     /// [`map`](Self::map) through the maps from `from` on.
     pub(crate) fn map_from(&self, from: usize, pos: &Pos, assoc: Assoc) -> MapResult {
-        self.map_range(from, self.maps.len(), pos, Bias::Side(assoc)).0
+        self.map_range(from, self.maps.len(), pos, Bias::Side(assoc))
+            .0
     }
 
     /// [`map_point`](Self::map_point) through the maps from `from` on.
@@ -455,7 +584,11 @@ impl Mapping {
         let mut out = Mapping::new();
         let mut spans = vec![None; self.maps.len()];
         for (k, map) in self.maps.iter().enumerate() {
-            if let StepMap::Nested { island: i, slot: s, mapping } = map
+            if let StepMap::Nested {
+                island: i,
+                slot: s,
+                mapping,
+            } = map
                 && i == island
                 && s == slot
             {
@@ -477,7 +610,13 @@ impl Mapping {
 
     /// `pos` through maps `from..to`, and the first recovery no link in the
     /// range took, with the index of its map.
-    fn map_range(&self, from: usize, to: usize, pos: &Pos, bias: Bias) -> (MapResult, Option<(usize, Recover)>) {
+    fn map_range(
+        &self,
+        from: usize,
+        to: usize,
+        pos: &Pos,
+        bias: Bias,
+    ) -> (MapResult, Option<(usize, Recover)>) {
         let mut out = kept(pos.clone());
         let mut open = None;
         let mut i = from;
@@ -499,7 +638,10 @@ impl Mapping {
             }
             let r = self.maps[i].map_as(&out.pos, bias);
             if let Some(recover) = &r.recover {
-                let back = self.get_mirror(i).filter(|&j| j > i && j < to).and_then(|j| Some((j, self.maps[j].recover(recover, bias)?)));
+                let back = self
+                    .get_mirror(i)
+                    .filter(|&j| j > i && j < to)
+                    .and_then(|j| Some((j, self.maps[j].recover(recover, bias)?)));
                 if let Some((j, p)) = back {
                     out.pos = p;
                     i = j + 1;

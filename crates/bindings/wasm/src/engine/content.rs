@@ -9,11 +9,14 @@ use super::{
 use crate::error::WasmError;
 use crate::types::Diagnostic;
 use quillmark_content::change::{self, Assoc, Change};
-use quillmark_content::structural::{self, StructuralEdit, Wrap};
 use quillmark_content::model::Content;
+use quillmark_content::structural::{self, StructuralEdit, Wrap};
 use quillmark_content::units::{self, Utf16};
 use quillmark_content::wire::ParseError;
-use quillmark_core::document::{Card, CardMut, Edit, EditError, Receipt, Target, WriteOptions, check_change, check_content_value};
+use quillmark_core::document::{
+    Card, CardMut, Edit, EditError, Receipt, Target, WriteOptions, check_change,
+    check_content_value,
+};
 use quillmark_core::path::DocPath;
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
@@ -353,9 +356,19 @@ impl WriteOpts {
             return Ok(out);
         }
         let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
-        let keys: Vec<&str> = ["base", "baseHash"].into_iter().chain(extra.iter().copied()).collect();
+        let keys: Vec<&str> = ["base", "baseHash"]
+            .into_iter()
+            .chain(extra.iter().copied())
+            .collect();
         reject_unknown_keys(opts, &keys, "options", |k| {
-            format!("{verb}: options have unknown key `{k}`; a write takes {}", keys.iter().filter(|k| **k != "baseHash").map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "))
+            format!(
+                "{verb}: options have unknown key `{k}`; a write takes {}",
+                keys.iter()
+                    .filter(|k| **k != "baseHash")
+                    .map(|k| format!("`{k}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         })?;
         for key in ["base", "baseHash"] {
             if !js_sys::Reflect::has(opts, &key.into()).unwrap_or(false) {
@@ -375,7 +388,9 @@ impl WriteOpts {
     }
 
     fn as_ref(&self) -> WriteOptions<'_> {
-        WriteOptions { base: self.base.as_deref() }
+        WriteOptions {
+            base: self.base.as_deref(),
+        }
     }
 }
 
@@ -390,18 +405,29 @@ fn card_base(doc: &quillmark_core::document::Document, addr: &Addr) -> DocPath {
     }
 }
 
-fn card_of<'a>(doc: &'a quillmark_core::document::Document, addr: &Addr) -> Result<&'a Card, JsValue> {
+fn card_of<'a>(
+    doc: &'a quillmark_core::document::Document,
+    addr: &Addr,
+) -> Result<&'a Card, JsValue> {
     match addr.card {
         None => Ok(doc.main()),
-        Some(index) => doc.cards().get(index).ok_or_else(|| index_out_of_range(index, doc.cards().len())),
+        Some(index) => doc
+            .cards()
+            .get(index)
+            .ok_or_else(|| index_out_of_range(index, doc.cards().len())),
     }
 }
 
-fn card_mut_of<'a>(doc: &'a mut quillmark_core::document::Document, addr: &Addr) -> Result<CardMut<'a>, JsValue> {
+fn card_mut_of<'a>(
+    doc: &'a mut quillmark_core::document::Document,
+    addr: &Addr,
+) -> Result<CardMut<'a>, JsValue> {
     let len = doc.cards().len();
     match addr.card {
         None => Ok(doc.main_mut()),
-        Some(index) => doc.card_mut(index).ok_or_else(|| index_out_of_range(index, len)),
+        Some(index) => doc
+            .card_mut(index)
+            .ok_or_else(|| index_out_of_range(index, len)),
     }
 }
 
@@ -417,7 +443,10 @@ fn apply_error(e: change::ApplyError) -> JsValue {
 }
 
 fn bound_error(e: EditError) -> JsValue {
-    WasmError { diagnostics: vec![e.to_diagnostic(None)] }.to_js_value()
+    WasmError {
+        diagnostics: vec![e.to_diagnostic(None)],
+    }
+    .to_js_value()
 }
 
 /// A `Content` from JS, offsets in UTF-16 code units.
@@ -431,7 +460,9 @@ pub(super) fn content_in(value: JsValue, ctx: &str) -> Result<Content, JsValue> 
     }
     check_content_value(&json).map_err(bound_error)?;
     Content::from_value_in(&json, Utf16).map_err(|e| match &e {
-        ParseError::Invalid(inv) if EditError::bound(inv).is_some() => bound_error(EditError::bound(inv).expect("a bound")),
+        ParseError::Invalid(inv) if EditError::bound(inv).is_some() => {
+            bound_error(EditError::bound(inv).expect("a bound"))
+        }
         _ => WasmError::from(format!("{ctx}: not a Content: {e}")).to_js_value(),
     })
 }
@@ -444,10 +475,14 @@ pub(super) fn content_normalized(value: JsValue, ctx: &str) -> Result<Content, J
         return Err(WasmError::from(format!("{ctx}: expected a Content object")).to_js_value());
     }
     check_content_value(&json).map_err(bound_error)?;
-    Content::from_value_lenient_in(&json, Utf16).map(|read| read.content).map_err(|e| match &e {
-        ParseError::Invalid(inv) if EditError::bound(inv).is_some() => bound_error(EditError::bound(inv).expect("a bound")),
-        _ => WasmError::from(format!("{ctx}: not a Content: {e}")).to_js_value(),
-    })
+    Content::from_value_lenient_in(&json, Utf16)
+        .map(|read| read.content)
+        .map_err(|e| match &e {
+            ParseError::Invalid(inv) if EditError::bound(inv).is_some() => {
+                bound_error(EditError::bound(inv).expect("a bound"))
+            }
+            _ => WasmError::from(format!("{ctx}: not a Content: {e}")).to_js_value(),
+        })
 }
 
 /// `c` for JS, offsets in UTF-16 code units.
@@ -458,7 +493,8 @@ pub(super) fn content_out(c: &Content, ctx: &str) -> Result<JsValue, JsValue> {
 /// A change from JS, still in UTF-16 code units.
 fn change_in(value: JsValue, ctx: &str) -> Result<Change, JsValue> {
     let json = js_value_to_json(value, ctx)?;
-    let change = Change::from_value_in(&json, Utf16).map_err(|e| WasmError::from(format!("{ctx}: not a Change: {e}")).to_js_value())?;
+    let change = Change::from_value_in(&json, Utf16)
+        .map_err(|e| WasmError::from(format!("{ctx}: not a Change: {e}")).to_js_value())?;
     check_change(&change).map_err(bound_error)?;
     Ok(change)
 }
@@ -484,8 +520,10 @@ pub(super) fn payload_in(v: &mut Value, ctx: &str) -> Result<(), JsValue> {
         return if units::value_to_scalars(v, Utf16) {
             Ok(())
         } else {
-            Err(WasmError::from(format!("{ctx}: a content offset falls inside a character or past its text"))
-                .to_js_value())
+            Err(WasmError::from(format!(
+                "{ctx}: a content offset falls inside a character or past its text"
+            ))
+            .to_js_value())
         };
     }
     match v {
@@ -506,14 +544,20 @@ fn write(
     let path = value_path(&card_base, addr);
     let to_js = |e: EditError| edit_error_to_js(&e, &card_base);
     let mut card = card_mut_of(doc, addr)?;
-    let receipt: Receipt = card.write_in(target(addr), edit, opts, Utf16).map_err(to_js)?;
+    let receipt: Receipt = card
+        .write_in(target(addr), edit, opts, Utf16)
+        .map_err(to_js)?;
     let card_id = card.id().map(str::to_string);
     Ok(receipt_js(receipt, &path, card_id))
 }
 
 /// `receipt` as it crosses, its dropped anchors' selectors at `path` on the
 /// card `card_id` names.
-pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath, card_id: Option<String>) -> ReceiptJs {
+pub(super) fn receipt_js(
+    receipt: Receipt,
+    path: &quillmark_core::path::DocPath,
+    card_id: Option<String>,
+) -> ReceiptJs {
     let warnings = super::diags(receipt.diagnostics(Some(path)));
     ReceiptJs {
         applied: receipt.applied.to_value(),
@@ -540,7 +584,12 @@ pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath,
         moved_anchors: receipt
             .moved_anchors
             .into_iter()
-            .map(|m| MovedJs { id: m.id, before: m.before, after: m.after, reason: m.reason.name() })
+            .map(|m| MovedJs {
+                id: m.id,
+                before: m.before,
+                after: m.after,
+                reason: m.reason.name(),
+            })
             .collect(),
         warnings,
         minted: receipt.minted,
@@ -599,7 +648,12 @@ impl Document {
     ) -> Result<JsValue, JsValue> {
         let opts = WriteOpts::from_js(&opts, "revise", &[])?;
         let addr = Addr::for_write(&addr, &self.inner, "revise")?;
-        let receipt = write(&mut self.inner, &addr, Edit::Revise(markdown), opts.as_ref())?;
+        let receipt = write(
+            &mut self.inner,
+            &addr,
+            Edit::Revise(markdown),
+            opts.as_ref(),
+        )?;
         serialize_or_throw(&receipt, "revise")
     }
 
@@ -617,7 +671,12 @@ impl Document {
         let opts = WriteOpts::from_js(&opts, "replace", &[])?;
         let addr = Addr::for_write(&addr, &self.inner, "replace")?;
         let content = content_in(content, "replace")?;
-        let receipt = write(&mut self.inner, &addr, Edit::Replace(content), opts.as_ref())?;
+        let receipt = write(
+            &mut self.inner,
+            &addr,
+            Edit::Replace(content),
+            opts.as_ref(),
+        )?;
         serialize_or_throw(&receipt, "replace")
     }
 
@@ -633,7 +692,10 @@ impl Document {
         #[wasm_bindgen(unchecked_optional_param_type = "SplitBlockOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
         let id = string_opt(&opts, "id", "splitBlock")?;
-        let edit = StructuralEdit::SplitBlock { at: at as usize, id };
+        let edit = StructuralEdit::SplitBlock {
+            at: at as usize,
+            id,
+        };
         self.structural(addr, edit, opts, "splitBlock", &["id"])
     }
 
@@ -647,7 +709,13 @@ impl Document {
         id: &str,
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        self.structural(addr, StructuralEdit::JoinBlocks { id: id.to_string() }, opts, "joinBlocks", &[])
+        self.structural(
+            addr,
+            StructuralEdit::JoinBlocks { id: id.to_string() },
+            opts,
+            "joinBlocks",
+            &[],
+        )
     }
 
     /// Delete `[start, end)` (UTF-16): where the range runs from a block's
@@ -662,7 +730,16 @@ impl Document {
         end: u32,
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        self.structural(addr, StructuralEdit::DeleteRange { start: start as usize, end: end as usize }, opts, "deleteRange", &[])
+        self.structural(
+            addr,
+            StructuralEdit::DeleteRange {
+                start: start as usize,
+                end: end as usize,
+            },
+            opts,
+            "deleteRange",
+            &[],
+        )
     }
 
     /// **Tab** over the blocks `first` to `last` (`first` alone when absent):
@@ -679,7 +756,16 @@ impl Document {
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
         let last = last.unwrap_or_else(|| first.to_string());
-        self.structural(addr, StructuralEdit::Indent { first: first.to_string(), last }, opts, "indent", &[])
+        self.structural(
+            addr,
+            StructuralEdit::Indent {
+                first: first.to_string(),
+                last,
+            },
+            opts,
+            "indent",
+            &[],
+        )
     }
 
     /// **Shift-Tab** over the blocks `first` to `last` (`first` alone when
@@ -695,7 +781,16 @@ impl Document {
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
         let last = last.unwrap_or_else(|| first.to_string());
-        self.structural(addr, StructuralEdit::Outdent { first: first.to_string(), last }, opts, "outdent", &[])
+        self.structural(
+            addr,
+            StructuralEdit::Outdent {
+                first: first.to_string(),
+                last,
+            },
+            opts,
+            "outdent",
+            &[],
+        )
     }
 
     /// Wrap the blocks `first` to `last` in a quote or a list, around the
@@ -715,12 +810,24 @@ impl Document {
         let with = match kind.get("kind").and_then(Value::as_str) {
             Some("quote") => Wrap::Quote,
             Some("list") => Wrap::List {
-                ordered: kind.get("ordered").and_then(Value::as_bool).unwrap_or(false),
+                ordered: kind
+                    .get("ordered")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
                 checked: kind.get("checked").and_then(Value::as_bool),
             },
-            _ => return Err(WasmError::from("wrap: expected { kind: \"quote\" } or { kind: \"list\", ordered }").to_js_value()),
+            _ => {
+                return Err(WasmError::from(
+                    "wrap: expected { kind: \"quote\" } or { kind: \"list\", ordered }",
+                )
+                .to_js_value());
+            }
         };
-        let edit = StructuralEdit::Wrap { first: first.to_string(), last: last.to_string(), with };
+        let edit = StructuralEdit::Wrap {
+            first: first.to_string(),
+            last: last.to_string(),
+            with,
+        };
         self.structural(addr, edit, opts, "wrap", &[])
     }
 
@@ -740,30 +847,48 @@ impl Document {
         let content = card.read(target(&addr)).map_err(to_js)?;
         let at = offset_in(&content, at)?;
         let located = card.block_at(target(&addr), at).map_err(to_js)?;
-        let out = serde_json::json!({ "id": located.id, "index": located.index, "path": located.path });
+        let out =
+            serde_json::json!({ "id": located.id, "index": located.index, "path": located.path });
         serialize_or_throw(&out, "blockAt")
     }
 }
 
 impl Document {
-    fn structural(&mut self, addr: JsValue, edit: StructuralEdit, opts: JsValue, verb: &str, extra: &[&str]) -> Result<JsValue, JsValue> {
+    fn structural(
+        &mut self,
+        addr: JsValue,
+        edit: StructuralEdit,
+        opts: JsValue,
+        verb: &str,
+        extra: &[&str],
+    ) -> Result<JsValue, JsValue> {
         let opts = WriteOpts::from_js(&opts, verb, extra)?;
         let addr = Addr::for_write(&addr, &self.inner, verb)?;
-        let receipt = write(&mut self.inner, &addr, Edit::Structural(edit), opts.as_ref())?;
+        let receipt = write(
+            &mut self.inner,
+            &addr,
+            Edit::Structural(edit),
+            opts.as_ref(),
+        )?;
         serialize_or_throw(&receipt, verb)
     }
 }
 
 /// A string `key` of `opts`, absent where `opts` or the key is.
 fn string_opt(opts: &JsValue, key: &str, verb: &str) -> Result<Option<String>, JsValue> {
-    if opts.is_undefined() || opts.is_null() || !js_sys::Reflect::has(opts, &key.into()).unwrap_or(false) {
+    if opts.is_undefined()
+        || opts.is_null()
+        || !js_sys::Reflect::has(opts, &key.into()).unwrap_or(false)
+    {
         return Ok(None);
     }
     let v = js_sys::Reflect::get(opts, &key.into()).unwrap_or(JsValue::UNDEFINED);
     if v.is_undefined() {
         return Ok(None);
     }
-    v.as_string().map(Some).ok_or_else(|| WasmError::from(format!("{verb}: {key} must be a string when given")).to_js_value())
+    v.as_string().map(Some).ok_or_else(|| {
+        WasmError::from(format!("{verb}: {key} must be a string when given")).to_js_value()
+    })
 }
 
 /// The change that undoes `change` on `before`. Throws `edit::content_apply`
@@ -774,8 +899,11 @@ pub fn invert(
     #[wasm_bindgen(unchecked_param_type = "Content")] before: JsValue,
 ) -> Result<JsValue, JsValue> {
     let before = content_in(before, "invert")?;
-    let change = units::change_to_scalars(&change_in(change, "invert")?, &before, Utf16).map_err(apply_error)?;
-    let after = change::apply(&before, &change).map_err(apply_error)?.content;
+    let change = units::change_to_scalars(&change_in(change, "invert")?, &before, Utf16)
+        .map_err(apply_error)?;
+    let after = change::apply(&before, &change)
+        .map_err(apply_error)?
+        .content;
     let undo = change::invert(&change, &before).map_err(apply_error)?;
     let undo = units::change_from_scalars(&undo, &after, Utf16).map_err(apply_error)?;
     serialize_or_throw(&undo.to_value(), "invert")
@@ -790,7 +918,8 @@ pub fn diff(
     #[wasm_bindgen(unchecked_param_type = "Content")] after: JsValue,
 ) -> Result<JsValue, JsValue> {
     let (before, after) = (content_in(before, "diff")?, content_in(after, "diff")?);
-    let change = quillmark_content::diff::diff(&before, &after).map_err(|e| apply_error(e.into()))?;
+    let change =
+        quillmark_content::diff::diff(&before, &after).map_err(|e| apply_error(e.into()))?;
     let change = units::change_from_scalars(&change, &before, Utf16).map_err(apply_error)?;
     serialize_or_throw(&change.to_value(), "diff")
 }
@@ -801,11 +930,14 @@ pub fn diff(
 /// mints derived from the ids involved. Throws only on a `raw` not shaped as
 /// content.
 #[wasm_bindgen(js_name = repair, unchecked_return_type = "Repaired")]
-pub fn repair(#[wasm_bindgen(unchecked_param_type = "RawContent")] raw: JsValue) -> Result<JsValue, JsValue> {
+pub fn repair(
+    #[wasm_bindgen(unchecked_param_type = "RawContent")] raw: JsValue,
+) -> Result<JsValue, JsValue> {
     let json = js_value_to_json(raw, "repair")?;
     check_content_value(&json).map_err(bound_error)?;
-    let raw = quillmark_content::repair::Raw::from_value_in(&json, Utf16)
-        .map_err(|e| WasmError::from(format!("repair: not shaped as content: {e}")).to_js_value())?;
+    let raw = quillmark_content::repair::Raw::from_value_in(&json, Utf16).map_err(|e| {
+        WasmError::from(format!("repair: not shaped as content: {e}")).to_js_value()
+    })?;
     let (content, repairs, change) = quillmark_content::repair::repair(raw.clone());
     let out = serde_json::json!({
         "content": content.to_value_in(Utf16),
@@ -836,18 +968,32 @@ pub fn diff_range(
     #[wasm_bindgen(unchecked_param_type = "Content")] after: JsValue,
     #[wasm_bindgen(unchecked_param_type = "TextRange")] range: JsValue,
 ) -> Result<JsValue, JsValue> {
-    let (before, after) = (content_in(before, "diffRange")?, content_in(after, "diffRange")?);
-    reject_unknown_keys(&range, &["from", "to"], "range", |k| format!("diffRange: range has unknown key `{k}`; it takes `from` and `to`"))?;
+    let (before, after) = (
+        content_in(before, "diffRange")?,
+        content_in(after, "diffRange")?,
+    );
+    reject_unknown_keys(&range, &["from", "to"], "range", |k| {
+        format!("diffRange: range has unknown key `{k}`; it takes `from` and `to`")
+    })?;
     let bound = |key: &str| -> Result<u32, JsValue> {
         js_sys::Reflect::get(&range, &key.into())
             .ok()
             .and_then(|v| v.as_f64())
             .filter(|n| n.fract() == 0.0 && *n >= 0.0 && *n <= u32::MAX as f64)
             .map(|n| n as u32)
-            .ok_or_else(|| WasmError::from(format!("diffRange: range.{key} must be a non-negative integer")).to_js_value())
+            .ok_or_else(|| {
+                WasmError::from(format!(
+                    "diffRange: range.{key} must be a non-negative integer"
+                ))
+                .to_js_value()
+            })
     };
-    let (from, to) = (offset_in(&before, bound("from")?)?, offset_in(&before, bound("to")?)?);
-    let change = quillmark_content::diff::diff_range(&before, &after, from, to).map_err(|e| apply_error(e.into()))?;
+    let (from, to) = (
+        offset_in(&before, bound("from")?)?,
+        offset_in(&before, bound("to")?)?,
+    );
+    let change = quillmark_content::diff::diff_range(&before, &after, from, to)
+        .map_err(|e| apply_error(e.into()))?;
     let change = units::change_from_scalars(&change, &before, Utf16).map_err(apply_error)?;
     serialize_or_throw(&change.to_value(), "diffRange")
 }
@@ -894,7 +1040,10 @@ pub fn map_pos(
         None | Some("after") => Assoc::After,
         Some("before") => Assoc::Before,
         Some(other) => {
-            return Err(WasmError::from(format!("mapPos: assoc is \"before\" or \"after\", not {other:?}")).to_js_value());
+            return Err(WasmError::from(format!(
+                "mapPos: assoc is \"before\" or \"after\", not {other:?}"
+            ))
+            .to_js_value());
         }
     };
     let r = change::map_pos_in(&change, &pos, assoc, Utf16).map_err(apply_error)?;
