@@ -819,6 +819,7 @@ impl<'a> CardMut<'a> {
         Self(card)
     }
 
+    #[cfg(test)]
     pub(crate) fn payload_mut(&mut self) -> &mut Payload {
         self.0.payload_mut()
     }
@@ -1105,28 +1106,6 @@ impl Document {
         Some(self.cards_vec_mut().remove(index))
     }
 
-    /// Replace the `$kind` of the composable card at `index`.
-    ///
-    /// Only the `$kind` metadata changes; the payload and body are untouched, so
-    /// old-schema fields linger and schema migration is the caller's job.
-    ///
-    /// Returns [`EditError::IndexOutOfRange`], [`EditError::InvalidKindName`],
-    /// or [`EditError::ReservedKind`] on constraint violations.
-    pub fn set_card_kind(
-        &mut self,
-        index: usize,
-        new_kind: impl Into<String>,
-    ) -> Result<(), EditError> {
-        let new_kind = new_kind.into();
-        check_kind(&new_kind)?;
-        let len = self.cards().len();
-        let mut card = self
-            .card_mut(index)
-            .ok_or(EditError::IndexOutOfRange { index, len })?;
-        card.payload_mut().set_kind(new_kind);
-        Ok(())
-    }
-
     /// Move card at `from` to position `to`. No-op when `from == to`.
     /// Either index out of range → [`EditError::IndexOutOfRange`].
     pub fn move_card(&mut self, from: usize, to: usize) -> Result<(), EditError> {
@@ -1227,54 +1206,6 @@ impl Card {
         self.payload_mut()
             .insert(name.to_string(), value)
             .map_err(EditError::InvalidPayload)?;
-        Ok(())
-    }
-
-    /// Store several payload fields atomically. The whole batch is validated first: on
-    /// any violation nothing is applied and every offending field is reported as
-    /// a `(name, error)` pair. Per-field rules are those of
-    /// [`Card::store_field`]; insertion order follows the iterator, and a
-    /// repeated name behaves like repeated `store_field` calls (last value wins,
-    /// first position kept).
-    ///
-    /// The §8 field count is charged over the whole batch rather than per call,
-    /// so a batch that would take the card past it reports every name in the
-    /// overflowing tail.
-    pub fn store_fields<K, V, I>(&mut self, fields: I) -> Result<(), Vec<(String, EditError)>>
-    where
-        K: Into<String>,
-        V: Into<QuillValue>,
-        I: IntoIterator<Item = (K, V)>,
-    {
-        let mut errors: Vec<(String, EditError)> = Vec::new();
-        let fields: Vec<(String, QuillValue)> = fields
-            .into_iter()
-            .filter_map(|(k, v)| {
-                let (name, value): (String, QuillValue) = (k.into(), v.into());
-                let settled = check_field(&name, value.as_json())
-                    .and_then(|()| canonical_field(&name, value.into_json()));
-                match settled {
-                    Ok(value) => Some((name, QuillValue::from_json(value))),
-                    Err(e) => {
-                        errors.push((name, e));
-                        None
-                    }
-                }
-            })
-            .collect();
-        if !errors.is_empty() {
-            return Err(errors);
-        }
-        if let Some(errors) =
-            overflow_errors(self.payload(), fields.iter().map(|(name, _)| name.as_str()))
-        {
-            return Err(errors);
-        }
-        for (name, value) in fields {
-            self.payload_mut()
-                .insert(name, value)
-                .expect("the batch's overflow was refused above");
-        }
         Ok(())
     }
 

@@ -1022,7 +1022,7 @@ impl Document {
     /// The invariants are `debug_assert`s because no caller can break them.
     /// This is crate-internal; every public door that places a card gates it
     /// ([`Unchecked::insert_card`](crate::document::Unchecked::insert_card),
-    /// [`set_card_kind`](Self::set_card_kind), parse, and
+    /// parse, and
     /// `TryFrom<StoredDocument>` for external data, which checks all three and
     /// returns `StorageError::Malformed`), and a placed card is reachable only
     /// as a [`CardMut`], which carries no whole-card assignment.
