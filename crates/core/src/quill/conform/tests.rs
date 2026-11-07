@@ -376,9 +376,8 @@ fn the_plate_shape_for_text_is_unchanged() {
     };
 
     let from_string = plate_note(json!("a *literal* line"));
-    let from_object = plate_note(json!(quillmark_content::lines::serial::to_canonical_value(
-        &quillmark_content::lines::import::from_plaintext("a *literal* line")
-    )));
+    let from_object =
+        plate_note(quillmark_content::markdown::from_plaintext("a *literal* line").to_value());
     assert!(from_string.is_object(), "plate keeps the content object");
     assert_eq!(from_string, from_object, "both commit inputs, one plate");
     assert_eq!(from_string["text"], json!("a *literal* line"));

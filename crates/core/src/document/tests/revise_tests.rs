@@ -1,5 +1,4 @@
 use quillmark_content::lines::model::{Lines, Mark, MarkKind};
-use quillmark_content::lines::serial::to_canonical_value;
 
 use crate::document::{Codec, Document};
 use crate::value::QuillValue;
@@ -60,8 +59,11 @@ fn stored_with_items() -> Document {
     let mut doc = stored();
     let item = crate::document::import_body_lines("an item to flag").unwrap();
     let items = serde_json::json!([
-        to_canonical_value(&crate::document::import_body_lines("a plain item").unwrap()),
-        to_canonical_value(&anchored(&item, "flag", "i1")),
+        crate::document::stored_over(
+            None,
+            &crate::document::import_body_lines("a plain item").unwrap()
+        ),
+        crate::document::stored_over(None, &anchored(&item, "flag", "i1")),
     ]);
     doc.unchecked()
         .store_field(Some(0), "items", QuillValue::from_json(items))
@@ -230,13 +232,14 @@ fn a_dropped_anchor_inside_a_field_names_the_content_holding_it() {
     assert_eq!(dropped, ["cards.note[0].items[1]#i1"]);
 }
 
-/// A content object stored out of canonical order emits as the structure it
-/// is and revises as authored, and an anchor in it is named when a revise
+/// A v1 content object stored out of canonical order emits as the structure
+/// it is and revises as authored, and an anchor in it is named when a revise
 /// drops it.
 #[test]
 fn an_anchor_in_content_stored_out_of_canonical_order_is_named_when_it_drops() {
     let note = crate::document::import_body_lines("a note to flag").unwrap();
-    let canonical = to_canonical_value(&anchored(&note, "flag", "n1"));
+    let canonical =
+        quillmark_content::lines::serial::to_canonical_value(&anchored(&note, "flag", "n1"));
     let reordered: serde_json::Map<String, serde_json::Value> = canonical
         .as_object()
         .unwrap()
@@ -371,7 +374,7 @@ fn revising_with_the_annotated_read_keeps_every_anchor() {
 fn a_revised_fields_nested_comments_stay() {
     let mut doc = stored();
     let sections = serde_json::json!([{
-        "body": to_canonical_value(&crate::document::import_body_lines("hello world").unwrap()),
+        "body": crate::document::stored_over(None, &crate::document::import_body_lines("hello world").unwrap()),
         "note": "x",
     }]);
     doc.unchecked()

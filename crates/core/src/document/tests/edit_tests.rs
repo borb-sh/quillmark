@@ -439,15 +439,15 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
 
 #[test]
 fn test_commit_field_richtext_content_object_reads_back() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
-
-    let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
+    let mut content = quillmark_content::markdown::from_markdown("underlined intro")
         .unwrap()
-        .content
-        .into_content();
-    content.marks.push(Mark::new(0, 10, MarkKind::Underline));
-    let content = content.into_lines();
-    let json = quillmark_content::lines::serial::to_canonical_value(&content);
+        .content;
+    content.marks.push(quillmark_content::model::Mark::new(
+        0,
+        10,
+        quillmark_content::model::MarkKind::Underline,
+    ));
+    let json = content.to_value();
 
     let mut card = Card::new("note").unwrap();
     commit_richtext(&mut card, "intro", &json, false).unwrap();
@@ -457,7 +457,7 @@ fn test_commit_field_richtext_content_object_reads_back() {
         .field_content("intro", Codec::Richtext)
         .unwrap()
         .unwrap();
-    assert_eq!(read, content);
+    assert_eq!(read, quillmark_content::migrate::to_lines(&content));
 }
 
 #[test]

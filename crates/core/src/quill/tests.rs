@@ -1702,16 +1702,11 @@ fn text_coercion_imports_verbatim_and_refuses_marks() {
         "*not bold* text"
     );
 
-    let marked = quillmark_content::lines::import::from_markdown("a **bold** word")
+    let marked = quillmark_content::markdown::from_markdown("a **bold** word")
         .unwrap()
-        .content
-        .into_content()
-        .into_lines();
+        .content;
     assert_eq!(
-        coerce(
-            FIELD,
-            quillmark_content::lines::serial::to_canonical_value(&marked)
-        ),
+        coerce(FIELD, marked.to_value()),
         Err(("f".to_string(), "text".to_string()))
     );
 }
