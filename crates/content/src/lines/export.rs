@@ -88,22 +88,6 @@ pub fn to_markdown_annotated(rt: &Lines) -> Annotated {
     crate::export::to_markdown_annotated(&from_lines(rt))
 }
 
-/// The literal codec's annotated read: [`to_plaintext`], which spells no tag,
-/// and every anchor listed as [`to_markdown_annotated`] lists it, so a revise
-/// carries each by the diff.
-pub fn to_plaintext_annotated(rt: &Lines) -> Annotated {
-    Annotated {
-        markdown: to_plaintext(rt),
-        anchors: anchors_where(rt, |_| true),
-    }
-}
-
-/// The anchors [`to_markdown_annotated`] lists for `rt` whose id `keep`
-/// holds, in its order.
-pub fn anchors_where(rt: &Lines, keep: impl Fn(&str) -> bool) -> Vec<AnchorRead> {
-    crate::export::anchors_where(&from_lines(rt), keep)
-}
-
 /// `props` with every anchor mark of each `{text, marks}` it holds gone.
 pub(crate) fn drop_anchor_marks(props: &mut serde_json::Value) {
     match props {

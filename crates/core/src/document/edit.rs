@@ -1007,27 +1007,6 @@ impl<'a> CardMut<'a> {
     ) -> Result<super::Receipt, EditError> {
         self.0.revise_field_checked(name, body, schema)
     }
-
-    #[doc(hidden)]
-    pub fn field_hash_checked(
-        &self,
-        name: &str,
-        schema: &FieldSchema,
-    ) -> Result<String, EditError> {
-        self.0.field_hash_checked(name, schema)
-    }
-
-    #[doc(hidden)]
-    pub fn revise_field_checked_against(
-        &mut self,
-        name: &str,
-        base: &str,
-        body: impl Into<String>,
-        schema: &FieldSchema,
-    ) -> Result<super::Receipt, EditError> {
-        self.0
-            .revise_field_checked_against(name, base, body, schema)
-    }
 }
 
 impl std::ops::Deref for CardMut<'_> {
