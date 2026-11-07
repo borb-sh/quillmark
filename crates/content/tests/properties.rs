@@ -5,9 +5,7 @@
 
 use proptest::prelude::*;
 use quillmark_content::lines::delta::diff_import;
-use quillmark_content::lines::export::{
-    ExportLoss, to_markdown, to_markdown_annotated, to_markdown_checked,
-};
+use quillmark_content::lines::export::{to_markdown, to_markdown_annotated};
 use quillmark_content::lines::import::from_markdown;
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::lines::model::{Content, Island, Line, LineKind, Lines, Mark, MarkKind};
@@ -577,12 +575,12 @@ proptest! {
         // An imported mark markdown cannot write back, a strike over escaped
         // punctuation a letter follows, is a named loss, not a silent one; the
         // text and the islands always come home.
-        let losses = to_markdown_checked(&rt).losses;
+        let losses = quillmark_content::markdown::to_markdown_checked(&quillmark_content::migrate::from_lines(&rt)).losses;
         if losses.is_empty() {
             prop_assert_eq!(&revised, &rt, "the read does not revise to itself: {:?}", read.markdown);
         } else {
             prop_assert!(
-                losses.iter().all(|l| matches!(l, ExportLoss::Mark { .. })),
+                losses.iter().all(|l| matches!(l, quillmark_content::markdown::Loss::Mark { .. })),
                 "the read loses more than marks: {:?} in {:?}", losses, read.markdown
             );
             prop_assert_eq!(&revised.text, &rt.text, "the read does not revise its text to itself: {:?}", read.markdown);

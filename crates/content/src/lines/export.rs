@@ -3,8 +3,7 @@
 //! ([`crate::markdown`]). [`to_plaintext`], [`char_count`] and
 //! [`line_segments`] read the line form itself.
 
-use crate::lines::island::IslandType;
-use crate::lines::model::{Content, ISLAND_SLOT, Lines, MarkKind, Scalar};
+use crate::lines::model::{Content, ISLAND_SLOT, Lines};
 use crate::migrate::from_lines;
 
 pub use crate::export::{clip_range_to_atomic, tex_is_writable, url_is_writable};
@@ -13,74 +12,6 @@ pub use crate::markdown::{AnchorRead, Annotated};
 /// Render a content to markdown.
 pub fn to_markdown(rt: &Lines) -> String {
     crate::export::to_markdown(&from_lines(rt))
-}
-
-/// A [`to_markdown_checked`] export: the markdown, and what of the content it
-/// does not carry.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Exported {
-    /// [`to_markdown`]'s markdown.
-    pub markdown: String,
-    /// Each part of the content the markdown reads back as something else:
-    /// [`ExportLoss::Text`] first, then marks and islands in content order.
-    /// Empty exactly where the markdown imports back to the content, anchors
-    /// aside.
-    pub losses: Vec<ExportLoss>,
-}
-
-/// One part of a content its markdown does not carry as itself.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ExportLoss {
-    /// A mark the markdown writes over other text, `now`, or not at all.
-    /// Positions are the content's.
-    Mark {
-        kind: MarkKind,
-        start: Scalar,
-        end: Scalar,
-        now: Option<(Scalar, Scalar)>,
-    },
-    /// The island at this index reads back with other props, or not at all.
-    Island {
-        index: usize,
-        island_type: IslandType,
-    },
-    /// The text or its blocks read back otherwise: a codec limit
-    /// [`crate::markdown::to_markdown_checked`] lists.
-    Text,
-}
-
-/// [`to_markdown`] with a receipt: [`crate::markdown::to_markdown_checked`]'s
-/// losses at their line-form names. Anchors are not compared, the projection
-/// carrying none.
-pub fn to_markdown_checked(rt: &Lines) -> Exported {
-    use crate::markdown::Loss;
-    let c = from_lines(rt);
-    let (markdown, losses) = crate::export::to_markdown_checked(&c);
-    let losses = losses
-        .into_iter()
-        .filter_map(|loss| match loss {
-            Loss::Mark {
-                kind,
-                start,
-                end,
-                now,
-            } => Some(ExportLoss::Mark {
-                kind: kind.to_line()?,
-                start,
-                end,
-                now,
-            }),
-            Loss::Island { id } => {
-                let index = c.islands.iter().position(|i| i.id == id)?;
-                Some(ExportLoss::Island {
-                    index,
-                    island_type: c.islands[index].island_type.clone(),
-                })
-            }
-            _ => Some(ExportLoss::Text),
-        })
-        .collect();
-    Exported { markdown, losses }
 }
 
 /// The two-way read: [`crate::markdown::to_markdown_annotated`].
@@ -192,6 +123,7 @@ mod tests {
     use super::*;
     use crate::export::{annotate, emit_url};
     use crate::lines::import::from_markdown;
+    use crate::lines::island::IslandType;
     use crate::lines::model::{Container, Island, LineKind};
     use crate::lines::model::{Line, Mark, MarkKind};
 
@@ -598,60 +530,6 @@ mod tests {
         .into_lines();
         assert_eq!(rt.validate(), Ok(()), "content invariants");
         rt
-    }
-
-    /// A `*`, `_` or `~~` mark reaching over whitespace writes over its text
-    /// alone, which the receipt names; an underline's tags hold the whitespace.
-    #[test]
-    fn a_delimited_mark_drops_its_edge_whitespace_and_says_so() {
-        for (start, end, kind) in [
-            (4, 8, MarkKind::Strong),
-            (3, 7, MarkKind::Emph),
-            (4, 8, MarkKind::Strike),
-        ] {
-            let rt = marked("foo bar baz", vec![Mark::new(start, end, kind.clone())]);
-            let out = to_markdown_checked(&rt);
-            let back = from_markdown(&out.markdown).unwrap().content;
-            assert_eq!(
-                back.marks,
-                vec![Mark::new(4, 7, kind.clone())],
-                "{:?}",
-                out.markdown
-            );
-            assert_eq!(
-                out.losses,
-                vec![ExportLoss::Mark {
-                    kind,
-                    start,
-                    end,
-                    now: Some((4, 7))
-                }]
-            );
-        }
-        let underlined = marked("foo bar baz", vec![Mark::new(4, 8, MarkKind::Underline)]);
-        assert_eq!(to_markdown_checked(&underlined).losses, vec![]);
-    }
-
-    #[test]
-    fn the_receipt_is_empty_on_an_import_and_names_what_does_not_read_back() {
-        let imported = from_markdown(
-            "# Title\n\nSome **bold** and [a link](https://x.y).\n\n| a |\n| --- |\n| b |",
-        )
-        .unwrap()
-        .content;
-        assert_eq!(to_markdown_checked(&imported).losses, vec![]);
-
-        let broken = hard_break_block("a\n\nb");
-        let losses = to_markdown_checked(&broken).losses;
-        assert_eq!(losses, vec![ExportLoss::Text]);
-
-        let mut cell = imported.into_content();
-        cell.islands[0].props["rows"][0][0]["marks"] = serde_json::json!([{ "start": 0, "end": 1, "type": "anchor", "attrs": { "id": "c1" } }]);
-        assert_eq!(
-            to_markdown_checked(&cell.into_lines()).losses,
-            vec![],
-            "a cell's anchor is no loss"
-        );
     }
 
     /// One deterministic fixed-point smoke per construct `properties.rs` fuzzes,

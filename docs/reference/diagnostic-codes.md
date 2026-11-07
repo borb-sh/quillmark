@@ -29,12 +29,6 @@ Reading a stored content value.
 
 - `content::noncanonical_read`
 
-## `export::`
-
-Writing a content to markdown.
-
-- `export::lost_construct`
-
 ## `validation::`
 
 A document checked against its quill's schema.
