@@ -562,7 +562,7 @@ Coercion rules per type:
 
 Validation is implemented by a native walker over `QuillConfig` in `quill/validation.rs`.
 
-- Entry point: `QuillConfig::validate_document(&Document)` (dispatches to `validate_typed_document`)
+- Entry point: `QuillConfig::validate_document(&Document)`
 - Returns `Result<(), Vec<ValidationError>>`
 - Collects all errors (does not short-circuit)
 - Emits path-aware errors for top-level fields and card fields

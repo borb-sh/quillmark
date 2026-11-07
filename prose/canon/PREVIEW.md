@@ -486,12 +486,11 @@ The wasm `render` feature pulls in `web-sys`, the generic canvas *painter*
 - **No session raster cache: re-rasterize per `paint`.** Caching the last
   raster per `(page, scale)` and blitting on scroll-back would skip
   re-rasterizing unchanged pages (`ChangeSet` already names dirty pages to
-  invalidate), but it stays unbuilt: the surface ships ahead of its first
-  consumer, the megabyte-scale per-page buffers reintroduce the unbounded
+  invalidate), but it stays unbuilt: the megabyte-scale per-page buffers reintroduce the unbounded
   memory the viewport-bounded design set out to avoid, and any `scale`
   change (DPR / zoom) rotates the key and voids the cache. Consumer-side canvas
   liveness (keep the visible page's canvas alive rather than pooling) covers the
-  common scroll case without that trade-off; a real consumer's profile is what
+  common scroll case without that trade-off; a consumer's measured profile is what
   should justify the cache and its eviction policy, not speculation.
 - **Method on `LiveSession`, not a sub-handle.** Even with click resolution
   shipped (`fieldAt`), it shares no state with `paint` beyond the compile the
