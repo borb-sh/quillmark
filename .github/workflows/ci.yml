@@ -135,7 +135,8 @@ jobs:
   # A long change applied, inverted, diffed, rebased and crossed to UTF-16,
   # and a long value spliced, revised, replaced, repaired, imported and
   # decoded, in a release build, each failing past its budget
-  # (crates/content/tests/speed.rs), and one keystroke through Card::write on
+  # (crates/content/tests/speed.rs) along with a revise of tables past the
+  # import's cell budget, and one keystroke through Card::write on
   # a long body (crates/core/tests/speed.rs). Its own job so the timing runs on
   # a runner no other build shares.
   speed:

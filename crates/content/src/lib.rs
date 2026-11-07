@@ -48,10 +48,11 @@ pub mod wire;
 pub const MAX_NESTING_DEPTH: usize = 12;
 
 /// Maximum slots of a table's grid, rows (the header among them) times columns,
-/// and on a markdown import of all its tables' grids together. A grid pads
-/// every row to its widest, so a few bytes of markdown or host JSON can ask for
-/// millions of cells: on wasm32 an allocation that traps rather than errors. No
-/// document's tables near it, and Typst could not lay out one that did.
+/// and on a markdown import of all its tables' grids together, a revise's past
+/// it where its stored tables hold more. A grid pads every row to its widest,
+/// so a few bytes of markdown or host JSON can ask for millions of cells: on
+/// wasm32 an allocation that traps rather than errors. No document's tables
+/// near it, and Typst could not lay out one that did.
 pub const MAX_TABLE_CELLS: usize = 100_000;
 
 /// Maximum bytes of markdown one import reads, the bound a document's parse
