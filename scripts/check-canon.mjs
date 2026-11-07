@@ -4,7 +4,7 @@
 // sense in prose/canon. Zero dependencies, no arguments.
 //
 // Every rule here is a gate, and every gate catches rot no reader would
-// notice: a dead link, a dead anchor, or a retired word back in canon. Taste
+// notice: a dead link, a dead anchor or path, or a retired word back in canon. Taste
 // is the writer's job and the reviewer's. A check that can only warn does not
 // belong.
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
@@ -22,11 +22,22 @@ const PROSE_LINK = /\]\((?!https?:)[^)]*\.md(?=[)#])/;
 const ANCHOR_PATH = /`([\w.-]+\/[\w./-]*)`/g;
 // A relative markdown link target of any kind.
 const REL_LINK = /\]\((?!https?:|#)([^)\s]+)/g;
+// A backticked repo path: slashed, with a dotted basename (FILE_IN_ANCHOR's shape).
+const CODE_PATH = /`([\w.-]+(?:\/[\w.-]+)*\/[\w-]+\.[a-z0-9]+)`/g;
 
 // Line budget. Past this a line is a paragraph crammed onto one line, and a
 // one-word fix rewrites the whole of it in the diff. prose/README.md sets a
 // tighter target for writers; only the outer bound is mechanical.
 const HARD = 700;
+
+// Every file under `dir`, build and dependency output aside.
+const SKIP = new Set(['target', 'node_modules', '.venv', 'pkg']);
+const walkFiles = (dir) =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    if (SKIP.has(e.name) || e.name.startsWith('.')) return [];
+    const p = posix.join(dir, e.name);
+    return e.isDirectory() ? walkFiles(p) : [p];
+  });
 
 const mdFiles = (dir) =>
   existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith('.md')).sort() : [];
@@ -118,6 +129,17 @@ for (const name of mdFiles('prose/canon')) {
     const resolved = posix.normalize(join('prose/canon', target.split('#')[0]));
     if (!existsSync(resolved)) fail(file, `link target \`${target}\` does not resolve`);
   }
+}
+
+// A path canon names in prose is a pointer like a link, and rots like one. It
+// resolves from the repo root or as the tail of a file under `crates/`, where
+// canon names a path from its crate or its `src/`.
+const crateFiles = existsSync('crates') ? walkFiles('crates') : [];
+for (const name of mdFiles('prose/canon')) {
+  const file = join('prose/canon', name);
+  for (const [, p] of readFileSync(file, 'utf8').matchAll(CODE_PATH))
+    if (!existsSync(p) && !crateFiles.some((f) => f.endsWith(`/${p}`)))
+      fail(file, `path \`${p}\` resolves to no file, from the repo root or under \`crates/\``);
 }
 
 for (const name of mdFiles('prose/references')) {
