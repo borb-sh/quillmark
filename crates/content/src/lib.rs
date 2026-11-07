@@ -12,10 +12,11 @@
 //! edit, [`mint`] fills the ids a change leaves to its write, and [`repair`]
 //! makes valid a state two concurrent edits merged into.
 //!
-//! The line form, `lines` and the `migrate` between it and the model, is the
-//! intermediate the markdown codecs, the renderers and core's revise read; it
-//! is hidden from the documented surface and no public API takes or answers
-//! it.
+//! The line form, `lines` and the `migrate` between it and the model, is what
+//! the markdown import walks, the anchor contexts and a revise's carry read,
+//! and the shape a v1 stored value decodes from; it is hidden from the
+//! documented surface and no public API takes or answers it. The markdown
+//! export and the renderers read the model through [`view`].
 
 pub mod anchors;
 pub mod carry;

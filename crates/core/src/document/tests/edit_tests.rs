@@ -133,93 +133,19 @@ fn test_move_card_reorders() {
 }
 
 #[test]
-fn test_set_card_kind_renames_in_place() {
-    let mut doc = make_doc_with_cards(); // note(0) with field foo=bar, summary(1)
-    doc.set_card_kind(0, "annotation").unwrap();
-    assert_eq!(doc.cards()[0].kind(), Some("annotation"));
-    assert_eq!(
-        doc.cards()[0].payload().get("foo").unwrap().as_str(),
-        Some("bar")
-    );
-    assert_eq!(doc.cards()[1].kind(), Some("summary"));
-    let reparsed = Document::parse(&doc.to_markdown()).unwrap().document;
-    assert_eq!(reparsed.cards()[0].kind(), Some("annotation"));
-}
-
-#[test]
-fn test_set_card_kind_rejects_invalid_kind() {
-    let mut doc = make_doc_with_cards();
-    for bad in ["", "Bad", "with-dash", "1leading_digit"] {
-        match doc.set_card_kind(0, bad) {
-            Err(EditError::InvalidKindName(t)) => assert_eq!(t, bad),
-            other => panic!("expected InvalidKindName for {bad:?}, got {other:?}"),
-        }
-    }
-    assert_eq!(doc.cards()[0].kind(), Some("note"));
-}
-
-#[test]
 fn test_document_new_blank_canvas() {
     let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
     assert_eq!(doc.quill_reference().to_string(), "test_quill");
     assert!(doc.cards().is_empty());
     assert_eq!(doc.main().body_markdown(), "");
 
-    doc.main_card_mut()
-        .store_fields([("title", "Hello")])
-        .unwrap();
+    doc.main_card_mut().store_field("title", "Hello").unwrap();
     let mut card = Card::new("note").unwrap();
     card.store_field("qty", 3).unwrap();
     doc.unchecked().insert_card(None, card).unwrap();
 
     let reparsed = Document::parse(&doc.to_markdown()).unwrap().document;
     assert_eq!(doc, reparsed);
-}
-
-#[test]
-fn test_card_store_fields_inserts_in_iterator_order() {
-    let mut card = Card::new("note").unwrap();
-    card.store_fields([("b".to_string(), qv("two")), ("a".to_string(), qv("one"))])
-        .unwrap();
-    let keys: Vec<&String> = card.payload().iter().map(|(k, _)| k).collect();
-    assert_eq!(keys, ["b", "a"]);
-    assert_eq!(card.payload().get("a").unwrap().as_str(), Some("one"));
-}
-
-#[test]
-fn test_card_store_fields_collects_every_violation_and_applies_none() {
-    let mut card = Card::new("note").unwrap();
-    card.store_field("existing", qv("old")).unwrap();
-    let errors = card
-        .store_fields([
-            ("existing".to_string(), qv("new")),
-            ("bad-name".to_string(), qv("v")),
-            ("also bad".to_string(), qv("v")),
-        ])
-        .unwrap_err();
-    let names: Vec<_> = errors.iter().map(|(n, _)| n.as_str()).collect();
-    assert_eq!(names, ["bad-name", "also bad"]);
-    assert!(
-        errors
-            .iter()
-            .all(|(n, e)| *e == EditError::InvalidFieldName(n.clone()))
-    );
-    assert_eq!(
-        card.payload().get("existing").unwrap().as_str(),
-        Some("old")
-    );
-}
-
-#[test]
-fn test_card_store_fields_repeated_name_last_wins() {
-    let mut card = Card::new("note").unwrap();
-    card.store_field("title", qv("draft")).unwrap();
-    card.store_fields([
-        ("title".to_string(), qv("first")),
-        ("title".to_string(), qv("final")),
-    ])
-    .unwrap();
-    assert_eq!(card.payload().get("title").unwrap().as_str(), Some("final"));
 }
 
 #[test]
@@ -231,7 +157,7 @@ fn test_store_field_scalar_conversions() {
     card.store_field("active", true).unwrap();
     card.store_field("tags", serde_json::json!(["a", "b"]))
         .unwrap();
-    card.store_fields([("count", 1), ("total", 2)]).unwrap();
+    card.store_field("total", 2).unwrap();
     assert_eq!(card.payload().get("name").unwrap().as_str(), Some("Alice"));
     assert_eq!(card.payload().get("qty").unwrap().as_i64(), Some(3));
     assert_eq!(card.payload().get("price").unwrap().as_f64(), Some(2.5));
@@ -439,15 +365,15 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
 
 #[test]
 fn test_commit_field_richtext_content_object_reads_back() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
-
-    let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
+    let mut content = quillmark_content::markdown::from_markdown("underlined intro")
         .unwrap()
-        .content
-        .into_content();
-    content.marks.push(Mark::new(0, 10, MarkKind::Underline));
-    let content = content.into_lines();
-    let json = quillmark_content::lines::serial::to_canonical_value(&content);
+        .content;
+    content.marks.push(quillmark_content::model::Mark::new(
+        0,
+        10,
+        quillmark_content::model::MarkKind::Underline,
+    ));
+    let json = content.to_value();
 
     let mut card = Card::new("note").unwrap();
     commit_richtext(&mut card, "intro", &json, false).unwrap();
@@ -457,7 +383,7 @@ fn test_commit_field_richtext_content_object_reads_back() {
         .field_content("intro", Codec::Richtext)
         .unwrap()
         .unwrap();
-    assert_eq!(read, content);
+    assert_eq!(read, quillmark_content::migrate::to_lines(&content));
 }
 
 #[test]
@@ -1003,9 +929,11 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
     let max = crate::error::MAX_FIELD_COUNT;
     let names: Vec<String> = (0..max).map(|i| format!("f{i}")).collect();
     let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
-    doc.main_card_mut()
-        .store_fields(names.iter().map(|n| (n.as_str(), qv("v"))))
-        .expect("a batch that fills the card exactly to the cap lands");
+    for n in &names {
+        doc.main_card_mut()
+            .store_field(n, qv("v"))
+            .expect("a card fills exactly to the cap");
+    }
     assert_eq!(doc.main().payload().len(), max);
 
     doc.unchecked()
@@ -1046,42 +974,6 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
     assert_eq!(doc.main().payload().len(), max);
     validate_payload(doc.main().payload()).expect("the storage exits take what the writes built");
     let _ = Document::parse(&doc.to_markdown()).expect("the markdown it emits reparses");
-}
-
-/// A batch charges the count over the batch rather than per call, so it names
-/// every field past the cap and applies none of itself.
-#[test]
-fn a_batch_past_the_count_names_its_overflowing_tail() {
-    let max = crate::error::MAX_FIELD_COUNT;
-    let names: Vec<String> = (0..max - 1).map(|i| format!("f{i}")).collect();
-    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
-    doc.main_card_mut()
-        .store_fields(names.iter().map(|n| (n.as_str(), qv("v"))))
-        .expect("one slot short of the cap");
-
-    let errs = doc
-        .main_card_mut()
-        .store_fields([
-            ("f0", qv("replaced")),
-            ("a", qv("v")),
-            ("b", qv("v")),
-            ("c", qv("v")),
-        ])
-        .unwrap_err();
-    assert_eq!(
-        errs.iter()
-            .map(|(name, _)| name.as_str())
-            .collect::<Vec<_>>(),
-        ["b", "c"],
-        "a present name is a replace, and `a` takes the last slot"
-    );
-    assert!(
-        errs.iter()
-            .all(|(_, e)| e.code() == "edit::invalid_payload")
-    );
-
-    assert_eq!(doc.main().payload().len(), max - 1);
-    assert_eq!(doc.main().payload().get("f0").unwrap().as_str(), Some("v"));
 }
 
 /// [`CardMut`](crate::document::CardMut) is the whole mutable surface of a

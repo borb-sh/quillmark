@@ -1477,7 +1477,6 @@ mod tests {
         assert_eq!(twice.islands.len(), 2);
         let ids: Vec<String> = twice.anchor_sites().into_iter().map(|s| s.id).collect();
         assert_eq!(ids, ["c1"]);
-        assert!(twice.anchor_collisions().is_empty());
     }
 
     /// A tag right after a table's token pins the line the split gives the

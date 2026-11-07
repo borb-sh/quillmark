@@ -226,12 +226,8 @@ Body.
 #[test]
 fn an_indented_text_field_survives_emit_and_reparse() {
     let text = "    indented\nplain\ntrailing   ";
-    let content = quillmark_content::lines::import::from_plaintext(text);
-    let md = doc_with(&[(
-        "sample",
-        quillmark_content::lines::serial::to_canonical_value(&content),
-    )])
-    .to_markdown();
+    let content = quillmark_content::markdown::from_plaintext(text);
+    let md = doc_with(&[("sample", content.to_value())]).to_markdown();
     let back = Document::parse(&md).expect("re-parses").document;
     let projected = back
         .main()
@@ -287,11 +283,10 @@ fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
 fn a_nested_content_cell_projects_and_ext_content_does_not() {
     use crate::value::QuillValue;
 
-    let content = quillmark_content::lines::serial::to_canonical_value(
-        &quillmark_content::lines::import::from_markdown("and **this**")
-            .unwrap()
-            .content,
-    );
+    let content = quillmark_content::markdown::from_markdown("and **this**")
+        .unwrap()
+        .content
+        .to_value();
     let meta = QuillValue::from_json(serde_json::json!({ "blurb": content.clone() }));
 
     let mut doc = Document::new("q@1.0.0".parse().expect("reference"));

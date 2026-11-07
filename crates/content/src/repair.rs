@@ -144,15 +144,6 @@ impl Repair {
             _ => false,
         }
     }
-
-    /// The anchor this repair dropped, at any depth.
-    pub fn dropped_anchor(&self) -> Option<&str> {
-        match self {
-            Repair::CollapsedAnchor { id } => Some(id),
-            Repair::InSlot { repair, .. } => repair.dropped_anchor(),
-            _ => None,
-        }
-    }
 }
 
 impl From<&Content> for Raw {

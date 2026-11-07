@@ -126,8 +126,8 @@ impl LineKind {
     /// projection never reaches.
     ///
     /// Necessary, not sufficient: a `Para` whose sole content is a block
-    /// island's slot also renders one line, which
-    /// [`Content::block_island_at`] answers off the island the kind cannot see.
+    /// island's slot also renders one line, which only the island's type
+    /// tells.
     pub fn takes_continuations(&self) -> bool {
         matches!(self, LineKind::Para | LineKind::Code { .. })
     }
@@ -696,7 +696,7 @@ pub enum Invariant {
     IslandIdCollision { id: String },
     /// Two prose anchors share an `id`, or one carries the empty id. Scope is
     /// prose marks: a collision a cell takes part in loads, and
-    /// [`Content::anchor_collisions`] reports it.
+    /// [`Content::anchor_sites`] lists each holder.
     AnchorIdCollision { id: String },
     /// A line's container path is nested deeper than
     /// [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH). The Typst emitter
@@ -784,21 +784,6 @@ fn fragment_line(
         containers: line.containers.clone(),
         continues: first && line.continues,
     }
-}
-
-/// Whether the line whose text is `seg` is a block island's: its sole content is
-/// one [`ISLAND_SLOT`], and `island` — the one backing that slot — is markup
-/// markdown writes as a block
-/// ([`IslandType::block_only`](crate::lines::island::IslandType::block_only)).
-///
-/// Such a line is a [`LineKind::Para`] that nonetheless renders one block, so
-/// this answers beside [`LineKind::takes_continuations`] rather than through it.
-/// [`Content::block_island_at`] is the public read; a pass already holding the
-/// line's text and slot index calls this instead of rescanning for them.
-pub(crate) fn is_block_island_line(seg: &str, island: Option<&Island>) -> bool {
-    let mut chars = seg.chars();
-    (chars.next(), chars.next()) == (Some(ISLAND_SLOT), None)
-        && island.is_some_and(|i| i.island_type.block_only())
 }
 
 impl Content {
@@ -900,25 +885,6 @@ impl Content {
     /// Number of `\n`-separated segments: the required `lines.len()`.
     pub fn segment_count(&self) -> usize {
         self.text.chars().filter(|c| *c == '\n').count() + 1
-    }
-
-    /// The block island `line` holds, if its sole content is that island's slot
-    /// and the island's markup is a block
-    /// ([`IslandType::block_only`](crate::lines::island::IslandType::block_only)).
-    ///
-    /// The read a line kind cannot answer: such a line is a
-    /// [`LineKind::Para`] like any other, and the island is the only thing
-    /// saying its markup is a block.
-    pub fn block_island_at(&self, line: usize) -> Option<&Island> {
-        let mut slot = 0usize;
-        for (i, seg) in self.text.split('\n').enumerate() {
-            if i == line {
-                let island = self.islands.get(slot);
-                return island.filter(|_| is_block_island_line(seg, island));
-            }
-            slot += seg.chars().filter(|&c| c == ISLAND_SLOT).count();
-        }
-        None
     }
 
     /// Per line, `(ends, alone)`: whether it ends in a block-only island's slot,
@@ -1581,30 +1547,6 @@ mod tests {
             "header": [{"marks": [], "text": "h"}],
             "rows": [[{"marks": [], "text": "c"}]],
         }))
-    }
-
-    /// A lone slot's line answers with its island where that island's markup is
-    /// a block, and with nothing where it is inline or where the line holds
-    /// more than the slot.
-    #[test]
-    fn block_island_at_answers_for_a_block_islands_lone_slot() {
-        let image = |id: &str| {
-            Island::new(id.into(), IslandType::Image)
-                .with_props(serde_json::json!({"alt": "a", "url": "u"}))
-        };
-        let rt = Content::new(
-            format!("intro\n{ISLAND_SLOT}\nx{ISLAND_SLOT}\n{ISLAND_SLOT}"),
-            vec![Line::new(LineKind::Para); 4],
-        )
-        .with_islands(vec![table_island(), image("isl-1"), image("isl-2")])
-        .into_lines();
-        assert_eq!(rt.validate(), Ok(()));
-
-        assert_eq!(rt.block_island_at(1).map(|i| i.id.as_str()), Some("isl-0"));
-        assert_eq!(rt.block_island_at(0), None, "prose");
-        assert_eq!(rt.block_island_at(2), None, "the slot shares its line");
-        assert_eq!(rt.block_island_at(3), None, "an image is inline markup");
-        assert_eq!(rt.block_island_at(9), None, "past the last line");
     }
 
     /// Markdown spells a slot-alone line one way whichever island backs it, so

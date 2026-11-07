@@ -197,14 +197,18 @@ fn every_head_row_repeats_with_the_header() {
     );
 }
 
-/// A table sharing its line with prose, the shape a merge of concurrent edits
+/// A v1 table sharing its line with prose, the shape a merge of concurrent edits
 /// leaves, compiles and draws what the line broken around it draws: in a
 /// paragraph, in a heading, and above a hard break the mint clears.
 #[test]
 fn a_table_sharing_its_line_draws_as_the_broken_line_does() {
     let quill = quill();
     let draw = |text: &str, lines: serde_json::Value| {
-        let mut value = content(&format!("before\n\n{PLAIN}\n\nafter"));
+        let rt =
+            quillmark_content::lines::import::from_markdown(&format!("before\n\n{PLAIN}\n\nafter"))
+                .expect("import")
+                .content;
+        let mut value = quillmark_content::lines::serial::to_canonical_value(&rt);
         value["text"] = text.into();
         value["lines"] = lines;
         let session = TypstBackend::default()

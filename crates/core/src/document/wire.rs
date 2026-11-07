@@ -259,16 +259,18 @@ mod tests {
     /// `underline` with no markdown projection survives Card → wire → Card.
     #[test]
     fn card_wire_round_trips_content_field_losslessly() {
-        use quillmark_content::lines::model::{Mark, MarkKind};
+        use quillmark_content::lines::model::MarkKind;
 
         let mut card = Card::new("note").unwrap();
-        let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
+        let mut content = quillmark_content::markdown::from_markdown("underlined intro")
             .unwrap()
-            .content
-            .into_content();
-        content.marks.push(Mark::new(0, 10, MarkKind::Underline));
-        let content = content.into_lines();
-        let json = quillmark_content::lines::serial::to_canonical_value(&content);
+            .content;
+        content.marks.push(quillmark_content::model::Mark::new(
+            0,
+            10,
+            quillmark_content::model::MarkKind::Underline,
+        ));
+        let json = content.to_value();
         let schema = crate::quill::FieldSchema::new(
             "intro".to_string(),
             crate::quill::FieldType::RichText { multiline: true },

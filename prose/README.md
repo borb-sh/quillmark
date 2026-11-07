@@ -59,7 +59,7 @@ are exempt: a table row is a record, not a sentence.
 ## Enforcement
 
 `scripts/check-canon.mjs` runs in CI and gates the mechanical half of the above:
-the spine, the link invariants, anchors that resolve, the 700-character
+the spine, the link invariants, anchors and named file paths that resolve, the 700-character
 cap, and the words the [`CONTENT.md`](canon/CONTENT.md) glossary retires. It only ever fails: read the script for the rule list. The rest of this
 page is the writer's and the reviewer's, enforced by neither.
 

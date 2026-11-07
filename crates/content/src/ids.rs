@@ -57,17 +57,6 @@ pub struct Minter {
 }
 
 impl Minter {
-    pub fn new<I, S>(held: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        Minter {
-            held: held.into_iter().map(Into::into).collect(),
-            next: HashMap::new(),
-        }
-    }
-
     pub fn hold(&mut self, id: impl Into<String>) {
         let id = id.into();
         for (prefix, next) in &mut self.next {

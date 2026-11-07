@@ -17,7 +17,7 @@ this page documents how the backend lowers the content it produces.
 ## Pipeline
 
 ```
-emit_content(&Lines) -> Result<Emission, EmitError>
+emit_content(&Content) -> Result<Emission, EmitError>
   ├─ block walk    lines → headings, paragraphs, code fences, lists, quotes, islands
   ├─ mark sweep    anchored marks → nested #strong[…] / #emph[…] / #link(…)[…] / #_qm-font(…)[…] / …
   └─ source map    per-segment (content ↔ gen) windows + one (content, gen) pair per run
@@ -33,14 +33,11 @@ A **segment** is a maximal run of lines joined by `Line::continues`: one
 paragraph, one heading, one whole code fence, one block island's line. It is what
 "paragraph-level" means against the content, and the unit a region keys on.
 
-Only a `para` or `code` block takes continuations
-(`LineKind::takes_continuations`), and a continuation stays inside one container
-path. A heading and a rule are one line, and so is a `para` whose sole content
-is a block island's character — the kind cannot tell that one from prose, so
-`Content::block_island_at` reads it off the island's type. Both emitters
-render such a line alone, so a `continues` line after one would be text neither
-projection reaches: `Content::normalize` clears the flag there, as it does on
-the first line and across a container boundary.
+Only a `para` or `code` block takes continuations, one per hard break, and a
+continuation stays inside its block's container path. A heading and a rule are
+one line, and a block island is a block of its own: an import gives one sharing
+a line with prose its own block ([CONTENT.md](CONTENT.md)), so both emitters
+render its line alone.
 
 ## Escape functions
 
@@ -264,8 +261,8 @@ resolved the string would bind documents to a reading nothing versions.
 
 ### Island props
 
-An island's `props` is a per-type canonical object: the shape this lowering
-reads and the shape the WASM boundary pins:
+An island's `props` is a per-type canonical object, in the shape this lowering
+reads:
 
 - **`table`** → `{ header: Cell[], rows: Cell[][], aligns: Align[] }`. `header`
   and each row hold `Cell = { text, marks }` (marks lowered through the sweep
@@ -285,10 +282,11 @@ reads and the shape the WASM boundary pins:
 - **`math`** → `{ tex, display? }`: the TeX as written between the dollars,
   and `display: true` on a `$$…$$` equation (see [Equations](#equations)).
 
-The `IslandType` dispatch (`crates/content/src/island.rs`) owns these shapes
-Rust-side; the WASM surface pins them as `TableProps` / `ImageProps` /
-`FootnoteProps` / `MathProps` / `TableCell` and types `ContentIsland.props` per the closed `type`
-(`crates/bindings/wasm/src/engine.rs`).
+The `IslandType` dispatch (`crates/content/src/lines/island.rs`) owns these
+shapes Rust-side. The WASM surface types `ContentIsland.props` per the closed
+`type` (`crates/bindings/wasm/src/engine/content.rs`): a table's as
+`TableProps`, the others inline, a table's cells and a footnote's note held as
+the island's `slots`.
 
 ## Mark sweep
 

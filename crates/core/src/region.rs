@@ -759,14 +759,11 @@ card_kinds:
     #[test]
     fn coverage_reaches_each_filled_address_through_its_nearest_region() {
         let config = QuillConfig::from_yaml(YAML).expect("config");
-        let empty =
-            crate::document::stored_over(None, &quillmark_content::lines::model::Lines::empty());
-        let body = crate::document::stored_over(
-            None,
-            &quillmark_content::lines::import::from_markdown("A body.")
-                .expect("import")
-                .content,
-        );
+        let empty = quillmark_content::model::Content::empty().to_value();
+        let body = quillmark_content::markdown::from_markdown("A body.")
+            .expect("import")
+            .content
+            .to_value();
         let data = serde_json::json!({
             "name": "Ada",
             "count": 0,

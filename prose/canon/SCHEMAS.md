@@ -562,7 +562,7 @@ Coercion rules per type:
 
 Validation is implemented by a native walker over `QuillConfig` in `quill/validation.rs`.
 
-- Entry point: `QuillConfig::validate_document(&Document)` (dispatches to `validate_typed_document`)
+- Entry point: `QuillConfig::validate_document(&Document)`
 - Returns `Result<(), Vec<ValidationError>>`
 - Collects all errors (does not short-circuit)
 - Emits path-aware errors for top-level fields and card fields
@@ -1085,8 +1085,7 @@ owns both keys and has no such reason. `main` declares no `seed:`
 
 `seed_card` and the [example document](#the-example-document) are its only
 readers. Render, `validate`'s card checks,
-`conform` and `resolve()` ignore a kind's `seed:`; `schema()` emits it. Retyping
-a card with `set_card_kind` applies no seed. A committed seed is authored
+`conform` and `resolve()` ignore a kind's `seed:`; `schema()` emits it. A committed seed is authored
 content: it prints, `resolve()` reports it `authored`, and a later change to the
 kind's `seed:` does not reach cards already made. See [CARDS.md](CARDS.md)
 "Per-kind Seed Overlays" for the `$seed` mechanics. The document seeding above

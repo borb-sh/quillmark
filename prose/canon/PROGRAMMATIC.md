@@ -6,7 +6,7 @@
 
 A `Document` is built and mutated in memory, with no Markdown text, through
 validated constructors and mutators: `Document::new`, `Card::new`,
-`Card::store_field` / `store_fields`, and the document's `unchecked()` writes,
+`Card::store_field`, and the document's `unchecked()` writes,
 `store_field` and `insert_card`. Every mutator holds the parser's field-name,
 depth, kind and field-count invariants and decodes each content value as a body
 write does, so a constructed document cannot be invalid. There is no bypass:
@@ -82,7 +82,7 @@ a card wholesale rather than a field at a time, so the cap binds their input
 instead: a `Quill.yaml` declaring a card past it fails load with
 `quill::too_many_fields`, which leaves `Quill::seed_document` total over every
 loaded quill.
-`store_fields` validates its
+The writer's `set_all` validates its
 whole batch before
 applying any of it: on violation nothing is applied and the single error
 carries one diagnostic per offending field with `path` set to the field name:

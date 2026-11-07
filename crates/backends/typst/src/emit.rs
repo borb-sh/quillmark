@@ -1430,9 +1430,11 @@ mod tests {
     use typst::syntax::SyntaxKind;
 
     fn emit(md: &str) -> Emission {
-        let rt = from_markdown(md).expect("import").content;
-        assert_eq!(rt.validate(), Ok(()), "content invariants for {md:?}");
-        emit_content(&lift(&rt)).expect("emit")
+        let c = quillmark_content::markdown::from_markdown(md)
+            .expect("import")
+            .content;
+        assert_eq!(c.validate(), Ok(()), "content invariants for {md:?}");
+        emit_content(&c).expect("emit")
     }
 
     #[test]

@@ -130,7 +130,7 @@ plate wanting the bare name binds it (`#let data = qm.data`).
 
 The `$`-prefixed keys must be accessed via `.at("$...")` because Typst identifiers do not include `$`.
 
-Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`), each read through the module name:
+Helper contents (generated in `crates/backends/typst/src/helper.rs` from `lib.typ.template`), each read through the module name:
 
 | member | meaning |
 |---|---|

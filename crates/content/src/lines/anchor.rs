@@ -160,23 +160,6 @@ impl Content {
         sites.into_iter().map(|(_, site)| site).collect()
     }
 
-    /// Each anchor id more than one of [`anchor_sites`](Self::anchor_sites)
-    /// holds, sorted: a collision a cell takes part in, which
-    /// [`validate`](Content::validate) does not refuse, so a stored value
-    /// holding one still loads.
-    pub fn anchor_collisions(&self) -> Vec<String> {
-        let mut seen = HashSet::new();
-        let mut twice: Vec<String> = self
-            .anchor_sites()
-            .into_iter()
-            .filter(|site| !seen.insert(site.id.clone()))
-            .map(|site| site.id)
-            .collect();
-        twice.sort_unstable();
-        twice.dedup();
-        twice
-    }
-
     /// The text of `surface`: the prose, or the cell's own text.
     pub(crate) fn surface_text(&self, surface: Surface) -> Option<String> {
         match surface {
@@ -211,7 +194,7 @@ impl Content {
 
 /// Every anchor of `rt` with its context, in the order
 /// [`anchor_sites`](Content::anchor_sites) reads them, the order
-/// [`anchors_where`](crate::lines::export::anchors_where) lists them. A cell anchor's
+/// [`anchors_where`](crate::markdown::anchors_where) lists them. A cell anchor's
 /// context is read off its cell's text and cut at the cell's edges. Read off
 /// the stored text, so it is pure and moves nothing.
 pub fn anchor_contexts(rt: &Lines) -> Vec<AnchorContext> {
@@ -795,7 +778,6 @@ mod tests {
             (&*ctx.prefix, &*ctx.quote, &*ctx.suffix),
             ("alpha ", "beta", "")
         );
-        assert!(rt.anchor_collisions().is_empty());
 
         let twice = with_anchor(table_with_cell_anchor("lead"), 0, 4, "lead");
         assert_eq!(
@@ -803,7 +785,8 @@ mod tests {
             Ok(()),
             "a collision a cell takes part in loads"
         );
-        assert_eq!(twice.anchor_collisions(), ["lead"]);
+        let ids: Vec<String> = twice.anchor_sites().into_iter().map(|s| s.id).collect();
+        assert_eq!(ids, ["lead", "lead"]);
     }
 
     #[test]

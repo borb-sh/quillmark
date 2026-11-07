@@ -207,7 +207,7 @@ fn a_claim_around_a_content_field_moves_none_of_its_regions() {
             .filter(|r| r.field == "prose")
             .collect()
     };
-    let decorated = quillmark_content::lines::serial::to_canonical_value(
+    let decorated = quillmark_content::migrate::from_lines(
         &Content::new(
             "Start struck and underlined, then a long trailing plain run of text.".to_string(),
             vec![Line::new(LineKind::Para)],
@@ -217,7 +217,8 @@ fn a_claim_around_a_content_field_moves_none_of_its_regions() {
             Mark::new(17, 27, MarkKind::Underline),
         ])
         .into_lines(),
-    );
+    )
+    .to_value();
     let listed = common::content("- one\n- two\n  - nested\n\n1. first\n2. second");
     for body in [&listed, &decorated] {
         let bare = of(&open_body("#qm.data.prose", body));

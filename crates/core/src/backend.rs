@@ -324,22 +324,12 @@ pub fn check_raster_ppi(ppi: f32, width_pt: f32, height_pt: f32) -> Result<(), R
     check_ceiling(Density::Ppi, ppi, raster_scale(ppi)?, width_pt, height_pt)
 }
 
-/// `scale` reduced, where it must be, to the largest at which neither side of
-/// the `width_pt` × `height_pt` page passes [`MAX_RASTER_SIDE`]. A scale that
-/// is not finite and positive is returned as given, for [`check_raster`] to
-/// refuse.
-pub fn fit_raster_scale(scale: f32, width_pt: f32, height_pt: f32) -> f32 {
-    if !scale.is_finite() || scale <= 0.0 {
-        return scale;
-    }
-    scale.min(ceiling_scale(width_pt, height_pt) as f32)
-}
-
 /// The `f32` scale a canvas paint rasterizes the `width_pt` × `height_pt` page
 /// at, from the `f64` a JS number arrives as, checked before it narrows.
 ///
-/// A scale past the ceiling is reduced as [`fit_raster_scale`] reduces it,
-/// since a preview drawn soft beats one not drawn. One that is not finite and
+/// A scale past the ceiling is reduced to the largest at which neither side of
+/// the page passes [`MAX_RASTER_SIDE`], since a preview drawn soft beats one
+/// not drawn. One that is not finite and
 /// positive, or is under `f32::MIN_POSITIVE`, where narrowing would change it
 /// rather than round it, is refused under `backend::invalid_raster_scale`,
 /// whose hint names a scale the page paints at.
@@ -453,20 +443,6 @@ mod tests {
             code(check_raster(f32::INFINITY, w, h).expect_err("an infinite scale")),
             "backend::invalid_raster_scale"
         );
-    }
-
-    #[test]
-    fn a_fitted_scale_is_one_check_raster_admits() {
-        for (w, h) in [LETTER_PT, (792.0, 612.0), (1.0, 14_400.0), (3.3, 7.7)] {
-            for scale in [0.5, 2.0, 21.0, 1e6, f32::MAX] {
-                let fitted = fit_raster_scale(scale, w, h);
-                assert!(fitted <= scale);
-                check_raster(fitted, w, h)
-                    .unwrap_or_else(|_| panic!("{w}x{h} pt at {scale} fits at {fitted}"));
-            }
-        }
-        assert_eq!(fit_raster_scale(2.0, LETTER_PT.0, LETTER_PT.1), 2.0);
-        assert!(fit_raster_scale(f32::NAN, LETTER_PT.0, LETTER_PT.1).is_nan());
     }
 
     /// The numbers a refusal's hint names, read off its words.

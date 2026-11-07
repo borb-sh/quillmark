@@ -998,16 +998,6 @@ card_kinds:
             crate::document::card_id::CARD_ID_REMINTED,
             sample.args.clone(),
         );
-        let mut wide = quillmark_content::lines::import::from_markdown("a **b** c")
-            .unwrap()
-            .content
-            .into_content();
-        wide.marks[0].end += 1;
-        let lost = quillmark_content::lines::export::to_markdown_checked(&wide.into_lines());
-        add(
-            crate::document::LOST_CONSTRUCT,
-            crate::document::lost_construct(lost.losses.into_iter().next().expect("a loss")).args,
-        );
         add(
             "backend::declined_construct",
             crate::backend::declined_construct(
