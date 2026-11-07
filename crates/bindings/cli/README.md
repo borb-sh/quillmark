@@ -52,7 +52,7 @@ itself rejects (`-f docx`). Diagnostics go to stderr.
 
 ## Links
 
-- [CLI design document](../../../prose/canon/CLI.md)
+- [CLI reference](../../../docs/cli/reference.md)
 - [Changelog](https://github.com/borb-sh/quillmark/blob/main/CHANGELOG.md) and [releases](https://github.com/borb-sh/quillmark/releases)
 
 ## License

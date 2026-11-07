@@ -1,5 +1,5 @@
 //! The authoring document: the values form lifted to the whole document, the
-//! JSON a model reads and writes (`prose/canon/AUTHORING.md`).
+//! JSON a model reads and writes (`docs/integration/llm-authoring.md`).
 
 use serde_json::{Map as JsonMap, Value as JsonValue};
 

@@ -21,4 +21,4 @@ Both bindings share the core model, diagnostics, and storage format; they differ
 - **[LLM Authoring](llm-authoring.md)**: the JSON document a model writes, its schema, and the import and export.
 
 !!! note "Advanced: live preview"
-    Canvas / `LiveSession` editor integration (incremental `update`, `paint`, and the click/caret geometry bridge) is WASM-only and single-consumer. Its design contract lives in [PREVIEW.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PREVIEW.md); [Live Preview](live-preview.md) has the minimal paint loop.
+    Canvas / `LiveSession` editor integration (incremental `update`, `paint`, and the click/caret geometry bridge) is WASM-only and single-consumer. Its rules live in [Quillmark invariants § Preview](https://github.com/borb-sh/quillmark/blob/main/prose/INVARIANTS.md#preview); [Live Preview](live-preview.md) has the minimal paint loop.

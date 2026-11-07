@@ -80,5 +80,3 @@ const base = doc.hash({ field: 'summary' })
 const receipt = doc.revise({ field: 'summary' }, 'A **shorter** summary.', { base })
 // receipt.droppedAnchors names each comment anchor whose text the rewrite removed
 ```
-
-Full model: [PROGRAMMATIC.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PROGRAMMATIC.md).

@@ -97,5 +97,3 @@ against the selector.
 - [Creating Quills](creating-quills.md)
 - [Quill.yaml Reference](quill-yaml-reference.md)
 - [card-yaml Blocks](../authoring/card-yaml.md)
-
-Full model: [VERSIONING.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/VERSIONING.md).

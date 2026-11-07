@@ -87,7 +87,7 @@ pub enum SchemaCodec {
     Content,
     /// Each leaf as its codec's text, `richtext` Markdown marked
     /// [`MARKDOWN_MEDIA_TYPE`] and `text` its literal string: the authoring
-    /// document (`prose/canon/AUTHORING.md`). Every cell admits
+    /// document (`docs/integration/llm-authoring.md`). Every cell admits
     /// `null` (null ≡ absent), every declared object refuses an undeclared
     /// key, a variant-bearing enum is a `oneOf` over its
     /// worlds, and a slot carries its `title`, `description`, `default` and
@@ -394,7 +394,7 @@ fn declared_schema(field: &FieldSchema, codec: SchemaCodec) -> serde_json::Value
         // A variant-bearing enum crosses the plate seam as the container it
         // rests as, every world's fields flattened beside the discriminant: at
         // schema time there is no live world, so the union is the only
-        // projection available (`SCHEMAS.md` § "Schema emission").
+        // projection available.
         let mut properties = serde_json::Map::new();
         properties.insert(
             VARIANT_DISCRIMINANT_KEY.to_string(),

@@ -258,7 +258,7 @@ PDF is emitted whole, so a `RenderOptions::pages` selection errors with
 
 **Canvas** is a separate surface from `render()`: it is the WASM `paint()`
 raster path (`render_rgba`), not an `OutputFormat`, and this backend paints. See
-[PREVIEW.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PREVIEW.md).
+[Live Preview](../integration/live-preview.md).
 
 The PDF is the real deliverable, and the canvas rasterizes the same stamp but for each checkbox's `/AP` `/N`, which there names only the state the box shows (the canvas rasterizer reads no state dictionary).
 

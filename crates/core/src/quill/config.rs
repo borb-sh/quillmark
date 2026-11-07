@@ -17,7 +17,7 @@ use super::{
 /// Where a field sits in the type tree. Every type nests at every depth; this
 /// gates the two keys that do not — `ui.group`, which places card-level fields
 /// only, and `variants:`, which opens a world only where the position's own live
-/// shape is the schema's (`SCHEMAS.md` §"Enum variants").
+/// shape is the schema's (`prose/INVARIANTS.md` § "The schema and the render").
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FieldPosition {
     /// A card's own field.
@@ -235,8 +235,8 @@ impl CoercionError {
     /// The facts this error's message interpolates. See
     /// [`Diagnostic::args`](crate::error::Diagnostic::args).
     ///
-    /// `path` stays behind: it is a schema-space anchor that `ERROR.md`
-    /// § "Three grammars, one that crosses" keeps internal to Quillmark. So does
+    /// `path` stays behind: it is a schema-space anchor, and only a `DocPath`
+    /// crosses (`prose/INVARIANTS.md` § "Diagnostics"). So does
     /// `reason`, English minted at ~20 coercion arms and sometimes wrapping a
     /// decode error's own prose, which a key would interpolate into a
     /// translated sentence.
@@ -291,7 +291,7 @@ impl QuillConfig {
     /// The declaration view: the user-fillable fields of the main card and each
     /// named card kind, `ui` hints included. The quill reference and the
     /// card-kind discriminators are document-level metadata, not fields, so
-    /// they do not appear (`SCHEMAS.md` §"Schema emission").
+    /// they do not appear.
     ///
     /// Key order is the ordering contract: fields, nested properties, and card
     /// kinds all emit in declaration order, so a consumer walking the maps in
@@ -912,7 +912,7 @@ impl QuillConfig {
     /// …}`, from either authored shape: the bare scalar (`classification: CUI`)
     /// or the map. A key no variant declares carries through verbatim, and a key
     /// a *non-active* variant declares is coerced by that variant's schema and
-    /// kept (`SCHEMAS.md` §"Enum variants").
+    /// kept (`prose/INVARIANTS.md` § "The schema and the render").
     ///
     /// The cell lookup takes the first variant declaring a name without
     /// consulting the discriminant. That is total because
@@ -1092,8 +1092,8 @@ impl QuillConfig {
         }
 
         if let Some(variants) = &schema.variants {
-            // Conditionality stays one level deep, for the reason `SCHEMAS.md`
-            // §"Enum variants" gives. A typed dictionary's own shape is the
+            // Conditionality stays one level deep, for the reason
+            // `prose/INVARIANTS.md` § "The schema and the render" gives. A typed dictionary's own shape is the
             // schema's, so a world opened there deepens the address and not the
             // gap; every other position would deepen the gap.
             if let Some(banned) = position.variant_ban() {
@@ -1618,7 +1618,8 @@ impl QuillConfig {
     }
 
     /// Refuse a `default:` or `example:` declared on a **namespace** rather
-    /// than a cell (`SCHEMAS.md` §"Cells and namespaces"): a typed dictionary.
+    /// than a cell (`prose/INVARIANTS.md` § "The schema and the render"): a
+    /// typed dictionary.
     /// The variant container refuses the same shape under
     /// `quill::{default,example}_type_mismatch`; an `array` and a `matrix` keep
     /// their literal, the schema fixing neither an array's arity nor which
@@ -2743,8 +2744,8 @@ impl QuillConfig {
             .collect();
 
         // A card is a part someone writes; a bodiless kind is the loader's one
-        // view of a row in card costume (`prose/canon/CARDS.md` § "Card, row,
-        // matrix"). A warning and not a refusal: the loader sees the proxy, not
+        // view of a row in card costume: an `array<object>` on the parent is
+        // the row's spelling. A warning and not a refusal: the loader sees the proxy, not
         // the fact — whether a kind interleaves among other kinds is a property
         // of documents and the plate, and a bodiless positional kind is a card
         // by the doctrine's first clause. `main` keeps the key unwarned: a form
@@ -3049,8 +3050,10 @@ fn same_value(a: &serde_json::Value, b: &serde_json::Value) -> bool {
 /// literal, and every nested declaration's from its own, checking each
 /// `example:` by the same import. No-op where the type tree bears no content
 /// leaf, since nothing below it does either; a failed import or a one-line
-/// violation is appended to `errors` as a load diagnostic. The walk covers every declaration position, for the reason
-/// `SCHEMAS.md` §"Document seeding" gives.
+/// violation is appended to `errors` as a load diagnostic. The walk covers
+/// every declaration position: the render floor reads the companion off
+/// whichever declaration it resolves, so a gap would blank-fill and drop the
+/// author's `default:` silently.
 ///
 /// `card` labels the owning card and `path` the field's declaration path
 /// (`dict.note`, `rows[].note`, `c.variants.CUI.note`), the spelling

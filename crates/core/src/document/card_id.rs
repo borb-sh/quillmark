@@ -1,6 +1,6 @@
 //! Card identity: the `$id` grammar, and the mint that gives every composable
-//! card one. The policy is `prose/canon/DOCUMENT_STORAGE.md` § "The id
-//! handles".
+//! card one. Why the mint is deterministic: `prose/INVARIANTS.md` § "The
+//! content model".
 
 use std::collections::HashSet;
 

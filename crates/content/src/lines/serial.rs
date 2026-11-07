@@ -369,7 +369,7 @@ pub(crate) fn line_kind_from_value(v: &Value) -> Result<LineKind, ParseError> {
         // No encoder writes `island`; the decoder reads it because the
         // content encoding is not migratable — a `richtext` field and a `$seed`
         // overlay rest inside opaque payload values carrying no schema tag, so
-        // no hop reaches them (DOCUMENT_STORAGE.md § "Adding a Schema Version").
+        // no hop reaches them (`prose/INVARIANTS.md` § "Storage").
         // A block island's line is a `Para` whose sole content is its slot, so
         // the name and the kind it decodes to spell one line.
         "island" | "para" => Ok(LineKind::Para),
@@ -1196,9 +1196,8 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
 /// A cell mark reaches no other strict decode: [`parse_cell`] reads them
 /// leniently and `canon_cell` writes the survivors back, so a name outside the
 /// vocabulary would leave the stored bytes on a read with no edit rather than
-/// refusing the row. A *malformed* cell mark stays skipped — that is the split
-/// canon § "an unreadable table-cell mark" sets, and it is about shape, not
-/// names.
+/// refusing the row. A *malformed* cell mark stays skipped: the split is
+/// about shape, not names.
 pub(crate) fn reject_unknown_cell_mark_name<'a>(
     cells: impl IntoIterator<Item = &'a Value>,
 ) -> Result<(), ParseError> {

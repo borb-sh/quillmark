@@ -1243,7 +1243,7 @@ card_kinds:
     )
 
     // metadata mirrors the `quill:` section of Quill.yaml: identity only, and
-    // its key order is the one BINDINGS.md pins across both surfaces.
+    // its key order is the one both bindings share.
     const meta = quill.metadata
     expect(Object.keys(meta)).toEqual([
       'name',

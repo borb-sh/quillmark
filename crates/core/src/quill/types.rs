@@ -332,8 +332,8 @@ impl CardSchema {
     }
 }
 
-/// A field's declared `type:`. Each type's meaning and grammar is the
-/// `SCHEMAS.md` §"Quill.yaml DSL" table.
+/// A field's declared `type:`. Each type's meaning and grammar:
+/// `docs/quills/quill-yaml-reference.md` § "Field Types".
 ///
 /// Serializes as its type token ([`as_str`](Self::as_str)) and deserializes by
 /// parsing one ([`from_str`](Self::from_str)), so the token is the whole `type:`
@@ -374,8 +374,7 @@ pub enum FieldType {
     /// A vocabulary someone ticks: `roster` is member id to display title in
     /// declaration order, the domain of the ids a value holds. `open` admits
     /// items a document adds beside the roster. A cell whose value is the set of
-    /// held items, each id mapping to its columns (`prose/canon/SCHEMAS.md`
-    /// §"Cells and namespaces").
+    /// held items, each id mapping to its columns.
     Matrix {
         roster: IndexMap<String, String>,
         open: bool,
@@ -594,7 +593,7 @@ pub struct FieldSchema {
     /// Per-member field sets on an `enum` field, keyed by member (a subset of
     /// the domain the [`FieldType::Enum`] payload carries; the blank owns no
     /// set). Declaring it is what turns the field into a container
-    /// (`SCHEMAS.md` §"Enum variants").
+    /// (`prose/INVARIANTS.md` § "The schema and the render").
     pub variants: Option<IndexMap<String, VariantFields>>,
     /// A typed dictionary's properties, in declaration order.
     ///

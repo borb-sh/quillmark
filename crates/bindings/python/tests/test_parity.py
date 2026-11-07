@@ -1,6 +1,6 @@
 """The parity corpus, `crates/fixtures/resources/parity/parity.json`, across the
 Python boundary: every entry's content crosses out of a parse and a stored load.
-The semantics are `crates/quillmark/tests/parity.rs`'s (prose/canon/PARITY.md
+The semantics are `crates/quillmark/tests/parity.rs`'s (crates/fixtures/resources/parity/README.md
 § "The corpus")."""
 
 import json

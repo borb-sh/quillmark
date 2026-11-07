@@ -1,6 +1,6 @@
 //! One schema address grammar, two implementations: acroform's `bind` walks the
 //! `QuillConfig`, and the Typst helper's `_qm-known-path` walks the address tree
-//! `SchemaMeta` derives from the transform schema. `PLATE_DATA.md` promises a
+//! `SchemaMeta` derives from the transform schema. `prose/INVARIANTS.md` promises a
 //! plate author that one address binds on either backend, and `GRAMMAR` is what
 //! holds the two to it.
 //!

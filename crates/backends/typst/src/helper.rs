@@ -2,8 +2,9 @@
 //! document data to Typst plates.
 //!
 //! `lib.typ` is regenerated per render as pure source text: no runtime data
-//! processing. What each schema node lowers to, and why ink is keyed by schema
-//! address instead of carried on the value: `prose/canon/PLATE_DATA.md`.
+//! processing. Why each type lowers to its native value and why ink is keyed
+//! by schema address instead of carried on the value: `prose/INVARIANTS.md`
+//! § "The Typst backend".
 //!
 //! Output is **canonical**: dict keys emit in sorted order at every level (via
 //! [`sorted`]), so equal data produces byte-equal source regardless of the
@@ -570,7 +571,7 @@ impl Container {
 
 /// What a schema node lowers to: the codegen walk's whole dispatch. Why only
 /// the content types lower to content and a date does not:
-/// `prose/canon/PLATE_DATA.md`.
+/// `prose/INVARIANTS.md` § "The Typst backend".
 enum Lower<'a> {
     /// `richtext` / `text`, which share everything downstream of this
     /// classification. `inline` lowers to pure inline markup, with no block

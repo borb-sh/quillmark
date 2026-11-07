@@ -3,7 +3,7 @@
 //! the text an edit keeps keeps its block's id, a record an edit opens
 //! takes a [placeholder](crate::ids::is_placeholder) the write that lands it
 //! fills, `?0` first and on in the order the change puts them, and text typed
-//! at a mark's edge takes it as the canon's growth defaults say.
+//! at a mark's edge takes it as [`inherited_marks`]' growth defaults say.
 
 use crate::change::{ApplyError, Change, ContainerStep, SetBlock, Splice, Step};
 use crate::ids::PLACEHOLDER;

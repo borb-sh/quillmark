@@ -295,7 +295,7 @@ impl EditError {
 
     /// The namespaced diagnostic `code` (e.g. `"edit::invalid_field_name"`),
     /// one per variant and the variant's only stable discriminator. Consumers
-    /// route on this, not on message text. Taxonomy: `prose/canon/ERROR.md`.
+    /// route on this, not on message text. Every code: `docs/reference/diagnostic-codes.md`.
     pub fn code(&self) -> &'static str {
         match self {
             EditError::InvalidFieldName(_) => "edit::invalid_field_name",
@@ -1387,8 +1387,8 @@ impl Card {
     /// `type` and store the canonical form. The typed sibling of the opaque
     /// [`store_field`](Self::store_field), which defers coercion to render.
     ///
-    /// The stored form each `type` commits to is
-    /// `prose/canon/SCHEMAS.md` § "Content fields are stored per codec". Stricter than
+    /// Each content field commits the canonical content object, a `text`
+    /// field's spelling `codec: "plain"`. Stricter than
     /// the render floor: a cross-type value the floor would coerce (`1` → `true`)
     /// fails here. `null` passes through unchanged, under the null ≡ absent rule.
     ///

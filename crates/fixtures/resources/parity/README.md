@@ -1,47 +1,10 @@
-# Surface Parity
+# The parity matrix
 
-> **Implementation**: `crates/fixtures/resources/parity/`, `crates/quillmark/tests/`
-> **Related**: [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md), [CONVERT.md](CONVERT.md), [BINDINGS.md](BINDINGS.md)
+What each surface does with each content construct, one row per entry of [`parity.json`](parity.json), the corpus beside this page. `crates/quillmark/tests/parity.rs` holds every entry on every surface Quillmark owns, and holds this matrix to the corpus: a row per entry, an entry per row, and each row's signal cells agreeing with what the entry warns.
 
-## TL;DR
+The rule the matrix pins is in [`prose/INVARIANTS.md`](../../../../prose/INVARIANTS.md) § "The content model": for every construct, quill and backend, the outcome is honored, declined with a signal, or refused at the write, and a surface that cannot spell a construct carries it opaquely or refuses. Where the code falls short, the cell says so: `drops silently` is the outcome that rule rules out.
 
-A content construct has one form, its `Content`, stored as its JSON, and
-markdown, the `Change` and the Typst lowering are codecs or projections of
-it. This page states the
-invariants every surface keeps and a matrix of what each surface does with each
-construct. A conformance corpus pins every row: a Rust test asserts its
-markdown, stored JSON, change, Typst lowering, validate and signal cells.
-
-## Invariants
-
-1. **One model.** Every construct has one canonical form in the stored content
-   ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies"), and
-   every other surface is a codec or a projection of it. Markdown is a
-   projection some consumers use, never the storage boundary.
-2. **Pure import.** `from_markdown` is a function of its text alone: it reads no
-   quill, declaration or session.
-3. **Fixed point.** `from_markdown(to_markdown(c)) == c`, except for what
-   markdown does not keep ([CONTENT.md](CONTENT.md) § "What markdown keeps"),
-   which a markdown write keeps by rebasing over it (`revise`), never by the
-   projection; the re-imported content is a fixed point.
-4. **No silent drop.** For every construct, quill and backend, the outcome is
-   honored, inert with a signal, or refused at the write. The signal reaches
-   every input path that meets the construct: a markdown drop the parse, import or
-   revise that drops it, and a decline `validate` and render.
-5. **Storage honesty.** Discriminators are closed and payload carriers are
-   opaque. A knob is a key wherever a carrier exists, and a kind only where none
-   can hold it.
-6. **Carry or refuse.** A surface that cannot spell a construct carries it
-   opaquely or refuses the write. It never re-encodes without it.
-
-Where the code falls short of an invariant, the matrix cell says so:
-`drops silently` is the outcome invariants 4 and 6 rule out, and on a stored
-construct's markdown cell it is also where the fixed point fails.
-
-The matrix reads a body. A `richtext` field's markdown string reports what
-it drops where a conform, a typed `set`, a revise or `validate` imports it; a
-card inserted with a string body drops it with no signal
-([ERROR.md](ERROR.md#warning-flow)).
+The matrix reads a body. A `richtext` field's markdown string reports what it drops where a conform, a typed `set`, a revise or `validate` imports it; a card inserted with a string body drops it with no signal.
 
 ## The matrix
 
@@ -50,10 +13,10 @@ import meets. The columns:
 
 | Column | What it reads |
 |---|---|
-| Markdown | `from_markdown` and `to_markdown` ([markdown-spec.md](../references/markdown-spec.md) §6) |
-| Stored JSON | the canonical content, `Content::to_value` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") |
+| Markdown | `from_markdown` and `to_markdown` ([markdown-spec.md](../../../../prose/references/markdown-spec.md) §6) |
+| Stored JSON | the canonical content, `Content::to_value` |
 | Change | the `Change` `diff` takes from the empty value to the content |
-| Typst lowering | `emit_content`, as [CONVERT.md](CONVERT.md) § "Element mapping" maps it |
+| Typst lowering | `emit_content`, the Typst backend's lowering |
 | Validate | `Quill::validate`'s verdict on the stored construct |
 | Signal | the code a cell reports under, with its `construct` arg |
 
@@ -61,7 +24,7 @@ import meets. The columns:
 |---|---|
 | spells | the surface has a form for the construct and reads it back as written |
 | carries opaquely | the surface keeps the construct without reading it: an opaque carrier, or a markdown write through `revise` keeping an anchor through the diff |
-| honors | the lowering draws it as CONVERT.md maps it |
+| honors | the lowering draws it |
 | declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render or `validate` under `backend::declined_construct` |
 | refuses | the surface rejects the write |
 | silent: honored | no signal, and none is owed: the outcome is the one the construct asks for |
@@ -115,14 +78,14 @@ A task item's body lowers through the helper, through the renderer a plate sets 
 | `mark.across_break`: a mark over a hard break, one mark per line | spells | spells | spells | honors | silent: honored | none |
 
 An anchor draws nothing, which is how the lowering honors it, and a cold
-`to_markdown` → `from_markdown` loses it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Anchor-id identity").
+`to_markdown` → `from_markdown` loses it.
 The annotated read spells it at its start as a `qm-anchor` tag a revise reads
 back and a cold import drops, so the markdown cell stays `carries opaquely`:
 the plain markdown spells nothing, and a write keeps the anchor by a revise.
 The row's corpus entry pins the spelling under `annotated`.
 
 A font run lowers to the helper's `_qm-font` around each stretch one family
-sets ([CONVERT.md](CONVERT.md#font-runs)). Whether it sets that family depends
+sets. Whether it sets that family depends
 on where it stands:
 
 | Context | Family |
@@ -174,7 +137,7 @@ under `annotated`.
 
 A table with one header row and no `widths`, placement, or cell alignment or
 span is a GFM pipe table. Any other is an HTML table
-([markdown-spec.md](../references/markdown-spec.md) §6.8): `widths`, `aligns`
+([markdown-spec.md](../../../../prose/references/markdown-spec.md) §6.8): `widths`, `aligns`
 and `align` on its `<table>`, its `head` rows in its `thead`, and a cell's keys
 on its `<td>` or `<th>`. Each key is absent at its default, so a default row
 stores none.
@@ -192,7 +155,7 @@ under the body, numbered in reading order.
 An equation's island holds its TeX as written between the dollars. Markdown
 writes `$tex$` or `$$tex$$`, escaping each `$` of the text around it wherever
 another `$` could pair with one, and the Typst lowering translates the TeX to
-Typst math ([CONVERT.md](CONVERT.md#equations)).
+Typst math.
 
 ### Spellings
 

@@ -88,7 +88,7 @@ Fatality is a two-value ladder: `Error` blocks the stage that emits it; `Warning
     - `doc.revise` returns it in its receipt's `warnings`, and the writer's `revise` in the same `Receipt`, anchored at the address written; Python's `revise` returns it among their dict receipt's `warnings`, as `Diagnostic` objects.
     - The writer's `reviseDocument` returns it among its receipt's `warnings`, and so does Python's `revise_document`.
     - `addCard` returns it in its `warnings` list, beside the placed card's `id`, anchored under that card; `importMarkdown` returns it beside the content, with no path.
-- **Validation warnings**: `quill.validate(doc)` returns every diagnostic, and its severity says whether the document renders ([full rule](https://github.com/borb-sh/quillmark/blob/main/prose/canon/SCHEMAS.md#what-blocks-a-render)):
+- **Validation warnings**: `quill.validate(doc)` returns every diagnostic, and its severity says whether the document renders ([the rule](https://github.com/borb-sh/quillmark/blob/main/prose/INVARIANTS.md#diagnostics)):
     - An `Error` is input Quillmark cannot read as written, such as a value that is not its field's type or an enum value outside `values:`. The render fails.
     - A `Warning` is input no declaration claims: a card with an undeclared `$kind` (`validation::unknown_card`), a body under `body.enabled: false` (`validation::body_disabled`), a key the schema does not declare (`validation::unknown_field`, whose hint names the likely fix), a stranded variant cell (`validation::out_of_variant`), elements past `max:` (`validation::cardinality`), characters past a text field's `max:` (`validation::over_length`), and the `$seed` checks. The document renders without it. A one-shot render carries these warnings on `result.warnings`, ahead of the compile's; a live session's warnings do not, so an editor reads `quill.validate(doc)` beside them.
 
@@ -103,4 +103,4 @@ Fatality is a two-value ladder: `Error` blocks the stage that emits it; `Warning
 
 A successful render returns artifacts **and** a `warnings` list, so inspect it even on success.
 
-Full model: [ERROR.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/ERROR.md).
+Every code, and the args each carries: [Diagnostic codes](../reference/diagnostic-codes.md). The rules behind them: [Quillmark invariants § Diagnostics](https://github.com/borb-sh/quillmark/blob/main/prose/INVARIANTS.md#diagnostics).

@@ -2,7 +2,7 @@
 //! layer (`pkg/runtime/`), which re-exports the core build's `Quill` /
 //! `Document` and wraps the render build's [`Engine`] in a JS `Engine` that
 //! lazily loads that build. No build this crate emits is a public npm export;
-//! which variants ship and what each carries: `prose/canon/BINDINGS.md`.
+//! `scripts/build-wasm.sh` says which variants ship and what each carries.
 
 use wasm_bindgen::prelude::*;
 

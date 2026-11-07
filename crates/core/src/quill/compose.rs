@@ -53,7 +53,7 @@ impl Quill {
 /// rather than the whole quill with its font/package bytes.
 impl QuillConfig {
     /// Coercion, validation, normalization and blank-filled render into the
-    /// plate-JSON projection (`prose/canon/SCHEMAS.md` § "Blank-filled render").
+    /// plate-JSON projection (`prose/INVARIANTS.md` § "The schema and the render").
     /// An unanswered cell compiles fine; only a *malformed* value — one that
     /// will not coerce or validate — errors.
     ///
@@ -211,8 +211,8 @@ impl Quill {
     /// text. A blocker here means the document does not render, and a value the
     /// render floor refuses is a blocker here: values are judged in the form the
     /// floor builds from them (`conform_value` at `Leniency::Render`).
-    /// `prose/canon/SCHEMAS.md` §"Type coercion" and §"Native validation" carry
-    /// the leniencies.
+    /// Document payloads are read leniently and schema literals strictly
+    /// (`prose/INVARIANTS.md` § "The schema and the render").
     ///
     /// Field values, defaults, and presentation order are not part of this
     /// surface: read them from the [`Document`] payload and the quill schema
@@ -278,7 +278,7 @@ impl Quill {
     /// The **empty document**: a main card carrying `$quill` and `$kind: main`,
     /// no field committed, no composable card, no body. The type-minimal valid
     /// input, and the document the plate contract binds a plate to
-    /// render (`prose/canon/QUILL.md` § "The plate contract").
+    /// render (`prose/INVARIANTS.md` § "The schema and the render").
     ///
     /// The leaner of the two canonical documents, beside the
     /// [`seed_document`](Self::seed_document).
@@ -444,7 +444,7 @@ fn conform_card_render(schema: &CardSchema, card: &Card) -> IndexMap<String, Qui
     coerced
 }
 
-/// The shared sourced ladder both canon projections cut, the render-fidelity
+/// The shared sourced ladder both projections cut, the render-fidelity
 /// plate ([`compile_data`](QuillConfig::compile_data)) and the resolved-value
 /// view ([`Quill::resolve`](crate::quill::Quill::resolve)), over an
 /// already-coerced, NFC-normalized field map. For every declared field it
@@ -503,8 +503,8 @@ fn resolve_value(
 /// reporting the [`FieldSource`] that produced it, and applying null ≡
 /// absent recursively so no bare null reaches the plate.
 ///
-/// Resolution is a descent, not a return (`prose/canon/SCHEMAS.md` § "Cells and
-/// namespaces"): this picks the cell's **entry** — the authored value, else the
+/// Resolution is a descent, not a return (`prose/INVARIANTS.md` § "The schema
+/// and the render", on total blank-fill): this picks the cell's **entry** — the authored value, else the
 /// schema `default:` — and hands it to [`compose`], which rebuilds a container
 /// from its declared members whichever source the entry came from and floors a
 /// leaf at its [`blank`].
@@ -749,8 +749,8 @@ fn compose_members(
 /// Resolve a variant-bearing enum into the container the plate receives:
 /// `{value: <member>}` plus, when that member owns a field set, exactly that
 /// set — each cell blank-filled by the ordinary ladder. Only the live world's
-/// fields cross, which is the closed shape `prose/canon/SCHEMAS.md` §"Enum
-/// variants" describes.
+/// fields cross: the container is a closed shape, so a payload never reaches
+/// a plate under a member that disowns it.
 ///
 /// The discriminant cuts the same ladder as any enum, but the container's own
 /// source is the *cell's*: one the document wrote reads authored whichever source
@@ -851,7 +851,7 @@ fn schema_cards<'a>(
 /// Report the input no declaration claims: a card whose `$kind` is
 /// undeclared, body prose under `body.enabled: false`, and a key no
 /// declaration at its position names. Each renders without the input
-/// (`prose/canon/SCHEMAS.md` § "What blocks a render"), so each is a warning.
+/// (`prose/INVARIANTS.md` § "The schema and the render"), so each is a warning.
 fn validate_unclaimed(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     let kinds: Vec<&str> = config.card_kinds.iter().map(|k| k.name.as_str()).collect();
     let mut diags = Vec::new();
@@ -1088,7 +1088,8 @@ fn edit_distance(a: &str, b: &str) -> usize {
 }
 
 /// The key a Typst plate's data spells each typed dictionary's address with
-/// (`prose/canon/PLATE_DATA.md`). It displaces a data key of the same name.
+/// for `qm.ink` and `qm.roster` to address by. It displaces a data key of the
+/// same name.
 pub const PLATE_PATH_KEY: &str = "$path";
 
 pub(crate) fn unknown_field_warning(
@@ -1295,8 +1296,8 @@ impl QuillConfig {
 
 /// Report every authored cell that belongs to a variant the discriminant does
 /// not select, across the main card and every composable card. The value stays
-/// in the document and the diagnostic is non-fatal (`prose/canon/SCHEMAS.md`
-/// §"Enum variants": carried, not dropped).
+/// in the document and the diagnostic is non-fatal (`prose/INVARIANTS.md`
+/// § "The schema and the render": kept, not dropped).
 fn validate_variants(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     for (schema, card, path) in schema_cards(config, doc) {
