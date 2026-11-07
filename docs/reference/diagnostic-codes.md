@@ -29,12 +29,6 @@ Reading a stored content value.
 
 - `content::noncanonical_read`
 
-## `export::`
-
-Writing a content to markdown.
-
-- `export::lost_construct`
-
 ## `validation::`
 
 A document checked against its quill's schema.
@@ -383,7 +377,6 @@ A code missing from the table carries no args, and a consumer falls back on it. 
 | `parse::unsupported_yaml_tag` | — | code-determined |
 | `parse::dropped_construct` | `construct`, `count` | structured |
 | `parse::card_id_reminted` | `id` | structured |
-| `export::lost_construct` | `construct`, `start`?, `end`? | structured |
 | `content::noncanonical_read` | — | code-determined |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |

@@ -83,8 +83,7 @@ impl<'a> TypedWriter<'a> {
         )
     }
 
-    /// Write several main-card fields atomically, the typed twin of
-    /// [`Card::store_fields`](crate::document::Card::store_fields). A merge:
+    /// Write several main-card fields atomically. A merge:
     /// fields the batch does not name are untouched. Every field resolves
     /// before any is applied; on a violation nothing is written and every
     /// offending field comes back as a `(name, error)` pair, so a caller

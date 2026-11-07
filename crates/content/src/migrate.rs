@@ -3,9 +3,9 @@
 //! hard breaks becomes one block, container runs become containers by id, and
 //! anchor marks become anchors, every id minted deterministically; an anchor
 //! id held twice keeps its first holder, and a block-only island sharing its
-//! line takes a block of its own. [`to_lines`] is the lowering the
-//! markdown codecs and the renderers read, computing the ordinals and run
-//! parity the line form spells.
+//! line takes a block of its own. [`to_lines`] is the lowering the anchor
+//! contexts, a revise's carry and core's line reads take, computing the
+//! ordinals and run parity the line form spells.
 
 use crate::ids::{Minter, prefix};
 use crate::lines::model::{self as line, Container as LineContainer, Line, LineKind};

@@ -258,7 +258,7 @@ pub fn to_plaintext(c: &Content) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::NOTE_SLOT;
+    use crate::model::{Anchor, Mark, MarkKind, NOTE_SLOT};
 
     #[test]
     fn a_hard_break_is_one_block() {
@@ -388,6 +388,68 @@ mod tests {
                     slot: None
                 },
             ]
+        );
+    }
+
+    /// A `*`, `_` or `~~` mark reaching over whitespace writes over its text
+    /// alone, which the receipt names; an underline's tags hold the whitespace.
+    #[test]
+    fn a_delimited_mark_drops_its_edge_whitespace_and_says_so() {
+        let marked = |mark: Mark| {
+            let mut c = from_markdown("foo bar baz").unwrap().content;
+            c.marks.push(mark);
+            c
+        };
+        for (start, end, kind) in [
+            (4, 8, MarkKind::Strong),
+            (3, 7, MarkKind::Emph),
+            (4, 8, MarkKind::Strike),
+        ] {
+            let out = to_markdown_checked(&marked(Mark::new(start, end, kind.clone())));
+            let back = from_markdown(&out.markdown).unwrap().content;
+            assert_eq!(
+                back.marks,
+                [Mark::new(4, 7, kind.clone())],
+                "{:?}",
+                out.markdown
+            );
+            assert_eq!(
+                out.losses,
+                [Loss::Mark {
+                    kind,
+                    start,
+                    end,
+                    now: Some((4, 7))
+                }]
+            );
+        }
+        let underlined = marked(Mark::new(4, 8, MarkKind::Underline));
+        assert_eq!(to_markdown_checked(&underlined).losses, []);
+    }
+
+    /// An import reads back as itself, so its receipt is empty, a table
+    /// cell's anchor included.
+    #[test]
+    fn the_receipt_of_an_import_is_empty() {
+        let mut c = from_markdown(
+            "# Title\n\nSome **bold** and [a link](https://x.y).\n\n| a |\n| --- |\n| b |",
+        )
+        .unwrap()
+        .content;
+        assert_eq!(to_markdown_checked(&c).losses, []);
+
+        let isl = &mut c.islands[0];
+        let slot = isl.slots.keys().next().unwrap().clone();
+        isl.slots
+            .get_mut(&slot)
+            .unwrap()
+            .anchors
+            .push(Anchor::new("c1", 0, 1));
+        assert_eq!(c.validate(), Ok(()));
+        assert_eq!(
+            to_markdown_checked(&c).losses,
+            [],
+            "a cell's anchor is no loss"
         );
     }
 }

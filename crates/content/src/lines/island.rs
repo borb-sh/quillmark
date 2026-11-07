@@ -49,9 +49,6 @@ pub const TABLE_ALIGNS: [&str; 3] = ["left", "center", "right"];
 /// The values of a table cell's `valign` key, its vertical alignment.
 pub const CELL_VALIGNS: [&str; 3] = ["top", "middle", "bottom"];
 
-/// A table's layout keys.
-pub const TABLE_KEYS: [&str; 3] = ["widths", "align", "head"];
-
 /// A table cell's alignment keys, each with its values.
 pub const CELL_KEYS: [(&str, &[&str]); 2] = [("align", &TABLE_ALIGNS), ("valign", &CELL_VALIGNS)];
 

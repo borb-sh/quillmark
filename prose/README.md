@@ -25,4 +25,4 @@ A prose line caps at **700 characters** (the gate) and should stay under **300**
 
 ## Enforcement
 
-`scripts/check-prose.mjs` runs in CI and gates the mechanical half of the above: that `prose/` holds this page, `INVARIANTS.md` and `references/` only, that links resolve, that references link out to no prose doc, and the 700-character cap over `INVARIANTS.md` and `docs/`. It only ever fails. The rest of this page is the writer's and the reviewer's.
+`scripts/check-prose.mjs` runs in CI and gates the mechanical half of the above: that `prose/` holds this page, `INVARIANTS.md` and `references/` only, that its links and the repo paths it names resolve, that references link out to no prose doc, and the 700-character cap over `INVARIANTS.md` and `docs/`. It only ever fails. The rest of this page is the writer's and the reviewer's.

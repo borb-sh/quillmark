@@ -1052,16 +1052,18 @@ This body and the metadata above are an indorsement card.
     fn content_field_survives_storage_round_trip_losslessly() {
         // The storage DTO is the lossless carrier: an `underline` with no
         // markdown form survives here where a markdown save would drop it.
-        use quillmark_content::lines::model::{Mark, MarkKind};
+        use quillmark_content::lines::model::MarkKind;
 
         let mut doc = sample();
-        let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
+        let mut content = quillmark_content::markdown::from_markdown("underlined intro")
             .unwrap()
-            .content
-            .into_content();
-        content.marks.push(Mark::new(0, 10, MarkKind::Underline));
-        let content = content.into_lines();
-        let json = quillmark_content::lines::serial::to_canonical_value(&content);
+            .content;
+        content.marks.push(quillmark_content::model::Mark::new(
+            0,
+            10,
+            quillmark_content::model::MarkKind::Underline,
+        ));
+        let json = content.to_value();
         let schema = crate::quill::FieldSchema::new(
             "intro".to_string(),
             crate::quill::FieldType::RichText { multiline: true },

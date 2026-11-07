@@ -1143,10 +1143,10 @@ main:
     #[test]
     fn rejects_single_line_richtext_with_multi_block_content() {
         let config = config_with("    tag:\n      type: richtext\n      multiline: false", "");
-        let rt = quillmark_content::lines::import::from_markdown("one\n\ntwo")
+        let content = quillmark_content::markdown::from_markdown("one\n\ntwo")
             .unwrap()
-            .content;
-        let content = crate::document::stored_over(None, &rt);
+            .content
+            .to_value();
         let doc = doc_from_fm(&[("tag", content)]);
         let errors = config.validate_document(&doc).unwrap_err();
         assert!(has_error(&errors, |e| matches!(
@@ -1183,10 +1183,10 @@ main:
     #[test]
     fn accepts_single_line_richtext_single_para_content() {
         let config = config_with("    tag:\n      type: richtext\n      multiline: false", "");
-        let rt = quillmark_content::lines::import::from_markdown("one line only")
+        let content = quillmark_content::markdown::from_markdown("one line only")
             .unwrap()
-            .content;
-        let content = crate::document::stored_over(None, &rt);
+            .content
+            .to_value();
         let doc = doc_from_fm(&[("tag", content)]);
         assert!(config.validate_document(&doc).is_ok());
     }

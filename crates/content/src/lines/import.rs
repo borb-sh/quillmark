@@ -132,8 +132,9 @@ pub enum DroppedConstruct {
     /// Text in an HTML table's block outside every cell: `table:text`.
     TableText,
     /// A table's rows past the [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS)
-    /// slots the document's tables share, or the whole of one whose first row
-    /// alone is wider than the slots left: `table:size`.
+    /// slots it may hold or the slots the document's tables share, or the
+    /// whole of one whose first row alone is wider than the slots left:
+    /// `table:size`.
     TableSize,
     /// An attribute of an HTML table's tag the subset does not read, repeating
     /// one already read or with a value outside its spelling: `<tag>[<attr>]`.
@@ -328,8 +329,9 @@ fn import(markdown: &str, tags: Tags) -> Result<(Content, Vec<ImportWarning>), I
         tags,
         ..Builder::default()
     };
+    let cells = b.tags.cells();
     parse_markdown(markdown, options(), |text, events| {
-        b.run(MarkdownFixer::new(text, events.into_iter()))
+        b.run(MarkdownFixer::new(text, events.into_iter(), cells))
     })?;
     let (content, mut dropped) = b.finish();
     let mut at = 0;
@@ -659,6 +661,24 @@ enum Tags {
         anchors: HashSet<String>,
         islands: HashMap<String, Island>,
     },
+}
+
+impl Tags {
+    /// The slots the import's tables share:
+    /// [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS), or a revise's stored
+    /// tables' slots where they pass it, so a read of the stored value imports
+    /// every row it holds.
+    fn cells(&self) -> usize {
+        let stored = match self {
+            Tags::Against { islands, .. } => islands
+                .values()
+                .filter(|i| i.island_type == IslandType::Table)
+                .map(|i| crate::lines::serial::table_slots(&i.props))
+                .fold(0, usize::saturating_add),
+            Tags::Cold | Tags::Unresolved => 0,
+        };
+        stored.max(crate::MAX_TABLE_CELLS)
+    }
 }
 
 /// A footnote definition whose events the import is reading into a note.
@@ -1530,7 +1550,10 @@ impl Builder {
             &crate::lines::html_table::cell_paragraphs(content),
         );
         let events = crate::lines::html_table::cell_events(&src);
-        self.run(MarkdownFixer::new(&src, events.into_iter()).map(|item| item.shifted(at)))
+        self.run(
+            MarkdownFixer::new(&src, events.into_iter(), crate::MAX_TABLE_CELLS)
+                .map(|item| item.shifted(at)),
+        )
     }
 
     fn emit_image(&mut self) {
@@ -2074,8 +2097,7 @@ struct MarkdownFixer<'a, I> {
     /// The open pipe table's column count, the slots its rows take so far, and
     /// whether a row past `cells` dropped.
     grid: Option<(usize, usize, bool)>,
-    /// The slots the document's tables may still take, from
-    /// [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS).
+    /// The slots the document's tables may still take, from [`Tags::cells`].
     cells: usize,
 }
 
@@ -2088,7 +2110,7 @@ impl<'a, I> MarkdownFixer<'a, I>
 where
     I: Iterator<Item = (Event<'a>, Range<usize>)>,
 {
-    fn new(src: &'a str, inner: I) -> Self {
+    fn new(src: &'a str, inner: I, cells: usize) -> Self {
         Self {
             src,
             inner,
@@ -2098,8 +2120,14 @@ where
             depth: 0,
             underlines: 0,
             grid: None,
-            cells: crate::MAX_TABLE_CELLS,
+            cells,
         }
+    }
+
+    /// The slots the next table may take: what the document's tables leave,
+    /// up to [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS).
+    fn room(&self) -> usize {
+        self.cells.min(crate::MAX_TABLE_CELLS)
     }
 
     /// Read past the next event `end` closes.
@@ -2307,7 +2335,7 @@ where
                 self.drop_html_block(range.start);
                 return None;
             }
-            Event::Start(Tag::Table(aligns)) if aligns.len() > self.cells => {
+            Event::Start(Tag::Table(aligns)) if aligns.len() > self.room() => {
                 self.skip_through(TagEnd::Table);
                 Fixed::DroppedConstruct(DroppedConstruct::TableSize, range.start)
             }
@@ -2316,7 +2344,7 @@ where
                 Fixed::Event(Event::Start(Tag::Table(aligns)))
             }
             Event::Start(Tag::TableRow)
-                if self.grid.is_some_and(|(cols, n, _)| n + cols > self.cells) =>
+                if self.grid.is_some_and(|(cols, n, _)| n + cols > self.room()) =>
             {
                 self.skip_through(TagEnd::TableRow);
                 let (_, _, cut) = self.grid.as_mut()?;

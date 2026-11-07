@@ -378,11 +378,18 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
         }
     }
 
+    /// The slots the open table may take: what the budget leaves, up to
+    /// [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS).
+    fn room(&self) -> usize {
+        self.budget.min(crate::MAX_TABLE_CELLS)
+    }
+
     /// Close the open cell at block offset `end`. A cell placed past every
     /// slot the budget leaves, by the `colspan` totals of the cells it follows
     /// in grid order, is left out, its row marked cut: no grid holds it, and
     /// the scan holds no more cells than a grid could.
     fn close_cell(&mut self, end: usize) {
+        let room = self.room();
         let (Some(mut cell), Some(row), Some(table)) =
             (self.cell.take(), self.row.as_mut(), self.table.as_mut())
         else {
@@ -398,7 +405,7 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
         if table.slots[..=kind]
             .iter()
             .fold(0, |sum: usize, &n| sum.saturating_add(n))
-            > self.budget
+            > room
         {
             row.cut = true;
             return;
@@ -434,7 +441,7 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
         if cut {
             self.drops.push((DroppedConstruct::Table, raw.at));
         }
-        if let Some(table) = resolve(raw, self.budget, &mut self.drops) {
+        if let Some(table) = resolve(raw, self.room(), &mut self.drops) {
             self.budget -= table.rows.len() * table.aligns.len();
             self.tables.push(table);
         }

@@ -783,7 +783,9 @@ grid pads every row to its width, so a few bytes can ask for millions of
 slots, and many small tables as many as one large one; the rows past the
 slots the tables before them leave drop, reported as `table:size`, and a
 table whose first row alone is wider drops whole. Pipe and HTML tables draw
-on the same bound.
+on the same bound. A revise's tables share the slots its stored value's
+tables hold where those pass `MAX_TABLE_CELLS`, so a revise imports every row
+its read writes; each table still holds at most `MAX_TABLE_CELLS`.
 
 **Export** writes the `<table>` tag, its `thead` and `tbody`, and each row on
 a line of its own, inside the containers the table sits in. The attributes
