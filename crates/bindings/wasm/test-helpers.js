@@ -86,7 +86,7 @@ export const caughtFrom = (call) => {
 /**
  * Invoke `fn`, expect it to throw, and assert the thrown error's primary
  * diagnostic carries the namespaced `edit::*` `code`. Mutator identity rides on
- * `diagnostics[0].code`, not on message text; see prose/canon/ERROR.md. Answers
+ * `diagnostics[0].code`, not on message text. Answers
  * the error.
  */
 export function expectEditCode(fn, code) {

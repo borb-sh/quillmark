@@ -7,9 +7,14 @@
 //! that produced it. `regions` answers *field → rectangle*, `field_at` answers
 //! *point → field*.
 //!
-//! What produces a region — generated ink, marker claims, form-field widgets —
-//! and why a value placed twice surfaces only its first placement:
-//! `prose/canon/PREVIEW.md`.
+//! A region comes only from what a plate declares: generated ink, a marker
+//! claim, or a form-field widget (`prose/INVARIANTS.md` § "Preview").
+//!
+//! Each `(segment, page)` surfaces its first placement only. Span data cannot
+//! tell package chrome interrupting one placement from a second placement of
+//! the same value, and a union spanning both would claim the ink between them;
+//! later placements stay reachable through `field_at`. A marker claim is exempt
+//! and accrues its whole extent, because `qm.region` delimits that extent.
 //!
 //! A one-shot byte render carries the same sidecar on request
 //! ([`RenderOptions::regions`](crate::types::RenderOptions)). Empty for

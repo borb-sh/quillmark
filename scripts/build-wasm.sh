@@ -6,9 +6,10 @@ set -e
 # one guard rail that catches a Typst leak into the no-features core build.
 set -o pipefail
 
-# Builds the wasm artifacts and assembles pkg/, the published npm package. What
-# each variant carries and why the package has exactly one public entry:
-# prose/canon/BINDINGS.md § "WebAssembly".
+# Builds the wasm artifacts and assembles pkg/, the published npm package: a
+# Typst-free core build, eager and small, and a private render build carrying
+# both backends, which the runtime loads on the first render. Why the package
+# has exactly one public entry: prose/INVARIANTS.md § "The bindings".
 #
 # Profile selection. Default is the size-optimized release build used for
 # npm publish. `--ci` switches to a fast-compiling profile for PR validation
@@ -70,7 +71,7 @@ fi
 # wasm-bindgen handles; `.free()` is still emitted for deterministic teardown.
 # (Runtime floor is the package.json `engines` field, not set here.)
 #
-# Why `--target web` and not `bundler`: prose/canon/BINDINGS.md. assert_no_tla
+# Why `--target web` and not `bundler`: prose/INVARIANTS.md § "The bindings". assert_no_tla
 # below is the regression guard for that choice.
 build_variant() {
     local subdir="$1"; shift

@@ -2,7 +2,7 @@
  * The parity corpus, `crates/fixtures/resources/parity/parity.json`, across the
  * WASM boundary: every entry's content crosses out of an import and a parse,
  * and in through `replace` and storage. The semantics are
- * `crates/quillmark/tests/parity.rs`'s (prose/canon/PARITY.md § "The corpus").
+ * `crates/quillmark/tests/parity.rs`'s (crates/fixtures/resources/parity/README.md § "The corpus").
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'

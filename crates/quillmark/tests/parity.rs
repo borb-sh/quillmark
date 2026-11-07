@@ -1,5 +1,5 @@
 //! The parity corpus, `crates/fixtures/resources/parity/parity.json`, asserted
-//! on every surface Quillmark owns (`prose/canon/PARITY.md` § "The corpus").
+//! on every surface Quillmark owns (`crates/fixtures/resources/parity/README.md` § "The corpus").
 
 #![cfg(feature = "typst")]
 
@@ -66,7 +66,7 @@ fn every_entry_holds_on_every_surface() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// The matrix in `prose/canon/PARITY.md` has a row per entry and an entry per
+/// The matrix in `crates/fixtures/resources/parity/README.md` has a row per entry and an entry per
 /// row, and a row's signal cells say what the entry's signals carry: a cell
 /// reads `declines with a signal` where its surface warns, and the Signal cell
 /// names each code and imported construct.
@@ -74,9 +74,9 @@ fn every_entry_holds_on_every_surface() {
 fn the_matrix_has_a_row_per_entry_naming_its_signals() {
     let matrix = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../prose/canon/PARITY.md"
+        "/../fixtures/resources/parity/README.md"
     ))
-    .expect("PARITY.md reads");
+    .expect("the parity matrix reads");
     let rows: BTreeMap<&str, Vec<&str>> = matrix
         .lines()
         .filter_map(|line| {

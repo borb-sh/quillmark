@@ -8,7 +8,7 @@
       "Bash(cargo doc:*)",
       "Bash(RUSTDOCFLAGS=-Dwarnings cargo doc:*)",
       "Bash(cargo fetch:*)",
-      "Bash(node scripts/check-canon.mjs)",
+      "Bash(node scripts/check-prose.mjs)",
       "Bash(./scripts/build-wasm.sh --ci)"
     ]
   }

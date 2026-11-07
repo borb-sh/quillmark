@@ -518,7 +518,7 @@ main:
           type: text
 ```
 
-Containers nest freely: a property or an element is an ordinary field, so it carries whatever type a card-level field carries, itself included. `object<array<text>>`, `array<array<integer>>` and a typed table whose row holds a typed dictionary are all declarable, and each leaf is addressable by the schema address its path spells (`contact.address.city`, `grid.0.0` — see [PLATE_DATA.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PLATE_DATA.md#schema-addresses)).
+Containers nest freely: a property or an element is an ordinary field, so it carries whatever type a card-level field carries, itself included. `object<array<text>>`, `array<array<integer>>` and a typed table whose row holds a typed dictionary are all declarable, and each leaf is addressable by the schema address its path spells (`contact.address.city`, `grid.0.0`).
 
 **A dictionary holds no `default:` of its own** — its properties do:
 
@@ -712,8 +712,6 @@ qualifications:
 - `open` defaults to `false`, and the acroform backend refuses it at load
   (`quill::open_matrix_unsupported`): a form has no widget for an item a
   document adds.
-
-Full model: [SCHEMAS.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/SCHEMAS.md#matrix); the wire shape is [PLATE_DATA.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PLATE_DATA.md#a-matrix-field).
 
 ### Grouping
 
@@ -1096,7 +1094,7 @@ Quillmark emits a public schema contract derived from `Quill.yaml`. Accessors:
 - WASM: `quill.schema` (JSON)
 - CLI: `quillmark schema <path>`
 
-`ui:` hints are preserved verbatim in the output. See [SCHEMAS.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/SCHEMAS.md) for the emitted shape.
+`ui:` hints are preserved verbatim in the output.
 
 ---
 

@@ -20,7 +20,7 @@ let usaf_memo = quillmark_fixtures::quills_path("usaf_memo");
   - `card_yaml_demo.md` - a card-yaml document
   - `extended_metadata_demo.md` - composable cards under one main card
 
-- **The parity corpus**, `resources/parity/parity.json`: one entry per row of the matrix in [`prose/canon/PARITY.md`](../../prose/canon/PARITY.md), holding the row's markdown, its canonical stored content, substrings its Typst lowering contains and the signals it raises.
+- **The parity corpus**, `resources/parity/parity.json`: one entry per row of the matrix in [`resources/parity/README.md`](resources/parity/README.md), holding the row's markdown, its canonical stored content, substrings its Typst lowering contains and the signals it raises.
   `crates/quillmark/tests/parity.rs` asserts every entry and holds the matrix to the corpus, and each binding holds its crossing to it: the WASM binding's `parity.test.js` and the Python binding's `tests/test_parity.py`.
 
 ## License

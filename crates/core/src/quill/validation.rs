@@ -10,8 +10,8 @@ use crate::quill::{
 use crate::value::QuillValue;
 
 /// Validation error with a structured field path. A variant carries enough for
-/// `Display` to render the uniform message `ERROR.md` § "Validation message
-/// contract" describes.
+/// `Display` to render one shape of message: the field's path, the source
+/// token verbatim, the declared type and default, and both ways out.
 ///
 /// Field absence is not a well-formedness concern, so it has no variant here.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -430,8 +430,8 @@ enum ValueContext {
 ///
 /// A document value is judged in the form the render floor builds from it, not
 /// as authored: `conform_value` at `Leniency::Render` runs first, per node
-/// rather than per field. A schema literal is judged as written. Both rules and
-/// what follows from them are `SCHEMAS.md` § "Type coercion".
+/// rather than per field. A schema literal is judged as written. Both rules:
+/// `prose/INVARIANTS.md` § "The schema and the render".
 fn validate_value(
     field: &FieldSchema,
     value: &QuillValue,

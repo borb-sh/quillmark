@@ -8,8 +8,8 @@ use crate::value::QuillValue;
 
 /// The **blank** for `field`: the leanest value satisfying its declared type,
 /// and the value a reader recognizes as "nobody said anything"; `null` for an
-/// [optional](FieldSchema::optional) cell. The per-type table is `SCHEMAS.md`
-/// § "Blank-filled render".
+/// [optional](FieldSchema::optional) cell. Why a blank is not a member of the
+/// domain: `prose/INVARIANTS.md` § "The schema and the render".
 ///
 /// The `enum` blank is `""` unconditionally: the loader rejects a declared `""`
 /// (`quill::enum_blank_member`), but a [`FieldSchema`] built by field assignment

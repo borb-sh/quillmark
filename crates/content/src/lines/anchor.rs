@@ -1,5 +1,6 @@
 //! What a prose anchor is attached to, and the one exact rule that places a
-//! dropped anchor again. The contract is `prose/canon/COMMENTS.md`.
+//! dropped anchor again. Why the rule is exact or nothing: `prose/INVARIANTS.md`
+//! § "Comments".
 //!
 //! Both read the stored text as it is: an inline island is its [`ISLAND_SLOT`]
 //! character and a line break its `\n`. A quote spanning an island holds its

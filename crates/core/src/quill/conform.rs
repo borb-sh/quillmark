@@ -1,5 +1,5 @@
 //! Conform-on-load: the bound input path that lands a document at its stored
-//! form (`prose/canon/SCHEMAS.md` § "Content fields are stored per codec").
+//! form (`prose/INVARIANTS.md` § "The schema and the render").
 //!
 //! The walk is the typed write driven by the schema instead of by a caller:
 //! every content-bearing field goes through the same [`resolve_field_write`]
@@ -83,8 +83,10 @@ impl Quill {
     /// `quill::version_mismatch`) leaves `doc` untouched.
     ///
     /// The walk covers the main card and every composable card whose `$kind`
-    /// resolves, recursing through array `items` and object `properties`; what
-    /// it skips and what it warns about is `BINDINGS.md` § "The bound door".
+    /// resolves, recursing through array `items` and object `properties`. A
+    /// field whose type tree bears no content leaf is outside the walk, and a
+    /// value the strict write refuses stays as authored under a `conform::*`
+    /// warning.
     ///
     /// An equal value is **not written**: every write path clears the field's
     /// `nested_comments`, so an unguarded conform would strip YAML comments and

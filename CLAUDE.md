@@ -2,10 +2,10 @@
 
 Schema-driven document framework: Markdown + YAML card metadata → rendered PDF/SVG/PNG via a Typst or acroform backend.
 
-- Crate layout: [`ARCHITECTURE.md`](prose/canon/ARCHITECTURE.md) §"Crate Structure". Design docs: [`prose/canon/INDEX.md`](prose/canon/INDEX.md).
+- Read [`prose/INVARIANTS.md`](prose/INVARIANTS.md) before changing behavior: it holds the rules the code cannot carry where they are broken, and why. Each crate's `lib.rs` rustdoc describes the crate.
 - Commit subjects, the `!` break marker, and what earns a test a place: [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - Comments: none by default; keep one only where the code cannot carry the fact. Present tense, no history or changelog narration.
-- A change that makes a canon doc stale updates it. [`prose/README.md`](prose/README.md) is normative for canon structure; `node scripts/check-canon.mjs` enforces it in CI.
+- A change that breaks an invariant updates `prose/INVARIANTS.md` in the same commit, with the new reason. A rule earns a place there only if a capable reader of the code would plausibly break it; [`prose/README.md`](prose/README.md) is normative, and `node scripts/check-prose.mjs` enforces the mechanical half in CI.
 - The `Cargo.toml` version is the last *released* one; CI bumps it on release.
 - `CHANGELOG.md` is `merge=union` in `.gitattributes`, so merge `main` with local git, not GitHub's "Update branch".
 

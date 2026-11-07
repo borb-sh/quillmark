@@ -14,12 +14,12 @@ cd quillmark
 cargo test --workspace
 ```
 
-`cargo test --workspace` is the working loop. The Python and WASM bindings take minutes to build and PR CI builds both; their local loops are in [`CLAUDE.md` § Tests](CLAUDE.md#tests). CI also gates on `RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps --workspace` and `node scripts/check-canon.mjs`.
+`cargo test --workspace` is the working loop. The Python and WASM bindings take minutes to build and PR CI builds both; their local loops are in [`CLAUDE.md` § Tests](CLAUDE.md#tests). CI also gates on `RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps --workspace` and `node scripts/check-prose.mjs`.
 
 ## Pull requests
 
 - Every commit lands on `main` and seeds the changelog, so each subject reads `type(scope): summary`, or `type(scope)!: summary` for a break. `type` is one of `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `ci`, `chore`; the scope is optional.
-- Comments and docs follow the rules in [`CLAUDE.md`](CLAUDE.md), which also covers canon upkeep. Design docs start at [`prose/canon/INDEX.md`](prose/canon/INDEX.md).
+- Comments and docs follow the rules in [`CLAUDE.md`](CLAUDE.md). The rules a change must keep, and why, are [`prose/INVARIANTS.md`](prose/INVARIANTS.md).
 
 ## AI-assisted work
 
@@ -31,7 +31,7 @@ AI-assisted pull requests are welcome on the same terms as any other: you ran th
 
 Exercising logic that can break: parsing, assembly, emission, diffing,
 resolution, validation, error classification, round-trips, rendering. Restating
-a rule the implementation or canon already carries earns nothing, and deleting a
+a rule the implementation already carries earns nothing, and deleting a
 stale test is maintenance.
 
 - Diagnostic codes, wire-format keys, and public API names are contract;

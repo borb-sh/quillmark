@@ -33,7 +33,7 @@ def field_keys(card):
 def raises_edit_code(code):
     """Assert the block raises `QuillmarkError` whose primary diagnostic carries
     the given namespaced `edit::` code. Mutator identity rides on `code`, not on
-    message text, so tests route on it; see prose/canon/ERROR.md."""
+    message text, so tests route on it."""
     with pytest.raises(QuillmarkError) as exc_info:
         yield exc_info
     assert exc_info.value.diagnostics[0].code == code

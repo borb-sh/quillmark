@@ -1,5 +1,5 @@
 //! Headless proof that the acroform canvas raster is complete and that region
-//! geometry lands on it: the canvas contract (`prose/canon/PREVIEW.md`) requires
+//! geometry lands on it: the canvas contract (`prose/INVARIANTS.md` § "Preview") requires
 //! a session returning `Some` from `render_rgba` to bake every piece of page
 //! content, field values included, into the pixels with no caller-side
 //! compositing, and `page_size_pt` / `regions` to measure from the raster's own

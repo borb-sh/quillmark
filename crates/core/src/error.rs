@@ -171,8 +171,8 @@ pub struct Diagnostic {
     /// [`Self::code`], the substitution unit a consumer needs to word this
     /// diagnostic in its own language.
     ///
-    /// One code carries one key set, tabulated in `prose/canon/ERROR.md`
-    /// § "Diagnostic args" and tested against it. Values keep their JSON
+    /// One code carries one key set, tabulated in
+    /// `docs/reference/diagnostic-codes.md` § Args and tested against it. Values keep their JSON
     /// shape, so joining and pluralizing stay the consumer's locale decisions.
     /// Quillmark prose never rides under a key.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
@@ -420,7 +420,7 @@ pub const DOCUMENT_FILE: &str = "input.md";
 impl ParseError {
     /// The namespaced diagnostic `code` (e.g. `"parse::empty_input"`), one per
     /// variant and the variant's only stable discriminator. Consumers route on
-    /// this, not on message text. Taxonomy: `prose/canon/ERROR.md`.
+    /// this, not on message text. Every code: `docs/reference/diagnostic-codes.md`.
     pub fn code(&self) -> &'static str {
         match self {
             ParseError::InputTooLarge { .. } => "parse::input_too_large",
@@ -717,10 +717,10 @@ mod tests {
     }
 }
 
-/// The canon table in `prose/canon/ERROR.md` § "Diagnostic args" is a consumer
+/// The args table in `docs/reference/diagnostic-codes.md` § Args is a consumer
 /// contract, so it is tested rather than maintained by hand.
 #[cfg(test)]
-mod args_canon {
+mod args_reference {
     use std::collections::BTreeMap;
 
     use crate::document::EditError;
@@ -1022,11 +1022,11 @@ card_kinds:
         out
     }
 
-    /// The canon table's rows. `—` is no keys; a trailing `?` marks a
+    /// The reference table's rows. `—` is no keys; a trailing `?` marks a
     /// conditional key, which [`minted`]'s sample supplies.
     fn declared() -> BTreeMap<String, Vec<String>> {
-        let canon = include_str!("../../../prose/canon/ERROR.md");
-        let mut rows = canon
+        let reference = include_str!("../../../docs/reference/diagnostic-codes.md");
+        let mut rows = reference
             .lines()
             .skip_while(|l| !l.starts_with("| Code | Args | Outcome |"))
             .skip(2)
@@ -1035,7 +1035,7 @@ card_kinds:
         let mut out = BTreeMap::new();
         for row in &mut rows {
             let cells: Vec<&str> = row.trim_matches('|').split('|').map(str::trim).collect();
-            assert_eq!(cells.len(), 3, "malformed canon row: {row}");
+            assert_eq!(cells.len(), 3, "malformed reference row: {row}");
             let code = cells[0].trim_matches('`').to_string();
             let keys = if cells[1] == "—" {
                 Vec::new()
@@ -1049,10 +1049,10 @@ card_kinds:
             };
             assert!(
                 out.insert(code, keys).is_none(),
-                "duplicate canon row: {row}"
+                "duplicate reference row: {row}"
             );
         }
-        assert!(!out.is_empty(), "canon args table not found in ERROR.md");
+        assert!(!out.is_empty(), "args table not found in diagnostic-codes.md");
         out
     }
 
@@ -1085,18 +1085,18 @@ main:
         for d in &diags {
             assert!(
                 d.args.is_empty(),
-                "`{:?}` is off the canon table and must carry no args",
+                "`{:?}` is off the args table and must carry no args",
                 d.code
             );
         }
     }
 
     #[test]
-    fn diagnostic_args_match_canon() {
+    fn diagnostic_args_match_reference() {
         assert_eq!(
             declared(),
             minted(),
-            "`ERROR.md` § \"Diagnostic args\" and the minted args disagree"
+            "`diagnostic-codes.md` § Args and the minted args disagree"
         );
     }
 
@@ -1104,7 +1104,7 @@ main:
     /// whose `packages/svelte/tests/visual/diagnostic-args.test.ts` asserts each
     /// one against the published wasm build.
     ///
-    /// [`diagnostic_args_match_canon`] cannot stand in for this. The canon table
+    /// [`diagnostic_args_match_reference`] cannot stand in for this. The table
     /// is edited by the commit that renames a key, so both sides move together
     /// and the rename is green here and red there, a release later. This list
     /// does not move with the code, which is the whole of its job: a failure says
@@ -1121,7 +1121,7 @@ main:
                 keys.iter().any(|k| k == key),
                 "`{code}` no longer carries `{key}`, which quillmark-js composes its message \
                  from. That is a `!` break: it owes a changelog entry and an upgrade-guide \
-                 section, not a silent edit to the canon table."
+                 section, not a silent edit to the args table."
             );
         };
 

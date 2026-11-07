@@ -11,7 +11,7 @@ def test_quill_properties(engine, taro_quill_dir):
 
     metadata = quill.metadata
     assert metadata["name"] == "taro"
-    # The key order BINDINGS.md pins across both surfaces.
+    # The key order both bindings share.
     assert list(metadata) == ["name", "version", "backend", "author", "description"]
     assert quill.backend_id == "typst"
 

@@ -2,8 +2,8 @@
 //
 // The canonical consumer API, and the package's sole export. Its contract is
 // `runtime.d.ts`, which a consumer's TypeScript reads through the package's
-// `exports.types` map; the multi-binary design it implements is
-// `prose/canon/BINDINGS.md`.
+// `exports.types` map. Why one gated entry and one copy per process:
+// `prose/INVARIANTS.md` § "The bindings".
 //
 // A `Quill` instance's contents never change after construction — mutate by
 // replacing the instance — which is what makes the cached backend clone below
@@ -27,8 +27,9 @@ import { parseDocPath, formatDocPath, formatDiagnostic } from '../core/wasm.js';
 // A `--target web` build exports its classes synchronously but carries no wasm
 // instance until something instantiates it. This module owns that for core,
 // behind one awaited gate; `Engine` owns it for the backends, inside their lazy
-// load. Which values that gate holds and which stay static exports:
-// `prose/canon/BINDINGS.md`.
+// load. The gate holds every value that needs an instance; a class whose
+// arguments already require an awaited handle stays a static export, so it
+// tree-shakes.
 
 /**
  * The gated surface: the core build's values, which are exactly the ones its

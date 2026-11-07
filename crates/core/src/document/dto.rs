@@ -6,8 +6,30 @@
 //! serializes through it via `#[serde(into / try_from)]`, so the ordinary serde
 //! entry points produce and consume the versioned form transparently.
 //!
-//! The schema versions, the shape each names, and the procedure for adding one:
-//! `prose/canon/DOCUMENT_STORAGE.md`.
+//! Why the envelope is frozen and when a version retires:
+//! `prose/INVARIANTS.md` § "Storage". Older tags migrate forward through a
+//! chain of hops, and only the newest tree converts to the live [`Document`].
+//!
+//! # Adding a schema version
+//!
+//! The tag changes when the bytes the writer emits change, a dropped key or a
+//! retired kind included. A bump that only adds vocabulary members needs only
+//! the tag: it aliases the newest tree, and the reader matches both tags into
+//! it. Otherwise:
+//!
+//! 1. Freeze the newest tree: leave its definitions and serde derives as they
+//!    are, and replace any field whose type tracks the live crate
+//!    (`StoredContent`) with `serde_json::Value`, or the frozen tree writes the
+//!    new format under the old tag.
+//! 2. Remove the frozen tree's conversions to and from the live `Document`.
+//! 3. Add the new tree, its `From<&Document>` and `TryFrom<… for Document>`,
+//!    and its `StoredDocument` variant under the new tag.
+//! 4. Write the hop from the frozen tree: `From` where the mapping cannot fail,
+//!    `TryFrom` where it can reject.
+//! 5. Extend the reader so every older tag migrates through the chain.
+//!
+//! A tree that embeds structured data rejects bad input in its `Deserialize`,
+//! as `StoredContent` does; freezing it moves that check into the hop.
 
 #![allow(non_camel_case_types)]
 

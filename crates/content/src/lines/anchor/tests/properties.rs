@@ -72,7 +72,7 @@ fn field_and_selector() -> impl Strategy<Value = (String, AnchorContext)> {
         })
 }
 
-/// Every place the rule counts, read off its statement in COMMENTS.md.
+/// Every place the rule counts, read off its statement on `lines::anchor::locate`.
 fn counted(
     text: &[char],
     ctx: &AnchorContext,

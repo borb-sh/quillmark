@@ -8,8 +8,8 @@
 //! and regions key on `(window, segment)`. A scalar or a date window has no
 //! segments.
 //!
-//! What a region means to a consumer — the producers, the marker-claim
-//! fallback, the first-placement rule: `prose/canon/PREVIEW.md`.
+//! What a region means to a consumer, the producers and the first-placement
+//! rule: [`quillmark_core::region`].
 //!
 //! Geometry composes the group-transform stack exactly like
 //! `typst_layout::introspect::discover_frame`, transforming all four corners of

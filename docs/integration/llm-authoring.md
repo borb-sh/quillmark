@@ -71,5 +71,3 @@ quill.writer(doc).card(0).revise({}, reply, { baseHash: base })
 ```
 
 The scoped read is the read a revise at that address takes back: kept anchor tags pin their comments, and `baseHash` refuses the edit with `edit::stale_base` where the value changed since the read, so the model reads again rather than reverting it. A model that edits while a person types shares a `@quillmark/collab` session instead.
-
-Full model: [AUTHORING.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/AUTHORING.md).

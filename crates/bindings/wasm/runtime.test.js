@@ -574,8 +574,7 @@ card_kinds:
 // source rung it came from ("authored" | "default" | "blank"). Rows are an
 // ordered array carrying their own `name`; the card body is a `body` sibling,
 // not a row in `fields`. Value and provenance only: diagnostics stay
-// validate(), guidance stays the schema. See prose/canon/SCHEMAS.md
-// § "Value sources and projections".
+// validate(), guidance stays the schema.
 describe('@quillmark/wasm: reader.resolve (the resolved-value view)', () => {
   const QUILL_YAML = `quill:
   name: field_states_test
@@ -676,7 +675,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     expect(doc.quillRef).toBe('test_quill')
   })
 
-  // ERROR.md § "Warning flow": a render reports what the render sees. The
+  // A render reports what the render sees (prose/INVARIANTS.md § "Diagnostics"). The
   // load's warnings stay on `doc.warnings`, so a revise never leaves a render
   // reporting a drop the document no longer holds.
   it('render leaves the load warnings on doc.warnings', async () => {

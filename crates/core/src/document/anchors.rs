@@ -1,6 +1,7 @@
 //! The comment-anchor handle over a whole document: each prose anchor's
 //! selector at its path, and the exact re-attachment of the ones a write
-//! dropped. The contract is `prose/canon/COMMENTS.md`.
+//! dropped. Why re-attachment is exact or nothing: `prose/INVARIANTS.md`
+//! § "Comments".
 
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;

@@ -120,7 +120,7 @@ pub enum WireError {
 
 impl WireError {
     /// The namespaced diagnostic `code`, one per violation and the same the
-    /// addressed mutator onto it mints. Taxonomy: `prose/canon/ERROR.md`.
+    /// addressed mutator onto it mints. Every code: `docs/reference/diagnostic-codes.md`.
     pub fn code(&self) -> &'static str {
         match self {
             WireError::InvalidQuillReference { .. } => "parse::invalid_quill_reference",

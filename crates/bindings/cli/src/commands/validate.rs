@@ -186,7 +186,8 @@ struct RenderFailure {
 
 /// The plate contract, which no config read reaches: each of the
 /// canonical documents — the empty document and the seeded document — compiles
-/// through the quill's own plate (`QUILL.md` § "The plate contract"). The
+/// through the quill's own plate (`prose/INVARIANTS.md` § "The schema and the
+/// render"). The
 /// example, when the quill declares one, compiles after them. The backend's
 /// first declared format is the one rendered: a plate that compiles carries
 /// every format its backend serves.
