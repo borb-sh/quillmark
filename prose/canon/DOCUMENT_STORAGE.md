@@ -366,7 +366,9 @@ Five rules bound the payload:
 - **A table's grid is capped at `MAX_TABLE_CELLS` (100 000) cells**, its rows
   times its columns. The decoder refuses such a table as
   `Invariant::TableTooLarge`; markdown import drops the rows past the cap
-  instead, its tables sharing one cap, warning `table:size`.
+  instead, its tables sharing one cap, warning `table:size`. A revise's
+  tables share the stored value's table cells where those pass the cap, so
+  a revise keeps every row it reads back.
 - **Nesting is capped at `MAX_NESTING_DEPTH` (12)** items and quotes on one
   path, the depth the markdown codecs and the Typst lowering share.
 - **Marks and anchors are capped against the text they sit on.** A text, a

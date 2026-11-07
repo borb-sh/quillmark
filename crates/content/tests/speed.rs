@@ -7,12 +7,15 @@
 //! 20000-item case fails past [`VALUE_BUDGET`]. The interactive target, a
 //! field of 20000 blocks or 500000 characters, holds [`TARGET`]: a plain
 //! list's revise, replace and repair in time, and import and decode linear.
+//! A value whose tables pass the import's cell budget together, too large for
+//! a debug build, revises keeping every row.
 
 use quillmark_content::change::{AnchorStep, Change, MarkStep, Splice, Step, apply, invert};
 use quillmark_content::diff::{diff, replace, revise};
-use quillmark_content::markdown::{from_markdown, to_markdown};
-use quillmark_content::model::{Anchor, Block, BlockKind, Content, Mark, MarkKind};
+use quillmark_content::markdown::{from_markdown, to_markdown, to_markdown_annotated};
+use quillmark_content::model::{Anchor, Block, BlockKind, Content, ISLAND_SLOT, Mark, MarkKind};
 use quillmark_content::repair::{Raw, repair};
+use quillmark_content::table::Table;
 use quillmark_content::units::{Utf16, change_from_scalars, change_to_scalars};
 use serde_json::{Map, Value, json};
 use std::hint::black_box;
@@ -355,4 +358,55 @@ fn the_interactive_target_holds_its_budgets_and_grows_linearly() {
         }
     }
     assert!(over.is_empty(), "past budget: {}", over.join(", "));
+}
+
+/// Two tables each under the cell limit pass the import's budget for a
+/// document's tables together; a revise with the read keeps every row of the
+/// second, as it does an edit beside them.
+#[test]
+#[ignore = "a hundred thousand cells, a minute in a debug build: run with --release"]
+fn a_revise_keeps_the_rows_of_tables_past_the_import_budget() {
+    let rows = quillmark_content::MAX_TABLE_CELLS / 4;
+    let table = |tag: &str| {
+        let body: String = (0..rows).map(|r| format!("| {tag}{r} | x |\n")).collect();
+        from_markdown(&format!("| a | b |\n| - | - |\n{body}"))
+            .unwrap()
+            .content
+    };
+    let (one, two) = (table("p"), table("q"));
+    let mut second = two.islands[0].clone();
+    second.id = "isl-1".into();
+    let c = Content {
+        text: format!("{ISLAND_SLOT}\n{ISLAND_SLOT}\nTail."),
+        blocks: vec![
+            one.blocks[0].clone(),
+            Block::new("b1", BlockKind::Para),
+            Block::new("b2", BlockKind::Para),
+        ],
+        islands: vec![one.islands[0].clone(), second],
+        ..Content::empty()
+    };
+    assert_eq!(c.validate(), Ok(()));
+    let read = to_markdown_annotated(&c).markdown;
+    let rows_of = |c: &Content| {
+        c.islands
+            .iter()
+            .map(|i| Table::read(&i.props).unwrap().rows.len())
+            .collect::<Vec<_>>()
+    };
+    let cut = from_markdown(&read).unwrap().content;
+    assert!(
+        rows_of(&cut)[1] < rows + 1,
+        "a cold import cuts the second table"
+    );
+    let done = apply(
+        &c,
+        &revise(&c, &read.replace("Tail.", "Tail, edited."))
+            .unwrap()
+            .change,
+    )
+    .unwrap()
+    .content;
+    assert_eq!(rows_of(&done), [rows + 1, rows + 1]);
+    assert_eq!(done.islands, c.islands);
 }
