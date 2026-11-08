@@ -222,3 +222,56 @@ fn form_field_regions_key_on_bound_schema_field() {
         );
     }
 }
+
+#[test]
+fn a_widget_joins_the_structure_tree_as_a_form_element_named_by_its_tooltip() {
+    let plate = r#"
+#import "@local/quillmark-helper:0.2.0" as qm
+
+Sign below.
+#qm.signature-field("a", tooltip: "Approver signature")
+#qm.form-field("b")
+"#;
+    let (doc, _, widgets) = acroform(plate, &serde_json::json!({}));
+    let root = doc
+        .catalog()
+        .unwrap()
+        .get_deref(b"StructTreeRoot", &doc)
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let nums = root
+        .get_deref(b"ParentTree", &doc)
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"Nums")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    let parent_of = |key: i64| {
+        let at = nums
+            .chunks(2)
+            .find(|pair| pair[0].as_i64().unwrap() == key)
+            .unwrap_or_else(|| panic!("/ParentTree has key {key}"));
+        doc.get_dictionary(at[1].as_reference().unwrap()).unwrap()
+    };
+
+    for name in ["a", "b"] {
+        let widget = &widgets[name];
+        let key = widget.get(b"StructParent").unwrap().as_i64().unwrap();
+        let form = parent_of(key);
+        assert_eq!(form.get(b"S").unwrap().as_name().unwrap(), b"Form");
+        let objr = form.get(b"K").unwrap().as_dict().unwrap();
+        let obj = doc
+            .get_dictionary(objr.get(b"Obj").unwrap().as_reference().unwrap())
+            .unwrap();
+        assert_eq!(obj.get(b"T").unwrap().as_str().unwrap(), name.as_bytes());
+    }
+    assert_eq!(
+        widgets["a"].get(b"TU").unwrap().as_str().unwrap(),
+        b"Approver signature"
+    );
+    assert!(widgets["b"].get(b"TU").is_err());
+    assert!(root.get(b"ParentTreeNextKey").unwrap().as_i64().unwrap() > 0);
+}

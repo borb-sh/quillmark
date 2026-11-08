@@ -42,6 +42,7 @@
     font: "times",
     size: date_size,
     align: "right",
+    tooltip: "Date signed",
   )
 }
 
@@ -124,7 +125,7 @@
 #backmatter(
   // Signature block
   signature_block: strs(qm.data.signature_block),
-  signing_field: qm.signature-field("Signature", field: "signature_block"),
+  signing_field: qm.signature-field("Signature", field: "signature_block", tooltip: "Signature"),
 
   cc: strs(qm.data.cc),
   distribution: strs(qm.data.distribution),
@@ -167,6 +168,7 @@
       signing_field: qm.signature-field(
         "Ind_" + str(i) + "_Signature",
         field: card.at("$path") + "signature_block",
+        tooltip: "Indorsement " + str(i + 1) + " signature",
       ),
       // Same shape: `indorsement` asserts `format`'s membership, and an
       // indorsement has no "no layout" state. `action` needs no such guard —

@@ -87,7 +87,10 @@
   font: "helvetica",
   size: auto,
   align: "left",
+  tooltip: none,
 ) = {
+  assert(tooltip == none or std.type(tooltip) == str,
+    message: "form-field: tooltip must be a string or none, got " + repr(std.type(tooltip)))
   assert(std.type(name) == str,
     message: "form-field: name must be a string, got " + repr(std.type(name)))
   assert(name.match(regex("^[A-Za-z0-9_.]+$")) != none,
@@ -131,14 +134,16 @@
     font: font,
     size: size-pt,
     align: align,
+    tooltip: tooltip,
   ))<__qm_field__>]
 }
 
 /// Emit an unsigned signature field: `form-field` with `type: "signature"`,
 /// which carries no value. `field` forwards the region binding.
-#let signature-field(name, width: 200pt, height: 50pt, field: none) = form-field(
+#let signature-field(name, width: 200pt, height: 50pt, field: none, tooltip: none) = form-field(
   name,
   type: "signature",
+  tooltip: tooltip,
   width: width,
   height: height,
   field: field,

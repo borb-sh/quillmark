@@ -27,6 +27,7 @@ pub(crate) struct FieldPlacement {
     pub font: FormFont,
     pub font_size: Option<f32>,
     pub align: TextAlign,
+    pub tooltip: Option<String>,
 }
 
 /// Flips each rect from Typst's top-left origin to the PDF bottom-left origin
@@ -68,6 +69,7 @@ pub(crate) fn build_field_specs(
             spec.font = p.font;
             spec.font_size = p.font_size;
             spec.align = p.align;
+            spec.tooltip = p.tooltip.clone();
             Ok(spec)
         })
         .collect()

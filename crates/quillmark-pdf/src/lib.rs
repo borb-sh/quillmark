@@ -14,6 +14,7 @@ mod error;
 mod metrics;
 mod reader;
 mod stamp;
+mod tag;
 mod update;
 mod writer;
 
