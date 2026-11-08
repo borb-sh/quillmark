@@ -12,6 +12,7 @@ its pages, and the assets the layout uses. On disk it is a directory. Create
 `my_quill/Quill.yaml`:
 
 ```yaml
+# yaml-language-server: $schema=https://quillmark.dev/schemas/quill.schema.json
 quill:
   name: my_quill
   backend: typst

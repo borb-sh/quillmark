@@ -28,6 +28,16 @@ Root-level `fields:` is not supported; define the main document's field schemas 
 
 `Quill.yaml` is parsed strictly. Unknown keys in the `quill:` section or the backend's section, unknown top-level sections, malformed `ui:` blocks, and field schemas that can't be parsed all produce errors: they are never silently dropped. Every error is collected in a single pass, so authors see all problems at once; the one exception is a [`requires`](#quill-section) floor above the running Quillmark release, which is reported alone. Run `quillmark validate <quill_dir>` to surface them.
 
+### Editor support
+
+[`quill.schema.json`](../schemas/quill.schema.json) is the JSON Schema of `Quill.yaml`, at `https://quillmark.dev/schemas/quill.schema.json`. An editor running the YAML language server, such as VS Code with the Red Hat YAML extension, completes keys and field types and flags a typo as you write when the file's first line names it:
+
+```yaml
+# yaml-language-server: $schema=https://quillmark.dev/schemas/quill.schema.json
+```
+
+The schema checks the file's shape: its keys, each field's `type` and the keys that type takes, and the `ui`, `body`, `card_kinds` and backend sections. A value's own rules, such as a `default` matching its `type`, a license expression, or a `seed`, are the loader's, so `quillmark validate` stays the final word.
+
 ---
 
 ## `quill` Section
@@ -1101,6 +1111,7 @@ Quillmark emits a public schema contract derived from `Quill.yaml`. Accessors:
 ## Complete Example
 
 ```yaml
+# yaml-language-server: $schema=https://quillmark.dev/schemas/quill.schema.json
 quill:
   name: project_report
   version: "1.0.0"
