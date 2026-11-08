@@ -35,7 +35,7 @@ fn open_session(markdown: &str) -> quillmark::LiveSession {
 fn acroform(result: &quillmark::RenderResult) -> (PdfDoc, lopdf::Dictionary) {
     let doc =
         PdfDoc::load_mem(&result.artifacts[0].bytes).expect("lopdf reparse: structurally valid");
-    let af = common::acroform(&doc).clone();
+    let af = quillmark_fixtures::acroform::acroform(&doc).clone();
     (doc, af)
 }
 
@@ -53,7 +53,8 @@ fn render(markdown: &str) -> (PdfDoc, lopdf::Dictionary) {
 }
 
 mod common;
-use common::{decode_pdf_text, widget};
+use common::decode_pdf_text;
+use quillmark_fixtures::acroform::widget;
 
 #[test]
 fn fixture_renders_structurally_valid_filled_pdf() {
