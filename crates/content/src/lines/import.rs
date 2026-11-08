@@ -4149,6 +4149,14 @@ pub(crate) mod tests {
         );
         assert_eq!(imported.content.text, "\u{FFFC}\np");
         assert!(imported.content.marks.is_empty());
+        let unspellable = imp_fixed("<table><td><em>[l](z)</em>x</table>");
+        assert_eq!(
+            crate::lines::serial::table_cells(&unspellable.content.islands[0].props)[0],
+            (
+                "lx".into(),
+                vec![Mark::new(0, 1, MarkKind::Link { url: "z".into() })]
+            )
+        );
         assert_eq!(dropped(&imported), [("b", 3), ("i", 1), ("a", 1)]);
     }
 

@@ -371,8 +371,8 @@ fn table_tail_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
             ));
         }
         apart = false;
-        for (k, &cut) in cuts.iter().enumerate() {
-            let piece = content[cut..cuts.get(k + 1).copied().unwrap_or(content.len())].trim();
+        for (j, &cut) in cuts.iter().enumerate() {
+            let piece = content[cut..cuts.get(j + 1).copied().unwrap_or(content.len())].trim();
             if piece.is_empty() {
                 apart = true;
             } else if !stopped && fenced(k, content[cut..].trim()) {
@@ -713,6 +713,8 @@ mod tests {
             "<table><tr><td>a</td></tr></table>",
             "<table><tr><td>a</td></tr></table>\n```\nx",
             "<table><tr><td>a</td></tr></table>\n````\nx\n```",
+            "<table><tr><td>a</td></tr>\n```\n</table> ```\nx",
+            "<table><tr><td>a\n```\n</td></tr></table> ```\nx",
         ] {
             assert_eq!(normalized(md), md);
         }
