@@ -872,3 +872,77 @@ fn an_info_reference_to_a_non_dict_gets_a_fresh_info() {
     let info = doc.get_object(info_ref).unwrap().as_dict().unwrap();
     assert!(info.get(b"Producer").is_ok());
 }
+
+fn radio(on: &str, value: Option<&str>, x: f32) -> FieldSpec {
+    let mut button = FieldSpec::new(
+        "Color".into(),
+        0,
+        [x, 560.0, x + 14.0, 574.0],
+        FieldType::Radio { on: on.into() },
+    );
+    button.schema_field = Some("color".into());
+    button.value = value.map(str::to_string);
+    button
+}
+
+/// A lone button may be cleared, and buttons named for one value turn on
+/// together: a filler can tell them apart only by their flags.
+#[test]
+fn a_radio_fields_flags_follow_its_buttons() {
+    let flags = |buttons: &[FieldSpec]| {
+        let (_, _, w) = stamped(buttons);
+        w["Color"].get(b"Ff").unwrap().as_i64().unwrap()
+    };
+    let (radio_flag, no_toggle_off, unison) = (1 << 15, 1 << 14, 1 << 25);
+    assert_eq!(flags(&[radio_button("red", 10.0)]), radio_flag);
+    assert_eq!(
+        flags(&[radio_button("red", 10.0), radio_button("blue", 30.0)]),
+        radio_flag | no_toggle_off
+    );
+    assert_eq!(
+        flags(&[radio_button("red", 10.0), radio_button("red", 30.0)]),
+        radio_flag | no_toggle_off | unison
+    );
+
+    let (_, _, w) = stamped(&[
+        radio("red", Some("green"), 10.0),
+        radio("blue", Some("green"), 30.0),
+    ]);
+    assert_eq!(
+        w["Color"].get(b"V").unwrap().as_name().unwrap(),
+        b"Off",
+        "a value no button is named for checks none"
+    );
+}
+
+fn radio_button(on: &str, x: f32) -> FieldSpec {
+    radio(on, None, x)
+}
+
+#[test]
+fn widgets_of_one_field_that_disagree_are_refused() {
+    let refused = |fields: &[FieldSpec]| {
+        stamp(build_base_pdf(1), fields, &StampOptions::default())
+            .expect_err("refused")
+            .code
+    };
+    let other = text_field("Color", "color", 0, [10.0, 10.0, 100.0, 30.0], "red");
+    assert_eq!(
+        refused(&[radio_button("red", 10.0), other]),
+        "pdf::conflicting_field"
+    );
+    assert_eq!(
+        refused(&[
+            radio("red", Some("red"), 10.0),
+            radio("blue", Some("blue"), 30.0)
+        ]),
+        "pdf::conflicting_field"
+    );
+    for on in ["", "Off"] {
+        assert_eq!(
+            refused(&[radio_button(on, 10.0)]),
+            "pdf::bad_on_state",
+            "{on:?}"
+        );
+    }
+}

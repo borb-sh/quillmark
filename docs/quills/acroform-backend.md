@@ -155,12 +155,12 @@ Note what is **absent** from the bound fields: no `type`, `options`, or `multili
 
 | Key | Required | Notes |
 |---|---|---|
-| `name` | yes | The widget's `/T` entry: unique across **both** `fields` and `widgets`. |
+| `name` | yes | The field's `/T` entry: unique across **both** `fields` and `widgets`. Bound fields naming one `schema_field` are widgets of one field, which takes the first one's `name`, so a value printed in two boxes stays one value when someone edits either box in a viewer. The boxes with an `option` are one radio field, and the rest one field of the kind the schema gives. |
 | `schema_field` | yes | The document field this widget binds to. Resolved against the quill schema at load; a dangling path is a load error (`acroform::dangling_binding`), not a silent blank. |
 | `page` | yes | 0-based page index into `form.pdf`. |
 | `rect` | yes | `{x, y, w, h}` in **PDF points** (1/72"), **top-left origin**, page-relative (see below). A box with no width or height, or wholly off its page, is a load error (`acroform::invalid_field_rect`). |
 | `tooltip` | no | Overrides the widget's `/TU`. When omitted, the field inherits the schema field's `description`. |
-| `option` | no | One value of an `enum` field. The widget is a checkbox of its own, checked when the field holds that value, and its `/TU` defaults to the field's description followed by the value. Bind one per value to lay out a printed group of boxes that answers one question. A variant container binds its discriminant, `classification.value`. A field that is not an `enum`, or a value outside it, is a load error (`acroform::invalid_option`). The boxes are separate fields, so a viewer does not keep them exclusive when a person ticks them by hand. `option` is `quillmark/form@0.3.0` vocabulary: Quillmark before 0.127 ignores it and draws a dropdown in the box, so a quill using it declares `requires: ">=0.127"`. |
+| `option` | no | One value of an `enum` field. The widget is a radio button whose on-state is named by that value, checked when the field holds it, and its `/TU` defaults to the field's description followed by the value. Bind one per value to lay out a printed group of boxes that answers one question: the boxes binding one field are one radio field, so a viewer keeps them exclusive, and a person cannot untick the answer once there are two or more. A variant container binds its discriminant, `classification.value`. A field that is not an `enum`, a value outside it, or the value `Off`, the name a PDF gives every button's off-state, is a load error (`acroform::invalid_option`). `option` is `quillmark/form@0.3.0` vocabulary: Quillmark before 0.127 ignores it and draws a dropdown in the box, so a quill using it declares `requires: ">=0.127"`. |
 
 ### Unbound-widget keys (`widgets`)
 
@@ -183,7 +183,7 @@ A bound field's kind is derived from the **capability of the resolved schema fie
 | Resolved schema field | Widget kind |
 |---|---|
 | has `enum` values | **choice**, options = the enum values |
-| has `enum` values, with the field's `option` set | **checkbox**, checked for that value |
+| has `enum` values, with the field's `option` set | **radio button**, checked for that value |
 | `boolean`, or a `matrix` member (its tick) | **checkbox** |
 | `text`, `richtext`, `number`, `integer`, `date`, `datetime` | **text** |
 | array of the above (scalar or prose) | **text**: elements joined with newlines |
@@ -260,13 +260,13 @@ PDF is emitted whole, so a `RenderOptions::pages` selection errors with
 raster path (`render_rgba`), not an `OutputFormat`, and this backend paints. See
 [Live Preview](../integration/live-preview.md).
 
-The PDF is the real deliverable, and the canvas rasterizes the same stamp but for each checkbox's `/AP` `/N`, which there names only the state the box shows (the canvas rasterizer reads no state dictionary).
+The PDF is the real deliverable, and the canvas rasterizes the same stamp but for each checkbox's and radio button's `/AP` `/N`, which there names only the state the box shows (the canvas rasterizer reads no state dictionary).
 
 Each widget is a real field carrying `/NeedAppearances` **and** a baked `/AP` appearance stream drawing its current value. The two split the work: a viewer that synthesizes appearances (Acrobat, Chrome/pdfium, Preview.app, pdf.js's forms layer) rebuilds each value from `/V` and `/DA`, refitting it as the user types; a consumer that synthesizes nothing (a raster pipeline, Ghostscript, the canvas) draws the baked stream and shows the value rather than an empty box.
 
 The baked stream fits the value as a viewer's auto-size does: a one-line value shrinks until it fits the box's width, and a multiline value breaks at spaces into lines of the box's width, shrinking until they fit its height, down to 4 pt. A value that does not fit even at 4 pt is cut off at the box's edge, and the session warns `acroform::text_overflow` at its field.
 
-A checkbox bakes both of its states, checked or not: `/AP << /N << /Yes … /Off … >> >>`, with `/AS` and `/V` naming the current one. `Yes` draws the check mark and `Off` draws nothing, the background owning the box itself. A later stage that fills the delivered PDF toggles a box by renaming `/AS` and `/V`, as pypdf does, with no appearance to regenerate.
+A checkbox bakes both of its states, checked or not: `/AP << /N << /Yes … /Off … >> >>`, with `/AS` and `/V` naming the current one. `Yes` draws the check mark and `Off` draws nothing, the background owning the box itself. A later stage that fills the delivered PDF toggles a box by renaming `/AS` and `/V`, as pypdf does, with no appearance to regenerate. A radio button bakes the same two states under its own on-state, `/AP << /N << /green … /Off … >> >>`, and the radio field's `/V` names the value the document holds, or `Off` when no button stands for it.
 
 ### Baked-appearance fidelity limits
 

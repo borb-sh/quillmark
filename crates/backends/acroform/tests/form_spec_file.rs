@@ -3,7 +3,7 @@
 
 use quillmark::{Document, Engine, OutputFormat, RenderError, RenderOptions};
 use quillmark_core::quill::{FileTreeNode, Quill};
-use quillmark_fixtures::acroform::{acroform, widget};
+use quillmark_fixtures::acroform::{acroform, fields, widget};
 
 mod common;
 
@@ -126,20 +126,14 @@ fn a_bad_form_yaml_locates_its_error() {
     );
 }
 
-#[test]
-fn a_box_per_option_checks_the_one_the_document_chose() {
+/// The fixture with `extra` bound fields, rendered over `favorite_color: green`.
+fn render_with_fields(extra: &[serde_json::Value]) -> lopdf::Document {
     let mut spec: serde_json::Value =
         quillmark_core::value::from_yaml_str(&fixture_form_yaml()).expect("the fixture parses");
-    let fields = spec["fields"].as_array_mut().expect("fields");
-    for (i, color) in ["red", "green", "blue"].iter().enumerate() {
-        fields.push(serde_json::json!({
-            "name": format!("Color_{color}"),
-            "schema_field": "favorite_color",
-            "option": color,
-            "page": 0,
-            "rect": { "x": 72 + 20 * i, "y": 700, "w": 12, "h": 12 },
-        }));
-    }
+    spec["fields"]
+        .as_array_mut()
+        .expect("fields")
+        .extend_from_slice(extra);
     let tree = sample_form_with(&[("Form.yaml", &spec.to_string())]);
     let quill = Quill::from_tree(tree).expect("Quill.yaml loads");
     let markdown = DOC.replace("full_name: Ada Lovelace\n", "favorite_color: green\n");
@@ -152,15 +146,100 @@ fn a_box_per_option_checks_the_one_the_document_chose() {
             &RenderOptions::default().with_output_format(OutputFormat::Pdf),
         )
         .expect("render ok");
+    lopdf::Document::load_mem(&result.artifacts[0].bytes).expect("reparse")
+}
 
-    let pdf = lopdf::Document::load_mem(&result.artifacts[0].bytes).expect("reparse");
+fn name_of(obj: &lopdf::Object) -> String {
+    String::from_utf8(obj.as_name().unwrap().to_vec()).unwrap()
+}
+
+/// The widgets a field holds, each the dictionary of one kid.
+fn kids<'a>(pdf: &'a lopdf::Document, field: &lopdf::Dictionary) -> Vec<&'a lopdf::Dictionary> {
+    field
+        .get(b"Kids")
+        .expect("a field of several widgets holds them as kids")
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|kid| {
+            pdf.get_object(kid.as_reference().unwrap())
+                .unwrap()
+                .as_dict()
+                .unwrap()
+        })
+        .collect()
+}
+
+#[test]
+fn a_box_per_option_is_one_radio_field_holding_the_chosen_value() {
+    let boxes: Vec<serde_json::Value> = ["red", "green", "blue"]
+        .iter()
+        .enumerate()
+        .map(|(i, color)| {
+            serde_json::json!({
+                "name": format!("Color_{color}"),
+                "schema_field": "favorite_color",
+                "option": color,
+                "page": 0,
+                "rect": { "x": 72 + 20 * i, "y": 700, "w": 12, "h": 12 },
+            })
+        })
+        .collect();
+    let pdf = render_with_fields(&boxes);
     let af = acroform(&pdf);
-    let state = |color: &str| {
-        let w = widget(&pdf, af, &format!("Color_{color}"));
-        String::from_utf8(w.get(b"AS").unwrap().as_name().unwrap().to_vec()).unwrap()
-    };
+    let radio = widget(&pdf, af, "Color_red");
+    let flags = radio.get(b"Ff").unwrap().as_i64().unwrap();
+    assert_eq!(flags & (1 << 15), 1 << 15, "a radio field");
     assert_eq!(
-        [state("red"), state("green"), state("blue")],
-        ["Off", "Yes", "Off"]
+        flags & (1 << 14),
+        1 << 14,
+        "a filler cannot untick its answer"
+    );
+    assert_eq!(name_of(radio.get(b"V").unwrap()), "green");
+
+    let buttons = kids(&pdf, radio);
+    let states: Vec<String> = buttons
+        .iter()
+        .map(|b| name_of(b.get(b"AS").unwrap()))
+        .collect();
+    assert_eq!(states, ["Off", "green", "Off"]);
+    for (button, color) in buttons.iter().zip(["red", "green", "blue"]) {
+        let ap = button.get(b"AP").unwrap().as_dict().unwrap();
+        let n = ap.get(b"N").unwrap().as_dict().unwrap();
+        assert!(n.has(color.as_bytes()) && n.has(b"Off"), "{color}");
+        assert!(
+            !button.has(b"T"),
+            "a button is a widget, not a field of its own"
+        );
+    }
+}
+
+#[test]
+fn the_boxes_binding_one_field_are_widgets_of_the_first_ones_field() {
+    let boxes: Vec<serde_json::Value> = ["Color_top", "Color_bottom"]
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            serde_json::json!({
+                "name": name,
+                "schema_field": "favorite_color",
+                "page": 0,
+                "rect": { "x": 72, "y": 600 + 40 * i, "w": 200, "h": 20 },
+            })
+        })
+        .collect();
+    let pdf = render_with_fields(&boxes);
+    let af = acroform(&pdf);
+    let field = widget(&pdf, af, "FavoriteColor");
+    assert_eq!(field.get(b"FT").unwrap().as_name().unwrap(), b"Ch");
+    assert_eq!(
+        kids(&pdf, field).len(),
+        3,
+        "the fixture's box and the two added"
+    );
+    let names: Vec<&[u8]> = fields(&pdf, af).map(|(t, _)| t).collect();
+    assert!(
+        !names.contains(&&b"Color_top"[..]) && !names.contains(&&b"Color_bottom"[..]),
+        "{names:?}"
     );
 }

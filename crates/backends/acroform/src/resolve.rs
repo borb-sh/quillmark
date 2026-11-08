@@ -30,12 +30,7 @@ pub fn field_spec(widget: &BoundWidget, data: &Value) -> FieldSpec {
         widget.rect,
         widget.field_type.clone(),
     );
-    spec.value = match &widget.option {
-        Some(option) => lookup(data, widget.schema_field.as_deref().unwrap_or_default())
-            .is_some_and(|raw| raw.as_str() == Some(option))
-            .then(|| CHECKBOX_ON_STATE.to_string()),
-        None => resolve_value(&widget.field_type, widget.schema_field.as_deref(), data),
-    };
+    spec.value = resolve_value(&widget.field_type, widget.schema_field.as_deref(), data);
     if let (FieldType::Text { multiline }, Some(value)) = (&mut spec.field_type, &spec.value)
         && value.contains('\n')
     {
@@ -52,7 +47,9 @@ pub fn field_spec(widget: &BoundWidget, data: &Value) -> FieldSpec {
 }
 
 /// `None` renders a blank widget: unbound, absent/null, signature, empty text,
-/// unchecked checkbox, or a choice value matching no option.
+/// unchecked checkbox, or a choice value matching no option. A radio button
+/// takes the enum's value whichever button it is, since every button of the
+/// field holds the one value and is checked where it names it.
 fn resolve_value(
     field_type: &FieldType,
     schema_field: Option<&str>,
@@ -65,6 +62,7 @@ fn resolve_value(
         // plate as its mapping of columns.
         FieldType::Checkbox => matches!(raw, Value::Bool(true) | Value::Object(_))
             .then(|| CHECKBOX_ON_STATE.to_string()),
+        FieldType::Radio { .. } => raw.as_str().filter(|s| !s.is_empty()).map(str::to_string),
         FieldType::Choice { options } => coerce_choice(raw, options),
         FieldType::Signature => None,
     }
@@ -372,7 +370,6 @@ mod tests {
             field_type: FieldType::Text { multiline: false },
             tooltip: None,
             max_len: None,
-            option: None,
         }
     }
 
@@ -400,10 +397,9 @@ mod tests {
     }
 
     #[test]
-    fn an_option_box_is_checked_by_its_value_alone() {
+    fn a_radio_button_is_checked_by_its_value_alone() {
         let button = |option: &str| BoundWidget {
-            field_type: FieldType::Checkbox,
-            option: Some(option.into()),
+            field_type: FieldType::Radio { on: option.into() },
             ..text_widget("color")
         };
         let checked = |option: &str, data: Value| field_spec(&button(option), &data).is_checked();

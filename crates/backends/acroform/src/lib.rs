@@ -22,7 +22,7 @@ use quillmark_core::{
     session::{ChangeSet, LiveSession},
     types::{Artifact, OutputFormat, RenderOptions},
 };
-use quillmark_pdf::{AppearanceStates, FieldSpec, StampOptions, regions_of, stamp};
+use quillmark_pdf::{AppearanceStates, FieldSpec, FieldType, StampOptions, regions_of, stamp};
 
 use hayro::hayro_interpret::{InterpreterSettings, font::FontQuery};
 use hayro::hayro_syntax::Pdf as HayroPdf;
@@ -190,6 +190,12 @@ fn value_warnings(field_specs: &[FieldSpec], json_data: &serde_json::Value) -> V
         else {
             continue;
         };
+        if !matches!(
+            spec.field_type,
+            FieldType::Text { .. } | FieldType::Choice { .. }
+        ) {
+            continue;
+        }
         let path = || {
             plate_addr_to_doc_path(field, &card_kinds)
                 .map_or_else(|| field.to_string(), |path| path.to_string())

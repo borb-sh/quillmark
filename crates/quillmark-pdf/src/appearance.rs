@@ -113,7 +113,7 @@ pub fn overflows(spec: &FieldSpec) -> bool {
             let size = one_line_size(spec, &lines, room, h);
             lines.iter().any(|line| spec.font.width(line, size) > room)
         }
-        FieldType::Checkbox | FieldType::Signature => false,
+        FieldType::Checkbox | FieldType::Radio { .. } | FieldType::Signature => false,
     }
 }
 
@@ -177,7 +177,7 @@ fn check_size(h: f32) -> f32 {
 pub(crate) enum Normal {
     /// The one stream a text or choice widget draws its value in.
     Value(Appearance),
-    /// A checkbox's two states, drawn whatever its value, so a filler renaming
+    /// A box's two states, drawn whatever its value, so a filler renaming
     /// `/AS` has a state to show (ISO 32000-1 §12.7.4.2.3).
     States { on: Appearance, off: Appearance },
 }
@@ -203,7 +203,7 @@ pub(crate) fn of(spec: &FieldSpec) -> Option<Normal> {
     let room = w - 2.0 * TEXT_INSET;
     let (resource, size, x, y, lines) = match &spec.field_type {
         FieldType::Signature => return None,
-        FieldType::Checkbox => return Some(check_states([w, h])),
+        FieldType::Checkbox | FieldType::Radio { .. } => return Some(check_states([w, h])),
         FieldType::Text { multiline: true } => {
             let (size, lines) = wrapped(spec, spec.value.as_deref()?, room, h);
             (

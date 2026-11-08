@@ -7,11 +7,13 @@ use quillmark_core::quill::{
     FieldSchema, FieldType as SchemaType, QuillConfig, VARIANT_DISCRIMINANT_KEY,
 };
 use quillmark_pdf::FieldType as WidgetType;
+use std::collections::HashMap;
 
 use crate::form::{BoundField, FormSpec, Rect, UnboundWidget, WidgetKind};
 
 /// A `Form.yaml` field with its static parts resolved: `rect` is final
-/// bottom-left PDF geometry, and the widget type is value-free.
+/// bottom-left PDF geometry, and the widget type is value-free. `name` is the
+/// field's, which widgets of one field share ([`bind_widgets`]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct BoundWidget {
     pub name: String,
@@ -22,8 +24,6 @@ pub struct BoundWidget {
     pub tooltip: Option<String>,
     /// The bound text field's `max:`, the character cap its widget carries.
     pub max_len: Option<u32>,
-    /// The value that checks this checkbox, where it is one option's box.
-    pub option: Option<String>,
 }
 
 /// Why binding a `Form.yaml` field failed. Every variant is a load error.
@@ -61,6 +61,8 @@ pub enum BindError {
         option: String,
         values: Vec<String>,
     },
+    /// An `option: Off`, the name a PDF gives every button's off-state.
+    OffOption { name: String, path: String },
 }
 
 impl BindError {
@@ -71,7 +73,7 @@ impl BindError {
             BindError::Unbindable { .. } => "acroform::unbindable_field",
             BindError::PageOutOfRange { .. } => "acroform::field_page_out_of_range",
             BindError::BadRect { .. } => "acroform::invalid_field_rect",
-            BindError::BadOption { .. } => "acroform::invalid_option",
+            BindError::BadOption { .. } | BindError::OffOption { .. } => "acroform::invalid_option",
         }
     }
 }
@@ -128,20 +130,36 @@ impl std::fmt::Display for BindError {
                 "Form.yaml field {name:?} is checked by `option: {option:?}`, which `enum` \
                  {path:?} does not hold; its values are {values:?}"
             ),
+            BindError::OffOption { name, path } => write!(
+                f,
+                "Form.yaml field {name:?} is checked by `option: \"Off\"`, the name a PDF gives \
+                 every button's off-state, so no box can stand for that value of {path:?}; bind \
+                 the field without `option` to show it in a dropdown"
+            ),
         }
     }
 }
 
 /// Resolve and place every field in `spec` against the schema and the page
 /// geometry, yielding the session's value-free widget layer.
+///
+/// Bound fields naming one `schema_field` are widgets of one field, named by
+/// the first of them, so a value shown twice stays one value when a filler
+/// edits either: the boxes with an `option` are one radio field, and the rest
+/// one field of the kind the schema projects. A field's own widget keeps the
+/// `schema_field`, so regions and the canvas key on it as before.
 pub fn bind_widgets(
     spec: &FormSpec,
     config: &QuillConfig,
     canvas_boxes: &[[f32; 4]],
 ) -> Result<Vec<BoundWidget>, BindError> {
     let mut bound = Vec::with_capacity(spec.fields.len() + spec.widgets.len());
+    let mut field_names: HashMap<(&str, bool), &str> = HashMap::new();
     for field in &spec.fields {
-        bound.push(bind_field(field, config, canvas_boxes)?);
+        let mut widget = bind_field(field, config, canvas_boxes)?;
+        let key = (field.schema_field.as_str(), field.option.is_some());
+        widget.name = field_names.entry(key).or_insert(&field.name).to_string();
+        bound.push(widget);
     }
     for widget in &spec.widgets {
         bound.push(bind_unbound(widget, canvas_boxes)?);
@@ -171,7 +189,15 @@ fn bind_field(
                 SchemaType::Enum { .. } if schema.is_variant_bearing() && !discriminant => {
                     return Err(bad(&[]));
                 }
-                SchemaType::Enum { values } if values.contains(option) => WidgetType::Checkbox,
+                SchemaType::Enum { values } if values.contains(option) && option == "Off" => {
+                    return Err(BindError::OffOption {
+                        name: field.name.clone(),
+                        path: field.schema_field.clone(),
+                    });
+                }
+                SchemaType::Enum { values } if values.contains(option) => {
+                    WidgetType::Radio { on: option.clone() }
+                }
                 SchemaType::Enum { values } => return Err(bad(values)),
                 _ => return Err(bad(&[])),
             }
@@ -199,7 +225,6 @@ fn bind_field(
                 SchemaType::Text { .. } | SchemaType::RichText { .. }
             )
         }),
-        option: field.option.clone(),
     })
 }
 
@@ -215,7 +240,6 @@ fn bind_unbound(
         field_type: widget_type(&widget.kind),
         tooltip: widget.tooltip.clone(),
         max_len: None,
-        option: None,
     })
 }
 
@@ -523,10 +547,9 @@ card_kinds:
     }
 
     #[test]
-    fn an_on_value_makes_an_enum_option_a_checkbox_of_its_own() {
+    fn an_option_makes_an_enum_value_a_radio_button() {
         let green = button("favorite_color", "green").expect("binds");
-        assert_eq!(green.field_type, WidgetType::Checkbox);
-        assert_eq!(green.option.as_deref(), Some("green"));
+        assert_eq!(green.field_type, WidgetType::Radio { on: "green".into() });
         assert_eq!(
             green.tooltip.as_deref(),
             Some("green"),
@@ -534,7 +557,7 @@ card_kinds:
         );
         assert_eq!(
             button("classification.value", "CUI").unwrap().field_type,
-            WidgetType::Checkbox
+            WidgetType::Radio { on: "CUI".into() }
         );
 
         for (path, option) in [
@@ -548,6 +571,62 @@ card_kinds:
         }
         let bare = button("classification", "CUI").unwrap_err().to_string();
         assert!(bare.contains("binds its `.value`"), "{bare}");
+    }
+
+    #[test]
+    fn the_widgets_binding_one_field_take_the_first_ones_name() {
+        let spec = FormSpec::parse(
+            br#"{
+              "schema": "quillmark/form@0.3.0",
+              "fields": [
+                { "name": "Pick", "schema_field": "favorite_color", "page": 0,
+                  "rect": { "x": 0, "y": 0, "w": 9, "h": 9 } },
+                { "name": "Red", "schema_field": "favorite_color", "option": "red", "page": 0,
+                  "rect": { "x": 0, "y": 10, "w": 9, "h": 9 } },
+                { "name": "Blue", "schema_field": "favorite_color", "option": "blue", "page": 0,
+                  "rect": { "x": 0, "y": 20, "w": 9, "h": 9 } },
+                { "name": "PickAgain", "schema_field": "favorite_color", "page": 1,
+                  "rect": { "x": 0, "y": 0, "w": 9, "h": 9 } },
+                { "name": "Name", "schema_field": "full_name", "page": 0,
+                  "rect": { "x": 0, "y": 30, "w": 9, "h": 9 } }
+              ]
+            }"#,
+        )
+        .unwrap();
+        let pages = [[0.0, 0.0, 612.0, 792.0]; 2];
+        let bound = bind_widgets(&spec, &config(), &pages).unwrap();
+        let names: Vec<&str> = bound.iter().map(|w| w.name.as_str()).collect();
+        assert_eq!(names, ["Pick", "Red", "Red", "Pick", "Name"]);
+    }
+
+    #[test]
+    fn an_off_option_is_refused() {
+        let yaml = r#"
+quill: { name: switch, version: 0.1.0, backend: acroform, description: x }
+main:
+  body: { enabled: false }
+  fields:
+    power: { type: enum, values: [On, Off] }
+"#;
+        let cfg = QuillConfig::from_yaml_with_warnings(yaml).unwrap().0;
+        let field = |option: &str| BoundField {
+            name: "W".into(),
+            schema_field: "power".into(),
+            page: 0,
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 9.0,
+                h: 9.0,
+            },
+            tooltip: None,
+            option: Some(option.into()),
+        };
+        let pages = [[0.0, 0.0, 612.0, 792.0]];
+        assert!(bind_field(&field("On"), &cfg, &pages).is_ok());
+        let err = bind_field(&field("Off"), &cfg, &pages).unwrap_err();
+        assert_eq!(err.code(), "acroform::invalid_option");
+        assert!(err.to_string().contains("off-state"), "{err}");
     }
 
     #[test]
