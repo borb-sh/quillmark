@@ -98,7 +98,12 @@ The table of codes and keys lives in [Diagnostic Codes § Args](../docs/referenc
 
 **One spelling per value.** A write decodes only a value in canonical form and refuses any other; `normalize` is the producer's verb. Decoding then encoding is therefore the identity, and equal values serialize to equal bytes. A stored value is read leniently: one not in canonical form is rewritten to it with a `content::noncanonical_read` warning, so the host stores the row again.
 
-**Every id Quillmark mints is a function of the values in play.** Structural ids mint positionally, past the highest number the value holds, never from an RNG, clock, UUID or process state, so the same markdown always imports to the same bytes and content hashes hold. A card that spells no valid `$id` mints one the same way, from a hash of the first index no card holds. Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none.
+**Every id Quillmark mints is a function of the values in play.** None comes from an RNG, clock or process state, so the same markdown imports to the same bytes and hashes hold.
+
+- An import mints structural ids positionally, past the highest number the value holds.
+- A write mints a new block's id from a digest of the value it lands on, so a retired block id returns only on a write against that same value, and a writer naming one is refused rather than landing on a stranger. Rejected: a stored high-water mark, state the value would carry for no reader but the minter.
+- A card that spells no valid `$id` mints one from a hash of the first index no card holds.
+- Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none.
 
 **The change laws hold for every change.** Apply then invert is the identity; compose agrees with applying in sequence; position mapping agrees with apply; parse and serialize round trip; every change yields a valid value or fails and changes nothing; repair is total and deterministic. They are property tests, and a change that breaks one is wrong.
 

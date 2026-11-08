@@ -1980,7 +1980,11 @@ mod diffs {
     fn a_block_inserted_or_deleted_brings_its_own_opening_break() {
         let d = from_markdown("alpha\n\nbeta").unwrap().content;
         let r = revise(&d, "alpha\n\ngamma\n\nbeta").unwrap();
-        assert_eq!(segments(&r.content), ["b0=alpha", "b2=gamma", "b1=beta"]);
+        let gamma = &r.content.blocks[1].id;
+        assert_eq!(
+            segments(&r.content),
+            ["b0=alpha", &format!("{gamma}=gamma"), "b1=beta"]
+        );
         assert!(
             matches!(&r.change.steps[..], [Step::Splice(s)] if s.at == 5 && s.delete.is_empty() && s.insert == "\ngamma"),
             "{:?}",
@@ -2186,17 +2190,22 @@ mod diffs {
         );
     }
 
-    /// A held id at the top of `u64` leaves no number past it, and a revise
-    /// mints the lowest one no held id takes.
+    /// A held id at the top of `u64` leaves a revise's new block its own id.
     #[test]
-    fn a_revise_past_an_id_at_the_top_of_u64_mints_the_lowest_free_one() {
+    fn a_revise_past_an_id_at_the_top_of_u64_mints_a_fresh_one() {
         let mut d = from_markdown("one\n\ntwo").unwrap().content;
         d.blocks[1].id = format!("b{}", u64::MAX);
         let r = revise(&d, "one\n\nnew\n\ntwo").unwrap();
+        let new = &r.content.blocks[1].id;
         assert_eq!(
             segments(&r.content),
-            ["b0=one", "b1=new", &format!("b{}=two", u64::MAX)]
+            [
+                "b0=one",
+                &format!("{new}=new"),
+                &format!("b{}=two", u64::MAX)
+            ]
         );
+        assert!(new.parse::<u64>().is_err() && new != "b0");
     }
 }
 

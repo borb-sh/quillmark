@@ -612,7 +612,8 @@ fn structural_edits_and_placeholders_mint_past_the_value() {
         .main_mut()
         .split_block(Target::Body, 14, None, Some(quoted.hash.as_str()))
         .unwrap();
-    assert_eq!(split.minted.get("?0").map(String::as_str), Some("b3"));
+    let right = split.minted["?0"].clone();
+    assert!(right.starts_with('b') && right[1..].parse::<u64>().is_err());
     let listed = doc
         .main_mut()
         .wrap(
@@ -636,7 +637,7 @@ fn structural_edits_and_placeholders_mint_past_the_value() {
     );
     let body = doc.main().body();
     let ids: Vec<&str> = body.blocks.iter().map(|b| b.id.as_str()).collect();
-    assert_eq!(ids, ["b0", "b1", "b2", "b3"]);
+    assert_eq!(ids, ["b0", "b1", "b2", right.as_str()]);
     assert_eq!(body.blocks[2].path, ["l0", "i0"]);
     let located = doc.main().block_at(Target::Body, 7).unwrap();
     assert_eq!(
@@ -660,12 +661,12 @@ fn structural_edits_and_placeholders_mint_past_the_value() {
         .main_mut()
         .apply(Target::Body, &insert, Some(listed.hash.as_str()))
         .unwrap();
-    assert_eq!(filled.minted.get("?p").map(String::as_str), Some("b4"));
+    let new = filled.minted["?p"].clone();
     assert!(
         doc.main()
             .body()
             .blocks
             .iter()
-            .any(|b| b.id == "b4" && matches!(b.kind, BlockKind::Heading { level: 2 }))
+            .any(|b| b.id == new && matches!(b.kind, BlockKind::Heading { level: 2 }))
     );
 }

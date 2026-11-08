@@ -273,3 +273,31 @@ fn every_op_on_every_block_keeps_the_ids_it_does_not_name() {
         }
     }
 }
+
+/// A block id a write mints is a function of the value it lands on, and a
+/// retired one does not come back on a later write.
+#[test]
+fn a_retired_block_id_is_not_minted_again() {
+    let c = md("One.\n\nTwo.\n\nThree.");
+    let last = c.blocks[2].id.clone();
+    let gone = run(&c, vec![BlockOp::Delete { id: last.clone() }]);
+    let op = BlockOp::InsertAfter {
+        id: gone.blocks[1].id.clone(),
+        with: md("Three again."),
+    };
+    let a = batch(&gone, std::slice::from_ref(&op)).unwrap();
+    assert_eq!(a, batch(&gone, std::slice::from_ref(&op)).unwrap());
+    let back = apply(&gone, &a.change).unwrap().content;
+    assert_ne!(id_of(&back, "Three again."), last);
+}
+
+/// A markdown revise mints a block it cannot align the same way.
+#[test]
+fn a_revise_does_not_mint_a_retired_block_id_again() {
+    let c = md("One.\n\nTwo.\n\nThree.");
+    let last = c.blocks[2].id.clone();
+    let r1 = quillmark_content::diff::revise(&c, "One.\n\nTwo.").unwrap();
+    let r2 = quillmark_content::diff::revise(&r1.content, "One.\n\nTwo.\n\nFour.").unwrap();
+    assert_eq!(&ids(&r2.content)[..2], &ids(&c)[..2]);
+    assert_ne!(id_of(&r2.content, "Four."), last);
+}

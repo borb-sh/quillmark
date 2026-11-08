@@ -2493,6 +2493,7 @@ dependencies = [
  "quillmark-fixtures",
  "serde",
  "serde_json",
+ "sha2",
  "similar",
  "unicase",
  "unicode-segmentation",
