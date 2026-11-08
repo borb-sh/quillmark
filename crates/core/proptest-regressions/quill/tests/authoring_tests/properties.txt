@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 24832a5432e385852d949d33027938b4349f7ccc568466839796e6a5d86e8992 # shrinks to main = Object {"kind": String("main"), "fields": Object {}, "body": String("_*a*__*___")}, cards = []

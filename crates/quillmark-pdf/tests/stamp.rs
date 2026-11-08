@@ -79,27 +79,7 @@ fn stamped_with(
     lopdf::Dictionary,
     HashMap<String, lopdf::Dictionary>,
 ) {
-    let out = stamp(base, fields, opts).expect("stamp ok");
-    let doc = lopdf::Document::load_mem(&out).expect("lopdf reparse");
-    let af_ref = doc
-        .catalog()
-        .unwrap()
-        .get(b"AcroForm")
-        .expect("/AcroForm")
-        .as_reference()
-        .expect("AcroForm indirect");
-    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap().clone();
-    let mut by_name = HashMap::new();
-    for f in af.get(b"Fields").unwrap().as_array().unwrap() {
-        let w = doc
-            .get_object(f.as_reference().unwrap())
-            .unwrap()
-            .as_dict()
-            .unwrap();
-        let name = String::from_utf8_lossy(w.get(b"T").unwrap().as_str().unwrap()).into_owned();
-        by_name.insert(name, w.clone());
-    }
-    (doc, af, by_name)
+    quillmark_fixtures::acroform::parse(&stamp(base, fields, opts).expect("stamp ok"))
 }
 
 fn stamped_on(

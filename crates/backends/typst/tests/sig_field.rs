@@ -19,7 +19,7 @@ fn acroform(
     lopdf::Dictionary,
     HashMap<String, lopdf::Dictionary>,
 ) {
-    common::acroform_of(&compile(plate, json_data).expect("compile ok"))
+    quillmark_fixtures::acroform::parse(&compile(plate, json_data).expect("compile ok"))
 }
 
 #[test]

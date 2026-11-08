@@ -17,7 +17,8 @@
   qm.region("state")[#banner(qm.data.state)]
 }
 
-= #qm.ink(qm.data, "project")
+// PDF/UA-1 rejects an empty heading, so a blank title prints no heading.
+#if qm.data.project != "" [= #qm.ink(qm.data, "project")]
 
 // A blank date is `none`. `qm.ink` places the date's ink, so the printed date
 // stays click-to-edit; `qm.data.issued` is the `datetime` itself, for
@@ -39,7 +40,7 @@
     // Every iteration reads through one loop variable, so a print of
     // `card.title` names no card. Its ink is the card's own: compute with
     // `card`, and print and format with `qm.ink(card, ..)`.
-    heading(level: 2, qm.ink(card, "title"))
+    if card.title != "" { heading(level: 2, qm.ink(card, "title")) }
     if card.due != none {
       [Due #qm.ink(card, "due", "[year]-[month]-[day]")]
       parbreak()

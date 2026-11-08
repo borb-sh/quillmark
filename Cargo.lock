@@ -2522,6 +2522,9 @@ dependencies = [
 [[package]]
 name = "quillmark-fixtures"
 version = "0.136.0"
+dependencies = [
+ "lopdf",
+]
 
 [[package]]
 name = "quillmark-pdf"

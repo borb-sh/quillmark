@@ -2,13 +2,7 @@
 //! the stamped PDF: each widget's `/DA` and `/Q`, and the `/DR` `/Font` the
 //! `/DA` names resolve against.
 
-use quillmark_core::error::RenderError;
-
 mod common;
-
-fn compile(plate: &str) -> Result<Vec<u8>, RenderError> {
-    common::compile(plate, &serde_json::json!({}))
-}
 
 /// The parsed document, its AcroForm dict, and a `/T` → widget map.
 fn acroform(
@@ -18,7 +12,9 @@ fn acroform(
     lopdf::Dictionary,
     std::collections::HashMap<String, lopdf::Dictionary>,
 ) {
-    common::acroform_of(&compile(plate).expect("compile ok"))
+    quillmark_fixtures::acroform::parse(
+        &common::compile(plate, &serde_json::json!({})).expect("compile ok"),
+    )
 }
 
 fn da(w: &lopdf::Dictionary) -> String {
@@ -118,9 +114,12 @@ fn a_dial_the_widget_cannot_honour_is_rejected() {
         ("type: \"text\", size: -4pt", "positive length"),
         ("type: \"signature\", align: \"right\"", "text fields only"),
     ] {
-        let e = compile(&format!(
-            "#import \"@local/quillmark-helper:0.2.0\" as qm\n#qm.form-field(\"t\", {call})\n"
-        ))
+        let e = common::compile(
+            &format!(
+                "#import \"@local/quillmark-helper:0.2.0\" as qm\n#qm.form-field(\"t\", {call})\n"
+            ),
+            &serde_json::json!({}),
+        )
         .expect_err(&format!("{call} must not compile"));
         assert!(
             format!("{e:?}").contains(assert),

@@ -1559,14 +1559,10 @@ impl PyReader {
         let doc = self.doc.borrow(py);
         let target = Self::target(&doc, card)?;
         let reader = quill.inner.reader(&doc.inner);
-        let read = match target.index {
-            None => reader.get(field),
-            Some(i) => reader
-                .card(i)
-                .map_err(|e| convert_edit_error(e, &target.base))?
-                .get(field),
-        }
-        .map_err(|e| convert_edit_error(e, &target.base))?;
+        let read = reader
+            .at(target.index)
+            .and_then(|r| r.get(field))
+            .map_err(|e| convert_edit_error(e, &target.base))?;
         read_value_to_py(py, read)
     }
 
@@ -1590,14 +1586,10 @@ impl PyReader {
         let doc = self.doc.borrow(py);
         let target = Self::target(&doc, card)?;
         let reader = quill.inner.reader(&doc.inner);
-        let read = match target.index {
-            None => reader.get_content(field),
-            Some(i) => reader
-                .card(i)
-                .map_err(|e| convert_edit_error(e, &target.base))?
-                .get_content(field),
-        }
-        .map_err(|e| convert_edit_error(e, &target.base))?;
+        let read = reader
+            .at(target.index)
+            .and_then(|r| r.get_content(field))
+            .map_err(|e| convert_edit_error(e, &target.base))?;
         content_to_py(py, read)
     }
 
@@ -1632,14 +1624,10 @@ impl PyReader {
         let doc = self.doc.borrow(py);
         let target = Self::target(&doc, card)?;
         let reader = quill.inner.reader(&doc.inner);
-        let read = match target.index {
-            None => reader.get_content_at(name, &at),
-            Some(i) => reader
-                .card(i)
-                .map_err(|e| convert_edit_error(e, &target.base))?
-                .get_content_at(name, &at),
-        }
-        .map_err(|e| convert_edit_error(e, &target.base))?;
+        let read = reader
+            .at(target.index)
+            .and_then(|r| r.get_content_at(name, &at))
+            .map_err(|e| convert_edit_error(e, &target.base))?;
         content_to_py(py, read)
     }
 }

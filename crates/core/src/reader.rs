@@ -64,11 +64,7 @@ impl<'a> TypedReader<'a> {
     /// when a content leaf holds a value that does not decode (a scalar an
     /// opaque [`store_field`](crate::document::Card::store_field) wrote).
     pub fn get<'t>(&self, target: impl Into<Target<'t>>) -> Result<Option<QuillValue>, EditError> {
-        read_field(
-            self.doc.main(),
-            Some(&self.config.main.fields),
-            target.into(),
-        )
+        self.main().get(target)
     }
 
     /// Read the main card's body or a content field as its [`Content`], a
@@ -88,10 +84,7 @@ impl<'a> TypedReader<'a> {
         &self,
         target: impl Into<Target<'t>>,
     ) -> Result<Option<Content>, EditError> {
-        match target.into() {
-            Target::Body => Ok(Some(self.doc.main().body().clone())),
-            Target::Field(name) => self.get_content_at(name, &[]),
-        }
+        self.main().get_content(target)
     }
 
     /// Read the [`Content`] *nested inside* a composite field at `at`: an
@@ -120,7 +113,7 @@ impl<'a> TypedReader<'a> {
         name: &str,
         at: &[PathSegment],
     ) -> Result<Option<Content>, EditError> {
-        read_content(self.doc.main(), Some(&self.config.main.fields), name, at)
+        self.main().get_content_at(name, at)
     }
 
     /// The resolved view: for every declared field, the value the render
@@ -146,11 +139,28 @@ impl<'a> TypedReader<'a> {
         let schema = card.kind().and_then(|k| self.config.card_kind(k));
         Ok(CardReader { schema, card })
     }
+
+    /// The main card (`None`) or the composable card at `index`, as one
+    /// [`CardReader`]: the dispatch a binding addressing "main or card" takes.
+    /// [`EditError::IndexOutOfRange`] as [`card`](Self::card).
+    pub fn at(&self, index: Option<usize>) -> Result<CardReader<'_>, EditError> {
+        match index {
+            None => Ok(self.main()),
+            Some(index) => self.card(index),
+        }
+    }
+
+    fn main(&self) -> CardReader<'a> {
+        CardReader {
+            schema: Some(&self.config.main),
+            card: self.doc.main(),
+        }
+    }
 }
 
-/// A single composable card bound to its [`CardSchema`], from
-/// [`TypedReader::card`]. Same verbs as
-/// [`TypedReader`], reading the card at its bound index.
+/// A single card bound to its [`CardSchema`], from [`TypedReader::card`] or
+/// [`TypedReader::at`]. Same verbs as [`TypedReader`], reading the card it
+/// binds.
 pub struct CardReader<'a> {
     schema: Option<&'a CardSchema>,
     card: &'a Card,

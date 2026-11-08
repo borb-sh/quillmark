@@ -31,12 +31,23 @@ fn open_with(schema: &str, plate: &str, data: &serde_json::Value) -> LiveSession
         .expect("open")
 }
 
-fn open() -> LiveSession {
-    let data = serde_json::json!({
-        "intro": content(&"Intro text that wraps across more than one line of the measure. ".repeat(3)),
-        "prose": content(&"Body text that also wraps across more than one line of the measure. ".repeat(3)),
-    });
+/// [`PLATE`] with `intro` above `prose`.
+fn open_prose(intro: &str, prose: &str) -> LiveSession {
+    let data = serde_json::json!({ "intro": content(intro), "prose": content(prose) });
     open_with(SCHEMA, PLATE, &data)
+}
+
+/// A widget `plate` over [`WIDGET_SCHEMA`], its `blank` empty.
+fn open_widget(plate: &str, prose: &str) -> LiveSession {
+    let data = serde_json::json!({ "blank": "", "prose": content(prose) });
+    open_with(WIDGET_SCHEMA, plate, &data)
+}
+
+fn open() -> LiveSession {
+    open_prose(
+        &"Intro text that wraps across more than one line of the measure. ".repeat(3),
+        &"Body text that also wraps across more than one line of the measure. ".repeat(3),
+    )
 }
 
 /// The `[low, high]` y bands on page 0 that answer at column `x` with no
@@ -186,16 +197,6 @@ fn a_tolerance_never_changes_an_answer_an_exact_hit_already_had() {
     );
 }
 
-/// A short line with the rest of its measure empty beside it: `intro` is one
-/// line, `body` fills the measure below.
-fn open_with_a_short_line() -> LiveSession {
-    let data = serde_json::json!({
-        "intro": content("Short."),
-        "prose": content(&"Body text that fills the measure and wraps past one line. ".repeat(3)),
-    });
-    open_with(SCHEMA, PLATE, &data)
-}
-
 /// The slack is a radius in both axes, so it does not reach along a row: the
 /// empty measure beside a short line is as far from that line as a point the
 /// same distance above it. A tolerance that crossed a measure would make a
@@ -203,7 +204,10 @@ fn open_with_a_short_line() -> LiveSession {
 /// field set against the other.
 #[test]
 fn the_empty_measure_beside_a_line_is_not_that_line() {
-    let session = open_with_a_short_line();
+    let session = open_prose(
+        "Short.",
+        &"Body text that fills the measure and wraps past one line. ".repeat(3),
+    );
     let intro = session
         .regions()
         .into_iter()
@@ -274,19 +278,11 @@ const WIDGET_PLATE: &str = r#"
 #qm.data.prose
 "#;
 
-fn open_with_widget() -> LiveSession {
-    let data = serde_json::json!({
-        "blank": "",
-        "prose": content("Body text well below the widget."),
-    });
-    open_with(WIDGET_SCHEMA, WIDGET_PLATE, &data)
-}
-
 /// The nearer of the widget and content lanes answers at every tolerance, so
 /// raising `tol` never moves a click to a farther field.
 #[test]
 fn raising_the_tolerance_never_moves_a_click_to_a_farther_field() {
-    let session = open_with_widget();
+    let session = open_widget(WIDGET_PLATE, "Body text well below the widget.");
     let widget = session
         .regions()
         .into_iter()
@@ -322,19 +318,14 @@ const OVERLAID_PLATE: &str = r#"
   qm.form-field("blank", type: "text", field: "blank", width: 60pt, height: 20pt))
 "#;
 
-fn open_with_overlaid_widget() -> LiveSession {
-    let data = serde_json::json!({
-        "blank": "",
-        "prose": content(&"Body text under and around the placed widget. ".repeat(6)),
-    });
-    open_with(WIDGET_SCHEMA, OVERLAID_PLATE, &data)
-}
-
 /// A widget takes a tie, so ink beneath one never swallows a click that lands
 /// on it. The widget is laid over the paragraph, so the point is inside both.
 #[test]
 fn a_widget_takes_a_tie_with_the_content_ink_under_it() {
-    let session = open_with_overlaid_widget();
+    let session = open_widget(
+        OVERLAID_PLATE,
+        &"Body text under and around the placed widget. ".repeat(6),
+    );
     let widget = session
         .regions()
         .into_iter()

@@ -1,9 +1,8 @@
-//! AcroForm readers shared by the backend's acceptance tests.
+//! Readers shared by the backend's acceptance tests.
 
 // Each integration test binary compiles this module and uses part of it.
 #![allow(dead_code)]
 
-use lopdf::Document as PdfDoc;
 use quillmark_core::quill::CalendarDate;
 
 /// UTF-16BE when the string carries a BOM (pdf-writer picks that for characters
@@ -18,33 +17,6 @@ pub fn decode_pdf_text(bytes: &[u8]) -> String {
     } else {
         bytes.iter().map(|&b| b as char).collect()
     }
-}
-
-/// The catalog's `/AcroForm` dict.
-pub fn acroform(doc: &PdfDoc) -> &lopdf::Dictionary {
-    let af_ref = doc
-        .catalog()
-        .unwrap()
-        .get(b"AcroForm")
-        .unwrap()
-        .as_reference()
-        .unwrap();
-    doc.get_object(af_ref).unwrap().as_dict().unwrap()
-}
-
-/// The `/AcroForm` widget named `name`, found by scanning `/Fields` on `/T`.
-pub fn widget<'a>(doc: &'a PdfDoc, af: &lopdf::Dictionary, name: &str) -> &'a lopdf::Dictionary {
-    for f in af.get(b"Fields").unwrap().as_array().unwrap() {
-        let w = doc
-            .get_object(f.as_reference().unwrap())
-            .unwrap()
-            .as_dict()
-            .unwrap();
-        if w.get(b"T").unwrap().as_str().unwrap() == name.as_bytes() {
-            return w;
-        }
-    }
-    panic!("no field named {name}");
 }
 
 /// The render date the tests open sessions with.

@@ -3,6 +3,7 @@
 
 use quillmark::{Document, Engine, OutputFormat, RenderError, RenderOptions};
 use quillmark_core::quill::{FileTreeNode, Quill};
+use quillmark_fixtures::acroform::{acroform, fields, widget};
 
 mod common;
 
@@ -185,8 +186,8 @@ fn a_box_per_option_is_one_radio_field_holding_the_chosen_value() {
         })
         .collect();
     let pdf = render_with_fields(&boxes);
-    let af = common::acroform(&pdf);
-    let radio = common::widget(&pdf, af, "Color_red");
+    let af = acroform(&pdf);
+    let radio = widget(&pdf, af, "Color_red");
     let flags = radio.get(b"Ff").unwrap().as_i64().unwrap();
     assert_eq!(flags & (1 << 15), 1 << 15, "a radio field");
     assert_eq!(
@@ -228,25 +229,15 @@ fn the_boxes_binding_one_field_are_widgets_of_the_first_ones_field() {
         })
         .collect();
     let pdf = render_with_fields(&boxes);
-    let af = common::acroform(&pdf);
-    let field = common::widget(&pdf, af, "FavoriteColor");
+    let af = acroform(&pdf);
+    let field = widget(&pdf, af, "FavoriteColor");
     assert_eq!(field.get(b"FT").unwrap().as_name().unwrap(), b"Ch");
     assert_eq!(
         kids(&pdf, field).len(),
         3,
         "the fixture's box and the two added"
     );
-    let names: Vec<&[u8]> = af
-        .get(b"Fields")
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|f| {
-            let f = pdf.get_object(f.as_reference().unwrap()).unwrap();
-            f.as_dict().unwrap().get(b"T").unwrap().as_str().unwrap()
-        })
-        .collect();
+    let names: Vec<&[u8]> = fields(&pdf, af).map(|(t, _)| t).collect();
     assert!(
         !names.contains(&&b"Color_top"[..]) && !names.contains(&&b"Color_bottom"[..]),
         "{names:?}"
