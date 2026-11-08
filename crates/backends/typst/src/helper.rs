@@ -60,14 +60,6 @@ pub fn generate_lib_typ(
         return Err(e);
     }
     let ink_literal = ink_literal(cg.ink);
-    let literal = |set: &std::collections::BTreeSet<String>| {
-        wrap_array(
-            set.iter()
-                .map(|f| format!("\"{}\"", escape_string(f)))
-                .collect(),
-        )
-    };
-    let held_literal = literal(&families.held);
     let offered_literal = wrap_dict(
         families
             .offered
@@ -90,7 +82,6 @@ pub fn generate_lib_typ(
             + cg.blocks.len()
             + data_literal.len()
             + ink_literal.src.len()
-            + held_literal.len()
             + offered_literal.len(),
     );
     let mut cursor = 0usize;
@@ -100,7 +91,6 @@ pub fn generate_lib_typ(
         ("{version}", HELPER_VERSION),
         ("{version}", HELPER_VERSION),
         ("{meta_literal}", meta.meta_literal()),
-        ("{held_literal}", held_literal.as_str()),
         ("{offered_literal}", offered_literal.as_str()),
         ("{content_blocks}", cg.blocks.as_str()),
         ("{data_literal}", data_literal.as_str()),
