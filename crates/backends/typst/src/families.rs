@@ -7,6 +7,16 @@ use quillmark_content::model::Content;
 use quillmark_core::error::{Diagnostic, Severity};
 use quillmark_core::path::DocPath;
 use quillmark_core::quill::QuillConfig;
+use typst::Library;
+use typst::comemo::Track;
+use typst::engine::Sink;
+use typst::foundations::{
+    Array, Context, Func, Label, Recipe, Scope, Selector, Transformation, Value,
+};
+use typst::introspection::EmptyIntrospector;
+use typst::routines::SpanMode;
+use typst::syntax::{Span, SyntaxMode};
+use typst::utils::{LazyHash, PicoStr};
 
 /// A session's running-text families, lowercased.
 #[derive(Debug, Default, Clone)]
@@ -20,6 +30,74 @@ pub(crate) struct Families {
 }
 
 const CODE: &str = "typst::unknown_font_family";
+
+/// Label prefix `_qm-font` (`lib.typ.template`) files a run under, ahead of
+/// its family's alias.
+const RUN_LABEL: &str = "_qm-font:";
+
+/// Sets a run in its family's alias ahead of the surrounding fonts, so a
+/// character the family lacks falls through to them. A surrounding family
+/// no session font holds stays out of the list, so Typst never warns of it.
+/// `context` reads the surrounding fonts where the run is laid out.
+const RUN_RULE: &str = "it => context {
+  let alias = str(it.label).slice(PREFIX)
+  let fonts = if type(text.font) == array { text.font } else { (text.font,) }
+  let held(font) = lower(if type(font) == dictionary { font.name } else { font }) in HELD
+  text(font: (alias,) + fonts.filter(held), it)
+}";
+
+/// `library` with the show rule a run `_qm-font` labels takes, one selector
+/// over each offered family's label. A rule in the library's base styles
+/// covers the whole document without the plate's applying it, so the run
+/// itself stays the content a plate walks. `None` when the library offers no
+/// family, or the rule fails to evaluate.
+pub(crate) fn with_run_rule(
+    world: &dyn typst::World,
+    library: &LazyHash<Library>,
+    families: &Families,
+) -> Option<Library> {
+    if families.offered.is_empty() {
+        return None;
+    }
+    let selector = Selector::Or(
+        families
+            .offered
+            .values()
+            .filter_map(|alias| Label::new(PicoStr::intern(&format!("{RUN_LABEL}{alias}"))))
+            .map(Selector::Label)
+            .collect(),
+    );
+    let mut scope = Scope::new();
+    scope.define("PREFIX", RUN_LABEL.len() as i64);
+    scope.define(
+        "HELD",
+        families
+            .held
+            .iter()
+            .map(|f| Value::Str(f.as_str().into()))
+            .collect::<Array>(),
+    );
+    let mut sink = Sink::new();
+    let func = (library.routines.eval_string)(
+        world.track(),
+        library,
+        sink.track_mut(),
+        EmptyIntrospector.track(),
+        Context::none().track(),
+        RUN_RULE,
+        SpanMode::Uniform(Span::detached()),
+        SyntaxMode::Code,
+        scope,
+    )
+    .ok()?
+    .cast::<Func>()
+    .ok()?;
+    let mut out = (**library).clone();
+    out.styles.apply_one(
+        Recipe::new(Some(selector), Transformation::Func(func), Span::detached()).into(),
+    );
+    Some(out)
+}
 
 /// One `typst::unknown_font_family` per family a content field of the plate
 /// JSON `data` names and `families` does not offer, spelled as the field
@@ -368,5 +446,25 @@ mod tests {
         assert_eq!(family(&runs, "a"), "Figtree");
         assert_ne!(family(&runs, "𝑥"), "Figtree", "{runs:?}");
         assert_eq!(family(&runs, "b"), "Figtree");
+    }
+
+    /// A run stays the content a plate walks for a field's text, as a running
+    /// head or `document(title:)` does, and still sets its family.
+    #[test]
+    fn a_plate_walking_a_field_reaches_a_runs_text() {
+        let walk = "#let plain(c) = if c.has(\"text\") { c.text } else if c.has(\"children\") { c.children.map(plain).join() } else if c.has(\"body\") { plain(c.body) } else if c == [ ] { \" \" } else { \"\" }\nwalked: #plain(qm.data.prose).trim()";
+        let (runs, _) = runs(
+            walk,
+            "<qm-span family=\"Figtree\">Showca</qm-span>se Quill",
+            FontLibrary::new(vec![figtree()]).expect("library"),
+        );
+        assert!(
+            runs.iter().any(|r| r.0.trim() == "walked: Showcase Quill"),
+            "{runs:?}"
+        );
+        assert!(
+            runs.iter().any(|r| r.0 == "Showca" && r.1 == "Figtree"),
+            "{runs:?}"
+        );
     }
 }

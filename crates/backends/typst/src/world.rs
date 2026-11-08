@@ -240,7 +240,7 @@ impl QuillWorld {
         Self::load_project_sources(source, main_id, &mut sources, &mut load_warnings);
         let source = Source::new(main_id, plate.text.clone());
 
-        Ok(Self {
+        let mut world = Self {
             library: LazyHash::new(<Library as typst::LibraryExt>::default()),
             book: LazyHash::new(book),
             fonts,
@@ -251,7 +251,13 @@ impl QuillWorld {
             binaries,
             load_warnings,
             today: None,
-        })
+        };
+        if let Some(library) =
+            crate::families::with_run_rule(&world, &world.library, &world.families)
+        {
+            world.library = LazyHash::new(library);
+        }
+        Ok(world)
     }
 
     pub(crate) fn set_today(&mut self, today: CalendarDate) {
