@@ -47,12 +47,18 @@ pub fn page_canvas_boxes(base: &[u8]) -> Result<Vec<[f32; 4]>, PdfError> {
     reader::page_canvas_boxes(base)
 }
 
-/// One fully-resolved form field: the backend-agnostic currency of the spine.
+/// One fully-resolved widget: the backend-agnostic currency of the spine.
 /// `rect` is final geometry, so the spine never reasons about page height or
 /// reflow.
+///
+/// Specs sharing a `name` stamp as one field whose widgets are its kids, so a
+/// value shown in two places stays one value when a viewer edits either. They
+/// agree on everything the field holds rather than a widget: the type (a
+/// radio button's `on` aside), the value, the face, size and justification,
+/// and the character cap.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldSpec {
-    /// Fully-qualified field name, written to `/T`.
+    /// The field's name, written to `/T`.
     pub name: String,
     /// The quill schema field address this widget maps to. Opaque to the spine,
     /// which carries it only to key the region sidecar: `None` emits no
@@ -64,7 +70,8 @@ pub struct FieldSpec {
     pub rect: [f32; 4],
     pub field_type: FieldType,
     /// `None` is blank; for a checkbox, [`CHECKBOX_ON_STATE`] is checked and
-    /// anything else is not ([`is_checked`](Self::is_checked)).
+    /// anything else is not, and a radio button is checked when it equals the
+    /// button's `on` ([`is_checked`](Self::is_checked)).
     pub value: Option<String>,
     /// Optional `/TU` tooltip / accessible name.
     pub tooltip: Option<String>,
@@ -99,13 +106,23 @@ impl FieldSpec {
         }
     }
 
-    /// Whether this is a checkbox carrying [`CHECKBOX_ON_STATE`]. The one
-    /// reading of the on-state, shared by the stamped widget and a drawn
-    /// raster: `value` is public, so a spelling the contract excludes reaches
-    /// both, and both read it as unchecked.
+    /// Whether this is a checkbox carrying [`CHECKBOX_ON_STATE`], or a radio
+    /// button whose value is its `on`. The one reading of the on-state, shared
+    /// by the stamped widget and a drawn raster: `value` is public, so a
+    /// spelling the contract excludes reaches both, and both read it as
+    /// unchecked.
     pub fn is_checked(&self) -> bool {
-        matches!(self.field_type, FieldType::Checkbox)
-            && self.value.as_deref() == Some(CHECKBOX_ON_STATE)
+        self.value.is_some() && self.value.as_deref() == self.on_state()
+    }
+
+    /// The state name a checked box's `/AS` carries, or `None` for a kind that
+    /// is no box.
+    pub(crate) fn on_state(&self) -> Option<&str> {
+        match &self.field_type {
+            FieldType::Checkbox => Some(CHECKBOX_ON_STATE),
+            FieldType::Radio { on } => Some(on),
+            _ => None,
+        }
     }
 
     /// `Err` with code `pdf::bad_rect` unless every [`rect`](Self::rect)
@@ -128,7 +145,7 @@ impl FieldSpec {
 
 /// A field's definition, never a runtime value (that rides in
 /// [`FieldSpec::value`]). Only `Text` and `Choice` carry variable text, so
-/// [`FormFont`] and [`TextAlign`] are inert on the other two.
+/// [`FormFont`] and [`TextAlign`] are inert on the others.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldType {
     Text {
@@ -136,6 +153,12 @@ pub enum FieldType {
     },
     /// A checkbox with Quillmark's fixed on-state ([`CHECKBOX_ON_STATE`]).
     Checkbox,
+    /// One button of a radio field, its on-state named `on`: the buttons
+    /// sharing a name are one field holding one of their values. `on` is
+    /// neither empty nor `Off`, the name every button's off-state carries.
+    Radio {
+        on: String,
+    },
     /// A dropdown over `options`, bare display strings.
     Choice {
         options: Vec<String>,

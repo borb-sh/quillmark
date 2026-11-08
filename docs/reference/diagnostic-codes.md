@@ -246,7 +246,9 @@ Opening an `acroform` quill and binding `Form.yaml`.
 
 The PDF reader and stamp spine both PDF-producing backends share.
 
+- `pdf::bad_on_state`
 - `pdf::bad_rect`
+- `pdf::conflicting_field`
 - `pdf::degenerate_page_box`
 - `pdf::encrypted`
 - `pdf::existing_acroform`

@@ -9,10 +9,12 @@
 //! The background owns the visual chrome, so a widget is a transparent input over
 //! it: no borders, no fills, black text.
 
+use std::collections::HashMap;
+
 use pdf_writer::types::{
-    AnnotationFlags, FieldFlags, FieldType as PwFieldType, Quadding, SigFlags,
+    AnnotationFlags, AnnotationType, FieldFlags, FieldType as PwFieldType, Quadding, SigFlags,
 };
-use pdf_writer::writers::{Field, Form};
+use pdf_writer::writers::{Annotation, Field, Form};
 use pdf_writer::{Chunk, Finish, Name, Rect, Ref, Str, TextStr};
 
 use quillmark_core::region::RenderedRegion;
@@ -29,12 +31,15 @@ use crate::{FieldSpec, FieldType, FormFont, TextAlign};
 
 const CODE_PARSE: &str = "pdf::stamp_parse";
 const CODE_EXISTING_ACROFORM: &str = "pdf::existing_acroform";
+const CODE_CONFLICTING_FIELD: &str = "pdf::conflicting_field";
+const CODE_BAD_ON_STATE: &str = "pdf::bad_on_state";
 
 /// The fixed checkbox on-state export name. A checkbox [`FieldSpec`] carries
 /// this as its `value` when checked, `None` when not.
 pub const CHECKBOX_ON_STATE: &str = "Yes";
 
-/// The off-state name every checkbox shares (ISO 32000-1 §12.7.4.2.3).
+/// The off-state name every checkbox and radio button shares (ISO 32000-1
+/// §12.7.4.2.3).
 const OFF_STATE: &[u8] = b"Off";
 
 /// The standard-14 face a check mark is set in, never embedded.
@@ -81,7 +86,7 @@ fn value_font(spec: &FieldSpec) -> Option<(&'static str, &'static [u8])> {
         FieldType::Text { .. } | FieldType::Choice { .. } => {
             Some((spec.font.resource_name(), spec.font.base_font()))
         }
-        FieldType::Checkbox => Some((CHECK_FONT_RESOURCE, CHECK_FONT)),
+        FieldType::Checkbox | FieldType::Radio { .. } => Some((CHECK_FONT_RESOURCE, CHECK_FONT)),
         FieldType::Signature => None,
     }
 }
@@ -139,11 +144,11 @@ impl Default for StampOptions {
     }
 }
 
-/// What a checkbox's `/AP` `/N` holds. Its `/AS` names the current state
-/// either way.
+/// What a box's `/AP` `/N` holds, a checkbox's or a radio button's. Its `/AS`
+/// names the current state either way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppearanceStates {
-    /// A dictionary of both states, [`CHECKBOX_ON_STATE`] and `Off`, so a
+    /// A dictionary of both states, the box's on-state and `Off`, so a
     /// filler toggles the box by renaming `/AS` (ISO 32000-1 §12.7.4.2.3).
     #[default]
     All,
@@ -153,7 +158,7 @@ pub enum AppearanceStates {
     Selected,
 }
 
-/// What a stamped widget's `/AP` `/N` names: one stream, or a checkbox's two
+/// What a stamped widget's `/AP` `/N` names: one stream, or a box's two
 /// states.
 enum NormalRef {
     Stream(u32),
@@ -163,6 +168,11 @@ enum NormalRef {
 /// Stamp `fields` onto `base` as a fresh AcroForm via one incremental update,
 /// and `/Info` `/Producer` with it. Geometry is not produced here; it is a
 /// session-level query (see [`regions_of`]).
+///
+/// Specs sharing a name stamp as one field with a widget for each
+/// ([`FieldSpec`]); ones that disagree on what the field holds are refused as
+/// `pdf::conflicting_field`, and a radio button whose on-state is empty or
+/// `Off` as `pdf::bad_on_state`.
 ///
 /// `base` must satisfy the reader's input contract (traditional-xref,
 /// unencrypted, inline-annots, bounded-tree) and carry no form of its own: no
@@ -175,6 +185,10 @@ pub fn stamp(
 ) -> Result<Vec<u8>, PdfError> {
     for spec in fields {
         spec.assert_finite_rect()?;
+    }
+    let groups = group_by_name(fields);
+    for group in &groups {
+        check_group(fields, group)?;
     }
 
     let pdf = base;
@@ -218,11 +232,27 @@ pub fn stamp(
             .iter()
             .map(|_| alloc_id(&mut up.next_id))
             .collect::<Result<_, _>>()?;
+        // A field of one widget is that widget, merged; a field of several is
+        // a dictionary of its own whose kids they are.
+        let mut parent_of: Vec<Option<u32>> = vec![None; fields.len()];
+        let mut field_ids: Vec<u32> = Vec::with_capacity(groups.len());
+        for group in &groups {
+            match group.as_slice() {
+                [only] => field_ids.push(widget_ids[*only]),
+                kids => {
+                    let id = alloc_id(&mut up.next_id)?;
+                    for &kid in kids {
+                        parent_of[kid] = Some(id);
+                    }
+                    field_ids.push(id);
+                }
+            }
+        }
         let acroform_id = alloc_id(&mut up.next_id)?;
 
         // Grouped by page for the page-side `/Annots`.
         let mut widgets_by_page: Vec<Vec<u32>> = vec![Vec::new(); page_count];
-        for (spec, &wid) in fields.iter().zip(&widget_ids) {
+        for ((spec, &wid), &parent) in fields.iter().zip(&widget_ids).zip(&parent_of) {
             widgets_by_page[spec.page].push(wid);
             let page_ref = to_ref(pages[spec.page].id)?;
             let normal = match appearance::of(spec).zip(registered_font(&fonts, &font_ids, spec)) {
@@ -241,9 +271,27 @@ pub fn stamp(
                     }
                 }),
             };
+            let bytes = match parent {
+                None => write_merged_widget(spec, to_ref(wid)?, page_ref, normal)?,
+                Some(parent) => {
+                    write_kid_widget(spec, to_ref(wid)?, to_ref(parent)?, page_ref, normal)?
+                }
+            };
+            up.objects.push(UpdatedObject { id: wid, bytes });
+        }
+
+        for (group, &fid) in groups.iter().zip(&field_ids) {
+            if group.len() < 2 {
+                continue;
+            }
+            let kids: Vec<&FieldSpec> = group.iter().map(|&i| &fields[i]).collect();
+            let kid_refs: Vec<Ref> = group
+                .iter()
+                .map(|&i| to_ref(widget_ids[i]))
+                .collect::<Result<_, _>>()?;
             up.objects.push(UpdatedObject {
-                id: wid,
-                bytes: write_widget_object(spec, to_ref(wid)?, page_ref, normal)?,
+                id: fid,
+                bytes: write_parent_field(&kids, to_ref(fid)?, &kid_refs)?,
             });
         }
 
@@ -255,7 +303,7 @@ pub fn stamp(
         let has_signature = fields
             .iter()
             .any(|f| matches!(f.field_type, FieldType::Signature));
-        let field_refs: Vec<Ref> = widget_ids
+        let field_refs: Vec<Ref> = field_ids
             .iter()
             .map(|&id| to_ref(id))
             .collect::<Result<_, _>>()?;
@@ -366,9 +414,67 @@ fn write_quadding(field: &mut Field<'_>, align: TextAlign) {
     field.vartext_quadding(q);
 }
 
-/// Serialize one field as a merged field+widget indirect object, `normal`
-/// naming its `/AP` `/N` Form XObjects when the widget draws any.
-fn write_widget_object(
+/// `fields`' indices grouped by name, each group in spec order and the groups
+/// in the order of their first spec.
+fn group_by_name(fields: &[FieldSpec]) -> Vec<Vec<usize>> {
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut at: HashMap<&str, usize> = HashMap::new();
+    for (i, spec) in fields.iter().enumerate() {
+        match at.get(spec.name.as_str()) {
+            Some(&g) => groups[g].push(i),
+            None => {
+                at.insert(&spec.name, groups.len());
+                groups.push(vec![i]);
+            }
+        }
+    }
+    groups
+}
+
+/// `Err` unless the widgets of one field agree on what the field holds, and
+/// each radio button's on-state is a name a filler can tell from `Off`.
+fn check_group(fields: &[FieldSpec], group: &[usize]) -> Result<(), PdfError> {
+    let first = &fields[group[0]];
+    for spec in group.iter().map(|&i| &fields[i]) {
+        if let FieldType::Radio { on } = &spec.field_type
+            && (on.is_empty() || on.as_bytes() == OFF_STATE)
+        {
+            return Err(PdfError::new(
+                CODE_BAD_ON_STATE,
+                format!(
+                    "radio button `{}` names its on-state {on:?}; it must be neither empty nor \
+                     `Off`, the name of every button's off-state",
+                    spec.name
+                ),
+            ));
+        }
+        let same_kind = match (&first.field_type, &spec.field_type) {
+            (FieldType::Radio { .. }, FieldType::Radio { .. }) => true,
+            (a, b) => a == b,
+        };
+        let agrees = same_kind
+            && spec.value == first.value
+            && spec.font == first.font
+            && spec.font_size.map(f32::to_bits) == first.font_size.map(f32::to_bits)
+            && spec.align == first.align
+            && spec.max_len == first.max_len;
+        if !agrees {
+            return Err(PdfError::new(
+                CODE_CONFLICTING_FIELD,
+                format!(
+                    "the widgets named `{}` are one field but disagree on its type, value, \
+                     face, size, justification or character cap",
+                    spec.name
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Serialize a field of one widget as a merged field+widget indirect object,
+/// `normal` naming its `/AP` `/N` Form XObjects when the widget draws any.
+fn write_merged_widget(
     spec: &FieldSpec,
     wid: Ref,
     page_ref: Ref,
@@ -377,100 +483,165 @@ fn write_widget_object(
     let mut chunk = Chunk::new();
     {
         let mut field = chunk.form_field(wid);
-        field.partial_name(TextStr(&spec.name));
+        write_field_entries(&mut field, &[spec]);
         if let Some(tt) = spec.tooltip.as_deref() {
             field.alternate_name(TextStr(tt));
         }
-
-        // Captured to also set the annotation `/AS` below.
-        let mut checkbox_on: Option<bool> = None;
-        let text_da = field_da(spec);
-
-        match &spec.field_type {
-            FieldType::Text { multiline } => {
-                field.field_type(PwFieldType::Text);
-                field.vartext_default_appearance(Str(&text_da));
-                write_quadding(&mut field, spec.align);
-                if *multiline {
-                    field.field_flags(FieldFlags::MULTILINE);
-                }
-                if let Some(max) = spec.max_len {
-                    field.text_max_len(i32::try_from(max).unwrap_or(i32::MAX));
-                }
-                if let Some(v) = spec.value.as_deref() {
-                    field.text_value(TextStr(v));
-                }
-            }
-            FieldType::Checkbox => {
-                field.field_type(PwFieldType::Button);
-                // The viewer synthesizes the `/MK /CA` caption in the `/DA`
-                // face: under the form-level Helvetica the glyph is a digit.
-                field.vartext_default_appearance(Str(&da(CHECK_FONT_RESOURCE, 0.0)));
-                let on = spec.is_checked();
-                checkbox_on = Some(on);
-                field.pair(Name(b"V"), checkbox_state(on));
-                {
-                    let mut mk = field.insert(Name(b"MK")).dict();
-                    mk.pair(Name(b"CA"), Str(CHECK_GLYPH));
-                }
-            }
-            FieldType::Choice { options } => {
-                field.field_type(PwFieldType::Choice);
-                field.field_flags(FieldFlags::COMBO);
-                field.vartext_default_appearance(Str(&text_da));
-                write_quadding(&mut field, spec.align);
-                {
-                    let mut opts = field.choice_options();
-                    for o in options {
-                        opts.option(TextStr(o));
-                    }
-                }
-                if let Some(v) = spec.value.as_deref() {
-                    field.choice_value(Some(TextStr(v)));
-                }
-            }
-            FieldType::Signature => {
-                field.field_type(PwFieldType::Signature);
-            }
-        }
-
         // `into_annotation` writes `/Type /Annot` + `/Subtype /Widget` exactly
         // once; do not call `.subtype()` again or it duplicates the key.
         let mut ann = field.into_annotation();
-        ann.rect(Rect::new(
-            spec.rect[0],
-            spec.rect[1],
-            spec.rect[2],
-            spec.rect[3],
-        ))
-        .page(page_ref)
-        .flags(AnnotationFlags::PRINT);
-        if let Some(on) = checkbox_on {
-            ann.appearance_state(checkbox_state(on));
-        }
-        match normal {
-            None => {}
-            Some(NormalRef::Stream(id)) => ann.appearance().normal().stream(to_ref(id)?),
-            Some(NormalRef::States { on, off }) => {
-                ann.appearance()
-                    .normal()
-                    .streams()
-                    .pair(Name(CHECKBOX_ON_STATE.as_bytes()), to_ref(on)?)
-                    .pair(Name(OFF_STATE), to_ref(off)?);
-            }
-        }
+        write_widget_entries(&mut ann, spec, page_ref, normal)?;
         ann.finish();
     }
     Ok(chunk.as_bytes().to_vec())
 }
 
-/// The state name a checkbox's `/V` and `/AS` carry.
-fn checkbox_state(on: bool) -> Name<'static> {
-    Name(if on {
-        CHECKBOX_ON_STATE.as_bytes()
-    } else {
-        OFF_STATE
-    })
+/// Serialize one widget of a field of several as a widget annotation that is
+/// a kid of `parent`. Its tooltip rides the widget, where a radio button's
+/// names its own value.
+fn write_kid_widget(
+    spec: &FieldSpec,
+    wid: Ref,
+    parent: Ref,
+    page_ref: Ref,
+    normal: Option<NormalRef>,
+) -> Result<Vec<u8>, PdfError> {
+    let mut chunk = Chunk::new();
+    {
+        let mut ann = chunk.annotation(wid);
+        ann.subtype(AnnotationType::Widget).parent(parent);
+        if let Some(tt) = spec.tooltip.as_deref() {
+            ann.pair(Name(b"TU"), TextStr(tt));
+        }
+        write_widget_entries(&mut ann, spec, page_ref, normal)?;
+        ann.finish();
+    }
+    Ok(chunk.as_bytes().to_vec())
+}
+
+/// Serialize the field dictionary holding `kids`, which [`check_group`] has
+/// held to one type and value.
+fn write_parent_field(kids: &[&FieldSpec], id: Ref, kid_refs: &[Ref]) -> Result<Vec<u8>, PdfError> {
+    let mut chunk = Chunk::new();
+    {
+        let mut field = chunk.form_field(id);
+        write_field_entries(&mut field, kids);
+        field.children(kid_refs.iter().copied());
+        field.finish();
+    }
+    Ok(chunk.as_bytes().to_vec())
+}
+
+/// The entries of the field `widgets` are the widgets of, read off the first:
+/// the others agree on them ([`check_group`]). A radio field holds a value
+/// only when one of its buttons is named for it, and lets a filler clear it
+/// only when it is a lone button.
+fn write_field_entries(field: &mut Field<'_>, widgets: &[&FieldSpec]) {
+    let spec = widgets[0];
+    field.partial_name(TextStr(&spec.name));
+    let text_da = field_da(spec);
+    match &spec.field_type {
+        FieldType::Text { multiline } => {
+            field.field_type(PwFieldType::Text);
+            field.vartext_default_appearance(Str(&text_da));
+            write_quadding(field, spec.align);
+            if *multiline {
+                field.field_flags(FieldFlags::MULTILINE);
+            }
+            if let Some(max) = spec.max_len {
+                field.text_max_len(i32::try_from(max).unwrap_or(i32::MAX));
+            }
+            if let Some(v) = spec.value.as_deref() {
+                field.text_value(TextStr(v));
+            }
+        }
+        FieldType::Checkbox => {
+            field.field_type(PwFieldType::Button);
+            // The viewer synthesizes the `/MK /CA` caption in the `/DA`
+            // face: under the form-level Helvetica the glyph is a digit.
+            field.vartext_default_appearance(Str(&da(CHECK_FONT_RESOURCE, 0.0)));
+            field.pair(Name(b"V"), box_state(spec));
+        }
+        FieldType::Radio { .. } => {
+            field.field_type(PwFieldType::Button);
+            field.vartext_default_appearance(Str(&da(CHECK_FONT_RESOURCE, 0.0)));
+            let mut flags = FieldFlags::RADIO;
+            if widgets.len() > 1 {
+                flags |= FieldFlags::NO_TOGGLE_TO_OFF;
+            }
+            let ons: Vec<&str> = widgets.iter().filter_map(|w| w.on_state()).collect();
+            if (1..ons.len()).any(|i| ons[..i].contains(&ons[i])) {
+                flags |= FieldFlags::RADIOS_IN_UNISON;
+            }
+            field.field_flags(flags);
+            let held = widgets.iter().find(|w| w.is_checked());
+            field.pair(Name(b"V"), held.map_or(Name(OFF_STATE), |w| box_state(w)));
+        }
+        FieldType::Choice { options } => {
+            field.field_type(PwFieldType::Choice);
+            field.field_flags(FieldFlags::COMBO);
+            field.vartext_default_appearance(Str(&text_da));
+            write_quadding(field, spec.align);
+            {
+                let mut opts = field.choice_options();
+                for o in options {
+                    opts.option(TextStr(o));
+                }
+            }
+            if let Some(v) = spec.value.as_deref() {
+                field.choice_value(Some(TextStr(v)));
+            }
+        }
+        FieldType::Signature => {
+            field.field_type(PwFieldType::Signature);
+        }
+    }
+}
+
+/// The entries of `spec`'s widget annotation: where it sits, and for a box,
+/// the state it shows and the caption a viewer redraws it with.
+fn write_widget_entries(
+    ann: &mut Annotation<'_>,
+    spec: &FieldSpec,
+    page_ref: Ref,
+    normal: Option<NormalRef>,
+) -> Result<(), PdfError> {
+    ann.rect(Rect::new(
+        spec.rect[0],
+        spec.rect[1],
+        spec.rect[2],
+        spec.rect[3],
+    ))
+    .page(page_ref)
+    .flags(AnnotationFlags::PRINT);
+    if spec.on_state().is_some() {
+        ann.appearance_state(box_state(spec));
+        ann.insert(Name(b"MK"))
+            .dict()
+            .pair(Name(b"CA"), Str(CHECK_GLYPH));
+    }
+    match normal {
+        None => {}
+        Some(NormalRef::Stream(id)) => ann.appearance().normal().stream(to_ref(id)?),
+        Some(NormalRef::States { on, off }) => {
+            let on_state = spec.on_state().unwrap_or(CHECKBOX_ON_STATE);
+            ann.appearance()
+                .normal()
+                .streams()
+                .pair(Name(on_state.as_bytes()), to_ref(on)?)
+                .pair(Name(OFF_STATE), to_ref(off)?);
+        }
+    }
+    Ok(())
+}
+
+/// The state name a box's `/AS` carries, and a field's `/V` when it is that
+/// box's: its on-state when checked, else `Off`.
+fn box_state(spec: &FieldSpec) -> Name<'_> {
+    match spec.on_state() {
+        Some(on) if spec.is_checked() => Name(on.as_bytes()),
+        _ => Name(OFF_STATE),
+    }
 }
 
 /// Three cases for the existing `/Annots`: absent or `null`, directly or by
