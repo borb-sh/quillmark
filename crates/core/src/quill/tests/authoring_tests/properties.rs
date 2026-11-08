@@ -1,6 +1,7 @@
 //! `Quill::from_authoring` over generated JSON: refusal rather than a panic for
 //! any value, and for a value of the authoring document's shape, export after
-//! import is a fixed point.
+//! import is a fixed point, from the second import on where the export names
+//! a loss.
 
 use proptest::prelude::*;
 
@@ -61,7 +62,23 @@ proptest! {
         };
         let exported = quill.to_authoring(&first.document);
         let second = quill.from_authoring(&exported).expect("an export imports");
-        prop_assert_eq!(&second.document, &first.document);
+        // A body mark markdown cannot write back is a named loss: the export
+        // drops it, and the fixed point holds from the second import on.
+        let doc = &first.document;
+        let losses: Vec<_> = std::iter::once(doc.main())
+            .chain(doc.cards())
+            .flat_map(|card| quillmark_content::markdown::to_markdown_checked(card.body()).losses)
+            .collect();
+        prop_assert!(
+            losses.iter().all(|l| matches!(l, quillmark_content::markdown::Loss::Mark { .. })),
+            "the export loses more than marks: {:?}", losses
+        );
+        if losses.is_empty() {
+            prop_assert_eq!(&second.document, &first.document);
+        } else {
+            let third = quill.from_authoring(&quill.to_authoring(&second.document)).expect("an export imports");
+            prop_assert_eq!(&third.document, &second.document);
+        }
         prop_assert_eq!(quill.to_authoring(&second.document), exported);
     }
 }
