@@ -222,3 +222,57 @@ fn form_field_regions_key_on_bound_schema_field() {
         );
     }
 }
+
+#[test]
+fn every_widget_joins_the_structure_tree_as_a_form_element() {
+    let plate = r#"
+#import "@local/quillmark-helper:0.2.0" as qm
+
+Sign below.
+#qm.signature-field("a")
+#qm.form-field("b")
+"#;
+    let pdf = compile(plate, &serde_json::json!({})).expect("compile ok");
+    let doc = lopdf::Document::load_mem(&pdf).expect("parse");
+    let root = doc
+        .catalog()
+        .unwrap()
+        .get_deref(b"StructTreeRoot", &doc)
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let nums = root
+        .get_deref(b"ParentTree", &doc)
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"Nums")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    let parent_of = |key: i64| {
+        let at = nums
+            .chunks(2)
+            .find(|pair| pair[0].as_i64().unwrap() == key)
+            .unwrap_or_else(|| panic!("/ParentTree has key {key}"));
+        doc.get_dictionary(at[1].as_reference().unwrap()).unwrap()
+    };
+
+    let mut tagged = 0;
+    for (_, page_id) in doc.get_pages() {
+        let page = doc.get_dictionary(page_id).unwrap();
+        assert_eq!(page.get(b"Tabs").unwrap().as_name().unwrap(), b"S");
+        for annot in page.get_deref(b"Annots", &doc).unwrap().as_array().unwrap() {
+            let widget_id = annot.as_reference().unwrap();
+            let widget = doc.get_dictionary(widget_id).unwrap();
+            let key = widget.get(b"StructParent").unwrap().as_i64().unwrap();
+            let form = parent_of(key);
+            assert_eq!(form.get(b"S").unwrap().as_name().unwrap(), b"Form");
+            let objr = form.get(b"K").unwrap().as_dict().unwrap();
+            assert_eq!(objr.get(b"Obj").unwrap().as_reference().unwrap(), widget_id);
+            tagged += 1;
+        }
+    }
+    assert_eq!(tagged, 2);
+    assert!(root.get(b"ParentTreeNextKey").unwrap().as_i64().unwrap() > 0);
+}
