@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.136.0 - 2026-11-08
+
+- feat(content,core)!: an anchor id opening with ~ is transient and never stored
+- docs(migrations): add the 0.135 → 0.136 guide for the dropped Rust API
+- docs(prose): collapse the canon into one invariants page
+- refactor(core,content)!: drop public API no consumer calls
+- fix(content): a revise imports every row of the tables its value holds
+- refactor(core,content)!: drop the export::lost_construct helper nothing produces
+- docs(canon): the lenient stored read stays within a major
+- chore(python): drop the unreferenced quill_demo example
+- test: build content in the model encoding outside the v1-row tests
+- ci(canon): fail a canon file path that resolves to nothing
+- docs(canon): true rotted paths, names and claims in CONVERT, SCHEMAS, PLATE_DATA and PREVIEW
+- docs(content): the line form's module docs name who reads it
+- refactor(content,core): drop dead line-form and hidden CardMut helpers
+
 ## v0.135.0 - 2026-11-06
 
 Upgrade path: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md). Core is
