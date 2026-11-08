@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+pub mod acroform;
+
 /// Path to `resources/<name>` in this crate.
 pub fn resource_path(name: &str) -> PathBuf {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");

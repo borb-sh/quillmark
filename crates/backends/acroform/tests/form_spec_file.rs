@@ -3,6 +3,7 @@
 
 use quillmark::{Document, Engine, OutputFormat, RenderError, RenderOptions};
 use quillmark_core::quill::{FileTreeNode, Quill};
+use quillmark_fixtures::acroform::{acroform, widget};
 
 mod common;
 
@@ -153,9 +154,9 @@ fn a_box_per_option_checks_the_one_the_document_chose() {
         .expect("render ok");
 
     let pdf = lopdf::Document::load_mem(&result.artifacts[0].bytes).expect("reparse");
-    let af = common::acroform(&pdf);
+    let af = acroform(&pdf);
     let state = |color: &str| {
-        let w = common::widget(&pdf, af, &format!("Color_{color}"));
+        let w = widget(&pdf, af, &format!("Color_{color}"));
         String::from_utf8(w.get(b"AS").unwrap().as_name().unwrap().to_vec()).unwrap()
     };
     assert_eq!(
