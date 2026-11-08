@@ -1227,14 +1227,10 @@ impl Document {
         let base = self.addr_base(&addr);
         let reader = quill.inner.reader(&self.inner);
         let target = quillmark_core::document::Target::from(addr.field.as_deref());
-        let read = match addr.card {
-            None => reader.get(target),
-            Some(index) => reader
-                .card(index)
-                .map_err(|e| edit_error_to_js(&e, &base))?
-                .get(target),
-        }
-        .map_err(|e| edit_error_to_js(&e, &base))?;
+        let read = reader
+            .at(addr.card)
+            .and_then(|r| r.get(target))
+            .map_err(|e| edit_error_to_js(&e, &base))?;
         match read {
             None => Ok(JsValue::UNDEFINED),
             Some(v) => serialize_or_throw(v.as_json(), "reader.get"),
@@ -1267,14 +1263,10 @@ impl Document {
             None => content::content_out(self.addr_card_ref(&addr)?.body(), "reader.getContent"),
             Some(field) => {
                 let reader = quill.inner.reader(&self.inner);
-                let read = match addr.card {
-                    None => reader.get_content(field),
-                    Some(index) => reader
-                        .card(index)
-                        .map_err(|e| edit_error_to_js(&e, &base))?
-                        .get_content(field),
-                }
-                .map_err(|e| edit_error_to_js(&e, &base))?;
+                let read = reader
+                    .at(addr.card)
+                    .and_then(|r| r.get_content(field))
+                    .map_err(|e| edit_error_to_js(&e, &base))?;
                 match read {
                     None => Ok(JsValue::UNDEFINED),
                     Some(content) => content::content_out(&content, "reader.getContent"),
@@ -1318,14 +1310,10 @@ impl Document {
         let at = path_from_js(&path, "reader.getContentAt")?;
         let base = self.addr_base(&addr);
         let reader = quill.inner.reader(&self.inner);
-        let read = match addr.card {
-            None => reader.get_content_at(&field, &at),
-            Some(index) => reader
-                .card(index)
-                .map_err(|e| edit_error_to_js(&e, &base))?
-                .get_content_at(&field, &at),
-        }
-        .map_err(|e| edit_error_to_js(&e, &base))?;
+        let read = reader
+            .at(addr.card)
+            .and_then(|r| r.get_content_at(&field, &at))
+            .map_err(|e| edit_error_to_js(&e, &base))?;
         match read {
             None => Ok(JsValue::UNDEFINED),
             Some(content) => content::content_out(&content, "reader.getContentAt"),
