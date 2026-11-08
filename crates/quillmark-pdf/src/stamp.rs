@@ -250,9 +250,21 @@ pub fn stamp(
         }
         let acroform_id = alloc_id(&mut up.next_id)?;
 
+        let tag_inputs: Vec<(u32, u32, Option<&str>)> = fields
+            .iter()
+            .zip(&widget_ids)
+            .map(|(spec, &wid)| (wid, pages[spec.page].id, spec.tooltip.as_deref()))
+            .collect();
+        let catalog = idx.dict(up.catalog_id, CODE_PARSE, "catalog")?;
+        let tagged =
+            crate::tag::tag_widgets(&idx, catalog, &tag_inputs, &mut up.next_id, &mut up.objects)?;
+
         // Grouped by page for the page-side `/Annots`.
         let mut widgets_by_page: Vec<Vec<u32>> = vec![Vec::new(); page_count];
-        for ((spec, &wid), &parent) in fields.iter().zip(&widget_ids).zip(&parent_of) {
+        for (at, ((spec, &wid), &parent)) in
+            fields.iter().zip(&widget_ids).zip(&parent_of).enumerate()
+        {
+            let struct_parent = tagged.as_ref().map(|t| t.struct_parents[at]);
             widgets_by_page[spec.page].push(wid);
             let page_ref = to_ref(pages[spec.page].id)?;
             let normal = match appearance::of(spec).zip(registered_font(&fonts, &font_ids, spec)) {
@@ -272,10 +284,15 @@ pub fn stamp(
                 }),
             };
             let bytes = match parent {
-                None => write_merged_widget(spec, to_ref(wid)?, page_ref, normal)?,
-                Some(parent) => {
-                    write_kid_widget(spec, to_ref(wid)?, to_ref(parent)?, page_ref, normal)?
-                }
+                None => write_merged_widget(spec, to_ref(wid)?, page_ref, normal, struct_parent)?,
+                Some(parent) => write_kid_widget(
+                    spec,
+                    to_ref(wid)?,
+                    to_ref(parent)?,
+                    page_ref,
+                    normal,
+                    struct_parent,
+                )?,
             };
             up.objects.push(UpdatedObject { id: wid, bytes });
         }
@@ -348,9 +365,10 @@ pub fn stamp(
             let page_obj_id = pages[page_idx].id;
             let what = format!("page node {page_obj_id}");
             let pg_dict = idx.dict(page_obj_id, CODE_PARSE, &what)?;
+            let page = rewrite_page_with_annots(&idx, pg_dict, widget_refs)?;
             up.objects.push(dict_object(
                 page_obj_id,
-                &rewrite_page_with_annots(&idx, pg_dict, widget_refs)?,
+                &set_dict_value(&page, "Tabs", b"/S"),
             ));
         }
     }
@@ -479,6 +497,7 @@ fn write_merged_widget(
     wid: Ref,
     page_ref: Ref,
     normal: Option<NormalRef>,
+    struct_parent: Option<i64>,
 ) -> Result<Vec<u8>, PdfError> {
     let mut chunk = Chunk::new();
     {
@@ -490,7 +509,7 @@ fn write_merged_widget(
         // `into_annotation` writes `/Type /Annot` + `/Subtype /Widget` exactly
         // once; do not call `.subtype()` again or it duplicates the key.
         let mut ann = field.into_annotation();
-        write_widget_entries(&mut ann, spec, page_ref, normal)?;
+        write_widget_entries(&mut ann, spec, page_ref, normal, struct_parent)?;
         ann.finish();
     }
     Ok(chunk.as_bytes().to_vec())
@@ -505,6 +524,7 @@ fn write_kid_widget(
     parent: Ref,
     page_ref: Ref,
     normal: Option<NormalRef>,
+    struct_parent: Option<i64>,
 ) -> Result<Vec<u8>, PdfError> {
     let mut chunk = Chunk::new();
     {
@@ -513,7 +533,7 @@ fn write_kid_widget(
         if let Some(tt) = spec.tooltip.as_deref() {
             ann.pair(Name(b"TU"), TextStr(tt));
         }
-        write_widget_entries(&mut ann, spec, page_ref, normal)?;
+        write_widget_entries(&mut ann, spec, page_ref, normal, struct_parent)?;
         ann.finish();
     }
     Ok(chunk.as_bytes().to_vec())
@@ -605,7 +625,11 @@ fn write_widget_entries(
     spec: &FieldSpec,
     page_ref: Ref,
     normal: Option<NormalRef>,
+    struct_parent: Option<i64>,
 ) -> Result<(), PdfError> {
+    if let Some(key) = struct_parent {
+        ann.pair(Name(b"StructParent"), key as i32);
+    }
     ann.rect(Rect::new(
         spec.rect[0],
         spec.rect[1],

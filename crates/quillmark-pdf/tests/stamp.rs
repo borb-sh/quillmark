@@ -946,3 +946,133 @@ fn widgets_of_one_field_that_disagree_are_refused() {
         );
     }
 }
+
+/// Each widget's `/StructParent` key and the `Form` element the parent tree
+/// files under it, whose `OBJR` must name that widget.
+fn form_elements_by_widget(doc: &lopdf::Document) -> Vec<(lopdf::ObjectId, lopdf::Dictionary)> {
+    let root = doc
+        .catalog()
+        .unwrap()
+        .get_deref(b"StructTreeRoot", doc)
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let nums = root
+        .get_deref(b"ParentTree", doc)
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"Nums")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    let mut out = Vec::new();
+    for (_, page_id) in doc.get_pages() {
+        let page = doc.get_dictionary(page_id).unwrap();
+        let Ok(annots) = page.get_deref(b"Annots", doc) else {
+            continue;
+        };
+        for annot in annots.as_array().unwrap() {
+            let widget_id = annot.as_reference().unwrap();
+            let key = doc
+                .get_dictionary(widget_id)
+                .unwrap()
+                .get(b"StructParent")
+                .unwrap()
+                .as_i64()
+                .unwrap();
+            let pair = nums
+                .chunks(2)
+                .find(|pair| pair[0].as_i64().unwrap() == key)
+                .unwrap_or_else(|| panic!("/ParentTree has key {key}"));
+            let form = doc
+                .get_dictionary(pair[1].as_reference().unwrap())
+                .unwrap()
+                .clone();
+            out.push((widget_id, form));
+        }
+    }
+    out
+}
+
+#[test]
+fn on_a_tagged_base_every_widget_kids_included_is_a_form_element_under_the_top_element() {
+    let mut fields = all_four_fields();
+    for (on, x) in [("yes", 180.0), ("no", 220.0)] {
+        let mut radio = FieldSpec::new(
+            "Pick".into(),
+            0,
+            [x, 480.0, x + 14.0, 494.0],
+            FieldType::Radio { on: on.into() },
+        );
+        radio.value = Some("no".into());
+        fields.push(radio);
+    }
+    let pdf = stamp(
+        BasePdf::letter(1).tagged().build(),
+        &fields,
+        &StampOptions::default(),
+    )
+    .expect("stamp ok");
+    let doc = lopdf::Document::load_mem(&pdf).expect("parse");
+
+    let forms = form_elements_by_widget(&doc);
+    assert_eq!(forms.len(), fields.len());
+    let root = doc
+        .catalog()
+        .unwrap()
+        .get(b"StructTreeRoot")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let top_id = doc
+        .get_dictionary(root)
+        .unwrap()
+        .get(b"K")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let top_kids = doc
+        .get_dictionary(top_id)
+        .unwrap()
+        .get(b"K")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .clone();
+    for (widget_id, form) in &forms {
+        assert_eq!(form.get(b"S").unwrap().as_name().unwrap(), b"Form");
+        assert_eq!(form.get(b"P").unwrap().as_reference().unwrap(), top_id);
+        let objr = form.get(b"K").unwrap().as_dict().unwrap();
+        assert_eq!(
+            objr.get(b"Obj").unwrap().as_reference().unwrap(),
+            *widget_id
+        );
+    }
+    assert_eq!(top_kids.len(), fields.len());
+    let next_key = doc
+        .get_dictionary(root)
+        .unwrap()
+        .get(b"ParentTreeNextKey")
+        .unwrap()
+        .as_i64()
+        .unwrap();
+    assert_eq!(next_key, fields.len() as i64);
+    let (_, page_id) = doc.get_pages().into_iter().next().unwrap();
+    assert_eq!(
+        doc.get_dictionary(page_id)
+            .unwrap()
+            .get(b"Tabs")
+            .unwrap()
+            .as_name()
+            .unwrap(),
+        b"S"
+    );
+}
+
+#[test]
+fn an_untagged_base_stays_untagged() {
+    let (doc, _, widgets) = stamped(&all_four_fields());
+    assert!(doc.catalog().unwrap().get(b"StructTreeRoot").is_err());
+    assert!(widgets.values().all(|w| w.get(b"StructParent").is_err()));
+}

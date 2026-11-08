@@ -65,6 +65,7 @@ pub struct BasePdf {
     page_entries: Vec<(String, Vec<u8>)>,
     null_object: bool,
     raw_object: Option<Vec<u8>>,
+    tagged: bool,
     pretty: bool,
 }
 
@@ -84,6 +85,7 @@ impl BasePdf {
             page_entries: Vec::new(),
             null_object: false,
             raw_object: None,
+            tagged: false,
             pretty: true,
         }
     }
@@ -175,6 +177,13 @@ impl BasePdf {
         self
     }
 
+    /// A catalog `/StructTreeRoot` holding one empty `Document` element and an
+    /// empty `/ParentTree`, the shape Typst's tagged output takes.
+    pub fn tagged(mut self) -> Self {
+        self.tagged = true;
+        self
+    }
+
     /// pdf-writer's compact mode, which hex-encodes a non-ASCII string.
     pub fn compact(mut self) -> Self {
         self.pretty = false;
@@ -211,6 +220,7 @@ impl BasePdf {
         let acroform_id = alloc(self.acroform);
         let rotate_id = alloc(matches!(self.rotation, Some(Rotation::Indirect(_))));
         let info_id = alloc(self.info_title.is_some());
+        let struct_ids = alloc(self.tagged).zip(alloc(self.tagged));
         let annot_ids: Vec<Option<Ref>> = self
             .annots
             .iter()
@@ -242,6 +252,9 @@ impl BasePdf {
             catalog.pages(page_tree_id);
             if let Some(id) = acroform_id.filter(|_| !names(&self.catalog_entries, "AcroForm")) {
                 catalog.pair(Name(b"AcroForm"), id);
+            }
+            if let Some((root, _)) = struct_ids {
+                catalog.pair(Name(b"StructTreeRoot"), root);
             }
         }
         pdf.pages(page_tree_id)
@@ -305,6 +318,23 @@ impl BasePdf {
             pdf.document_info(id)
                 .producer(TextStr("Base"))
                 .title(TextStr(title));
+        }
+        if let Some((root, top)) = struct_ids {
+            let mut dict = pdf.indirect(root).dict();
+            dict.pair(Name(b"Type"), Name(b"StructTreeRoot"));
+            dict.pair(Name(b"K"), top);
+            dict.insert(Name(b"ParentTree"))
+                .dict()
+                .insert(Name(b"Nums"))
+                .array();
+            dict.pair(Name(b"ParentTreeNextKey"), 0);
+            dict.finish();
+            let mut dict = pdf.indirect(top).dict();
+            dict.pair(Name(b"Type"), Name(b"StructElem"));
+            dict.pair(Name(b"S"), Name(b"Document"));
+            dict.pair(Name(b"P"), root);
+            dict.insert(Name(b"K")).array();
+            dict.finish();
         }
         if self.null_object {
             pdf.indirect(Ref::new(NULL_OBJECT)).primitive(Null);
