@@ -4,4 +4,4 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
-cc 2f37d5d5bfe2c5b38489bd2cc26049a80205f44a850e8382e9afe185f0f622e5 # shrinks to md = "<table><td><em>[l](z)</em>x"
+cc e1ec567e3b1c76c1a3196692ef6abe3dea47e8d9a2c9294b4118a6452c4dddb1 # shrinks to (field, ctx) = ("abaabaabaaba", AnchorContext { id: "c", quote: "", prefix: "a", suffix: "baabaabaaba" }), spans = [(54, 11)]
