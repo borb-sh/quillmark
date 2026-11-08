@@ -258,6 +258,18 @@ pub fn fence_opener(line: &str) -> Option<(u8, usize, &str)> {
     (n >= 3 && (c == b'~' || !info.contains('`'))).then_some((c, n, info))
 }
 
+/// Whether `line` closes a fence of `n` or more `c` characters (CommonMark
+/// §4.5): a run of at least `n` of them indented at most three spaces, with
+/// only spaces and tabs after it.
+fn fence_closer(line: &str, c: u8, n: usize) -> bool {
+    let indent = line.bytes().take_while(|&b| b == b' ').count();
+    let Some(t) = line.get(indent..).filter(|_| indent <= 3) else {
+        return false;
+    };
+    let run = t.bytes().take_while(|&b| b == c).count();
+    run >= n && t[run..].trim_matches([' ', '\t']).is_empty()
+}
+
 /// The edit splitting a comment's last line after its `-->`, when text follows
 /// it, keeping the line's indent; `None` when nothing follows, or when what
 /// follows opens a fence or a type 1–5 block it does not close, which would run
@@ -297,9 +309,11 @@ fn comment_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
 
 /// The edit setting what follows each table's `</table>` in its HTML block
 /// apart under a blank line, keeping its line's indent, so it reads as
-/// markdown of its own rather than dropping with the block. The edit stops at
-/// a piece that opens a fence or a type 1–5 block it does not close on its
-/// line, as [`comment_edit`] declines one, leaving the rest in the block.
+/// markdown of its own rather than dropping with the block. A piece opening a
+/// fence that a later line of the block closes is set apart with the rest of
+/// the block under it. The edit stops at any other piece that opens a fence,
+/// and at one opening a type 1–5 block it does not close on its line, as
+/// [`comment_edit`] declines one, leaving the rest in the block.
 fn table_tail_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let (first, last) = (lines.first()?, lines.last()?);
     if !html_table::opens(first.content) {
@@ -316,9 +330,13 @@ fn table_tail_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
         Some(k) if k != BlockKind::Open => html::block_end(k, piece).is_none(),
         _ => fence_opener(piece).is_some(),
     };
+    let fenced = |k: usize, piece: &str| {
+        fence_opener(piece)
+            .is_some_and(|(c, n, _)| lines[k + 1..].iter().any(|l| fence_closer(l.content, c, n)))
+    };
     let mut out: Vec<String> = Vec::with_capacity(lines.len() + 4);
     let (mut off, mut apart, mut stopped) = (0, false, false);
-    for line in lines {
+    for (k, line) in lines.iter().enumerate() {
         let content = line.content;
         if stopped {
             out.push(line.whole());
@@ -331,6 +349,12 @@ fn table_tail_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
         off += content.len() + 1;
         let lead = format!("{}{}", continuation_of(line.prefix), shallow_lead(content));
         let head = &content[..cuts.first().copied().unwrap_or(content.len())];
+        if apart && fenced(k, content.trim()) {
+            out.push(blank_of(line.prefix));
+            out.push(format!("{lead}{}", content.trim()));
+            stopped = true;
+            continue;
+        }
         if apart && !runs_on(head.trim()) {
             out.push(blank_of(line.prefix));
             out.push(format!("{lead}{}", head.trim()));
@@ -351,6 +375,11 @@ fn table_tail_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
             let piece = content[cut..cuts.get(k + 1).copied().unwrap_or(content.len())].trim();
             if piece.is_empty() {
                 apart = true;
+            } else if !stopped && fenced(k, content[cut..].trim()) {
+                out.push(blank_of(line.prefix));
+                out.push(format!("{lead}{}", content[cut..].trim()));
+                stopped = true;
+                break;
             } else if stopped || runs_on(piece) {
                 stopped = true;
                 if let Some(prev) = out.last_mut() {
@@ -631,7 +660,8 @@ mod tests {
     /// What follows a table's `</table>` in its HTML block is set apart under
     /// a blank line, on the same line or the next, in a quote or list item as
     /// at the top level, after every table of the block in one edit. A fence
-    /// it would open stays in the block.
+    /// the block closes is set apart whole; one it leaves open stays in the
+    /// block.
     #[test]
     fn what_follows_a_table_is_set_apart() {
         let cases = [
@@ -664,6 +694,14 @@ mod tests {
                 "<table><tr><td>a</td></tr></table>\n\n### B\n<table><tr><td>b</td></tr></table>\n\nC",
             ),
             (
+                "<table><tr><td>a</td></tr></table>\n```\nx\n</table>\n```\nB",
+                "<table><tr><td>a</td></tr></table>\n\n```\nx\n</table>\n```\nB",
+            ),
+            (
+                "> <table><tr><td>a</td></tr></table> ~~~ js\n> x\n> ~~~",
+                "> <table><tr><td>a</td></tr></table>\n>\n> ~~~ js\n> x\n> ~~~",
+            ),
+            (
                 "<qm-keep>\n\n<table><tr><td>a</td></tr></table>\n</qm-keep>",
                 "<qm-keep>\n\n<table><tr><td>a</td></tr></table>\n\n</qm-keep>",
             ),
@@ -674,6 +712,7 @@ mod tests {
         for md in [
             "<table><tr><td>a</td></tr></table>",
             "<table><tr><td>a</td></tr></table>\n```\nx",
+            "<table><tr><td>a</td></tr></table>\n````\nx\n```",
         ] {
             assert_eq!(normalized(md), md);
         }

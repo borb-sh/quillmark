@@ -1867,6 +1867,15 @@ fn render_cell_md(slot: &Content, frag: Frag) -> String {
     .0
 }
 
+/// A line-form HTML table cell's markdown, as export writes it between its
+/// tags.
+pub(crate) fn html_cell_markdown(text: &str, marks: &[crate::lines::model::Mark]) -> String {
+    render_cell_md(
+        &crate::table::cell_to_slot(text, marks, false),
+        Frag::HtmlCell,
+    )
+}
+
 /// A footnote's note as the text of its definition: a cell's sweep on one
 /// source line, opening a block as a paragraph line does.
 fn render_note_md(isl: &Island) -> String {

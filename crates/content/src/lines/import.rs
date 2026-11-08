@@ -331,6 +331,7 @@ fn import(markdown: &str, tags: Tags) -> Result<(Content, Vec<ImportWarning>), I
     };
     let cells = b.tags.cells();
     parse_markdown(markdown, options(), |text, events| {
+        b.refs = crate::lines::html_table::refs(events.reference_definitions());
         b.run(MarkdownFixer::new(text, events.into_iter(), cells))
     })?;
     let (content, mut dropped) = b.finish();
@@ -644,6 +645,9 @@ struct Builder {
     tags: Tags,
     /// Each anchor id a tag has named, so a second tag naming it reports.
     pinned: HashSet<String>,
+    /// The document's link reference definitions, which an HTML table's
+    /// cells, read by parses of their own, resolve against.
+    refs: crate::lines::html_table::Refs,
 }
 
 /// How an import reads the `qm-anchor` tags and `qm-island` tokens of an
@@ -1500,19 +1504,36 @@ impl Builder {
         if let Some(acc) = self.table.as_mut() {
             acc.cell = Some(Inline::default());
         }
-        self.inline_source(&cell.content, cell.at)?;
+        let paired = self.inline_source(&cell.content, cell.at)?;
+        let mut inline = self.take_cell();
+        inline.drop_open(&mut self.dropped);
+        if paired {
+            let md = crate::export::html_cell_markdown(&inline.text, &inline.marks);
+            if let Some(acc) = self.table.as_mut() {
+                acc.cell = Some(Inline::default());
+            }
+            let dropped = std::mem::take(&mut self.dropped);
+            self.inline_source(&md, cell.at)?;
+            self.dropped = dropped;
+            inline = self.take_cell();
+            inline.drop_open(&mut Drops::default());
+        }
+        let mut value = crate::lines::serial::cell_to_value(&inline.text, &inline.marks);
+        if let Some(o) = value.as_object_mut() {
+            o.extend(cell.keys);
+        }
+        Ok(value)
+    }
+
+    /// The open HTML table cell's run, its marks closed.
+    fn take_cell(&mut self) -> Inline {
         let mut inline = self
             .table
             .as_mut()
             .and_then(|acc| acc.cell.take())
             .unwrap_or_default();
         inline.close_marks();
-        inline.drop_open(&mut self.dropped);
-        let mut value = crate::lines::serial::cell_to_value(&inline.text, &inline.marks);
-        if let Some(o) = value.as_object_mut() {
-            o.extend(cell.keys);
-        }
-        Ok(value)
+        inline
     }
 
     /// An HTML table inside a footnote's note, flattened as a pipe table is:
@@ -1544,16 +1565,18 @@ impl Builder {
 
     /// Read an HTML table cell's content, at source offset `at`, through the
     /// inline import, as one line of markdown
-    /// ([`cell_source`](crate::lines::html_table::cell_source)).
-    fn inline_source(&mut self, content: &str, at: usize) -> Result<(), ImportError> {
+    /// ([`cell_source`](crate::lines::html_table::cell_source)): whether a
+    /// formatting tag in it read as a mark.
+    fn inline_source(&mut self, content: &str, at: usize) -> Result<bool, ImportError> {
         let src = crate::lines::html_table::cell_source(
             &crate::lines::html_table::cell_paragraphs(content),
         );
-        let events = crate::lines::html_table::cell_events(&src);
+        let (events, paired) = crate::lines::html_table::cell_events(&src, &self.refs);
         self.run(
             MarkdownFixer::new(&src, events.into_iter(), crate::MAX_TABLE_CELLS)
                 .map(|item| item.shifted(at)),
-        )
+        )?;
+        Ok(paired)
     }
 
     fn emit_image(&mut self) {
@@ -4055,6 +4078,111 @@ pub(crate) mod tests {
         );
         assert_eq!(cells[3].0, "$x$ y[^1]");
         assert_eq!(dropped(&imported), [("math", 1), ("footnote", 1)]);
+    }
+
+    /// A cell reads the formatting tags HTML spells its marks with: `b`,
+    /// `strong`, `i`, `em`, `s`, `del` and `code` bare, `a` with an `href`
+    /// alone. A `code` pair holds its source verbatim. A close tag ends the
+    /// innermost open tag of its name, the tags still open inside it dropping.
+    /// A cell a pair reads in holds what its markdown spelling reads back, so
+    /// a mark's edge whitespace falls outside it. A tag with another
+    /// attribute, one crossing a markdown mark and an `a` inside a link drop as
+    /// tags do; prose reads none of them.
+    #[test]
+    fn an_html_cell_reads_formatting_tags_as_marks() {
+        let md = "<table><tr><td><b>a</b> <STRONG>b</STRONG> <i>c</i> <em>d</em></td>\
+                  <td><s>e</s> <del>f</del> <code>*g* <b>h</b></code></td>\
+                  <td><a href=\"https://x.test/?a&amp;b\"><b>i</b></a></td>\
+                  <td><b class=k>j</b> <b>k <i>l</b></i> *<b>m*</b> [n <a href=y>o</a>](z)</td>\
+                  <td>q<b> r </b>s<em> </em>t</td></tr></table>\n\n<b>p</b>";
+        let imported = imp_fixed(md);
+        let cells: Vec<(String, Vec<Mark>)> =
+            crate::lines::serial::table_cells(&imported.content.islands[0].props);
+        assert_eq!(
+            cells[0],
+            (
+                "a b c d".into(),
+                vec![
+                    Mark::new(0, 1, MarkKind::Strong),
+                    Mark::new(2, 3, MarkKind::Strong),
+                    Mark::new(4, 5, MarkKind::Emph),
+                    Mark::new(6, 7, MarkKind::Emph)
+                ]
+            )
+        );
+        assert_eq!(
+            cells[1],
+            (
+                "e f *g* <b>h</b>".into(),
+                vec![
+                    Mark::new(0, 1, MarkKind::Strike),
+                    Mark::new(2, 3, MarkKind::Strike),
+                    Mark::new(4, 16, MarkKind::Code)
+                ]
+            )
+        );
+        let url = "https://x.test/?a&b".to_string();
+        assert_eq!(
+            cells[2],
+            (
+                "i".into(),
+                vec![
+                    Mark::new(0, 1, MarkKind::Link { url }),
+                    Mark::new(0, 1, MarkKind::Strong)
+                ]
+            )
+        );
+        assert_eq!(
+            cells[3],
+            (
+                "j k l m n o".into(),
+                vec![
+                    Mark::new(2, 5, MarkKind::Strong),
+                    Mark::new(6, 7, MarkKind::Emph),
+                    Mark::new(8, 11, MarkKind::Link { url: "z".into() })
+                ]
+            )
+        );
+        assert_eq!(
+            cells[4],
+            ("q r s t".into(), vec![Mark::new(2, 3, MarkKind::Strong)])
+        );
+        assert_eq!(imported.content.text, "\u{FFFC}\np");
+        assert!(imported.content.marks.is_empty());
+        assert_eq!(dropped(&imported), [("b", 3), ("i", 1), ("a", 1)]);
+    }
+
+    /// A reference in a cell resolves against the document's definitions, as
+    /// in a pipe table's cell, and one naming no definition is its text.
+    #[test]
+    fn an_html_cell_resolves_reference_links() {
+        let md = "<table><tr><td>[AFI 36-2903]</td><td>[see][afi  36-2903] [none]</td></tr></table>\n\n\
+                  [AFI 36-2903]: https://x.test/afi \"Dress\"";
+        let imported = imp_fixed(md);
+        let cells: Vec<(String, Vec<Mark>)> =
+            crate::lines::serial::table_cells(&imported.content.islands[0].props);
+        let link = |start, end| {
+            Mark::new(
+                start,
+                end,
+                MarkKind::Link {
+                    url: "https://x.test/afi".into(),
+                },
+            )
+        };
+        assert_eq!(cells[0], ("AFI 36-2903".into(), vec![link(0, 11)]));
+        assert_eq!(cells[1], ("see [none]".into(), vec![link(0, 3)]));
+        assert!(imported.warnings.is_empty());
+    }
+
+    /// A fence directly under a `</table>` reads as a code block where its
+    /// HTML block closes it.
+    #[test]
+    fn a_fence_under_a_table_imports() {
+        let imported = imp_fixed("<table><tr><td>a</td></tr></table>\n```rust\nlet x;\n```\nafter");
+        assert_eq!(imported.content.islands.len(), 1);
+        assert_eq!(imported.content.text, "\u{FFFC}\nlet x;\nafter");
+        assert!(imported.warnings.is_empty());
     }
 
     /// A note holding an HTML table keeps its cells' text, a line per row, as
