@@ -81,13 +81,19 @@ pub fn decode_attrs(raw: &[(&str, &str)]) -> Attrs {
             attrs.refused.push(name);
             continue;
         }
-        let unquoted = match value.as_bytes() {
-            [q @ (b'"' | b'\''), .., last] if q == last => &value[1..value.len() - 1],
-            _ => value,
-        };
-        attrs.values.insert(name, decode_entities(unquoted));
+        attrs.values.insert(name, attr_value(value));
     }
     attrs
+}
+
+/// An attribute's value as written, quotes included, unquoted and its
+/// entities decoded.
+pub(crate) fn attr_value(value: &str) -> String {
+    let unquoted = match value.as_bytes() {
+        [q @ (b'"' | b'\''), .., last] if q == last => &value[1..value.len() - 1],
+        _ => value,
+    };
+    decode_entities(unquoted)
 }
 
 fn decode_entities(s: &str) -> String {

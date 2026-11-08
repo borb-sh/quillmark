@@ -109,7 +109,7 @@ On `<td>` and `<th>`:
 
 - The rows in `<thead>` are the header rows, as many as the table needs, and a header cell can span rows within them. A table with no `<thead>` takes its opening rows of `<th>` cells as its header, in a `<tbody>` or not, and with none of those has no header row: its first row draws as an ordinary row, without the quill's header styling.
 - A cell that a span covers is left out of its row, as HTML leaves it out. In the example, the second body row holds two cells, since `12 Nov` covers its first slot.
-- A cell holds inline markdown, on one line: `<td>**Total**</td>` is bold, and `<br>` is its line break. GitHub draws the grid and the spans, but shows the markdown in a cell as written.
+- A cell holds inline markdown, on one line: `<td>**Total**</td>` is bold, and `<br>` is its line break. A reference link resolves against the document's definitions. A cell also reads HTML's formatting tags as the marks markdown spells: `<b>` and `<strong>` are bold, `<i>` and `<em>` italic, `<s>` and `<del>` strikethrough, `<code>` code, and `<a href="…">` a link. One carrying another attribute, or left unclosed, drops with a warning. Export writes these marks as markdown. GitHub draws the grid and the spans, but shows the markdown in a cell as written.
 - A table is one HTML block, so a blank line inside it ends the table there; keep a table's lines together. Text right after `</table>` reads as ordinary markdown.
 - A table holds at most 100 000 cells, rows times columns; the rows past that drop, warning `table:size`.
 - `widths` or `aligns` with fewer entries than the table has columns leaves the rest `auto` or `none`, and one with more ignores the extra entries.
@@ -146,7 +146,7 @@ The <qm-span family="Carlito">phrase sits in **bold <qm-span family="Arimo">sans
 
 ### Raw HTML is not rendered, except `<u>` and `<br>`
 
-CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML as CommonMark does (so it does not break paragraph structure) but **discards every tag**, except the ones it supports: `<u>…</u>` renders as underline, an inline `<br>` is a line break, a `<table>` is a [table](#tables), and a `qm-span` pair sets [a font run](#font-family).
+CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML as CommonMark does (so it does not break paragraph structure) but **discards every tag**, except the ones it supports: `<u>…</u>` renders as underline, an inline `<br>` is a line break, a `<table>` is a [table](#tables), whose cells also read `<b>`, `<i>`, `<code>`, `<a href>` and their kin as marks, and a `qm-span` pair sets [a font run](#font-family).
 
 ```markdown
 <u>This is underlined</u>, even <u>across word boundaries</u>.

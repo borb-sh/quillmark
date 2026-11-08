@@ -763,8 +763,28 @@ code span never reaches past a subset tag, so a stray backtick is the cell's
 text rather than a span that merges cells, rows or the prose after the table,
 and a code mark over a subset tag exports the tag as escaped text between the
 spans either side.
+A reference link resolves against the document's link reference
+definitions, as in a pipe table's cell.
 An equation keeps its source, reported as `math`, as in a pipe table's cell,
-and a footnote reference is its text. GitHub draws the grid and the spans but
+and a footnote reference is its text.
+
+**Cells read HTML's formatting tags as marks.** A cell, and only a cell,
+reads `<b>` and `<strong>` as strong, `<i>` and `<em>` as emph, `<s>` and
+`<del>` as strike, `<code>` as a code span holding its source verbatim, and
+`<a href="…">` as a link, its `href` entity-decoded and admitted as a markdown
+link's destination is. Each pairs with the close tag of its name that ends
+it as HTML nests tags, inside the markdown marks it opened in; an inner tag
+still open where its outer one closes stays unpaired. An `a` inside a link or
+holding one stays unpaired. A tag carrying an attribute, an `a` carrying any
+but `href`, a self-closing tag and one left unpaired drop as §6.2 drops a tag,
+reported. A cell a pair reads in holds what its markdown spelling (§9)
+reads back as, so a mark markdown cannot spell, an emph over whitespace or
+one closing between punctuation and a letter, drops and its edge whitespace
+falls outside it: the import is a fixed point of a re-import, as it is for
+markdown. Prose keeps §6.2's reading: there the markdown spelling is the one
+authors write, and in a cell they write HTML because the whole table is HTML.
+Export writes the marks as markdown, so these tags are an import spelling
+only, as a pipe table's is. GitHub draws the grid and the spans but
 shows cell markdown literally.
 
 **A table is one HTML block.** CommonMark ends a type 6 block at a blank
@@ -826,7 +846,9 @@ Before CommonMark parsing, each body region is normalized:
      blank line above it, on a line of its own keeping the line's indent
      where it shared the `</table>`'s line.
    - Neither edit lands where what it sets apart opens a fence or a type 1–5
-     HTML block it does not close on its line.
+     HTML block it does not close on its line, but for a fence after a
+     `</table>` that a later line of its block closes: it is set apart with
+     the rest of the block under it.
    - A pipe-table row holding only tags gets a blank line above it, ending the
      table.
    - In a type 6 or 7 HTML block outside a footnote definition that does not

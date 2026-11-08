@@ -8,10 +8,11 @@ use crate::lines::import::DroppedConstruct;
 use crate::lines::island::{
     CELL_VALIGNS, TABLE_ALIGNS, TableLayout, cell_alignment, is_weight, table_rows, table_spans,
 };
-use pulldown_cmark::{CowStr, Event, Parser, Tag as PTag, TagEnd};
+use pulldown_cmark::{BrokenLink, CowStr, Event, LinkType, Parser, RefDefs, Tag as PTag, TagEnd};
 use serde_json::{Map, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
+use unicase::UniCase;
 
 /// The subset's elements.
 const TAGS: [&str; 7] = ["table", "thead", "tbody", "tfoot", "tr", "th", "td"];
@@ -786,13 +787,38 @@ pub(crate) fn cell_paragraphs(content: &str) -> std::borrow::Cow<'_, str> {
 /// The whitespace HTML reads between a cell's words.
 const WHITESPACE: [char; 3] = [' ', '\t', '\n'];
 
+/// The document's link reference definitions, by the label pulldown matches
+/// a reference with: each destination and title.
+pub(crate) type Refs = HashMap<UniCase<String>, (String, String)>;
+
+/// `defs` held apart from the parse that read them.
+pub(crate) fn refs(defs: &RefDefs) -> Refs {
+    defs.iter()
+        .map(|(label, def)| {
+            let title = def.title.as_deref().unwrap_or_default();
+            (
+                UniCase::new(label.to_string()),
+                (def.dest.to_string(), title.to_string()),
+            )
+        })
+        .collect()
+}
+
 /// The inline events of `src`, a [`cell_source`], with its sentinels taken off
 /// the text events that hold them, and each code span split around the
 /// subset's tags it holds, each tag its text, as a span the scan reads never
-/// holds one.
-pub(crate) fn cell_events(src: &str) -> Vec<(Event<'_>, Range<usize>)> {
+/// holds one. A reference resolves against `refs`, the document's
+/// definitions, and the [formatting tags](html_marks) it pairs are marks,
+/// the flag saying whether any pair read.
+pub(crate) fn cell_events<'a>(src: &'a str, refs: &Refs) -> (Vec<(Event<'a>, Range<usize>)>, bool) {
     let mut events: Vec<(Event, Range<usize>)> = Vec::new();
-    for (event, range) in Parser::new_ext(src, crate::lines::import::options()).into_offset_iter() {
+    let resolve = |link: BrokenLink| {
+        let (dest, title) = refs.get(&UniCase::new(link.reference.to_string()))?;
+        Some((dest.clone().into(), title.clone().into()))
+    };
+    let parser =
+        Parser::new_with_broken_link_callback(src, crate::lines::import::options(), Some(resolve));
+    for (event, range) in parser.into_offset_iter() {
         match event {
             Event::Start(PTag::Paragraph) | Event::End(TagEnd::Paragraph) => {}
             Event::Code(code) if tag_spans(&code).next().is_some() => {
@@ -826,7 +852,241 @@ pub(crate) fn cell_events(src: &str) -> Vec<(Event<'_>, Range<usize>)> {
             }
         }
     }
-    events
+    html_marks(src, events)
+}
+
+/// A formatting tag a cell reads as the mark markdown spells: `b`, `strong`,
+/// `i`, `em`, `s`, `del` and `code` bare, `a` with an `href` alone.
+enum Format {
+    Mark(PTag<'static>),
+    Link(String),
+    Code,
+}
+
+impl Format {
+    /// The end of the mark a close tag named `name` ends; `None` for a `code`
+    /// pair, which is one event.
+    fn closing(name: &str) -> Option<TagEnd> {
+        Some(match name {
+            "b" | "strong" => TagEnd::Strong,
+            "i" | "em" => TagEnd::Emphasis,
+            "s" | "del" => TagEnd::Strikethrough,
+            "a" => TagEnd::Link,
+            _ => return None,
+        })
+    }
+
+    fn of(tag: &html::Tag) -> Option<Self> {
+        if tag.self_closing {
+            return None;
+        }
+        let name = tag.name.to_ascii_lowercase();
+        if name == "a" {
+            let [(attr, href)] = tag.attrs.as_slice() else {
+                return None;
+            };
+            return attr
+                .eq_ignore_ascii_case("href")
+                .then(|| Format::Link(carrier::attr_value(href)));
+        }
+        if !tag.attrs.is_empty() {
+            return None;
+        }
+        Some(match name.as_str() {
+            "b" | "strong" => Format::Mark(PTag::Strong),
+            "i" | "em" => Format::Mark(PTag::Emphasis),
+            "s" | "del" => Format::Mark(PTag::Strikethrough),
+            "code" => Format::Code,
+            _ => return None,
+        })
+    }
+}
+
+/// A formatting tag [`html_marks`] holds open: its event, its lowercased
+/// name, and whether a markdown link opened inside it.
+struct Open {
+    at: usize,
+    name: String,
+    linked: bool,
+}
+
+/// What [`html_marks`] holds open, innermost last: each formatting tag, and
+/// `None` for each markdown mark.
+#[derive(Default)]
+struct Frames {
+    stack: Vec<Option<Open>>,
+    /// Each open tag's place in `stack`, by name.
+    named: HashMap<String, Vec<usize>>,
+    /// Each markdown mark's place in `stack`.
+    marks: Vec<usize>,
+    /// The open `a`'s place, and the open `code`'s.
+    anchor: Option<usize>,
+    code: Option<usize>,
+}
+
+impl Frames {
+    fn pop(&mut self) -> Option<Option<Open>> {
+        let frame = self.stack.pop()?;
+        let p = self.stack.len();
+        match &frame {
+            None => {
+                self.marks.pop();
+            }
+            Some(open) => {
+                if let Some(places) = self.named.get_mut(&open.name) {
+                    places.pop();
+                }
+            }
+        }
+        if self.anchor == Some(p) {
+            self.anchor = None;
+        }
+        if self.code == Some(p) {
+            self.code = None;
+        }
+        Some(frame)
+    }
+}
+
+/// `events` with each pair of [formatting tags](Format) a mark over what
+/// they wrap. A close tag ends the innermost open tag of its name inside the
+/// same markdown marks, and the tags opened inside that one and still open stay
+/// unpaired; an `a` pairs where it holds no link and stands in none. A `code`
+/// pair is a code span of the source it wraps, verbatim, no tag inside it
+/// pairing. A tag left unpaired stays inline HTML, which drops reported. The
+/// flag is whether any pair read.
+fn html_marks<'a>(
+    src: &'a str,
+    events: Vec<(Event<'a>, Range<usize>)>,
+) -> (Vec<(Event<'a>, Range<usize>)>, bool) {
+    struct Read {
+        name: String,
+        closing: bool,
+        format: Option<Format>,
+    }
+    let tags: Vec<Option<Read>> = events
+        .iter()
+        .map(|(event, _)| match event {
+            Event::InlineHtml(h) => html::tag_at(h, 0)
+                .filter(|t| t.span.end == h.len())
+                .map(|t| Read {
+                    name: t.name.to_ascii_lowercase(),
+                    closing: t.closing,
+                    format: (!t.closing).then(|| Format::of(&t)).flatten(),
+                }),
+            _ => None,
+        })
+        .collect();
+    let mut frames = Frames::default();
+    let mut in_link = 0usize;
+    let mut pairs: HashMap<usize, usize> = HashMap::new();
+    for (k, (event, _)) in events.iter().enumerate() {
+        match (event, &tags[k]) {
+            (Event::Start(t), _) => {
+                let link = matches!(t, PTag::Link { .. });
+                if let Some(Some(open)) = frames
+                    .anchor
+                    .filter(|_| link && frames.code.is_none())
+                    .and_then(|p| frames.stack.get_mut(p))
+                {
+                    open.linked = true;
+                }
+                in_link += usize::from(link);
+                frames.marks.push(frames.stack.len());
+                frames.stack.push(None);
+            }
+            (Event::End(end), _) => {
+                in_link -= usize::from(*end == TagEnd::Link);
+                while let Some(Some(_)) = frames.pop() {}
+            }
+            (_, Some(t)) if !t.closing => {
+                let Some(format) = t.format.as_ref().filter(|_| frames.code.is_none()) else {
+                    continue;
+                };
+                let link = matches!(format, Format::Link(_));
+                if link && (frames.anchor.is_some() || in_link > 0) {
+                    continue;
+                }
+                let p = frames.stack.len();
+                if link {
+                    frames.anchor = Some(p);
+                }
+                if matches!(format, Format::Code) {
+                    frames.code = Some(p);
+                }
+                frames.named.entry(t.name.clone()).or_default().push(p);
+                frames.stack.push(Some(Open {
+                    at: k,
+                    name: t.name.clone(),
+                    linked: false,
+                }));
+            }
+            (_, Some(t)) => {
+                let Some(&p) = frames.named.get(&t.name).and_then(|v| v.last()) else {
+                    continue;
+                };
+                if frames.marks.last().is_some_and(|&m| m > p)
+                    || frames.code.is_some_and(|c| c != p)
+                {
+                    continue;
+                }
+                while frames.stack.len() > p + 1 {
+                    frames.pop();
+                }
+                if let Some(Some(open)) = frames
+                    .pop()
+                    .filter(|o| o.as_ref().is_some_and(|o| !o.linked))
+                {
+                    pairs.insert(open.at, k);
+                }
+            }
+            _ => {}
+        }
+    }
+    if pairs.is_empty() {
+        return (events, false);
+    }
+    let closes: HashSet<usize> = pairs.values().copied().collect();
+    let spans: Vec<Range<usize>> = events.iter().map(|(_, r)| r.clone()).collect();
+    let mut out = Vec::with_capacity(events.len());
+    let mut until = None;
+    for (k, ((event, range), tag)) in events.into_iter().zip(tags).enumerate() {
+        if until.is_some_and(|close| k <= close) {
+            continue;
+        }
+        until = None;
+        if closes.contains(&k) {
+            if let Some(end) = tag.and_then(|t| Format::closing(&t.name)) {
+                out.push((Event::End(end), range));
+            }
+            continue;
+        }
+        let Some(&close) = pairs.get(&k) else {
+            out.push((event, range));
+            continue;
+        };
+        match tag.and_then(|t| t.format) {
+            Some(Format::Mark(t)) => out.push((Event::Start(t), range)),
+            Some(Format::Link(url)) => out.push((
+                Event::Start(PTag::Link {
+                    link_type: LinkType::Inline,
+                    dest_url: url.into(),
+                    title: "".into(),
+                    id: "".into(),
+                }),
+                range,
+            )),
+            Some(Format::Code) => {
+                until = Some(close);
+                let wrapped = &src[range.end..spans[close].start];
+                if !wrapped.is_empty() {
+                    out.push((Event::Code(wrapped.into()), range.start..spans[close].end));
+                }
+            }
+            None => out.push((event, range)),
+        }
+    }
+    (out, true)
 }
 
 /// Whether a table writes as HTML: one holding more or fewer header rows than
