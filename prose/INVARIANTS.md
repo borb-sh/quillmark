@@ -76,6 +76,8 @@ The table of codes and keys lives in [Diagnostic Codes § Args](../docs/referenc
 
 **A canonical ref is immutable within a process.** The caches between a document and its rendered output key on the ref, and none exposes invalidation, by design. To invalidate is to replace the `Quill` instance with a new one at a new ref.
 
+**A PDF claims PDF/UA-1 only where it conforms, and no author opts in.** Every Typst PDF render tries UA-1; a refusal exports a plain tagged PDF and warns at the source, and a document with form fields exports plain because a stamped widget has no accessible name. Rejected: a `Quill.yaml` opt-in, which asks every author to know a standard, and a fatal refusal, which would stop a document from rendering over its accessibility.
+
 **`Quill.yaml` parses strictly and reports every problem in one pass**, so a typo never loads as a silently ignored key. `quill.requires` is read first and reported alone, so a newer Quillmark's keys are not reported as typos by an older one.
 
 ## Writing a document

@@ -213,6 +213,7 @@ Opening a Typst quill and compiling its plate.
 - `typst::package_manifest`
 - `typst::path_skipped`
 - `typst::pdf_generation`
+- `typst::pdf_ua`
 - `typst::plate_missing`
 - `typst::plate_path_invalid`
 - `typst::png_encoding`
