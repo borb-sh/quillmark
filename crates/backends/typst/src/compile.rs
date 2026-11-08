@@ -9,7 +9,7 @@ use typst::model::Destination;
 use typst::utils::Scalar;
 use typst::visualize::Paint;
 use typst_layout::{Page, PagedDocument};
-use typst_pdf::PdfOptions;
+use typst_pdf::{PdfOptions, PdfStandard, PdfStandards};
 use typst_render::RenderOptions;
 use typst_svg::SvgOptions;
 
@@ -17,7 +17,7 @@ use crate::error_mapping::map_typst_errors;
 use crate::world::QuillWorld;
 use quillmark_core::{
     backend::{check_raster_ppi, page_selection_not_supported, selected_pages},
-    error::{Diagnostic, RenderError, RenderResult},
+    error::{Diagnostic, RenderError, RenderResult, Severity},
     types::{Artifact, OutputFormat},
 };
 use quillmark_pdf::{FieldSpec, StampOptions, stamp};
@@ -134,17 +134,67 @@ fn titled(document: &PagedDocument, title: Option<&str>, fallback: &str) -> Page
     document
 }
 
+pub(crate) const CODE_NOT_UA: &str = "typst::pdf_ua";
+
+/// PDF/UA-1 where the document conforms, else a plain tagged PDF with each
+/// reason it does not as a `typst::pdf_ua` warning. Typst checks conformance
+/// at export, so a document that conforms costs one export and one that does
+/// not costs two.
+///
+/// A document with form fields exports plain and silently: a stamped widget
+/// carries no accessible name and its appearance fonts are not embedded, so
+/// the stamped file would claim a conformance it breaks, for a reason no
+/// author can act on.
+fn export_pdf(
+    document: &PagedDocument,
+    world: &QuillWorld,
+    has_fields: bool,
+) -> Result<(Vec<u8>, Vec<Diagnostic>), RenderError> {
+    let plain = || {
+        typst_pdf::pdf(document, &PdfOptions::default()).map_err(|e| {
+            RenderError::coded(
+                "typst::pdf_generation",
+                format!("PDF generation failed: {e:?}"),
+            )
+        })
+    };
+    if has_fields {
+        return Ok((plain()?, Vec::new()));
+    }
+    let ua = PdfOptions {
+        standards: PdfStandards::new(&[PdfStandard::Ua_1])
+            .expect("PDF/UA-1 alone is a valid standards list"),
+        ..PdfOptions::default()
+    };
+    let refused = match typst_pdf::pdf(document, &ua) {
+        Ok(pdf) => return Ok((pdf, Vec::new())),
+        Err(refused) => refused,
+    };
+    let pdf = plain()?;
+    let warnings = map_typst_errors(&refused, world)
+        .into_iter()
+        .map(|mut diag| {
+            diag.severity = Severity::Warning;
+            diag.code = Some(CODE_NOT_UA.to_string());
+            diag
+        })
+        .collect();
+    Ok((pdf, warnings))
+}
+
 /// `field_specs` are stamped as AcroForm widgets, and the title written, by the
 /// PDF path only.
 pub(crate) fn render_document_pages(
     document: &PagedDocument,
-    pages: Option<&[usize]>,
-    format: OutputFormat,
-    ppi: f32,
+    opts: &quillmark_core::types::RenderOptions,
     field_specs: &[FieldSpec],
-    title: Option<&str>,
     fallback_title: &str,
+    world: &QuillWorld,
 ) -> Result<RenderResult, RenderError> {
+    let pages = opts.pages.as_deref();
+    let format = opts.output_format.unwrap_or(OutputFormat::Pdf);
+    let ppi = opts.ppi_or_default();
+    let title = opts.title.as_deref();
     if format == OutputFormat::Pdf && pages.is_some() {
         return Err(page_selection_not_supported(format));
     }
@@ -188,17 +238,14 @@ pub(crate) fn render_document_pages(
         }
         OutputFormat::Pdf => {
             let document = &titled(document, title, fallback_title);
-            let pdf = typst_pdf::pdf(document, &PdfOptions::default()).map_err(|e| {
-                RenderError::coded(
-                    "typst::pdf_generation",
-                    format!("PDF generation failed: {e:?}"),
-                )
-            })?;
+            let (pdf, warnings) = export_pdf(document, world, !field_specs.is_empty())?;
             let stamped = stamp(pdf, field_specs, &StampOptions::default())?;
-            Ok(RenderResult::new(
+            let mut result = RenderResult::new(
                 vec![Artifact::new(stamped, OutputFormat::Pdf)],
                 OutputFormat::Pdf,
-            ))
+            );
+            result.warnings = warnings;
+            Ok(result)
         }
     }
 }

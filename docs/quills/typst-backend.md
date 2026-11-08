@@ -26,6 +26,10 @@ A PDF's title is what a viewer shows in its title bar and a screen reader announ
 #set document(title: qm.str(qm.data.subject))
 ```
 
+## Accessibility
+
+Every PDF render tries PDF/UA-1, the standard a Section 508 checker measures against, and nothing in `Quill.yaml` turns it on or off. Where Typst finds the document does not conform, such as an image with no `alt:` or an empty heading, the render still succeeds: it exports a plain tagged PDF and reports each reason as a `typst::pdf_ua` warning pointing at the source. A document with form fields always exports as a plain tagged PDF, with its widgets in the structure tree, and raises no warning.
+
 ## Data Access
 
 Plates are plain Typst code. Document metadata reaches the plate as a Typst dictionary literal exposed by the virtual `@local/quillmark-helper` package, which a plate imports as a module under a name of its choosing:

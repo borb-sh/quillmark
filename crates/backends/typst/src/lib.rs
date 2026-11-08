@@ -248,16 +248,12 @@ pub(crate) fn page_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
 
 impl SessionHandle for TypstSession {
     fn render(&self, opts: &RenderOptions) -> Result<RenderResult, RenderError> {
-        let format = opts.output_format.unwrap_or(OutputFormat::Pdf);
-
         compile::render_document_pages(
             &self.live.document,
-            opts.pages.as_deref(),
-            format,
-            opts.ppi_or_default(),
+            opts,
             &self.live.field_specs,
-            opts.title.as_deref(),
             &self.fallback_title,
+            &self.world,
         )
     }
 
