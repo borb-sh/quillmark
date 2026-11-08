@@ -36,6 +36,28 @@ const CONTENT_TS: &'static str = r#"
  * Every part carries an id. Offsets are UTF-16 code units, JavaScript string
  * indices, into the `text` of the value holding them.
  */
+/** One block as `blocks` reads it, `start` and `end` in UTF-16. */
+export interface BlockRead {
+    id: string;
+    kind: string;
+    path: string[];
+    start: number;
+    end: number;
+    markdown: string;
+}
+
+/** One edit to one block, named by its id. */
+export type BlockOp =
+    | { op: "replace"; id: string; markdown: string }
+    | { op: "insertAfter"; id: string; markdown: string }
+    | { op: "delete"; id: string };
+
+/** `applyBlocks`'s receipt. */
+export type BlocksReceipt = Receipt & {
+    opened: string[][];
+    renamed: Record<string, string>;
+};
+
 export interface Content {
     text: string;
     blocks: ContentBlock[];
@@ -831,6 +853,94 @@ impl Document {
         self.structural(addr, edit, opts, "wrap", &[])
     }
 
+    /// Each block of the value at `addr`: its `id`, `kind`, container `path`,
+    /// `[start, end)` in UTF-16 with its `\n` excluded, and the block alone
+    /// as `markdown`. Throws as `read`.
+    #[wasm_bindgen(js_name = blocks, unchecked_return_type = "BlockRead[]")]
+    pub fn blocks(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let content = self.content_at(&addr)?;
+        let out: Vec<Value> = quillmark_content::blocks::blocks(&content)
+            .into_iter()
+            .map(|b| {
+                serde_json::json!({
+                    "id": b.id,
+                    "kind": b.kind,
+                    "path": b.path,
+                    "start": units::from_scalars(Utf16, &content.text, b.start),
+                    "end": units::from_scalars(Utf16, &content.text, b.end),
+                    "markdown": b.markdown,
+                })
+            })
+            .collect();
+        serialize_or_throw(&out, "blocks")
+    }
+
+    /// The value at `addr` as one `[id] markdown` entry per block, a blank
+    /// line between: the read a model is shown. Throws as `read`.
+    #[wasm_bindgen(js_name = taggedBlocks)]
+    pub fn tagged_blocks(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+    ) -> Result<String, JsValue> {
+        Ok(quillmark_content::blocks::tagged(&self.content_at(&addr)?))
+    }
+
+    /// Apply `ops`, each naming a block by id, in order and as one write:
+    /// `replace` and `insertAfter` take `markdown`, `delete` none. Answers the
+    /// `Receipt` with `opened`, per op the ids of the blocks it opened, and
+    /// `renamed`, each block whose text moved under another id. An op naming
+    /// a block no longer held throws `edit::content_apply` and writes nothing.
+    #[wasm_bindgen(js_name = applyBlocks, unchecked_return_type = "BlocksReceipt")]
+    pub fn apply_blocks(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "BlockOp[]")] ops: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        use quillmark_content::blocks::{BlockOp, batch};
+        let fail = |e: String| WasmError::from(format!("applyBlocks: {e}")).to_js_value();
+        let raw = js_value_to_json(ops, "applyBlocks")?;
+        let list = raw
+            .as_array()
+            .ok_or_else(|| fail("ops must be an array".into()))?;
+        let mut parsed = Vec::with_capacity(list.len());
+        for (n, op) in list.iter().enumerate() {
+            let s = |k: &str| op.get(k).and_then(Value::as_str).map(str::to_string);
+            let id = s("id").ok_or_else(|| fail(format!("op {n} needs a string `id`")))?;
+            let with = || -> Result<Content, JsValue> {
+                let md = s("markdown").ok_or_else(|| fail(format!("op {n} needs `markdown`")))?;
+                quillmark_content::markdown::from_markdown(&md)
+                    .map(|i| i.content)
+                    .map_err(|e| fail(format!("op {n}: {e}")))
+            };
+            parsed.push(match s("op").as_deref() {
+                Some("replace") => BlockOp::Replace { id, with: with()? },
+                Some("insertAfter") => BlockOp::InsertAfter { id, with: with()? },
+                Some("delete") => BlockOp::Delete { id },
+                _ => {
+                    return Err(fail(format!(
+                        "op {n}: `op` is replace, insertAfter or delete"
+                    )));
+                }
+            });
+        }
+        let opts = WriteOpts::from_js(&opts, "applyBlocks", &[])?;
+        let content = self.content_at(&addr)?;
+        let done = batch(&content, &parsed)
+            .map_err(|(n, e)| WasmError::from(format!("applyBlocks: op {n}: {e}")).to_js_value())?;
+        let change = units::change_from_scalars(&done.change, &content, Utf16)
+            .map_err(|e| fail(e.to_string()))?;
+        let addr = Addr::for_write(&addr, &self.inner, "applyBlocks")?;
+        let receipt = write(&mut self.inner, &addr, Edit::Apply(change), opts.as_ref())?;
+        let mut out = serde_json::to_value(&receipt).map_err(|e| fail(e.to_string()))?;
+        out["opened"] = serde_json::json!(done.opened);
+        out["renamed"] = serde_json::json!(done.renamed);
+        serialize_or_throw(&out, "applyBlocks")
+    }
+
     /// The block holding offset `at` (UTF-16) of the value at `addr`: its
     /// `id`, its `index` among the value's blocks and its container `path`;
     /// at a block's end, that block. Throws `edit::content_apply` where `at`
@@ -854,6 +964,13 @@ impl Document {
 }
 
 impl Document {
+    fn content_at(&self, addr: &JsValue) -> Result<Content, JsValue> {
+        let addr = Addr::from_js_or_string(addr, &self.inner)?;
+        card_of(&self.inner, &addr)?
+            .read(target(&addr))
+            .map_err(|e| edit_error_to_js(&e, &card_base(&self.inner, &addr)))
+    }
+
     fn structural(
         &mut self,
         addr: JsValue,
