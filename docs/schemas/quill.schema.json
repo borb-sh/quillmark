@@ -1,0 +1,695 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://quillmark.dev/schemas/quill.schema.json",
+  "title": "Quill.yaml",
+  "description": "A Quillmark quill's configuration: https://quillmark.dev/quills/quill-yaml-reference/",
+  "type": "object",
+  "required": [
+    "quill"
+  ],
+  "properties": {
+    "quill": {
+      "$ref": "#/definitions/quill"
+    },
+    "main": {
+      "$ref": "#/definitions/main"
+    },
+    "card_kinds": {
+      "description": "Additional composable card kinds, keyed by kind name.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z_][a-z0-9_]*$",
+        "not": {
+          "const": "main"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/card_kind"
+      }
+    },
+    "typst": {
+      "description": "The typst backend's settings.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "plate_file": {
+          "description": "Path from the quill root to the plate, steps separated by `/`. Default `plate.typ`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "acroform": {
+      "description": "The acroform backend reads no keys.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "quill": {
+            "properties": {
+              "backend": {
+                "const": "typst"
+              }
+            },
+            "required": [
+              "backend"
+            ]
+          }
+        },
+        "required": [
+          "quill"
+        ]
+      },
+      "then": {
+        "properties": {
+          "acroform": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "quill": {
+            "properties": {
+              "backend": {
+                "const": "acroform"
+              }
+            },
+            "required": [
+              "backend"
+            ]
+          }
+        },
+        "required": [
+          "quill"
+        ]
+      },
+      "then": {
+        "properties": {
+          "typst": false
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "quill": {
+      "description": "The quill's metadata.",
+      "type": "object",
+      "required": [
+        "name",
+        "backend",
+        "description",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "description": "The quill's snake_case identifier, at most 64 characters.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "maxLength": 64
+        },
+        "backend": {
+          "description": "The rendering backend.",
+          "enum": [
+            "typst",
+            "acroform"
+          ]
+        },
+        "description": {
+          "description": "What the quill is for, for a gallery or a quill picker.",
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "version": {
+          "description": "MAJOR.MINOR.PATCH, quoted.",
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "author": {
+          "description": "The quill's creator.",
+          "type": "string"
+        },
+        "license": {
+          "description": "An SPDX license expression on one line, such as `MIT` or `Apache-2.0 OR MIT`.",
+          "type": "string",
+          "pattern": "^[^\\n\\r\\u000b\\u000c\\u0085\\u2028\\u2029]*$"
+        },
+        "homepage": {
+          "description": "An absolute http or https URL.",
+          "type": "string",
+          "pattern": "^[hH][tT][tT][pP][sS]?://"
+        },
+        "ui": {
+          "$ref": "#/definitions/card_ui",
+          "description": "Fallback for `main.ui`, applied only when `main.ui` is absent."
+        },
+        "requires": {
+          "description": "The oldest Quillmark this quill loads on, quoted: \">=MAJOR.MINOR\" or \">=MAJOR.MINOR.PATCH\".",
+          "type": "string",
+          "pattern": "^>=[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "main": {
+      "description": "The document's root card.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "$ref": "#/definitions/card_title"
+        },
+        "description": {
+          "description": "What the document is, the authoring schema's own description.",
+          "type": "string"
+        },
+        "fields": {
+          "$ref": "#/definitions/fields"
+        },
+        "ui": {
+          "$ref": "#/definitions/card_ui"
+        },
+        "body": {
+          "$ref": "#/definitions/body"
+        }
+      },
+      "additionalProperties": false
+    },
+    "card_kind": {
+      "description": "A card kind: a part someone writes, authored as a `~~~` block with `$kind: <kind>`.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "$ref": "#/definitions/card_title"
+        },
+        "description": {
+          "description": "What the card kind is for.",
+          "type": "string"
+        },
+        "fields": {
+          "$ref": "#/definitions/fields"
+        },
+        "ui": {
+          "$ref": "#/definitions/card_ui"
+        },
+        "body": {
+          "$ref": "#/definitions/body"
+        },
+        "seed": {
+          "description": "What a new card of this kind starts with: fields of the kind, plus an optional `$body`.",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "card_title": {
+      "description": "The card's label, a literal. Absent, a consumer humanizes the name.",
+      "type": "string"
+    },
+    "card_ui": {
+      "description": "Container-level UI hints.",
+      "type": "object",
+      "properties": {
+        "groups": {
+          "description": "Deprecated: group fields under a top-level `type: object` instead.",
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$"
+              }
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "additionalProperties": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "body": {
+      "description": "The card's body region.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "`false` accepts and stores no body for this card.",
+          "type": "boolean"
+        },
+        "description": {
+          "description": "What the body holds, for the writer.",
+          "type": "string"
+        },
+        "example": {
+          "description": "A made-up body in markdown, committed by the example document.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "fields": {
+      "description": "Field schemas keyed by snake_case name, in display order.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]*$",
+        "not": {
+          "const": "body"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/field"
+      }
+    },
+    "field": {
+      "description": "A field schema.",
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "description": "The field's type; a trailing `?` renders an unanswered value as `none`.",
+          "enum": [
+            "number",
+            "integer",
+            "boolean",
+            "array",
+            "object",
+            "date",
+            "datetime",
+            "text",
+            "richtext",
+            "enum",
+            "matrix",
+            "number?",
+            "integer?",
+            "boolean?",
+            "array?",
+            "date?",
+            "datetime?",
+            "text?",
+            "richtext?",
+            "enum?",
+            "matrix?"
+          ]
+        },
+        "title": {
+          "description": "The field's label, a literal. Absent, a consumer humanizes the key.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Help text for the writer.",
+          "type": "string"
+        },
+        "default": {
+          "description": "The value an unanswered field renders. Never persisted."
+        },
+        "example": {
+          "description": "A made-up value of the field's type, committed by the example document."
+        },
+        "ui": {
+          "$ref": "#/definitions/field_ui"
+        },
+        "values": {
+          "description": "An enum's choices. Never `\"\"`: the blank is supplied.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "variants": {
+          "description": "Fields that exist only for one enum choice, keyed by choice.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/fields"
+          }
+        },
+        "properties": {
+          "$ref": "#/definitions/fields",
+          "description": "An object's properties, or a matrix's columns."
+        },
+        "items": {
+          "$ref": "#/definitions/field",
+          "description": "An array's element schema."
+        },
+        "multiline": {
+          "description": "Admits more than one line (`text`) or block structure (`richtext`).",
+          "type": "boolean"
+        },
+        "max": {
+          "description": "An array's element cap, or a text or richtext field's character cap.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "members": {
+          "description": "A matrix's roster, `id: Title` in order.",
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "open": {
+          "description": "Lets a document add items beside a matrix's roster.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "enum",
+                  "enum?"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "values"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "array",
+                  "array?"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "items"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "object"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "properties"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "matrix",
+                  "matrix?"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "members"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "richtext",
+                  "richtext?"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "multiline"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "array",
+                  "array?"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "properties": false
+            }
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "enum",
+                    "enum?"
+                  ]
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "values": false
+            }
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "enum",
+                    "enum?"
+                  ]
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "variants": false
+            }
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "array",
+                    "array?"
+                  ]
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "items": false
+            }
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "text",
+                    "text?",
+                    "richtext",
+                    "richtext?"
+                  ]
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "multiline": false
+            }
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "array",
+                    "array?",
+                    "text",
+                    "text?",
+                    "richtext",
+                    "richtext?"
+                  ]
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "max": false
+            }
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "matrix",
+                    "matrix?"
+                  ]
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "members": false
+            }
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "matrix",
+                    "matrix?"
+                  ]
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "open": false
+            }
+          }
+        }
+      ]
+    },
+    "field_ui": {
+      "description": "UI hints for an editor. Never reaches the authoring schema.",
+      "type": "object",
+      "properties": {
+        "group": {
+          "description": "Deprecated: the card group holding the field.",
+          "type": "string"
+        },
+        "compact": {
+          "description": "Asks for a compact control.",
+          "type": "boolean"
+        },
+        "layout": {
+          "description": "The control the field asks for.",
+          "enum": [
+            "table",
+            "flat"
+          ]
+        },
+        "blank_title": {
+          "description": "The label of an enum's blank option.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -2505,6 +2505,7 @@ dependencies = [
  "crc32fast",
  "glob",
  "indexmap",
+ "jsonschema",
  "miniz_oxide",
  "proptest",
  "pulldown-cmark",

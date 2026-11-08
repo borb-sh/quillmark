@@ -34,6 +34,7 @@ Nulling the key (PyMuPDF's `xref_set_key` sets a key to `null` rather than delet
 An `acroform` quill declares `backend: acroform` and has **no plate file**. The document body is typically disabled: a form is filled from fields, not prose. Fields under `main.fields` define the document schema exactly as for any other backend:
 
 ```yaml
+# yaml-language-server: $schema=https://quillmark.dev/schemas/quill.schema.json
 quill:
   name: sample_form
   version: 0.1.0

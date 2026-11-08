@@ -55,6 +55,7 @@ The next four steps read these files one idea at a time.
 `Quill.yaml` opens with the quill's identity:
 
 ```yaml
+# yaml-language-server: $schema=https://quillmark.dev/schemas/quill.schema.json
 quill:
   name: letter
   version: 0.1.0
@@ -62,7 +63,7 @@ quill:
   description: A one-page letter with a date, a subject line and optional P.S. notes
 ```
 
-`name`, `version`, `backend` and `description` are all required, and `name` is `snake_case`. Under `main.fields` are the fields of the document itself. The first two are plain text:
+`name`, `version`, `backend` and `description` are all required, and `name` is `snake_case`. The first line points an editor at the [schema of `Quill.yaml`](quill-yaml-reference.md#editor-support), so it completes keys and flags a typo as you type. Under `main.fields` are the fields of the document itself. The first two are plain text:
 
 ```yaml
 main:

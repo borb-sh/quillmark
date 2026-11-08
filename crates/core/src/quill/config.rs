@@ -255,6 +255,19 @@ impl CoercionError {
     }
 }
 
+/// The keys the `quill:` section reads.
+pub(crate) const QUILL_SECTION_KEYS: &[&str] = &[
+    "name",
+    "backend",
+    "description",
+    "version",
+    "author",
+    "license",
+    "homepage",
+    "ui",
+    "requires",
+];
+
 /// The coercion `target` a one-line `text` refusal names, distinct from the
 /// codec's own decode target so the write surface keys on it.
 pub(crate) const TEXT_SINGLE_LINE_TARGET: &str = "text(single_line)";
@@ -2352,27 +2365,16 @@ impl QuillConfig {
             }
         }
 
-        const KNOWN_QUILL_KEYS: &[&str] = &[
-            "name",
-            "backend",
-            "description",
-            "version",
-            "author",
-            "license",
-            "homepage",
-            "ui",
-            "requires",
-        ];
         if let Some(quill_obj) = quill_section.as_object() {
             for key in quill_obj.keys() {
-                if !KNOWN_QUILL_KEYS.contains(&key.as_str()) {
+                if !QUILL_SECTION_KEYS.contains(&key.as_str()) {
                     errors.push(
                         Diagnostic::new(
                             Severity::Error,
                             format!("Unknown key '{}' in 'quill:' section", key),
                         )
                         .with_code("quill::unknown_key".to_string())
-                        .with_hint(format!("Valid keys are: {}", KNOWN_QUILL_KEYS.join(", "))),
+                        .with_hint(format!("Valid keys are: {}", QUILL_SECTION_KEYS.join(", "))),
                     );
                 }
             }

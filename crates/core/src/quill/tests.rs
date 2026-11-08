@@ -7,6 +7,7 @@ mod properties;
 mod requires_tests;
 mod today_tests;
 mod variant_tests;
+mod yaml_schema_tests;
 
 use super::*;
 use crate::{
