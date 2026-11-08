@@ -184,6 +184,8 @@ const doc = Document.storageVersionOf(content)
 
 The tag model, what upgrading reads, and the one-time rewrites a release asks of stored rows are in [Persistence](https://quillmark.dev/integration/persistence/).
 
+An anchor whose id opens with **`TRANSIENT_ANCHOR_PREFIX`** (from `@quillmark/wasm`) never reaches `toStored`, the annotated `toMarkdown` or a hash, while the live document carries it like any other: [Persistence § Transient anchors](https://quillmark.dev/integration/persistence/#transient-anchors).
+
 `Document.currentStorageVersion()` is the tag every save this build makes writes; a row under an older tag this build reads is not a mismatch. Use `storageVersionOf` after `fromStored` throws, to tell "a version this build does not read" from "corrupt":
 
 ```ts

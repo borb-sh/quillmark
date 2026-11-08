@@ -4,6 +4,7 @@
 //! member is a compile error here, where the mirror gets read.
 
 use quillmark_content::lines::island::IslandType;
+use quillmark_content::model::TRANSIENT_ANCHOR_PREFIX;
 use quillmark_content::model::{BlockKind, ContainerKind, MarkKind};
 use quillmark_core::quill::VARIANT_DISCRIMINANT_KEY;
 
@@ -92,6 +93,25 @@ fn js_variant_discriminant_matches_the_rust_key() {
         (
             RUNTIME_DTS,
             format!("export declare const VARIANT_DISCRIMINANT_KEY: '{key}'"),
+        ),
+    ] {
+        assert!(file.contains(&decl), "the JS layer has no `{decl}`");
+    }
+}
+
+#[test]
+fn js_transient_anchor_prefix_matches_the_rust_prefix() {
+    const RUNTIME_DTS: &str = include_str!("../runtime/runtime.d.ts");
+    let prefix = TRANSIENT_ANCHOR_PREFIX;
+
+    for (file, decl) in [
+        (
+            RUNTIME_JS,
+            format!("export const TRANSIENT_ANCHOR_PREFIX = '{prefix}'"),
+        ),
+        (
+            RUNTIME_DTS,
+            format!("export declare const TRANSIENT_ANCHOR_PREFIX: '{prefix}'"),
         ),
     ] {
         assert!(file.contains(&decl), "the JS layer has no `{decl}`");

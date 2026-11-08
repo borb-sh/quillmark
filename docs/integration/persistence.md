@@ -29,6 +29,12 @@ projection, never a stored row: persist with `to_stored`.
 
 Every blob carries a `schema` tag (`quillmark/document@<version>`). Readers dispatch on it, accept every still-supported past version by migrating forward on read, and **reject an unknown version** rather than guessing. A save writes `quillmark/document@0.135.0`, which stores each body and richtext field as the content model: blocks, containers, anchors and island slots carrying ids. A row under an older tag loads with its content migrated, and gets the same ids on every load.
 
+## Transient anchors
+
+An anchor whose id opens with `~` lives only in memory. The prefix is `TRANSIENT_ANCHOR_PREFIX`, exported from `@quillmark/wasm` and from `quillmark_content::model`. Such an anchor moves with its text through every write, rides `getStored`, `clone` and every other read of the live document, and is named in a receipt's `droppedAnchors` when an edit deletes its text. `to_stored`, the annotated markdown read and every hash leave it out, so placing or removing one never moves a hash or stales a writer's `base`, and a reload drops it. Equality still sees it.
+
+That fits what a host keeps for one session, such as a suggestion or a highlight, beside its own record under the anchor's id. A rewrite of the anchored text keeps the anchor on whatever text the diff kept, rather than dropping it. A host whose record depends on the exact text stores the quote it read and compares it with `anchorContext(id).quote` before acting.
+
 ## Byte-stability
 
 Equal documents serialize to byte-equal JSON, and re-serializing under any later release carrying the same `schema` tag reproduces those bytes — so a stored document can be content-hashed for cache keys or template-divergence detection. Only a `schema`-version bump may change the layout.

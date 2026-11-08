@@ -144,6 +144,11 @@ export const MAIN_CARD_ADDR = Object.freeze({});
 export const VARIANT_DISCRIMINANT_KEY = 'value';
 
 /**
+ * @type {'~'}
+ */
+export const TRANSIENT_ANCHOR_PREFIX = '~';
+
+/**
  * @param {unknown} e
  * @returns {e is Error & { diagnostics: import('../core/wasm.js').Diagnostic[] }}
  */

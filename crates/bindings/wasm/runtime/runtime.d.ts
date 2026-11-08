@@ -106,6 +106,16 @@ export declare const MAIN_CARD_ADDR: CardAddr;
  */
 export declare const VARIANT_DISCRIMINANT_KEY: 'value';
 
+/**
+ * The id prefix of a transient anchor. One whose id opens with it moves with
+ * its text through every write, rides the wire and every copy of a
+ * `Document`, and is named in a receipt's `droppedAnchors` like any other;
+ * `toStored`, the annotated `toMarkdown` and every hash leave it out, so it
+ * lives as long as the value in memory holds it. Equality still sees it.
+ * A suggestion the host keeps for one session anchors under it.
+ */
+export declare const TRANSIENT_ANCHOR_PREFIX: '~';
+
 // Core-build types consumers read off `Quill`/`Document`.
 export type {
 	Card,

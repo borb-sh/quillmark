@@ -25,6 +25,7 @@ import {
   formatDiagnostic,
 } from '@quillmark-wasm'
 import * as renderBuild from '@quillmark-wasm'
+import { TRANSIENT_ANCHOR_PREFIX } from '@quillmark-wasm/runtime'
 import {
   makeQuill,
   makeCard,
@@ -409,6 +410,20 @@ describe('Document comment anchors: anchorContexts / reattach / droppedAnchors',
     expect(other.replace({}, importMarkdown('Nothing like it.\n\nAt all.').content).droppedAnchors).toEqual([
       { ...context, suffix: ' to plan.' },
     ])
+  })
+
+  it('a transient anchor rides the wire and no stored row, annotated read or hash', () => {
+    const doc = anchoredDoc()
+    const [stored, hash, base] = [doc.toStored(), doc.hash(), doc.hashAt({})]
+    const id = `${TRANSIENT_ANCHOR_PREFIX}s1`
+    const placed = doc.apply({}, { steps: [{ anchor: { id, start: 4, end: 13 } }] }, { base })
+    expect(placed.hash).toBe(base)
+    expect(doc.main.body.anchors.map((a) => a.id)).toEqual([id, 'm1'])
+    expect(doc.clone().anchorContext(id).quote).toBe('committee')
+    expect([doc.toStored(), doc.hash()]).toEqual([stored, hash])
+    for (const read of [doc.toMarkdown(undefined, { annotated: true }), doc.toMarkdown({}, { annotated: true })]) {
+      expect(read.anchors.map((a) => a.id)).toEqual(['m1'])
+    }
   })
 
   it('reattach places a dropped anchor where its quote and context are found once', () => {

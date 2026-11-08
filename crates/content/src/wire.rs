@@ -332,6 +332,39 @@ mod canon {
     }
 }
 
+/// Drop every transient anchor from each content value in `v`, at any depth
+/// and in its islands' slots, as
+/// [`without_transient_anchors`](Content::without_transient_anchors) drops
+/// them from the model. Island props are opaque and stay as written.
+pub fn strip_transient_anchors(v: &mut Value) {
+    if crate::units::is_content_value(v) {
+        let Value::Object(m) = v else { return };
+        if let Some(Value::Array(anchors)) = m.get_mut("anchors") {
+            anchors.retain(|a| {
+                !a.get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(crate::model::is_transient_anchor_id)
+            });
+            if anchors.is_empty() {
+                m.remove("anchors");
+            }
+        }
+        if let Some(Value::Array(islands)) = m.get_mut("islands") {
+            for island in islands {
+                if let Some(Value::Object(slots)) = island.get_mut("slots") {
+                    slots.values_mut().for_each(strip_transient_anchors);
+                }
+            }
+        }
+        return;
+    }
+    match v {
+        Value::Object(m) => m.values_mut().for_each(strip_transient_anchors),
+        Value::Array(items) => items.iter_mut().for_each(strip_transient_anchors),
+        _ => {}
+    }
+}
+
 pub(crate) fn content_value(c: &Content) -> Value {
     let mut m = Map::new();
     m.insert("text".into(), Value::String(c.text.clone()));
@@ -868,6 +901,22 @@ mod tests {
 
     fn para(text: &str) -> Value {
         json!({"text": text, "blocks": [{"id": "b0", "kind": "para"}]})
+    }
+
+    #[test]
+    fn stripping_transient_anchors_from_json_agrees_with_the_model() {
+        let mut c = crate::markdown::from_markdown("Text with a note[^1].\n\n[^1]: The note.")
+            .unwrap()
+            .content;
+        c.anchors = vec![Anchor::new("c1", 0, 4), Anchor::new("~w1", 5, 9)];
+        let slot = c.islands[0].slots.values_mut().next().unwrap();
+        slot.anchors = vec![Anchor::new("~w2", 0, 3)];
+        let mut v = json!({"items": [c.to_value()], "n": 1});
+        strip_transient_anchors(&mut v);
+        let kept = c.without_transient_anchors();
+        assert_eq!(v, json!({"items": [kept.to_value()], "n": 1}));
+        assert_eq!(kept.anchors, [Anchor::new("c1", 0, 4)]);
+        assert!(!kept.holds_transient_anchor());
     }
 
     fn memo() -> Value {
