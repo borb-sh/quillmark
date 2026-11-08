@@ -137,6 +137,8 @@ The table of codes and keys lives in [Diagnostic Codes § Args](../docs/referenc
 
 **Re-attachment is exact or nothing.** `reattach` places an anchor only where its quote and context are found exactly once, and is at least as strict as revise's own floor for moving one, or it would undo that refusal. Rejected: nearest match, partial quote and edit distance, each of which attaches a comment to text it never discussed.
 
+**A transient anchor lives only in memory.** An anchor whose id begins with `~` moves with its text like any other and rides the wire and every clone, but the stored form, the annotated read and `Document::hash` leave it out, so a session-only suggestion never reaches storage and adding one does not move the hash. Equality still sees it. Rejected: a flag on the anchor, which would add a key to the stored envelope that older readers refuse, for a value that is never stored.
+
 **A host keeps the stored document, never the markdown.** Plain markdown drops every anchor. Recovering from markdown by re-attaching every stored selector is a search that can orphan, so it is the fallback, not the design.
 
 ## The bindings

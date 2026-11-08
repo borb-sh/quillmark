@@ -272,6 +272,42 @@ impl Anchor {
     pub fn is_point(&self) -> bool {
         self.start == self.end
     }
+
+    /// Whether the anchor is transient: its id begins with
+    /// [`TRANSIENT_ANCHOR_PREFIX`].
+    pub fn is_transient(&self) -> bool {
+        self.id.starts_with(TRANSIENT_ANCHOR_PREFIX)
+    }
+}
+
+/// The id prefix of a transient anchor: one that moves with its text like any
+/// other but no stored form, markdown or hash carries, so it lives only as
+/// long as the value in memory holds it.
+pub const TRANSIENT_ANCHOR_PREFIX: &str = "~";
+
+/// Drop every transient anchor from a JSON value, at any depth: each content
+/// value's `anchors`, its islands' slots' included.
+pub fn strip_transient_anchors_value(v: &mut JsonValue) {
+    match v {
+        JsonValue::Object(map) => {
+            if map.get("text").is_some_and(JsonValue::is_string)
+                && map.get("blocks").is_some_and(JsonValue::is_array)
+                && let Some(JsonValue::Array(anchors)) = map.get_mut("anchors")
+            {
+                anchors.retain(|a| {
+                    !a.get("id")
+                        .and_then(JsonValue::as_str)
+                        .is_some_and(|id| id.starts_with(TRANSIENT_ANCHOR_PREFIX))
+                });
+                if anchors.is_empty() {
+                    map.remove("anchors");
+                }
+            }
+            map.values_mut().for_each(strip_transient_anchors_value);
+        }
+        JsonValue::Array(items) => items.iter_mut().for_each(strip_transient_anchors_value),
+        _ => {}
+    }
 }
 
 impl Island {
@@ -720,6 +756,23 @@ impl Content {
             }
         }
         out
+    }
+
+    /// The value without its transient anchors, its slots' included.
+    pub fn without_transient_anchors(&self) -> Content {
+        let mut out = self.clone();
+        out.strip_transient_anchors();
+        out
+    }
+
+    fn strip_transient_anchors(&mut self) {
+        self.anchors.retain(|a| !a.is_transient());
+        for island in &mut self.islands {
+            island
+                .slots
+                .values_mut()
+                .for_each(Content::strip_transient_anchors);
+        }
     }
 
     /// Whether the text or a slot in it holds an anchor under `id`.

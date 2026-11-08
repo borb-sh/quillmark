@@ -143,7 +143,7 @@ impl Card {
     /// The body's annotated read ([`to_markdown_annotated`]): the scoped read
     /// a body revise takes back. Its anchors carry no path; the body is theirs.
     pub(crate) fn body_annotated(&self) -> Annotated {
-        quillmark_content::markdown::to_markdown_annotated(self.body())
+        quillmark_content::markdown::to_markdown_annotated(&self.body().without_transient_anchors())
     }
 
     /// The field's annotated read, decoded as a schema-blind revise decodes
@@ -153,7 +153,7 @@ impl Card {
     /// listed and no tag spelled.
     pub(crate) fn field_annotated(&self, name: &str) -> Result<Annotated, EditError> {
         Ok(quillmark_content::markdown::to_text_annotated(
-            &self.richtext_value(name)?,
+            &self.richtext_value(name)?.without_transient_anchors(),
         ))
     }
 

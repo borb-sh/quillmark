@@ -147,6 +147,7 @@ fn annotated_as(
     path: &DocPath,
     anchors: &Anchors,
 ) -> String {
+    let content = &content.without_transient_anchors();
     let read = match codec {
         super::Codec::Richtext => quillmark_content::markdown::to_markdown_annotated(content),
         super::Codec::Text => quillmark_content::markdown::to_text_annotated(&Content {

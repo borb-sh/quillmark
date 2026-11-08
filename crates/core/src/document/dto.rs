@@ -385,7 +385,7 @@ impl From<&Card> for CardV0_134_0 {
     fn from(card: &Card) -> Self {
         CardV0_134_0 {
             payload: PayloadV0_129_0::from(card.payload()),
-            body: StoredContent::from(card.body().clone()),
+            body: StoredContent::from(card.body().without_transient_anchors()),
         }
     }
 }
@@ -505,7 +505,11 @@ impl From<&PayloadItem> for PayloadItemV0_124_0 {
             },
             PayloadItem::Field { key, value } => PayloadItemV0_124_0::Field {
                 key: key.clone(),
-                value: value.as_json().clone(),
+                value: {
+                    let mut value = value.as_json().clone();
+                    quillmark_content::model::strip_transient_anchors_value(&mut value);
+                    value
+                },
             },
             PayloadItem::Comment { text, inline } => PayloadItemV0_124_0::Comment {
                 text: text.clone(),
