@@ -377,10 +377,9 @@ impl Card {
             check_change(change)?;
         }
         let now = self.read(target)?;
-        let mut before_hash = None;
         check_base(
             opts.base,
-            || Ok(before_hash.insert(self.hash_now(target, &now)).clone()),
+            || Ok(self.hash_now(target, &now)),
             target.field(),
         )?;
         let fill = |change: &Change| mint::fill(change, &[&now]).map_err(EditError::change);
@@ -432,7 +431,7 @@ impl Card {
             }
             None => applied.applied.clone(),
         };
-        let hash = self.land(target, &now, before_hash, applied.content)?;
+        let hash = self.land(target, &now, applied.content)?;
         Ok(Receipt {
             applied: shown,
             hash,
@@ -495,31 +494,23 @@ impl Card {
     }
 
     /// Store `content` at `target`, where it differs from `before`, the value
-    /// read, and answer its hash. `before_hash` is `before`'s, where it was
-    /// hashed already.
+    /// read, and answer its hash. Equality decides, not the hash, since a
+    /// hash does not see a transient anchor and a write may move only one.
     fn land(
         &mut self,
         target: Target<'_>,
         before: &Content,
-        before_hash: Option<String>,
         content: Content,
     ) -> Result<String, EditError> {
-        let before_hash = before_hash.unwrap_or_else(|| self.hash_now(target, before));
-        let (hash, value) = match target {
-            Target::Body => (content_hash(&content), None),
-            Target::Field(_) => {
-                let value = content.to_value();
-                (super::base::digest(&value), Some(value))
-            }
-        };
-        if hash != before_hash {
-            match (target, value) {
-                (Target::Field(name), Some(value)) => {
+        let hash = content_hash(&content);
+        if content != *before {
+            match target {
+                Target::Field(name) => {
                     self.payload_mut()
-                        .insert(name.to_string(), QuillValue::from_json(value))
+                        .insert(name.to_string(), QuillValue::from_json(content.to_value()))
                         .map_err(EditError::InvalidPayload)?;
                 }
-                _ => self.set_body(content),
+                Target::Body => self.set_body(content),
             }
         }
         self.remember_hash(target.field(), hash.clone());

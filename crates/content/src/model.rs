@@ -8,6 +8,7 @@ pub use crate::lines::island::IslandType;
 use crate::lines::model::{self as line, is_font_family_name};
 use crate::lines::normalize::{is_bidi_char, is_line_separator};
 use serde_json::{Map as JsonMap, Value as JsonValue};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// A position counted in Unicode scalar values.
@@ -137,6 +138,17 @@ pub enum MarkKind {
         name: String,
         attrs: JsonMap<String, JsonValue>,
     },
+}
+
+/// The id prefix of a transient anchor: one that moves with its text like any
+/// other, while no stored form, annotated read or hash carries it, so it
+/// lives only as long as a value in memory holds it.
+pub const TRANSIENT_ANCHOR_PREFIX: &str = "~";
+
+/// Whether `id` names a transient anchor: it opens with
+/// [`TRANSIENT_ANCHOR_PREFIX`].
+pub fn is_transient_anchor_id(id: &str) -> bool {
+    id.starts_with(TRANSIENT_ANCHOR_PREFIX)
 }
 
 /// A comment handle over `[start, end)`; a point when the two are equal.
@@ -271,6 +283,11 @@ impl Anchor {
 
     pub fn is_point(&self) -> bool {
         self.start == self.end
+    }
+
+    /// Whether the anchor is transient ([`is_transient_anchor_id`]).
+    pub fn is_transient(&self) -> bool {
+        is_transient_anchor_id(&self.id)
     }
 }
 
@@ -720,6 +737,37 @@ impl Content {
             }
         }
         out
+    }
+
+    /// Whether the text or a slot in it holds a transient anchor.
+    pub fn holds_transient_anchor(&self) -> bool {
+        self.anchors.iter().any(Anchor::is_transient)
+            || self
+                .islands
+                .iter()
+                .any(|i| i.slots.values().any(Content::holds_transient_anchor))
+    }
+
+    /// The value without its transient anchors, its slots' included: what
+    /// storage, an annotated read and a hash see. Borrowed where it holds
+    /// none.
+    pub fn without_transient_anchors(&self) -> Cow<'_, Content> {
+        if !self.holds_transient_anchor() {
+            return Cow::Borrowed(self);
+        }
+        let mut out = self.clone();
+        out.drop_transient_anchors();
+        Cow::Owned(out)
+    }
+
+    fn drop_transient_anchors(&mut self) {
+        self.anchors.retain(|a| !a.is_transient());
+        for island in &mut self.islands {
+            island
+                .slots
+                .values_mut()
+                .for_each(Content::drop_transient_anchors);
+        }
     }
 
     /// Whether the text or a slot in it holds an anchor under `id`.

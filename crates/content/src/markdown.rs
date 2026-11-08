@@ -215,14 +215,16 @@ pub fn to_markdown_checked(c: &Content) -> Exported {
 }
 
 /// The two-way read: [`to_markdown`] with each anchor's tag and each
-/// unwritable island's token, and every anchor listed (markdown-spec §6.4).
+/// unwritable island's token, and every anchor listed (markdown-spec §6.4),
+/// a transient one aside: a revise keeps an anchor its markdown does not
+/// spell, so the read need not carry one.
 pub fn to_markdown_annotated(c: &Content) -> Annotated {
-    crate::export::to_markdown_annotated(c)
+    crate::export::to_markdown_annotated(&c.without_transient_anchors())
 }
 
 /// The annotated read under the value's codec: [`to_markdown_annotated`], or
 /// for a [`Codec::Plain`] value its literal text, no tag in it, and every
-/// anchor listed.
+/// anchor listed but a transient one.
 pub fn to_text_annotated(c: &Content) -> Annotated {
     match c.codec {
         Codec::Rich => to_markdown_annotated(c),
@@ -235,7 +237,9 @@ pub fn to_text_annotated(c: &Content) -> Annotated {
 
 /// The anchors [`to_markdown_annotated`] lists whose id `keep` holds.
 pub fn anchors_where(c: &Content, keep: impl Fn(&str) -> bool) -> Vec<AnchorRead> {
-    crate::export::anchors_where(c, keep)
+    crate::export::anchors_where(c, |id| {
+        !crate::model::is_transient_anchor_id(id) && keep(id)
+    })
 }
 
 /// The text with every block break a blank line and every hard break a `\n`,
@@ -259,6 +263,26 @@ pub fn to_plaintext(c: &Content) -> String {
 mod tests {
     use super::*;
     use crate::model::{Anchor, Mark, MarkKind, NOTE_SLOT};
+
+    /// Both codecs' reads, a slot's anchors included.
+    #[test]
+    fn an_annotated_read_leaves_out_a_transient_anchor() {
+        let rich = from_markdown("Text with a note[^1].\n\n[^1]: The note.")
+            .unwrap()
+            .content;
+        let mut held = rich.clone();
+        held.anchors = vec![Anchor::new("c1", 0, 4), Anchor::new("~w1", 5, 9)];
+        let mut kept = held.clone();
+        kept.anchors.truncate(1);
+        held.islands[0].slots.get_mut(NOTE_SLOT).unwrap().anchors = vec![Anchor::new("~w2", 0, 3)];
+        let read = to_text_annotated(&held);
+        assert_eq!(read, to_text_annotated(&kept));
+        assert!(!read.markdown.contains("~w"), "{}", read.markdown);
+
+        let mut flat = plain("plain words");
+        flat.anchors = vec![Anchor::new("~w3", 0, 5)];
+        assert_eq!(to_text_annotated(&flat).anchors, []);
+    }
 
     #[test]
     fn a_hard_break_is_one_block() {

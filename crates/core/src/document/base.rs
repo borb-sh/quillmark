@@ -69,15 +69,13 @@ pub(crate) fn check_base(
 pub const HASH_TAG: &str = "quillmark/hash@1";
 
 /// The hash of a JSON value: SHA-256 over [`HASH_TAG`], a newline, and the
-/// value's JSON with every object's keys sorted, as lowercase hex. Sorting
-/// makes equal values hash alike however a store reordered their keys.
+/// value's JSON with every object's keys sorted and each content value's
+/// transient anchors dropped, as lowercase hex. Sorting makes equal values
+/// hash alike however a store reordered their keys.
 pub fn value_hash(value: &JsonValue) -> String {
-    digest(&sorted(value))
-}
-
-/// [`value_hash`] of a value whose keys are sorted already.
-pub(super) fn digest(sorted: &JsonValue) -> String {
-    digesting(|w| serde_json::to_writer(w, sorted).map_err(std::io::Error::other))
+    let mut sorted = sorted(value);
+    quillmark_content::wire::strip_transient_anchors(&mut sorted);
+    digesting(|w| serde_json::to_writer(w, &sorted).map_err(std::io::Error::other))
 }
 
 /// SHA-256 over [`HASH_TAG`], a newline, and the bytes `write` writes, fed
@@ -125,10 +123,11 @@ fn sorted(value: &JsonValue) -> JsonValue {
     }
 }
 
-/// The hash of a content's canonical form: what [`Card::hash_of`] answers for
-/// a body or a richtext field, however the field rests.
+/// The hash of a content's canonical form, its transient anchors dropped:
+/// what [`Card::hash_of`] answers for a body or a richtext field, however the
+/// field rests.
 pub fn content_hash(content: &Content) -> String {
-    digesting(|w| content.write_canonical(w))
+    digesting(|w| content.without_transient_anchors().write_canonical(w))
 }
 
 impl Card {

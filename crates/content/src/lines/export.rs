@@ -16,7 +16,7 @@ pub fn to_markdown(rt: &Lines) -> String {
 
 /// The two-way read: [`crate::markdown::to_markdown_annotated`].
 pub fn to_markdown_annotated(rt: &Lines) -> Annotated {
-    crate::export::to_markdown_annotated(&from_lines(rt))
+    crate::markdown::to_markdown_annotated(&from_lines(rt))
 }
 
 /// `props` with every anchor mark of each `{text, marks}` it holds gone.
