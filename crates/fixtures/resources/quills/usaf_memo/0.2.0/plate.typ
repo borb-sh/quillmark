@@ -55,13 +55,11 @@
   // blank renders a variant nobody picked. Here the blank omits the seal, which
   // is what `frontmatter`'s own `letterhead_seal: none` default means.
   ..if qm.data.letterhead_seal != "" {
-    (letterhead_seal: image(
-      if qm.data.letterhead_seal == "dod" {
-        "assets/dod_seal.png"
-      } else {
-        "assets/dow_seal.png"
-      }
-    ))
+    (letterhead_seal: if qm.data.letterhead_seal == "dod" {
+      image("assets/dod_seal.png", alt: "Seal of the Department of Defense")
+    } else {
+      image("assets/dow_seal.png", alt: "Seal of the Department of War")
+    })
   },
 
   // Date. `qm.data.date` is the native `datetime` and would render identically,
