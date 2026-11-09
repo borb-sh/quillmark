@@ -2,11 +2,19 @@
 
 ## v0.137.0 - 2026-11-09
 
+Upgrade path: [0.136 → 0.137](docs/migrations/0.136-to-0.137.md). Acroform
+boxes with an `option:` stamp as one radio field whose value is the enum value,
+and bound fields naming one `schema_field` stamp as one field named by the
+first. A write now mints a new block id from a digest of the value it lands on
+(`b` and six base32 characters), so a retired id never returns; block ids are
+opaque, and import still numbers them positionally. `blocks` and `applyBlocks`
+read and edit a content value's blocks by id.
+
 - test(content): drop the removed tagged read from the block id speed probe
 - refactor(content): leave the model-facing tagged read to the host
 - test(bindings): a minted block id is a digest, not the next number
 - feat(content): a write mints a new block id from a digest of the value it lands on
-- feat(wasm): blocks, taggedBlocks and applyBlocks
+- feat(wasm): blocks and applyBlocks
 - feat(content): read blocks by id and edit them with replace, insertAfter and delete ops
 - feat(typst): export PDF/UA-1 wherever the document conforms
 - feat(pdf): tag stamped widgets into a tagged base's structure tree
