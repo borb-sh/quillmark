@@ -821,7 +821,8 @@ describe('Document apply: the write primitive', () => {
     const base = doc.hash({})
     const split = doc.splitBlock({}, 4, { base })
     expect(split.applied.steps[0].splice.at).toBe(4)
-    expect(split.minted).toEqual({ '?0': 'b3' })
+    expect(Object.keys(split.minted)).toEqual(['?0'])
+    expect(split.minted['?0']).toMatch(/^b[a-z][a-z2-7]{5}$/)
     expect(doc.read({}).text).toBe('😀 a\nb\none\ntwo')
     expectEditCode(() => doc.splitBlock({}, 1 + 2, { base, id: 'mine' }), 'edit::stale_base')
     doc.splitBlock({}, 1 + 2, { base: split.hash, id: 'mine' })
@@ -877,8 +878,9 @@ describe('Document apply: the write primitive', () => {
       { setBlock: { id: '?n', kind: 'heading', attrs: { level: 2 } } },
     ] }
     const receipt = doc.apply({}, change, { base })
-    expect(receipt.minted).toEqual({ '?n': 'b1' })
-    expect(doc.read({}).blocks[1]).toEqual({ id: 'b1', kind: 'heading', attrs: { level: 2 } })
+    const id = receipt.minted['?n']
+    expect(id).toMatch(/^b[a-z][a-z2-7]{5}$/)
+    expect(doc.read({}).blocks[1]).toEqual({ id, kind: 'heading', attrs: { level: 2 } })
   })
 
   it('repair reads a merged state as a valid value, offsets in UTF-16', () => {

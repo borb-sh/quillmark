@@ -67,8 +67,9 @@ def test_a_placeholder_is_minted_past_the_value():
     doc = Document.parse(MD)
     change = {"steps": [{"splice": {"at": 5, "insert": "\nnew", "blocks": [{"id": "?n", "kind": "para"}]}}]}
     receipt = doc.apply(change)
-    assert receipt["minted"] == {"?n": "b1"}
-    assert [b["id"] for b in doc.read()["blocks"]] == ["b0", "b1"]
+    new = receipt["minted"]["?n"]
+    assert new.startswith("b") and not new[1:].isdigit()
+    assert [b["id"] for b in doc.read()["blocks"]] == ["b0", new]
 
 
 def test_a_reserved_x_name_rides_as_written():

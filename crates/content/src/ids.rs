@@ -1,7 +1,9 @@
 //! Structural ids: blocks, containers, islands, slots, rows and columns.
-//! A write mints them deterministically, `{prefix}{n}` past the highest
+//! [`Minter`] mints them deterministically, `{prefix}{n}` past the highest
 //! number a field already holds under that prefix, or the lowest number no
-//! held id takes where the highest is `u64::MAX`.
+//! held id takes where the highest is `u64::MAX`. A write's new block ids are
+//! the exception: [`mint`](crate::mint) draws them from a digest of the value
+//! the write lands on.
 
 use std::collections::{HashMap, HashSet};
 

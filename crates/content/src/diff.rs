@@ -626,7 +626,8 @@ fn push(out: &mut Vec<Op>, op: Op) {
 /// keeps with its type or that an island it drops further back held under the
 /// same id and type, a kept table's columns, rows and cells by position, and
 /// each container a kept block's path names at the same depth with the same
-/// kind. Every other id is kept where `before` does not hold it, and minted
+/// kind. A block the diff does not keep takes an id minted from `before`;
+/// every other id is kept where `before` does not hold it, and minted
 /// otherwise. What markdown cannot spell rides over from `before`: a kept
 /// block's `x-` kind where it reads back as a paragraph, and an `x-` mark over
 /// the first to the last of its characters the diff keeps.
@@ -767,21 +768,19 @@ pub fn align(before: &Content, after: Content) -> Content {
         }
     }
     containers.extend(fresh);
-    let held: HashSet<&str> = before.blocks.iter().map(|b| b.id.as_str()).collect();
+    let seed = crate::mint::seed(&[before]);
+    let mut opened = 0;
     for (y, b) in after.blocks.iter_mut().enumerate() {
         b.id = match block_to[y] {
             Some(x) => before.blocks[x].id.clone(),
-            None if !held.contains(b.id.as_str())
-                && !minter
-                    .get_or_insert_with(|| build(&containers))
-                    .holds(&b.id) =>
-            {
-                minter.get_or_insert_with(|| build(&containers)).hold(&b.id);
-                b.id.clone()
+            None => {
+                opened += 1;
+                crate::mint::hashed_block_id(
+                    &seed,
+                    opened - 1,
+                    minter.get_or_insert_with(|| build(&containers)),
+                )
             }
-            None => minter
-                .get_or_insert_with(|| build(&containers))
-                .mint(prefix::BLOCK),
         };
         for id in &mut b.path {
             if let Some(to) = containers.get(id) {

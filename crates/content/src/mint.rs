@@ -6,6 +6,7 @@
 use crate::change::{ApplyError, Change, ContainerStep, IslandStep, Step};
 use crate::ids::{Minter, is_placeholder, prefix};
 use crate::model::Content;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 /// A change with its placeholders filled.
@@ -47,9 +48,15 @@ pub fn fill(change: &Change, held: &[&Content]) -> Result<Filled, ApplyError> {
         });
     }
     let mut ids = minter(&mut out, held);
+    let seed = seed(held);
     let mut minted = BTreeMap::new();
-    for (n, id, p) in put {
-        if minted.insert(id, ids.mint(p)).is_some() {
+    for (k, (n, id, p)) in put.into_iter().enumerate() {
+        let fresh = if p == prefix::BLOCK {
+            hashed_block_id(&seed, k, &mut ids)
+        } else {
+            ids.mint(p)
+        };
+        if minted.insert(id, fresh).is_some() {
             return Err(ApplyError::BadStep {
                 step: n,
                 reason: "a placeholder names two records",
@@ -71,6 +78,49 @@ pub fn fill(change: &Change, held: &[&Content]) -> Result<Filled, ApplyError> {
         change: out,
         minted,
     })
+}
+
+/// What a block id minted against `held` is a function of: each value's text
+/// and block ids.
+pub(crate) fn seed(held: &[&Content]) -> [u8; 32] {
+    let mut h = Sha256::new();
+    h.update(b"quillmark/block-id\n");
+    for c in held {
+        h.update(c.text.as_bytes());
+        for b in &c.blocks {
+            h.update(b"\0");
+            h.update(b.id.as_bytes());
+        }
+        h.update(b"\x01");
+    }
+    h.finalize().into()
+}
+
+const BASE32: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
+
+/// The `k`th block id a change puts against `seed`: `b`, a letter and five
+/// more base32 characters of a digest of the two, past any id `ids` holds. It
+/// never parses as a positional id, and a retired one returns only on a write
+/// against the very value it was minted on.
+pub(crate) fn hashed_block_id(seed: &[u8; 32], k: usize, ids: &mut Minter) -> String {
+    for attempt in 0u64.. {
+        let mut h = Sha256::new();
+        h.update(seed);
+        h.update((k as u64).to_le_bytes());
+        h.update(attempt.to_le_bytes());
+        let d = h.finalize();
+        let bits = u64::from_be_bytes(d[..8].try_into().unwrap());
+        let mut id = String::from(prefix::BLOCK);
+        id.push(BASE32[(bits >> 59) as usize % 26] as char);
+        for i in 1..6 {
+            id.push(BASE32[((bits >> (59 - 5 * i)) & 31) as usize] as char);
+        }
+        if !ids.holds(&id) {
+            ids.hold(id.clone());
+            return id;
+        }
+    }
+    unreachable!()
 }
 
 /// A minter holding every id of `held` at every level and of `change`.

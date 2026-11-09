@@ -23,6 +23,7 @@ pulldown-cmark = { workspace = true }
 unicase = { workspace = true }
 similar = { workspace = true }
 unicode-segmentation = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

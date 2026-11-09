@@ -19,6 +19,7 @@
 //! export and the renderers read the model through [`view`].
 
 pub mod anchors;
+pub mod blocks;
 pub mod carry;
 pub mod change;
 pub mod diff;
