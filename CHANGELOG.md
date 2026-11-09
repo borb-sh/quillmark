@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.136.1 - 2026-11-09
+
+- test(content): drop the removed tagged read from the block id speed probe
+- refactor(content): leave the model-facing tagged read to the host
+- test(bindings): a minted block id is a digest, not the next number
+- feat(content): a write mints a new block id from a digest of the value it lands on
+- feat(wasm): blocks, taggedBlocks and applyBlocks
+- feat(content): read blocks by id and edit them with replace, insertAfter and delete ops
+- feat(typst): export PDF/UA-1 wherever the document conforms
+- feat(pdf): tag stamped widgets into a tagged base's structure tree
+- ci(release): PyPI publishes on every release
+- fix(content): a fence under </table> searches the lines after its own for its closer
+- docs(migrations): add the 0.136 → 0.137 guide for acroform radio groups and shared fields
+- feat(acroform)!: boxes binding one schema field stamp as one field, option boxes as a radio group
+- feat(docs): publish a JSON Schema for Quill.yaml
+- chore(content): keep the anchor proptest regressions, drop a local one
+- feat(content): read HTML formatting tags and reference links in table cells
+- fix(typst): a font run stays reachable to a plate walking content
+- test: share the AcroForm field walk and collapse the hit-tolerance openers
+- test(core): let the authoring fixed point name a mark markdown cannot write
+- fix(fixtures): alt text on usaf_memo seals, no empty status_report headings
+- refactor(core): TypedReader::at reads the main card or a card through one CardReader
+
 ## v0.136.0 - 2026-11-08
 
 - feat(content,core)!: an anchor id opening with ~ is transient and never stored
