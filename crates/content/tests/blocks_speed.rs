@@ -2,7 +2,7 @@
 //! in a release build: `cargo test --release -p quillmark-content --test
 //! blocks_speed -- --ignored --nocapture`.
 
-use quillmark_content::blocks::{BlockOp, batch, blocks, tagged};
+use quillmark_content::blocks::{BlockOp, batch, blocks};
 use quillmark_content::change::{AnchorStep, Change, Splice, Step, apply};
 use quillmark_content::diff::revise;
 use quillmark_content::markdown::{from_markdown, to_markdown};
@@ -66,7 +66,6 @@ fn block_ids_against_an_anchor_per_block() {
             .collect();
         println!("{n} blocks, {} chars", c.text.chars().count());
         println!("  blocks() read          {:?}", time(|| blocks(&c)));
-        println!("  tagged() read          {:?}", time(|| tagged(&c)));
         println!(
             "  batch of 10 replaces   {:?}",
             time(|| batch(&c, &ops).unwrap())
