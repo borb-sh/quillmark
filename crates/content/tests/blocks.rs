@@ -1,7 +1,7 @@
 //! Block ops addressed by id: each keeps every id it does not name, and an id
 //! no block holds is refused.
 
-use quillmark_content::blocks::{BlockOp, batch, blocks, change, tagged};
+use quillmark_content::blocks::{BlockOp, batch, blocks, change};
 use quillmark_content::change::{ApplyError, apply};
 use quillmark_content::markdown::{from_markdown, to_markdown};
 use quillmark_content::mint::fill;
@@ -51,10 +51,6 @@ fn the_read_lists_each_block_with_its_markdown() {
     assert_eq!(read[1].1, "Alpha **one**.");
     assert_eq!(read[2].1, "- item a");
     assert_eq!(read[4].1, "  - nested c");
-    assert!(tagged(&c).starts_with(&format!(
-        "[{}] # Title\n\n[{}] Alpha",
-        c.blocks[0].id, c.blocks[1].id
-    )));
 }
 
 #[test]

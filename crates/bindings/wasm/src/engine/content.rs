@@ -878,16 +878,6 @@ impl Document {
         serialize_or_throw(&out, "blocks")
     }
 
-    /// The value at `addr` as one `[id] markdown` entry per block, a blank
-    /// line between: the read a model is shown. Throws as `read`.
-    #[wasm_bindgen(js_name = taggedBlocks)]
-    pub fn tagged_blocks(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-    ) -> Result<String, JsValue> {
-        Ok(quillmark_content::blocks::tagged(&self.content_at(&addr)?))
-    }
-
     /// Apply `ops`, each naming a block by id, in order and as one write:
     /// `replace` and `insertAfter` take `markdown`, `delete` none. Answers the
     /// `Receipt` with `opened`, per op the ids of the blocks it opened, and

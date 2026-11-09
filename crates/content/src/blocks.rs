@@ -48,16 +48,6 @@ pub fn blocks(c: &Content) -> Vec<BlockRead> {
     out
 }
 
-/// `c` as one entry per block, `[id] markdown`, a blank line between: the
-/// read a model is shown, whose ids a [`BlockOp`] names back.
-pub fn tagged(c: &Content) -> String {
-    blocks(c)
-        .iter()
-        .map(|b| format!("[{}] {}", b.id, b.markdown))
-        .collect::<Vec<_>>()
-        .join("\n\n")
-}
-
 /// The block alone as markdown, inside its innermost list only, indented two
 /// spaces per list around that one.
 fn block_markdown(

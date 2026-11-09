@@ -17,7 +17,6 @@ describe('block ops', () => {
     const blocks = doc.blocks({})
     const text = doc.read({}).text
     expect(blocks.map((b) => text.slice(b.start, b.end))).toEqual(['Title 🎉', 'Alpha one.', 'item a', 'item b'])
-    expect(doc.taggedBlocks({})).toContain(`[${blocks[1].id}] Alpha **one**.`)
     const [title, alpha, a, b] = blocks.map((x) => x.id)
     const r = doc.applyBlocks({}, [
       { op: 'replace', id: alpha, markdown: 'Alpha _two_.' },
