@@ -68,7 +68,9 @@
 /// it leaves the widget with no region for a consumer to route to.
 /// `font`/`size`/`align` set the type the *viewer* draws the value in;
 /// `size: auto` refits as the user types, and `align` is the only way to pin a
-/// value to an edge of a box sized for the longest plausible value. Parameters
+/// value to an edge of a box sized for the longest plausible value. `tooltip`
+/// is the widget's `/TU`, the name a screen reader announces; `none` inherits
+/// the `description` of the schema field at `field`. Parameters
 /// and examples: `docs/quills/typst-backend.md`.
 ///
 /// `<__qm_field__>` and `kind: "__qm_field__"` are reserved for this hand-off.
@@ -87,6 +89,7 @@
   font: "helvetica",
   size: auto,
   align: "left",
+  tooltip: none,
 ) = {
   assert(std.type(name) == str,
     message: "form-field: name must be a string, got " + repr(std.type(name)))
@@ -98,6 +101,8 @@
     message: "form-field: field must be a string or none, got " + repr(std.type(field)))
   assert(field == none or _qm-known-path(field),
     message: "form-field: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"classification.poc\", or a card path composed from the card's $path prefix")
+  assert(tooltip == none or std.type(tooltip) == str,
+    message: "form-field: tooltip must be a string or none, got " + repr(std.type(tooltip)))
   assert(font in ("helvetica", "times", "courier"),
     message: "form-field: font must be one of helvetica/times/courier, got " + repr(font))
   assert(align in ("left", "center", "right"),
@@ -131,17 +136,19 @@
     font: font,
     size: size-pt,
     align: align,
+    tooltip: tooltip,
   ))<__qm_field__>]
 }
 
 /// Emit an unsigned signature field: `form-field` with `type: "signature"`,
-/// which carries no value. `field` forwards the region binding.
-#let signature-field(name, width: 200pt, height: 50pt, field: none) = form-field(
+/// which carries no value. `field` and `tooltip` forward as they do there.
+#let signature-field(name, width: 200pt, height: 50pt, field: none, tooltip: none) = form-field(
   name,
   type: "signature",
   width: width,
   height: height,
   field: field,
+  tooltip: tooltip,
 )
 
 /// Claim the ink `body` draws for schema field `field`, so `session.regions()`

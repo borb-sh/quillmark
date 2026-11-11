@@ -106,7 +106,7 @@ fn recompile(
     let (document, compile_warnings) = compile::compile_document(world)?;
     let helper_source = helper_source(world)?;
     let placements = overlay::extract(&document)?;
-    let field_specs = overlay::build_field_specs(&document, &placements)?;
+    let field_specs = overlay::build_field_specs(&document, &placements, config)?;
     let widget_regions = quillmark_pdf::regions_of(&field_specs);
 
     let unclosed = overlay::unclosed_claims(&document);

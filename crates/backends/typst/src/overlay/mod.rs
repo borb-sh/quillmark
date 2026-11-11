@@ -3,6 +3,9 @@
 //! here so the spine never imports `typst_layout`.
 
 use quillmark_core::error::RenderError;
+use quillmark_core::quill::{
+    FieldSchema, FieldType as SchemaType, QuillConfig, VARIANT_DISCRIMINANT_KEY,
+};
 use quillmark_pdf::{FieldSpec, FieldType, FormFont, TextAlign};
 use typst_layout::PagedDocument;
 
@@ -27,13 +30,19 @@ pub(crate) struct FieldPlacement {
     pub font: FormFont,
     pub font_size: Option<f32>,
     pub align: TextAlign,
+    /// The `tooltip:` argument; `None` inherits the schema description at
+    /// `schema_field` in [`build_field_specs`].
+    pub tooltip: Option<String>,
 }
 
 /// Flips each rect from Typst's top-left origin to the PDF bottom-left origin
 /// the spine consumes. The two backends meet only at the `&[FieldSpec]` seam.
+/// A widget's tooltip is its `tooltip:` argument, else the `description` of
+/// the schema field at its `field:` address, as an acroform widget's is.
 pub(crate) fn build_field_specs(
     doc: &PagedDocument,
     placements: &[FieldPlacement],
+    config: &QuillConfig,
 ) -> Result<Vec<FieldSpec>, RenderError> {
     let page_heights: Vec<f32> = doc
         .pages()
@@ -68,7 +77,47 @@ pub(crate) fn build_field_specs(
             spec.font = p.font;
             spec.font_size = p.font_size;
             spec.align = p.align;
+            spec.tooltip = p.tooltip.clone().or_else(|| {
+                p.schema_field
+                    .as_deref()
+                    .and_then(|path| description_at(config, path))
+                    .map(str::to_string)
+            });
             Ok(spec)
         })
         .collect()
+}
+
+/// The `description` declared at a schema address, walked the way the
+/// helper's `_qm-node` admits it: a card address resolves through its kind,
+/// `$body` to the card's body, and a variant container's discriminant to the
+/// container itself. The helper has already rejected an unknown address, so a
+/// step that fails here just yields no description.
+fn description_at<'a>(config: &'a QuillConfig, path: &str) -> Option<&'a str> {
+    let mut parts = path.split('.');
+    let root = parts.next()?;
+    let (card, head) = if root == "$cards" {
+        let card = config.card_kind(parts.next()?)?;
+        parts.next()?;
+        (card, parts.next()?)
+    } else {
+        (&config.main, root)
+    };
+    if head == "$body" {
+        return card.body.as_ref()?.description.as_deref();
+    }
+    let mut cur: &FieldSchema = card.fields.get(head)?;
+    for seg in parts {
+        if cur.is_variant_bearing() && seg == VARIANT_DISCRIMINANT_KEY {
+            break;
+        }
+        cur = match (&cur.r#type, seg.parse::<usize>()) {
+            (SchemaType::Array, Ok(_)) => cur.items.as_deref()?,
+            (SchemaType::Object, Err(_)) => cur.namespace_props()?.get(seg)?,
+            (SchemaType::Matrix { .. }, Err(_)) => cur.matrix_member_at(seg)?,
+            (_, Err(_)) if cur.is_variant_bearing() => cur.variant_field(seg)?,
+            _ => return None,
+        };
+    }
+    cur.description.as_deref()
 }

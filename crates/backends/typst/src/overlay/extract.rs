@@ -66,6 +66,7 @@ pub(crate) fn extract(doc: &PagedDocument) -> Result<Vec<FieldPlacement>, Render
         let font = read_font(&dict)?;
         let font_size = get::<Option<f64>>(&dict, "size")?.map(|s| s as f32);
         let align = read_align(&dict)?;
+        let tooltip = get::<Option<Str>>(&dict, "tooltip")?.map(|s| s.to_string());
         let loc = c.location().ok_or_else(|| {
             RenderError::coded(CODE_INTERNAL, "form-field metadata is not located")
         })?;
@@ -93,6 +94,7 @@ pub(crate) fn extract(doc: &PagedDocument) -> Result<Vec<FieldPlacement>, Render
             font,
             font_size,
             align,
+            tooltip,
         });
     }
 
