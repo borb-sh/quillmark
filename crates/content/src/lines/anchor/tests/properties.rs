@@ -10,8 +10,8 @@ use crate::lines::anchor::{
     ANCHOR_AGREE_SCALARS, ANCHOR_CONTEXT_SCALARS, AnchorContext, MIN_ANCHOR_QUOTE, anchor_contexts,
     locate,
 };
-use crate::lines::island::IslandType;
 use crate::lines::model::{Content, ISLAND_SLOT, Island, Line, LineKind, Lines, Mark, MarkKind};
+use crate::model::IslandType;
 
 const ALPHABET: [char; 5] = ['a', 'b', ' ', '\n', ISLAND_SLOT];
 

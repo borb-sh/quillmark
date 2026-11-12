@@ -85,7 +85,7 @@ impl<T> Default for Reattached<T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Surface {
     Prose,
-    /// The `cell`th cell [`IslandType::cell_marks`](crate::lines::island::IslandType::cell_marks)
+    /// The `cell`th cell [`IslandType::cell_marks`](crate::model::IslandType::cell_marks)
     /// reads of the `island`th island.
     Cell {
         island: usize,

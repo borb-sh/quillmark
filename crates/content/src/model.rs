@@ -4,7 +4,6 @@
 //! whose slots hold content of their own.
 
 use crate::ids::is_id;
-pub use crate::lines::island::IslandType;
 use crate::lines::model::{self as line, is_font_family_name};
 use crate::lines::normalize::{is_bidi_char, is_line_separator};
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -165,6 +164,33 @@ pub struct Island {
     pub island_type: IslandType,
     pub props: JsonValue,
     pub slots: BTreeMap<String, Content>,
+}
+
+/// The island types. Closed but for [`Ext`](Self::Ext): a wire `type` outside
+/// this set and not a reserved `x-` name is
+/// [`ParseError::UnknownName`](crate::wire::ParseError::UnknownName).
+///
+/// Every emitter dispatches over the whole set: an island type wired into some
+/// and not others projects the island away silently.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IslandType {
+    /// A grid of cells, each a slot; [`crate::table`] holds its props.
+    Table,
+    /// `{url, alt}`. No slot.
+    Image,
+    /// A footnote: its note is the [`NOTE_SLOT`] slot. Its place in the text
+    /// is the reference, so the note sits where it is cited.
+    Footnote,
+    /// An equation: `{tex}`, its TeX source, and `display: true` for one set
+    /// apart from the line. `tex` holds no line break and no whitespace at
+    /// either edge, which TeX reads as nothing; `display` is absent at
+    /// `false`. No slot.
+    Math,
+    /// A type this build does not know, by its reserved `x-` name
+    /// ([`is_ext_name`](crate::ids::is_ext_name)): its props as written and
+    /// its slots by id, rendered as a placeholder and written to markdown as
+    /// nothing.
+    Ext(String),
 }
 
 /// A position: an offset into a field's text, or one inside an island's slot.
@@ -339,6 +365,58 @@ impl Island {
             IslandType::Image | IslandType::Math => Vec::new(),
             IslandType::Ext(_) => self.slots.keys().cloned().collect(),
         }
+    }
+}
+
+impl IslandType {
+    /// Every known type, for a reader that needs the closed set whole.
+    pub const ALL: &'static [IslandType] = &[
+        IslandType::Table,
+        IslandType::Image,
+        IslandType::Footnote,
+        IslandType::Math,
+    ];
+
+    /// The wire discriminator; `parse(k.as_str()) == Some(k)` for every variant.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Table => "table",
+            Self::Image => "image",
+            Self::Footnote => "footnote",
+            Self::Math => "math",
+            Self::Ext(name) => name,
+        }
+    }
+
+    /// Parse a wire discriminator; `parse(k.as_str()) == Some(k)` for every
+    /// variant.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "table" => Some(Self::Table),
+            "image" => Some(Self::Image),
+            "footnote" => Some(Self::Footnote),
+            "math" => Some(Self::Math),
+            _ if crate::ids::is_ext_name(s) => Some(Self::Ext(s.to_string())),
+            _ => None,
+        }
+    }
+
+    /// Whether this type's markdown projection is a **block**: markup no
+    /// paragraph line can hold, so its slot has to sit alone on its line. A
+    /// pipe table is one; an image (`![alt](url)`), a footnote reference
+    /// (`[^1]`) and an equation (`$x$`, `$$x$$`) are inline.
+    pub fn block_only(&self) -> bool {
+        match self {
+            Self::Table => true,
+            Self::Image | Self::Footnote | Self::Math | Self::Ext(_) => false,
+        }
+    }
+
+    /// Whether this type's slots hold paragraphs: an `x-` island's slots do,
+    /// and a table's cell and a footnote's note are each one paragraph, its
+    /// lines parted by hard breaks.
+    pub fn slot_holds_paragraphs(&self) -> bool {
+        matches!(self, Self::Ext(_))
     }
 }
 

@@ -79,7 +79,7 @@ impl BlockConstruct {
     /// heading, rule or code block per block, a list or quote per container
     /// run at any depth, and a table, image, footnote or equation per island.
     pub(crate) fn tally(content: &quillmark_content::model::Content) -> [usize; 9] {
-        use quillmark_content::lines::island::IslandType;
+        use quillmark_content::model::IslandType;
         use quillmark_content::model::{BlockKind, ContainerKind};
         let mut counts = [0; 9];
         for block in &content.blocks {

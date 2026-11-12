@@ -8,8 +8,8 @@ use quillmark_content::change::{
     AnchorStep, ApplyError, Assoc, Change, ContainerStep, IslandStep, MapResult, Mapping, MarkStep,
     SetBlock, Splice, Step, apply, compose, compose_in, invert, map_pos, map_pos_in,
 };
-use quillmark_content::lines::island::IslandType;
 use quillmark_content::markdown::from_markdown;
+use quillmark_content::model::IslandType;
 use quillmark_content::model::{
     Anchor, Block, BlockKind, Container, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT,
     Invariant, Island, Mark, MarkKind, Pos,

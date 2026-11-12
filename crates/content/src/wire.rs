@@ -4,9 +4,9 @@
 //! and migrates.
 
 use crate::ids::{is_ext_name, is_id};
-use crate::lines::island::IslandType;
 use crate::lines::model::{is_font_family_name, sort_keys_owned};
 use crate::lines::serial as v1;
+use crate::model::IslandType;
 use crate::model::{
     Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, Invariant, Island, Mark,
     MarkKind, Pos,

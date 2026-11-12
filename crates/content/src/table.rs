@@ -6,10 +6,10 @@
 //! A key the table does not name rides untouched.
 
 use crate::ids::{Minter, is_id, prefix};
-use crate::lines::island::IslandType;
 use crate::lines::model::{self as line, canonicalize_keys};
 use crate::model::{
-    Anchor, Block, BlockKind, Content, HARD_BREAK, Invariant, Island, Mark, MarkKind, NOTE_SLOT,
+    Anchor, Block, BlockKind, Content, HARD_BREAK, Invariant, Island, IslandType, Mark, MarkKind,
+    NOTE_SLOT,
 };
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -29,6 +29,175 @@ pub const TABLE_KEYS: [&str; 7] = [
 const LINE_TABLE_KEYS: [&str; 7] = [
     "header", "rows", "aligns", "widths", "align", "head", "headless",
 ];
+
+/// The values of a table's `align` key, its placement, and of a cell's, its
+/// horizontal alignment.
+pub const TABLE_ALIGNS: [&str; 3] = ["left", "center", "right"];
+
+/// The values of a table cell's `valign` key, its vertical alignment.
+pub const CELL_VALIGNS: [&str; 3] = ["top", "middle", "bottom"];
+
+/// A table cell's alignment keys, each with its values.
+pub const CELL_KEYS: [(&str, &[&str]); 2] = [("align", &TABLE_ALIGNS), ("valign", &CELL_VALIGNS)];
+
+/// A table cell's span keys: the columns and the rows it covers, each a whole
+/// number from 1, absent at 1.
+pub const CELL_SPANS: [&str; 2] = ["colspan", "rowspan"];
+
+/// The largest column weight, JavaScript's `Number.MAX_SAFE_INTEGER`: the
+/// WASM binding hands no larger integer to JavaScript.
+pub const MAX_WEIGHT: u64 = (1 << 53) - 1;
+
+/// Whether `n` is a column weight, `1..=`[`MAX_WEIGHT`].
+pub fn is_weight(n: u64) -> bool {
+    (1..=MAX_WEIGHT).contains(&n)
+}
+
+/// A table's layout as [`crate::view::layout`] spells its props, each key at
+/// its default where absent or outside its set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableLayout {
+    /// A [weight](is_weight), or `None` for an auto-fit column, per column.
+    pub widths: Option<Vec<Option<u64>>>,
+    /// The table's placement, one of [`TABLE_ALIGNS`].
+    pub align: Option<&'static str>,
+    /// How many rows from the top of `header` then `rows` are header rows,
+    /// at most every row: `head` where it holds a whole number, else `1`.
+    pub head: usize,
+}
+
+impl Default for TableLayout {
+    fn default() -> Self {
+        TableLayout {
+            widths: None,
+            align: None,
+            head: 1,
+        }
+    }
+}
+
+impl TableLayout {
+    pub fn of(props: &Value) -> Self {
+        let widths = props
+            .get("widths")
+            .and_then(Value::as_array)
+            .and_then(|ws| {
+                ws.iter()
+                    .map(|w| match w {
+                        Value::Null => Some(None),
+                        w => w.as_u64().filter(|n| is_weight(*n)).map(Some),
+                    })
+                    .collect()
+            });
+        let head = props
+            .get("head")
+            .and_then(Value::as_u64)
+            .map_or(1, saturate);
+        TableLayout {
+            widths,
+            align: one_of(props.get("align"), &TABLE_ALIGNS),
+            head: head.min(table_rows(props).len()),
+        }
+    }
+}
+
+fn saturate(n: u64) -> usize {
+    usize::try_from(n).unwrap_or(usize::MAX)
+}
+
+/// A table cell's `colspan` and `rowspan` as it holds them, each `1` where the
+/// cell holds no whole number from 1.
+pub fn cell_span(cell: &Value) -> (usize, usize) {
+    let read = |key: &str| {
+        cell.get(key)
+            .and_then(Value::as_u64)
+            .filter(|n| *n >= 1)
+            .map_or(1, saturate)
+    };
+    let [colspan, rowspan] = CELL_SPANS;
+    (read(colspan), read(rowspan))
+}
+
+/// The rows of a table [`crate::view::layout`] spells, `header` first, each a
+/// row's cells; a row that is no array holds none.
+pub fn table_rows(props: &Value) -> Vec<&[Value]> {
+    fn row(v: &Value) -> &[Value] {
+        v.as_array().map_or(&[], Vec::as_slice)
+    }
+    let header = props.get("header").map_or(&[][..], row);
+    let rows = props
+        .get("rows")
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice);
+    std::iter::once(header)
+        .chain(rows.iter().map(row))
+        .collect()
+}
+
+/// Per row of [`table_rows`] and per cell, the columns and rows a drawn cell
+/// spans, or `None` for a cell another's span covers.
+///
+/// Cells claim slots in reading order, so an earlier span wins. A span takes
+/// the columns to its right, then the rows below, while each slot it would
+/// cover holds a cell with no text and no mark, a comment anchor included, that
+/// no other span covers, stopping at the
+/// grid's edge and at the end of its own section: the [`TableLayout::head`]
+/// rows or the body. Its cell's own `colspan` and `rowspan` bound it.
+pub fn table_spans(props: &Value) -> Vec<Vec<Option<(usize, usize)>>> {
+    let rows = table_rows(props);
+    let head = TableLayout::of(props).head;
+    let mut covered: Vec<Vec<bool>> = rows.iter().map(|r| vec![false; r.len()]).collect();
+    let mut spans: Vec<Vec<Option<(usize, usize)>>> =
+        rows.iter().map(|r| vec![None; r.len()]).collect();
+    let free = |covered: &[Vec<bool>], r: usize, c: usize| {
+        let empty = rows[r].get(c).is_some_and(|cell| {
+            let text = cell.get("text").and_then(Value::as_str).unwrap_or("");
+            let marks = cell
+                .get("marks")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            text.is_empty() && marks == 0
+        });
+        empty && !covered[r][c]
+    };
+    for r in 0..rows.len() {
+        let end = if r < head { head } else { rows.len() };
+        for c in 0..rows[r].len() {
+            if covered[r][c] {
+                continue;
+            }
+            let (colspan, rowspan) = cell_span(&rows[r][c]);
+            let mut w = 1;
+            while w < colspan && free(&covered, r, c + w) {
+                w += 1;
+            }
+            let mut h = 1;
+            while h < rowspan && r + h < end && (c..c + w).all(|x| free(&covered, r + h, x)) {
+                h += 1;
+            }
+            for row in &mut covered[r..r + h] {
+                row[c..c + w].iter_mut().for_each(|slot| *slot = true);
+            }
+            spans[r][c] = Some((w, h));
+        }
+    }
+    spans
+}
+
+/// A table cell's `align` and `valign`, each `None` where the cell holds no
+/// value in its set.
+pub fn cell_alignment(cell: &Value) -> (Option<&'static str>, Option<&'static str>) {
+    let [(align, aligns), (valign, valigns)] = CELL_KEYS;
+    (
+        one_of(cell.get(align), aligns),
+        one_of(cell.get(valign), valigns),
+    )
+}
+
+fn one_of(value: Option<&Value>, set: &[&'static str]) -> Option<&'static str> {
+    let value = value?.as_str()?;
+    set.iter().copied().find(|v| *v == value)
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Table {
@@ -256,10 +425,7 @@ fn layout_from_line(lined: &Value, table: &Table, props: &mut Map<String, Value>
         props.insert("widths".into(), widths);
     }
     let mut attrs = Map::new();
-    for (r, row) in crate::lines::island::table_rows(lined)
-        .into_iter()
-        .enumerate()
-    {
+    for (r, row) in table_rows(lined).into_iter().enumerate() {
         for (c, cell) in row.iter().enumerate() {
             let Some(slot) = table.slot(r, c) else {
                 continue;
@@ -407,7 +573,7 @@ pub(crate) fn from_line_props(
 ) -> (Value, BTreeMap<String, Content>) {
     match island_type {
         IslandType::Table => {
-            let grid = crate::lines::island::table_rows(props);
+            let grid = table_rows(props);
             let cols = grid.iter().map(|r| r.len()).max().unwrap_or(0).max(1);
             let columns: Vec<String> = (0..cols).map(|_| minter.mint(prefix::COLUMN)).collect();
             let mut slots = BTreeMap::new();
