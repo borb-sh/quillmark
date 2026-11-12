@@ -4,11 +4,18 @@
 //! id of the stored island it continues, with the anchors of its cells whose
 //! text holds.
 
-use crate::lines::delta::{Assoc, Delta, carry_range, diff};
-use crate::lines::import::Pin;
-use crate::model::{Anchor, Content, HARD_BREAK, Island};
+use crate::delta::{Assoc, Delta, carry_range, diff};
+use crate::model::{Anchor, Content, HARD_BREAK, Island, Scalar};
 use similar::{Algorithm, DiffOp, capture_diff_slices};
 use std::collections::HashSet;
+
+/// An anchor tag's position in a revise's content: where the anchor of `id`
+/// starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pin {
+    pub at: Scalar,
+    pub id: String,
+}
 
 /// The text as the diff reads it: each hard break a `\n`, as a paragraph
 /// break is, so a break that changes kind is no edit to it.
@@ -171,5 +178,50 @@ fn carry_slot_anchors(base: &[Island], new: &mut Content, carried: &[Option<usiz
                     .cloned(),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::markdown::from_markdown;
+
+    /// The carry rewrites no island id: an island inserted above keeps the
+    /// rest theirs and takes the next past them, a table edited in place keeps
+    /// its own, a deletion leaves the survivors theirs, and a rewrite mints
+    /// past every id the field held.
+    #[test]
+    fn the_carry_rewrites_no_island_id() {
+        let tables = |heads: &[&str]| {
+            let md: Vec<String> = heads
+                .iter()
+                .map(|h| format!("| {h} |\n|---|\n| 1 |"))
+                .collect();
+            from_markdown(&md.join("\n\n")).unwrap().content
+        };
+        let ids = |c: &Content| c.islands.iter().map(|i| i.id.clone()).collect::<Vec<_>>();
+        let base = tables(&["a", "b"]);
+        assert_eq!(ids(&base), ["isl-0", "isl-1"]);
+
+        let inserted = carry_anchors(&base, tables(&["z", "a", "b"]));
+        assert_eq!(ids(&inserted), ["isl-2", "isl-0", "isl-1"]);
+        let edited = carry_anchors(&inserted, tables(&["z", "A", "b"]));
+        assert_eq!(ids(&edited), ["isl-2", "isl-0", "isl-1"]);
+        let deleted = carry_anchors(&edited, tables(&["A", "b"]));
+        assert_eq!(ids(&deleted), ["isl-0", "isl-1"]);
+        let rewritten = carry_anchors(&deleted, tables(&["x", "y", "w"]));
+        assert_eq!(ids(&rewritten), ["isl-2", "isl-3", "isl-4"]);
+
+        let mut top = tables(&["a"]);
+        top.islands[0].id = format!("isl-{}", u64::MAX);
+        let grown = carry_anchors(&top, tables(&["a", "b", "c"]));
+        assert_eq!(
+            ids(&grown),
+            [
+                format!("isl-{}", u64::MAX),
+                format!("isl-{}", u128::from(u64::MAX) + 1),
+                format!("isl-{}", u128::from(u64::MAX) + 2),
+            ]
+        );
     }
 }

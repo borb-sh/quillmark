@@ -61,6 +61,7 @@
 //!   reported.
 
 use crate::MAX_NESTING_DEPTH;
+use crate::carry::Pin;
 use crate::lines::carrier;
 use crate::lines::html;
 use crate::lines::model::{
@@ -263,14 +264,6 @@ pub struct Against {
     pub pins: Vec<Pin>,
 }
 
-/// An anchor tag's position in a revise's content: where the anchor of `id`
-/// starts.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Pin {
-    pub at: crate::lines::model::Scalar,
-    pub id: String,
-}
-
 /// Import `markdown` as a revise of `stored`, reading the tags of an
 /// annotated read (markdown-spec §6.4). A `<qm-anchor ref="ID">` tag in prose
 /// pins the anchor `ID` the stored value holds in prose to start where the
@@ -278,7 +271,7 @@ pub struct Pin {
 /// moved to its line's end, pins nothing. A `<qm-island ref="ID">` token in
 /// prose is the stored island `ID`, its type and props as stored but for its
 /// cells' anchors, which the revise carries onto the island that continues it
-/// ([`crate::lines::delta::carry_onto`]), so a token written twice copies none. A tag or a
+/// ([`crate::carry::carry_onto`]), so a token written twice copies none. A tag or a
 /// token naming nothing the stored value holds there, and a second tag naming
 /// one anchor, drop reported under `qm-anchor[ref]` or `qm-island[ref]`; a
 /// token in a table cell, a note, an image's alt text or a code span drops

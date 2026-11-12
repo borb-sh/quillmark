@@ -7,21 +7,23 @@
 //! [`markdown`] is the projection at the edges, one import and one export
 //! per codec.
 //! [`change`] is the one way a value is edited, [`anchors`] reads each
-//! anchor's context and re-attaches a dropped one, [`mapping`] maps
-//! positions across changes, [`structural`] is the change of each structural
-//! edit, [`mint`] fills the ids a change leaves to its write, and [`repair`]
-//! makes valid a state two concurrent edits merged into.
+//! anchor's context and re-attaches a dropped one, [`carry`] carries a
+//! value's anchors and island ids onto its markdown rewrite across a
+//! [`delta`], [`mapping`] maps positions across changes, [`structural`] is
+//! the change of each structural edit, [`mint`] fills the ids a change leaves
+//! to its write, and [`repair`] makes valid a state two concurrent edits
+//! merged into.
 //!
 //! The line form, `lines` and the `migrate` between it and the model, is what
-//! the markdown import walks, the anchor contexts and a revise's carry read,
-//! and the shape a v1 stored value decodes from; it is hidden from the
-//! documented surface and no public API takes or answers it. The markdown
-//! export and the renderers read the model through [`view`].
+//! the markdown import walks and the shape a v1 stored value decodes from; it
+//! is hidden from the documented surface and no public API takes or answers
+//! it. The markdown export and the renderers read the model through [`view`].
 
 pub mod anchors;
 pub mod blocks;
 pub mod carry;
 pub mod change;
+pub mod delta;
 pub mod diff;
 mod draft;
 mod export;

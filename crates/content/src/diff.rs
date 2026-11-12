@@ -9,8 +9,8 @@ use crate::change::{
     AnchorStep, ApplyError, Change, ContainerStep, IslandStep, SetBlock, Splice, Step, apply,
     mark_fixups, run,
 };
+use crate::delta::{Op, diff_words as text_diff, relocate, without_sentinel};
 use crate::ids::{Minter, prefix};
-use crate::lines::delta::{Op, diff_words as text_diff, relocate, without_sentinel};
 use crate::lines::import::{ImportError, ImportWarning, from_markdown_against};
 use crate::migrate::{from_lines, to_lines};
 use crate::model::IslandType;
@@ -980,7 +980,7 @@ pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ReviseError>
 /// placement for each anchor of `before`'s text that `after` holds nowhere
 /// and whose text `after` holds again in what `change` inserted: a
 /// paragraph moved whole keeps its anchor. A quote shorter than
-/// [`MIN_MOVE`](crate::lines::delta::MIN_MOVE) characters is too weak to
+/// [`MIN_MOVE`](crate::delta::MIN_MOVE) characters is too weak to
 /// follow, and drops.
 fn relocating(
     before: &Content,

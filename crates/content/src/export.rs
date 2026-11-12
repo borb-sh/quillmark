@@ -85,14 +85,14 @@ pub(crate) fn to_markdown_checked(c: &Content) -> (String, Vec<Loss>) {
     if !same_text || read.lines != rt.lines {
         losses.push(Loss::Text);
     }
-    let to_stored = (!same_text).then(|| crate::lines::delta::diff(&read.text, &rt.text));
+    let to_stored = (!same_text).then(|| crate::delta::diff(&read.text, &rt.text));
     let held: Vec<(Scalar, Scalar, &MarkKind)> = read
         .marks
         .iter()
         .map(|m| match &to_stored {
             Some(d) => (
-                d.map_pos(m.start, crate::lines::delta::Assoc::After),
-                d.map_pos(m.end, crate::lines::delta::Assoc::Before),
+                d.map_pos(m.start, crate::delta::Assoc::After),
+                d.map_pos(m.end, crate::delta::Assoc::Before),
                 &m.kind,
             ),
             None => (m.start, m.end, &m.kind),

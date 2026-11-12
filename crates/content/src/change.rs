@@ -5,9 +5,9 @@
 //! form. [`invert`] reads back the inverse each step gives as it applies;
 //! [`compose`] and [`map_pos`] are pure helpers over changes.
 
+use crate::anchors::AnchorContext;
 use crate::draft::{Draft, HeldTwice};
 use crate::ids::is_id;
-use crate::lines::anchor::AnchorContext;
 pub use crate::mapping::{MapResult, Mapping};
 use crate::model::{
     Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Scalar,
