@@ -2,9 +2,9 @@
 //! is written in where a GFM pipe table cannot carry it, read off an HTML block
 //! into the grid a table island holds, and written back from one.
 
-use crate::lines::import::DroppedConstruct;
 use crate::markdown::carrier;
 use crate::markdown::html;
+use crate::markdown::import::DroppedConstruct;
 use crate::table::{CELL_VALIGNS, Layout, TABLE_ALIGNS, is_weight};
 use pulldown_cmark::{BrokenLink, CowStr, Event, LinkType, Parser, RefDefs, Tag as PTag, TagEnd};
 use serde_json::{Map, Value};
@@ -218,7 +218,7 @@ fn run<F: Fn(usize) -> usize>(text: &str, at: F, budget: usize) -> Scan<'_, F> {
                     stray = false;
                 } else if s.cell.is_none() {
                     if let Some(dropped) =
-                        crate::lines::import::dropped_tag(tag.name).filter(|_| !tag.closing)
+                        crate::markdown::import::dropped_tag(tag.name).filter(|_| !tag.closing)
                     {
                         s.drops.push((dropped, (s.at)(i)));
                     }
@@ -821,8 +821,11 @@ pub(crate) fn cell_events<'a>(src: &'a str, refs: &Refs) -> (Vec<(Event<'a>, Ran
         let (dest, title) = refs.get(&UniCase::new(link.reference.to_string()))?;
         Some((dest.clone().into(), title.clone().into()))
     };
-    let parser =
-        Parser::new_with_broken_link_callback(src, crate::lines::import::options(), Some(resolve));
+    let parser = Parser::new_with_broken_link_callback(
+        src,
+        crate::markdown::import::options(),
+        Some(resolve),
+    );
     for (event, range) in parser.into_offset_iter() {
         match event {
             Event::Start(PTag::Paragraph) | Event::End(TagEnd::Paragraph) => {}

@@ -826,8 +826,8 @@ fn emit_math(isl: &Island, out: &mut String) {
 pub fn tex_is_writable(tex: &str, display: bool) -> bool {
     let delim = if display { "$$" } else { "$" };
     let md = format!("{delim}{tex}{delim}");
-    let mut events =
-        pulldown_cmark::Parser::new_ext(&md, crate::lines::import::options()).filter(|e| {
+    let mut events = pulldown_cmark::Parser::new_ext(&md, crate::markdown::import::options())
+        .filter(|e| {
             !matches!(
                 e,
                 pulldown_cmark::Event::Start(_) | pulldown_cmark::Event::End(_)
@@ -1083,7 +1083,7 @@ fn list_marker_punct(chars: &[char]) -> Option<usize> {
 /// back as the net reads one, inside `,…,`.
 pub(crate) fn annotate(md: String, points: &[usize], tags: &[(Scalar, &str)]) -> String {
     let reads = |line: &str| {
-        crate::lines::import::from_markdown(&format!(",{line},"))
+        crate::markdown::from_markdown(&format!(",{line},"))
             .ok()
             .map(|i| i.content)
     };
@@ -1601,17 +1601,11 @@ fn render_marked_core(
     // form re-import hands back: a mark the sweep splits around an overlap
     // re-imports as one span, so both sides are normalized before they are compared.
     let want_marks = |keep: &[bool]| {
-        crate::lines::model::normalize_marks(
+        crate::model::union_marks(
             fmt.iter()
                 .enumerate()
                 .filter(|&(i, m)| keep[i] && is_flanking(m.2))
-                .filter_map(|(_, &(s, e, k))| {
-                    Some(crate::lines::model::Mark::new(
-                        kept[s],
-                        kept[e],
-                        crate::lines::model::MarkKind::from_model(k)?,
-                    ))
-                })
+                .map(|(_, &(s, e, k))| Mark::new(kept[s], kept[e], k.clone()))
                 .collect(),
         )
     };
@@ -1624,46 +1618,46 @@ fn render_marked_core(
     // A cell fragment is read back as a cell and a note as a note, where `<br>`
     // is a `\n` wherever it sits; prose reads a break at a mark edge or a
     // second one in a row differently.
-    let probe = |md: &str, want_marks: &[crate::lines::model::Mark]| -> Option<bool> {
+    let probe = |md: &str, want_marks: &[Mark]| -> Option<bool> {
+        let read = |md: String| Some(crate::markdown::from_markdown(&md).ok()?.content);
+        let table_cell = |rt: &Content, row: usize| {
+            let isl = rt.islands.first()?;
+            let slot = isl.slots.get(Table::read(&isl.props)?.slot(row, 0)?)?;
+            let held = cell(slot);
+            Some((held.text, held.marks))
+        };
         let (text, marks) = match esc.frag {
-            Frag::Cell => {
-                let rt =
-                    crate::lines::import::from_markdown(&format!("| h |\n| --- |\n| ,{md}, |"))
-                        .ok()?
-                        .content;
-                let cell = rt.islands.first()?.props.get("rows")?.get(0)?.get(0)?;
-                crate::lines::serial::parse_cell(cell)
-            }
-            Frag::HtmlCell => {
-                let rt = crate::lines::import::from_markdown(&format!(
-                    "<table><tr><td>,{md},</td></tr></table>"
-                ))
-                .ok()?
-                .content;
-                crate::lines::serial::parse_cell(rt.islands.first()?.props.get("header")?.get(0)?)
-            }
+            Frag::Cell => table_cell(&read(format!("| h |\n| --- |\n| ,{md}, |"))?, 1)?,
+            Frag::HtmlCell => table_cell(
+                &read(format!("<table><tr><td>,{md},</td></tr></table>"))?,
+                0,
+            )?,
             Frag::Note => {
-                let rt = crate::lines::import::from_markdown(&format!("a[^1]\n\n[^1]: ,{md},"))
-                    .ok()?
-                    .content;
-                crate::lines::serial::parse_cell(&rt.islands.first()?.props)
+                let rt = read(format!("a[^1]\n\n[^1]: ,{md},"))?;
+                let held = cell(rt.islands.first()?.slots.get(NOTE_SLOT)?);
+                (held.text, held.marks)
             }
             Frag::Prose => {
-                let rt = crate::lines::import::from_markdown(&format!(",{md},{probe_tail}"))
-                    .ok()?
-                    .content
-                    .into_content();
-                (rt.text, rt.marks)
+                let rt = read(format!(",{md},{probe_tail}"))?;
+                let text = rt
+                    .text
+                    .chars()
+                    .map(|c| {
+                        if c == crate::model::HARD_BREAK {
+                            '\n'
+                        } else {
+                            c
+                        }
+                    })
+                    .collect();
+                (text, rt.marks)
             }
         };
         if text != want {
             return None;
         }
-        let got: Vec<&crate::lines::model::Mark> = marks
-            .iter()
-            .filter(|m| m.kind.to_model().is_some_and(|k| is_flanking(&k)))
-            .collect();
-        Some(got.into_iter().eq(want_marks.iter()))
+        let got = marks.iter().filter(|m| is_flanking(&m.kind));
+        Some(got.eq(want_marks.iter()))
     };
     // Re-spell before dropping anything. The leak is rarely an unrepresentable
     // span; it is two same-character delimiters abutting: a `Strong` closing `**`
