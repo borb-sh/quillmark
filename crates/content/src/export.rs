@@ -1580,7 +1580,7 @@ fn render_marked_core(
                     Some(crate::lines::model::Mark::new(
                         kept[s],
                         kept[e],
-                        k.to_line()?,
+                        crate::lines::model::MarkKind::from_model(k)?,
                     ))
                 })
                 .collect(),
@@ -1632,7 +1632,7 @@ fn render_marked_core(
         }
         let got: Vec<&crate::lines::model::Mark> = marks
             .iter()
-            .filter(|m| MarkKind::from_line(&m.kind).is_some_and(|k| is_flanking(&k)))
+            .filter(|m| m.kind.to_model().is_some_and(|k| is_flanking(&k)))
             .collect();
         Some(got.into_iter().eq(want_marks.iter()))
     };
