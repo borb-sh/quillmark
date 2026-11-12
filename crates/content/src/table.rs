@@ -9,8 +9,7 @@ use crate::ids::{Minter, is_id, prefix};
 use crate::json::canonicalize_keys;
 use crate::lines::model as line;
 use crate::model::{
-    Anchor, Block, BlockKind, Content, HARD_BREAK, Invariant, Island, IslandType, Mark, MarkKind,
-    NOTE_SLOT,
+    Anchor, Block, BlockKind, Content, HARD_BREAK, Invariant, Island, IslandType, Mark, NOTE_SLOT,
 };
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -146,28 +145,44 @@ pub fn table_rows(props: &Value) -> Vec<&[Value]> {
 /// rows or the body. Its cell's own `colspan` and `rowspan` bound it.
 pub fn table_spans(props: &Value) -> Vec<Vec<Option<(usize, usize)>>> {
     let rows = table_rows(props);
-    let head = TableLayout::of(props).head;
-    let mut covered: Vec<Vec<bool>> = rows.iter().map(|r| vec![false; r.len()]).collect();
-    let mut spans: Vec<Vec<Option<(usize, usize)>>> =
-        rows.iter().map(|r| vec![None; r.len()]).collect();
-    let free = |covered: &[Vec<bool>], r: usize, c: usize| {
-        let empty = rows[r].get(c).is_some_and(|cell| {
+    let widths: Vec<usize> = rows.iter().map(|r| r.len()).collect();
+    claim_spans(
+        &widths,
+        TableLayout::of(props).head,
+        |r, c| cell_span(&rows[r][c]),
+        |r, c| {
+            let cell = &rows[r][c];
             let text = cell.get("text").and_then(Value::as_str).unwrap_or("");
             let marks = cell
                 .get("marks")
                 .and_then(Value::as_array)
                 .map_or(0, Vec::len);
             text.is_empty() && marks == 0
-        });
-        empty && !covered[r][c]
-    };
-    for r in 0..rows.len() {
-        let end = if r < head { head } else { rows.len() };
-        for c in 0..rows[r].len() {
+        },
+    )
+}
+
+/// The spans of a grid of `widths[r]` cells per row whose top `head` rows are
+/// its header: `span` reads a cell's own `colspan` and `rowspan`, and `empty`
+/// whether a span may cover it.
+fn claim_spans(
+    widths: &[usize],
+    head: usize,
+    span: impl Fn(usize, usize) -> (usize, usize),
+    empty: impl Fn(usize, usize) -> bool,
+) -> Vec<Vec<Option<(usize, usize)>>> {
+    let mut covered: Vec<Vec<bool>> = widths.iter().map(|w| vec![false; *w]).collect();
+    let mut spans: Vec<Vec<Option<(usize, usize)>>> =
+        widths.iter().map(|w| vec![None; *w]).collect();
+    let free =
+        |covered: &[Vec<bool>], r: usize, c: usize| c < widths[r] && !covered[r][c] && empty(r, c);
+    for r in 0..widths.len() {
+        let end = if r < head { head } else { widths.len() };
+        for c in 0..widths[r] {
             if covered[r][c] {
                 continue;
             }
-            let (colspan, rowspan) = cell_span(&rows[r][c]);
+            let (colspan, rowspan) = span(r, c);
             let mut w = 1;
             while w < colspan && free(&covered, r, c + w) {
                 w += 1;
@@ -252,6 +267,39 @@ impl Table {
     /// The slot at `(row, column)`.
     pub fn slot(&self, row: usize, column: usize) -> Option<&str> {
         self.rows.get(row)?.cells.get(column).map(String::as_str)
+    }
+
+    /// Per row and per cell, the columns and rows a drawn cell spans, or
+    /// `None` for a cell another's span covers, by the rule of
+    /// [`table_spans`]: `props` holds the table's `head`, `attrs` each slot's
+    /// `colspan` and `rowspan`, and a span covers a slot of `slots` holding
+    /// no text and no anchor.
+    pub(crate) fn spans(
+        &self,
+        props: &Map<String, Value>,
+        attrs: Option<&Map<String, Value>>,
+        slots: &BTreeMap<String, Content>,
+    ) -> Vec<Vec<Option<(usize, usize)>>> {
+        let widths: Vec<usize> = self.rows.iter().map(|r| r.cells.len()).collect();
+        let head = props
+            .get("head")
+            .and_then(Value::as_u64)
+            .map_or(1, saturate)
+            .min(self.rows.len());
+        claim_spans(
+            &widths,
+            head,
+            |r, c| {
+                attrs
+                    .and_then(|a| a.get(&self.rows[r].cells[c]))
+                    .map_or((1, 1), cell_span)
+            },
+            |r, c| {
+                slots
+                    .get(&self.rows[r].cells[c])
+                    .is_none_or(|s| s.text.is_empty() && s.anchors.is_empty())
+            },
+        )
     }
 
     /// Writes `columns` and `rows` into `props`.
@@ -370,33 +418,108 @@ pub(crate) fn check(island: &Island) -> Result<(), Invariant> {
     Ok(())
 }
 
-/// Settle an island's props: a table's layout as the line form settles it, an
-/// equation's TeX, and every key sorted.
+/// Settle an island's props: a table's layout keys, an equation's TeX, and
+/// every key sorted.
 pub(crate) fn normalize_island(island: &mut Island) {
     match island.island_type {
         IslandType::Table => normalize_table(island),
-        IslandType::Math => IslandType::Math.normalize_props(&mut island.props),
+        IslandType::Math => crate::model::normalize_math_props(&mut island.props),
         IslandType::Footnote | IslandType::Image | IslandType::Ext(_) => {}
     }
     canonicalize_keys(&mut island.props);
 }
 
+/// A table's layout keys, each absent at its default and holding only what
+/// the grid names. A whole-number `head` settles to at most the row count,
+/// absent at 1, and a `headless: true` riding beside no whole `head` settles
+/// it to 0. `aligns` keeps each column's value but `"none"`, and `widths` each
+/// column's but `null`. `cell_attrs` keeps each slot's keys, its spans
+/// settled to what the cell covers ([`Table::spans`]): absent at 1 and on a
+/// covered cell, which keeps its alignment. A value outside its set stays as
+/// written.
 fn normalize_table(island: &mut Island) {
     let Some(table) = Table::read(&island.props) else {
         return;
     };
-    let mut lined = to_line_props(island);
-    IslandType::Table.normalize_props(&mut lined);
-    let mut props = Map::new();
-    if let Some(obj) = island.props.as_object() {
-        for (k, v) in obj {
-            if !TABLE_KEYS.contains(&k.as_str()) {
-                props.insert(k.clone(), v.clone());
+    let stored = island.props.as_object().cloned().unwrap_or_default();
+    let mut props: Map<String, Value> = stored
+        .iter()
+        .filter(|(k, _)| !TABLE_KEYS.contains(&k.as_str()))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    table.write_into(&mut props);
+
+    let headless = stored.get("headless") == Some(&Value::Bool(true));
+    let whole = stored.get("head").and_then(Value::as_u64);
+    match whole.or(headless.then_some(0)) {
+        Some(head) => {
+            let head = head.min(table.rows.len().max(1) as u64);
+            if head != 1 {
+                props.insert("head".into(), head.into());
+            }
+        }
+        None => {
+            if let Some(head) = stored.get("head") {
+                props.insert("head".into(), head.clone());
             }
         }
     }
-    table.write_into(&mut props);
-    layout_from_line(&lined, &table, &mut props);
+    if let Some(align) = stored.get("align") {
+        props.insert("align".into(), align.clone());
+    }
+
+    let by_column = |key: &str, keep: &dyn Fn(&Value) -> bool| -> Option<Value> {
+        let keyed = stored.get(key)?.as_object()?;
+        let kept: Map<String, Value> = table
+            .columns
+            .iter()
+            .filter_map(|c| Some((c.clone(), keyed.get(c).filter(|v| keep(v))?.clone())))
+            .collect();
+        (!kept.is_empty()).then_some(Value::Object(kept))
+    };
+    if let Some(aligns) = by_column("aligns", &|v| v.as_str() != Some("none")) {
+        props.insert("aligns".into(), aligns);
+    }
+    if let Some(widths) = by_column("widths", &|v| !v.is_null()) {
+        props.insert("widths".into(), widths);
+    }
+
+    let attrs = stored.get("cell_attrs").and_then(Value::as_object);
+    let spans = table.spans(&props, attrs, &island.slots);
+    let mut settled = Map::new();
+    for (row, spans) in table.rows.iter().zip(spans) {
+        for (slot, span) in row.cells.iter().zip(spans) {
+            let Some(mut cell) = attrs
+                .and_then(|a| a.get(slot))
+                .and_then(Value::as_object)
+                .cloned()
+            else {
+                continue;
+            };
+            cell.remove("text");
+            cell.remove("marks");
+            let covers = span.map_or([None, None], |(w, h)| [Some(w), Some(h)]);
+            for (key, n) in CELL_SPANS.into_iter().zip(covers) {
+                if !cell
+                    .get(key)
+                    .and_then(Value::as_u64)
+                    .is_some_and(|n| n >= 1)
+                {
+                    continue;
+                }
+                match n {
+                    Some(n) if n > 1 => cell.insert(key.into(), n.into()),
+                    _ => cell.remove(key),
+                };
+            }
+            if !cell.is_empty() {
+                settled.insert(slot.clone(), Value::Object(cell));
+            }
+        }
+    }
+    if !settled.is_empty() {
+        props.insert("cell_attrs".into(), Value::Object(settled));
+    }
     island.props = Value::Object(props);
 }
 
@@ -666,7 +789,13 @@ pub(crate) fn slot_to_cell(slot: &Content) -> (String, Vec<line::Mark>) {
     let mut marks: Vec<line::Mark> = slot
         .marks
         .iter()
-        .filter_map(|m| Some(line::Mark::new(at(m.start), at(m.end), m.kind.to_line()?)))
+        .filter_map(|m| {
+            Some(line::Mark::new(
+                at(m.start),
+                at(m.end),
+                line::MarkKind::from_model(&m.kind)?,
+            ))
+        })
         .collect();
     marks.extend(slot.anchors.iter().map(|a| {
         line::Mark::new(
@@ -726,7 +855,7 @@ pub(crate) fn cell_to_slot(text: &str, marks: &[line::Mark], paragraphs: bool) -
         match &m.kind {
             line::MarkKind::Anchor { id } => slot.anchors.push(Anchor::new(id.clone(), start, end)),
             kind => {
-                if let Some(kind) = MarkKind::from_line(kind) {
+                if let Some(kind) = kind.to_model() {
                     slot.marks.push(Mark::new(start, end, kind));
                 }
             }
@@ -734,4 +863,143 @@ pub(crate) fn cell_to_slot(text: &str, marks: &[line::Mark], paragraphs: bool) -
     }
     slot.normalize();
     slot
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A table of `grid`'s cell texts, ids `col-<c>`, `row-<r>` and
+    /// `slot-<r>-<c>`, holding `keys` beside its grid.
+    fn table(grid: &[&[&str]], keys: Value) -> Island {
+        let columns = (0..grid[0].len()).map(|c| format!("col-{c}")).collect();
+        let mut slots = BTreeMap::new();
+        let rows = grid
+            .iter()
+            .enumerate()
+            .map(|(r, row)| Row {
+                id: format!("row-{r}"),
+                cells: row
+                    .iter()
+                    .enumerate()
+                    .map(|(c, text)| {
+                        let id = format!("slot-{r}-{c}");
+                        let slot = Content {
+                            text: text.to_string(),
+                            ..Content::default()
+                        };
+                        slots.insert(id.clone(), slot);
+                        id
+                    })
+                    .collect(),
+            })
+            .collect();
+        let mut props = keys.as_object().cloned().unwrap_or_default();
+        Table { columns, rows }.write_into(&mut props);
+        Island {
+            id: "isl-1".into(),
+            island_type: IslandType::Table,
+            props: Value::Object(props),
+            slots,
+        }
+    }
+
+    fn settled(mut island: Island) -> Value {
+        normalize_island(&mut island);
+        let once = island.props.clone();
+        normalize_island(&mut island);
+        assert_eq!(island.props, once, "not a fixed point");
+        once
+    }
+
+    #[test]
+    fn each_layout_key_is_absent_at_its_default_and_rides_outside_its_set() {
+        let absent = Value::Null;
+        let cases = [
+            ("head", json!(0), json!(0)),
+            ("head", json!(1), absent.clone()),
+            ("head", json!(2), json!(2)),
+            ("head", json!(9), json!(2)),
+            ("head", json!(-1), json!(-1)),
+            ("head", json!("2"), json!("2")),
+            ("align", json!("center"), json!("center")),
+            ("align", json!("middle"), json!("middle")),
+            (
+                "aligns",
+                json!({"col-0": "left", "col-1": "none", "col-9": "right"}),
+                json!({"col-0": "left"}),
+            ),
+            ("aligns", json!({"col-1": "none"}), absent.clone()),
+            ("aligns", json!(["left"]), absent.clone()),
+            (
+                "widths",
+                json!({"col-0": 2, "col-1": null, "col-9": 4}),
+                json!({"col-0": 2}),
+            ),
+            (
+                "widths",
+                json!({"col-0": 0, "col-1": "2", "col-2": 1}),
+                json!({"col-0": 0, "col-1": "2", "col-2": 1}),
+            ),
+            ("widths", json!({"col-0": null}), absent.clone()),
+            ("widths", json!([1, 2, 3]), absent.clone()),
+        ];
+        for (key, value, kept) in cases {
+            let props = settled(table(
+                &[&["a", "b", "c"], &["1", "2", "3"]],
+                json!({ key: value, "x_host": 1 }),
+            ));
+            assert_eq!(props.get(key).unwrap_or(&absent), &kept, "{key}: {value}");
+            assert_eq!(props["x_host"], 1);
+        }
+    }
+
+    #[test]
+    fn a_riding_headless_settles_a_head_that_holds_no_whole_number() {
+        for (keys, head) in [
+            (json!({"headless": true}), json!(0)),
+            (json!({"headless": true, "head": "2"}), json!(0)),
+            (json!({"headless": true, "head": 2}), json!(2)),
+            (json!({"headless": false}), Value::Null),
+            (json!({"headless": "true"}), Value::Null),
+        ] {
+            let props = settled(table(&[&["a"], &["1"]], keys.clone()));
+            assert_eq!(props.get("head").unwrap_or(&Value::Null), &head, "{keys}");
+        }
+    }
+
+    /// A span covers the empty cells to its right and below within its own
+    /// section; a covered cell keeps its alignment and loses its span keys.
+    #[test]
+    fn each_span_settles_to_what_its_cell_covers() {
+        let mut island = table(
+            &[&["a", "", "c"], &["d", "", ""], &["", "g", ""]],
+            json!({"cell_attrs": {
+                "slot-0-0": {"colspan": 5, "rowspan": 2},
+                "slot-0-1": {"colspan": 2, "align": "right", "x_host": 1},
+                "slot-0-2": {"colspan": 1, "rowspan": "2"},
+                "slot-1-0": {"rowspan": 0, "text": "t", "marks": []},
+                "slot-1-1": {"colspan": 2, "rowspan": 2},
+                "slot-2-2": {"colspan": 2},
+                "slot-9-9": {"colspan": 2},
+            }}),
+        );
+        island
+            .slots
+            .get_mut("slot-2-2")
+            .unwrap()
+            .anchors
+            .push(Anchor::new("anc-1", 0, 0));
+        assert_eq!(
+            settled(island)["cell_attrs"],
+            json!({
+                "slot-0-0": {"colspan": 2},
+                "slot-0-1": {"align": "right", "x_host": 1},
+                "slot-0-2": {"rowspan": "2"},
+                "slot-1-0": {"rowspan": 0},
+                "slot-1-1": {"colspan": 2},
+            })
+        );
+    }
 }

@@ -273,7 +273,7 @@ pub fn cell(slot: &Content) -> Cell {
     for m in line_marks {
         match &m.kind {
             crate::lines::model::MarkKind::Anchor { id } => anchors.push((id.clone(), m.start)),
-            kind => marks.extend(MarkKind::from_line(kind).map(|k| Mark::new(m.start, m.end, k))),
+            kind => marks.extend(kind.to_model().map(|k| Mark::new(m.start, m.end, k))),
         }
     }
     Cell {

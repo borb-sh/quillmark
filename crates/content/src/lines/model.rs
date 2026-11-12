@@ -414,14 +414,6 @@ pub enum MarkKind {
     },
 }
 
-/// How a raw keyed mark ranks over a character it shares with another of its
-/// tag, the greater setting it: the later start, then the shorter mark, then
-/// the later in canonical order. Only [`normalize_marks`] reads it, settling
-/// raw overlap once; normalized content holds none.
-fn keyed_rank(m: &Mark) -> (Scalar, std::cmp::Reverse<Scalar>, (String, String)) {
-    (m.start, std::cmp::Reverse(m.end), m.kind.sort_key())
-}
-
 /// A structured object with no honest text encoding (a table, figure, or future
 /// embed) occupying one [`ISLAND_SLOT`] in the content.
 #[derive(Debug, Clone, PartialEq)]
@@ -455,6 +447,38 @@ impl Island {
 }
 
 impl MarkKind {
+    /// The model's mark of this kind, `None` for an anchor, which the model
+    /// holds beside its marks.
+    pub(crate) fn to_model(&self) -> Option<crate::model::MarkKind> {
+        use crate::model::MarkKind as Model;
+        Some(match self {
+            MarkKind::Strong => Model::Strong,
+            MarkKind::Emph => Model::Emph,
+            MarkKind::Underline => Model::Underline,
+            MarkKind::Strike => Model::Strike,
+            MarkKind::Code => Model::Code,
+            MarkKind::Link { url } => Model::Link { url: url.clone() },
+            MarkKind::FontFamily { name } => Model::FontFamily { name: name.clone() },
+            MarkKind::Anchor { .. } => return None,
+        })
+    }
+
+    /// The line form's mark of the model's `kind`, `None` for a type this
+    /// build does not know, which formats nothing here.
+    pub(crate) fn from_model(kind: &crate::model::MarkKind) -> Option<MarkKind> {
+        use crate::model::MarkKind as Model;
+        Some(match kind {
+            Model::Strong => MarkKind::Strong,
+            Model::Emph => MarkKind::Emph,
+            Model::Underline => MarkKind::Underline,
+            Model::Strike => MarkKind::Strike,
+            Model::Code => MarkKind::Code,
+            Model::Link { url } => MarkKind::Link { url: url.clone() },
+            Model::FontFamily { name } => MarkKind::FontFamily { name: name.clone() },
+            Model::Ext { .. } => return None,
+        })
+    }
+
     /// Formatting marks are a property of a range and union when coincident;
     /// an identity mark is a handle and never merges.
     ///
@@ -1161,93 +1185,24 @@ pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
     }
 }
 
-/// Cut each formatting mark at every `\n` and hard break in `chars`, keeping
-/// the pieces between them: prose export closes a mark at a line's end and
-/// reopens it on the next, so in prose a mark never spans a line join. Zero-width
-/// pieces are left for [`normalize_marks`] to drop.
+/// Cut each formatting mark at every `\n` and hard break in `chars`
+/// ([`split_marks_at_breaks`](crate::model::split_marks_at_breaks)); every
+/// other mark is kept whole.
 pub(crate) fn split_marks_at_newlines(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
-    let breaks: Vec<Scalar> = chars
-        .iter()
-        .enumerate()
-        .filter(|(_, c)| matches!(**c, '\n' | crate::model::HARD_BREAK))
-        .map(|(i, _)| i)
-        .collect();
-    let within = |m: &Mark| {
-        let lo = breaks.partition_point(|&b| b < m.start);
-        let hi = breaks.partition_point(|&b| b < m.end);
-        &breaks[lo..hi.max(lo)]
-    };
-    let mut out = Vec::with_capacity(marks.len());
-    for m in marks {
-        if !m.kind.is_formatting() {
-            out.push(m);
-            continue;
-        }
-        let mut start = m.start;
-        for &at in within(&m) {
-            out.push(Mark::new(start, at, m.kind.clone()));
-            start = at + 1;
-        }
-        out.push(Mark::new(start.min(m.end), m.end, m.kind));
-    }
+    let (formatting, mut out) = by_class(marks);
+    out.extend(from_model(crate::model::split_marks_at_breaks(
+        chars, formatting,
+    )));
     out
 }
 
-/// Apply the merge rules and the canonical sort to a flat mark list:
-/// same-kind formatting marks union when adjacent *or* overlapping, different
-/// kinds overlap freely (never split into runs), and an identity mark never
-/// merges. Keyed marks of one tag are first cut at every edge among them and
-/// each piece given to the one [`keyed_rank`] puts first, so the union that
-/// follows joins only pieces of one value and none of one tag overlap.
-/// Zero-width formatting is dropped; zero-width anchors survive.
+/// The merge rules and the canonical sort over a flat mark list: the
+/// formatting marks as [`union_marks`](crate::model::union_marks) settles
+/// them, and an identity mark never merged. Zero-width formatting is dropped;
+/// zero-width anchors survive.
 pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
-    use std::collections::BTreeMap;
-
-    let mut groups: BTreeMap<(String, String), Vec<(Scalar, Scalar)>> = BTreeMap::new();
-    let mut kind_of: BTreeMap<(String, String), MarkKind> = BTreeMap::new();
-    let mut passthrough: Vec<Mark> = Vec::new();
-
-    let (keyed, marks): (Vec<Mark>, Vec<Mark>) = marks.into_iter().partition(|m| m.kind.is_keyed());
-    let marks = marks.into_iter().chain(settle_keyed(keyed));
-    for m in marks {
-        if m.kind.is_formatting() {
-            if m.start >= m.end {
-                continue; // drop zero-width / inverted formatting
-            }
-            let key = m.kind.sort_key();
-            kind_of.entry(key.clone()).or_insert_with(|| m.kind.clone());
-            groups.entry(key).or_default().push((m.start, m.end));
-        } else {
-            passthrough.push(m);
-        }
-    }
-
-    let mut out: Vec<Mark> = Vec::new();
-    for (key, mut ranges) in groups {
-        ranges.sort_unstable();
-        let kind = kind_of.remove(&key).expect("kind recorded with group");
-        let mut cur = ranges[0];
-        for &(s, e) in &ranges[1..] {
-            if s <= cur.1 {
-                // adjacent (s == cur.1) or overlapping: union
-                cur.1 = cur.1.max(e);
-            } else {
-                out.push(Mark {
-                    start: cur.0,
-                    end: cur.1,
-                    kind: kind.clone(),
-                });
-                cur = (s, e);
-            }
-        }
-        out.push(Mark {
-            start: cur.0,
-            end: cur.1,
-            kind,
-        });
-    }
-    out.extend(passthrough);
-
+    let (formatting, mut out) = by_class(marks);
+    out.extend(from_model(crate::model::union_marks(formatting)));
     // Key cached per mark so `sort_key`'s allocation runs once each, not once
     // per comparison.
     out.sort_by_cached_key(|m| (m.start, m.end, m.kind.sort_key()));
@@ -1257,51 +1212,23 @@ pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
     out
 }
 
-/// Raw keyed marks as disjoint pieces per tag: each stretch between two edges
-/// of a tag's marks goes to the mark [`keyed_rank`] puts first over it, read
-/// off one sweep over the edges.
-fn settle_keyed(keyed: Vec<Mark>) -> Vec<Mark> {
-    use std::collections::{BTreeMap, BTreeSet};
+/// `marks` as its formatting marks, in the model's spelling, and the rest.
+fn by_class(marks: Vec<Mark>) -> (Vec<crate::model::Mark>, Vec<Mark>) {
+    let mut formatting = Vec::with_capacity(marks.len());
+    let mut rest = Vec::new();
+    for m in marks {
+        match m.kind.to_model() {
+            Some(kind) => formatting.push(crate::model::Mark::new(m.start, m.end, kind)),
+            None => rest.push(m),
+        }
+    }
+    (formatting, rest)
+}
 
-    let mut by_tag: BTreeMap<&'static str, Vec<Mark>> = BTreeMap::new();
-    for m in keyed.into_iter().filter(|m| m.start < m.end) {
-        by_tag.entry(m.kind.tag()).or_default().push(m);
-    }
-    let mut out = Vec::new();
-    for mut marks in by_tag.into_values() {
-        marks.sort_by_key(|m| (m.start, m.end));
-        if marks.windows(2).all(|w| w[0].end <= w[1].start) {
-            out.extend(marks);
-            continue;
-        }
-        let ranks: Vec<_> = marks.iter().map(keyed_rank).collect();
-        let mut by_end: Vec<usize> = (0..marks.len()).collect();
-        by_end.sort_by_key(|&i| marks[i].end);
-        let mut edges: Vec<Scalar> = marks.iter().flat_map(|m| [m.start, m.end]).collect();
-        edges.sort_unstable();
-        edges.dedup();
-        let mut over = BTreeSet::new();
-        let (mut opened, mut closed) = (0, 0);
-        for cut in edges.windows(2) {
-            let (a, b) = (cut[0], cut[1]);
-            while closed < by_end.len() && marks[by_end[closed]].end <= a {
-                over.remove(&(&ranks[by_end[closed]], by_end[closed]));
-                closed += 1;
-            }
-            while opened < marks.len() && marks[opened].start <= a {
-                over.insert((&ranks[opened], opened));
-                opened += 1;
-            }
-            if let Some(&(_, i)) = over.last() {
-                out.push(Mark {
-                    start: a,
-                    end: b,
-                    kind: marks[i].kind.clone(),
-                });
-            }
-        }
-    }
-    out
+fn from_model(marks: Vec<crate::model::Mark>) -> impl Iterator<Item = Mark> {
+    marks
+        .into_iter()
+        .filter_map(|m| Some(Mark::new(m.start, m.end, MarkKind::from_model(&m.kind)?)))
 }
 
 #[cfg(test)]

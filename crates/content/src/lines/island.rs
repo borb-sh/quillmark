@@ -44,7 +44,7 @@ impl IslandType {
         match self {
             Self::Table => crate::lines::serial::normalize_table_props(props),
             Self::Footnote => crate::lines::serial::normalize_note_props(props),
-            Self::Math => crate::lines::serial::normalize_math_props(props),
+            Self::Math => crate::model::normalize_math_props(props),
             Self::Image | Self::Ext(_) => {}
         }
     }

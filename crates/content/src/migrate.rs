@@ -11,7 +11,6 @@ use crate::ids::{Minter, prefix};
 use crate::lines::model::{self as line, Container as LineContainer, Line, LineKind};
 use crate::model::{
     Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, HARD_BREAK, Island, Mark,
-    MarkKind,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -129,7 +128,7 @@ pub fn from_lines(rt: &line::Content) -> Content {
         match &m.kind {
             line::MarkKind::Anchor { id } => anchors.push(Anchor::new(id.clone(), m.start, m.end)),
             kind => {
-                if let Some(kind) = MarkKind::from_line(kind) {
+                if let Some(kind) = kind.to_model() {
                     marks.push(Mark::new(m.start, m.end, kind));
                 }
             }
@@ -259,7 +258,13 @@ pub fn to_lines(c: &Content) -> line::Lines {
     let mut marks: Vec<line::Mark> = c
         .marks
         .iter()
-        .filter_map(|m| Some(line::Mark::new(m.start, m.end, m.kind.to_line()?)))
+        .filter_map(|m| {
+            Some(line::Mark::new(
+                m.start,
+                m.end,
+                line::MarkKind::from_model(&m.kind)?,
+            ))
+        })
         .collect();
     marks.extend(
         c.anchors

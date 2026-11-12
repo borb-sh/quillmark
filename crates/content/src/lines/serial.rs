@@ -641,7 +641,9 @@ fn reject_unwritable_tex(v: &Value) -> Result<(), ParseError> {
     let props = v.get("props");
     let display = props.and_then(|p| p.get("display")) == Some(&Value::Bool(true));
     match props.and_then(|p| p.get("tex")).and_then(Value::as_str) {
-        Some(tex) if !crate::lines::export::tex_is_writable(&settle_tex(tex), display) => {
+        Some(tex)
+            if !crate::lines::export::tex_is_writable(&crate::model::settle_tex(tex), display) =>
+        {
             Err(ParseError::Shape("math tex"))
         }
         _ => Ok(()),
@@ -1065,54 +1067,6 @@ pub(crate) fn normalize_note_props(props: &mut Value) {
     ) {
         o.extend(fields);
     }
-}
-
-/// Repair an equation's props in place: `tex` settled by [`settle_tex`], and
-/// `display: false` absent. A `tex` that is no string rides as written.
-pub(crate) fn normalize_math_props(props: &mut Value) {
-    let Some(o) = props.as_object_mut() else {
-        return;
-    };
-    if let Some(Value::String(tex)) = o.get_mut("tex") {
-        let settled = settle_tex(tex);
-        if settled != *tex {
-            *tex = settled;
-        }
-    }
-    if o.get("display") == Some(&Value::Bool(false)) {
-        o.remove("display");
-    }
-}
-
-/// TeX source as an equation stores it: each `%` comment dropped to the end
-/// of its line, each line break or other control char a space, which TeX
-/// reads it as, and the whitespace at either edge dropped.
-pub fn settle_tex(tex: &str) -> String {
-    let mut uncommented = String::with_capacity(tex.len());
-    let (mut comment, mut escaped) = (false, false);
-    for c in tex.chars() {
-        let ends_line = c == '\n' || c == '\r' || crate::model::is_line_separator(c);
-        comment &= !ends_line;
-        if !comment && c == '%' && !escaped {
-            comment = true;
-        }
-        if !comment {
-            uncommented.push(c);
-        }
-        escaped = c == '\\' && !escaped;
-    }
-    let spaced: String = uncommented
-        .chars()
-        .map(|c| {
-            if c.is_control() || crate::model::is_line_separator(c) {
-                ' '
-            } else {
-                c
-            }
-        })
-        .filter(|&c| c != crate::lines::model::ISLAND_SLOT)
-        .collect();
-    spaced.trim().to_string()
 }
 
 pub(crate) fn island_to_value(island: &Island) -> Value {
