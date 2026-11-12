@@ -7,9 +7,9 @@
 
 use crate::change::{Change, IslandStep, Removed as Gone, Splice, Step};
 use crate::ids::{MAX_ID_LEN, is_id};
-use crate::lines::model::json_depth_exceeds;
-use crate::lines::normalize::is_bidi_char;
+use crate::json::json_depth_exceeds;
 use crate::model::IslandType;
+use crate::model::is_bidi_char;
 use crate::model::{
     Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT,
     Invariant, Island, Mark, NOTE_SLOT, Scalar, is_lang, is_text_char,

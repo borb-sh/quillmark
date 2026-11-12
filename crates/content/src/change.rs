@@ -1697,7 +1697,7 @@ mod wire {
 
     impl Change {
         pub fn to_value(&self) -> Value {
-            crate::lines::model::sort_keys_owned(obj([(
+            crate::json::sort_keys_owned(obj([(
                 "steps",
                 self.steps.iter().map(step_value).collect(),
             )]))

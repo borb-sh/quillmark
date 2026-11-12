@@ -759,8 +759,8 @@ fn island_markup(ctx: &Ctx, index: usize, out: &mut String) {
 
 /// The carrier's canonical spelling of island `id`'s token.
 fn island_token(id: &str) -> String {
-    crate::lines::carrier::Element::spelling(
-        crate::lines::carrier::ISLAND,
+    crate::markdown::carrier::Element::spelling(
+        crate::markdown::carrier::ISLAND,
         [("ref".to_string(), id.to_string())].into(),
     )
     .expect("`island` and `ref` are in the carrier grammar")
@@ -812,7 +812,7 @@ pub fn tex_is_writable(tex: &str, display: bool) -> bool {
 }
 
 /// A table as a GFM pipe table, or as HTML where it holds what a pipe table
-/// cannot write ([`crate::lines::html_table::writes_html`]). Each cell's
+/// cannot write ([`crate::markdown::html_table::writes_html`]). Each cell's
 /// markdown is rebuilt from its slot, so nothing re-parses markdown and
 /// `import(export(table))` is a fixed point.
 fn emit_table(isl: &Island, out: &mut String) {
@@ -830,8 +830,8 @@ fn emit_table(isl: &Island, out: &mut String) {
             .map_or_else(String::new, |slot| render_cell_md(slot, frag))
     };
     let layout = crate::table::to_line_props(isl);
-    if crate::lines::html_table::writes_html(&layout) {
-        out.push_str(&crate::lines::html_table::write(&layout, |r, c| {
+    if crate::markdown::html_table::writes_html(&layout) {
+        out.push_str(&crate::markdown::html_table::write(&layout, |r, c| {
             render(r, c, Frag::HtmlCell)
         }));
         return;
@@ -1094,7 +1094,7 @@ fn anchor_tag(id: &str, at: Option<&str>) -> String {
     if let Some(at) = at {
         attrs.insert("at".to_string(), at.to_string());
     }
-    crate::lines::carrier::Element::spelling(crate::lines::carrier::ANCHOR, attrs)
+    crate::markdown::carrier::Element::spelling(crate::markdown::carrier::ANCHOR, attrs)
         .expect("`anchor`, `at` and `ref` are in the carrier grammar")
         .wrap_inline("")
 }
@@ -1803,7 +1803,7 @@ fn split_around_table_tags(chars: &[char], start: usize, end: usize) -> Vec<(usi
     let text: String = chars[start..end].iter().collect();
     let mut at = start;
     let mut out = Vec::new();
-    for (piece, tag) in crate::lines::html_table::tag_pieces(&text) {
+    for (piece, tag) in crate::markdown::html_table::tag_pieces(&text) {
         let len = text[piece].chars().count();
         if !tag {
             out.push((at, at + len));
@@ -1957,9 +1957,9 @@ const DELIM_SPELLINGS: [Delims; 4] = [
 ];
 
 /// The `qm-span` pair a `font_family` mark writes.
-fn font_pair(kind: &MarkKind) -> crate::lines::carrier::Element {
+fn font_pair(kind: &MarkKind) -> crate::markdown::carrier::Element {
     match kind {
-        MarkKind::FontFamily { name } => crate::lines::carrier::span::pair(name),
+        MarkKind::FontFamily { name } => crate::markdown::carrier::span::pair(name),
         _ => unreachable!("only a font_family mark is a qm-span pair"),
     }
 }

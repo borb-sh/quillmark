@@ -6,7 +6,8 @@
 //! A key the table does not name rides untouched.
 
 use crate::ids::{Minter, is_id, prefix};
-use crate::lines::model::{self as line, canonicalize_keys};
+use crate::json::canonicalize_keys;
+use crate::lines::model as line;
 use crate::model::{
     Anchor, Block, BlockKind, Content, HARD_BREAK, Invariant, Island, IslandType, Mark, MarkKind,
     NOTE_SLOT,
