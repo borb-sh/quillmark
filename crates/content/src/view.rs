@@ -4,7 +4,7 @@
 //! tells two adjacent lists or quotes apart, which the content computes rather
 //! than stores. The markdown export and the Typst emitter walk it.
 
-use crate::lines::island::IslandType;
+use crate::model::IslandType;
 use crate::model::{
     BlockKind, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT, Island, Mark, MarkKind, NOTE_SLOT,
     Scalar,
@@ -23,7 +23,7 @@ pub struct Cell {
 }
 
 /// The island's props with each cell its text and marks inline, the shape
-/// the table readers in [`crate::lines::island`] read its layout from.
+/// the table readers in [`crate::table`] read its layout from.
 pub fn layout(isl: &Island) -> serde_json::Value {
     crate::table::to_line_props(isl)
 }

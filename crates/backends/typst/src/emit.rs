@@ -21,8 +21,8 @@
 //! emission with Typst's own parser: a syntax error there is a lowering bug,
 //! never a document's.
 
-use quillmark_content::lines::island::IslandType;
 use quillmark_content::lines::normalize::is_line_separator;
+use quillmark_content::model::IslandType;
 use quillmark_content::model::{Content, ISLAND_SLOT, Island, Mark, MarkKind, NOTE_SLOT};
 use quillmark_content::view::{Level as Container, LineKind, View};
 use quillmark_core::error::MAX_NESTING_DEPTH;
@@ -1335,9 +1335,9 @@ fn table_markup(isl: &Island) -> String {
         return String::new();
     }
 
-    let layout = quillmark_content::lines::island::TableLayout::of(props);
-    let spans = quillmark_content::lines::island::table_spans(props);
-    let grid = quillmark_content::lines::island::table_rows(props);
+    let layout = quillmark_content::table::TableLayout::of(props);
+    let spans = quillmark_content::table::table_spans(props);
+    let grid = quillmark_content::table::table_rows(props);
 
     let cell = |r: usize, c: usize, v: &Value, (colspan, rowspan): (usize, usize)| {
         let held = table
@@ -1346,7 +1346,7 @@ fn table_markup(isl: &Island) -> String {
             .and_then(|s| isl.slots.get(s))
             .map(quillmark_content::view::cell);
         let body = held.map_or_else(String::new, |h| cell_markup(&h.text, &h.marks, true));
-        let (align, valign) = quillmark_content::lines::island::cell_alignment(v);
+        let (align, valign) = quillmark_content::table::cell_alignment(v);
         let valign = valign.map(|v| if v == "middle" { "horizon" } else { v });
         let mut args: Vec<String> = [("colspan", colspan), ("rowspan", rowspan)]
             .into_iter()

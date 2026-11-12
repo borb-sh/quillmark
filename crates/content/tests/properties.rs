@@ -7,8 +7,8 @@ use proptest::prelude::*;
 use quillmark_content::lines::delta::diff_import;
 use quillmark_content::lines::export::{to_markdown, to_markdown_annotated};
 use quillmark_content::lines::import::from_markdown;
-use quillmark_content::lines::island::IslandType;
 use quillmark_content::lines::model::{Content, Island, Line, LineKind, Lines, Mark, MarkKind};
+use quillmark_content::model::IslandType;
 use serde_json::{Value, json};
 
 /// The mint's fixed point: normalizing again changes nothing.

@@ -6,8 +6,8 @@
 //! encoded: the model stores only the resulting range, so the stored form is
 //! identical whatever the editor did.
 
-use crate::lines::island::IslandType;
 use crate::lines::normalize::{is_bidi_char, is_line_separator};
+use crate::model::IslandType;
 use serde_json::Value as JsonValue;
 use std::borrow::Cow;
 
@@ -1129,7 +1129,7 @@ impl Content {
             // Depth before any pass that walks `props`; a cell's own `attrs` is
             // a subtree, so this bounds the cell marks read below as well.
             check_json_depth(&island.props, "island props")?;
-            if island.island_type == crate::lines::island::IslandType::Table {
+            if island.island_type == crate::model::IslandType::Table {
                 check_table_cells(&island.props)?;
             }
             for (text, marks) in island.island_type.cell_marks(&island.props) {

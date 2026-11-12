@@ -133,7 +133,7 @@ fn listed(words: &[&str], last: &str) -> String {
 /// the spelling that keeps it.
 fn dropped_message(construct: &DroppedConstruct, n: usize) -> (String, String) {
     use quillmark_content::lines::carrier::RESERVED_ATTRS;
-    use quillmark_content::lines::island::{CELL_VALIGNS, TABLE_ALIGNS};
+    use quillmark_content::table::{CELL_VALIGNS, TABLE_ALIGNS};
     const TIGHT: &str =
         "Markdown on the lines under a tag line drops with it, up to the next blank line.";
     const BESIDE: &str = "A tag line beside a line of other tags drops with the markdown under it, up to the next blank line.";

@@ -12,9 +12,9 @@ use std::sync::Arc;
 use quillmark_content::change::{self, Change, Dropped, Moved, Step};
 use quillmark_content::diff;
 use quillmark_content::lines::import::ImportWarning;
-use quillmark_content::lines::island::IslandType;
 use quillmark_content::mint;
 use quillmark_content::model::Content;
+use quillmark_content::model::IslandType;
 use quillmark_content::structural::{StructuralEdit, Wrap};
 use quillmark_content::units::{self, Units};
 

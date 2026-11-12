@@ -1026,9 +1026,7 @@ impl Run {
         }
         let was = std::mem::replace(&mut island.props, props.clone());
         let order = island.slot_order();
-        if island.island_type == crate::lines::island::IslandType::Table
-            && Table::read(props).is_none()
-        {
+        if island.island_type == crate::model::IslandType::Table && Table::read(props).is_none() {
             return Err(ApplyError::BadStep {
                 step: n,
                 reason: "a table's props do not spell a grid",

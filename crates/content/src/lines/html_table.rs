@@ -5,7 +5,7 @@
 use crate::lines::carrier;
 use crate::lines::html;
 use crate::lines::import::DroppedConstruct;
-use crate::lines::island::{
+use crate::table::{
     CELL_VALIGNS, TABLE_ALIGNS, TableLayout, cell_alignment, is_weight, table_rows, table_spans,
 };
 use pulldown_cmark::{BrokenLink, CowStr, Event, LinkType, Parser, RefDefs, Tag as PTag, TagEnd};

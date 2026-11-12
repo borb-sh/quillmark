@@ -123,9 +123,9 @@ mod tests {
     use super::*;
     use crate::export::{annotate, emit_url};
     use crate::lines::import::from_markdown;
-    use crate::lines::island::IslandType;
     use crate::lines::model::{Container, Island, LineKind};
     use crate::lines::model::{Line, Mark, MarkKind};
+    use crate::model::IslandType;
 
     /// export∘import is the identity on the content.
     /// A content built by hand, as a client writing `Content` directly builds

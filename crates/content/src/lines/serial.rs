@@ -179,7 +179,7 @@ pub fn respell_retired(v: &Value) -> Value {
         for island in islands.iter_mut().filter_map(Value::as_object_mut) {
             island.shift_remove("loss");
             if island.get("type").and_then(Value::as_str)
-                == Some(crate::lines::island::IslandType::Table.as_str())
+                == Some(crate::model::IslandType::Table.as_str())
                 && let Some(props) = island.get_mut("props")
             {
                 respell_table(props);
@@ -618,7 +618,7 @@ pub(crate) fn reject_unwritable_link_url(v: &Value) -> Result<(), ParseError> {
 /// [`reject_unwritable_link_url`] on an `image` island's `url` prop, which the
 /// emitter writes into the same slot.
 fn reject_unwritable_image_url(v: &Value) -> Result<(), ParseError> {
-    let image = crate::lines::island::IslandType::Image.as_str();
+    let image = crate::model::IslandType::Image.as_str();
     if v.get("type").and_then(Value::as_str) != Some(image) {
         return Ok(());
     }
@@ -634,9 +634,7 @@ fn reject_unwritable_image_url(v: &Value) -> Result<(), ParseError> {
 /// its delimiters ([`crate::lines::export::tex_is_writable`]), read as it rests once
 /// settled. A `tex` that is no string is the props carrier's to hold.
 fn reject_unwritable_tex(v: &Value) -> Result<(), ParseError> {
-    if v.get("type").and_then(Value::as_str)
-        != Some(crate::lines::island::IslandType::Math.as_str())
-    {
+    if v.get("type").and_then(Value::as_str) != Some(crate::model::IslandType::Math.as_str()) {
         return Ok(());
     }
     let props = v.get("props");
@@ -702,8 +700,8 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
             .get("type")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        match crate::lines::island::IslandType::parse(ty) {
-            Some(crate::lines::island::IslandType::Table) => {
+        match crate::model::IslandType::parse(ty) {
+            Some(crate::model::IslandType::Table) => {
                 let Some(props) = island.get("props") else {
                     continue;
                 };
@@ -713,7 +711,7 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
                     }
                 }
             }
-            Some(crate::lines::island::IslandType::Footnote) => {
+            Some(crate::model::IslandType::Footnote) => {
                 if let Some(props) = island.get("props") {
                     arr_or_empty(props, "marks")
                         .iter()
@@ -721,11 +719,11 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
                 }
             }
             // No cells; the one prop the projection writes is the url.
-            Some(crate::lines::island::IslandType::Image) => reject_unwritable_image_url(island)?,
-            Some(crate::lines::island::IslandType::Math) => reject_unwritable_tex(island)?,
+            Some(crate::model::IslandType::Image) => reject_unwritable_image_url(island)?,
+            Some(crate::model::IslandType::Math) => reject_unwritable_tex(island)?,
             // No cells; this scan reads raw JSON, and an unknown type is the
             // decode's to refuse.
-            Some(crate::lines::island::IslandType::Ext(_)) | None => {}
+            Some(crate::model::IslandType::Ext(_)) | None => {}
         }
     }
     Ok(())
@@ -878,7 +876,7 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 /// - **Spans that cover only what they can.** See [`normalize_table_spans`].
 pub(crate) fn normalize_table_props(props: &mut Value) {
     let cols = table_cols(props);
-    let widths = crate::lines::island::TableLayout::of(props).widths;
+    let widths = crate::table::TableLayout::of(props).widths;
     let Some(obj) = props.as_object_mut() else {
         return;
     };
@@ -964,12 +962,12 @@ fn normalize_table_layout(
 }
 
 /// Each drawn cell's `colspan` and `rowspan` settled to what it covers
-/// ([`crate::lines::island::table_spans`]), absent at 1, and each covered cell's span
+/// ([`crate::table::table_spans`]), absent at 1, and each covered cell's span
 /// keys absent. A covered cell keeps its alignment, which it draws again once
 /// no span covers it. A value outside its set stays as written.
 fn normalize_table_spans(props: &mut Value) {
-    use crate::lines::island::CELL_SPANS;
-    let spans = crate::lines::island::table_spans(props);
+    use crate::table::CELL_SPANS;
+    let spans = crate::table::table_spans(props);
     let settle = |row: &mut Value, spans: &[Option<(usize, usize)>]| {
         let cells = row.as_array_mut().into_iter().flatten().zip(spans);
         for (cell, span) in cells {
@@ -1170,12 +1168,12 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
         .and_then(Value::as_str)
         .ok_or(ParseError::Shape("island type"))?;
     let island_type =
-        crate::lines::island::IslandType::parse(name).ok_or_else(|| ParseError::UnknownName {
+        crate::model::IslandType::parse(name).ok_or_else(|| ParseError::UnknownName {
             axis: "island type",
             name: name.to_string(),
         })?;
     let props = bag_from_wire(o, "props", "island props")?;
-    if island_type == crate::lines::island::IslandType::Table {
+    if island_type == crate::model::IslandType::Table {
         crate::lines::model::check_table_cells(&props).map_err(ParseError::Invalid)?;
     }
     island_type.reject_unknown_cell_mark(&props)?;
@@ -1191,7 +1189,7 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
 }
 
 /// The mark vocabulary's verdict on an island's cells, for
-/// [`crate::lines::island::IslandType::reject_unknown_cell_mark`].
+/// [`crate::model::IslandType::reject_unknown_cell_mark`].
 ///
 /// A cell mark reaches no other strict decode: [`parse_cell`] reads them
 /// leniently and `canon_cell` writes the survivors back, so a name outside the
@@ -1233,8 +1231,8 @@ mod tests {
     }
 
     use super::*;
-    use crate::lines::island::IslandType;
     use crate::lines::model::{Invariant, Line, LineKind};
+    use crate::model::IslandType;
 
     fn sample() -> Content {
         Content {

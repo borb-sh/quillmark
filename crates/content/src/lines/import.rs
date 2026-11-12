@@ -63,11 +63,11 @@
 use crate::MAX_NESTING_DEPTH;
 use crate::lines::carrier;
 use crate::lines::html;
-use crate::lines::island::IslandType;
 use crate::lines::model::{
     Container, Content, ISLAND_SLOT, Island, Line, LineKind, Lines, Mark, MarkKind,
 };
 use crate::lines::normalize::parse_markdown;
+use crate::model::IslandType;
 use pulldown_cmark::{Event, Options, Tag, TagEnd};
 use serde_json::json;
 use std::collections::{HashMap, HashSet, VecDeque};

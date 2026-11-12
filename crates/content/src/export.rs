@@ -46,8 +46,8 @@
 //! delimiter never sits against whitespace. [`to_markdown_checked`] names each
 //! loss where a content meets one.
 
-use crate::lines::island::IslandType;
 use crate::markdown::{AnchorRead, Annotated, Loss};
+use crate::model::IslandType;
 use crate::model::{Content, ISLAND_SLOT, Island, Mark, MarkKind, NOTE_SLOT, Scalar};
 use crate::table::Table;
 use crate::view::{Level, LineKind, Segment, View, cell, cells, item, line_segments, segment};
