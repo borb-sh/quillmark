@@ -301,6 +301,71 @@ impl QuillConfig {
         self.card_kinds.iter().find(|card| card.name == name)
     }
 
+    /// The leaf [`FieldSchema`] a schema address resolves to, or the segment
+    /// where the walk fails. This is the Rust side of the one address grammar
+    /// both backends bind by (`prose/INVARIANTS.md` § "One address grammar, two
+    /// implementations").
+    ///
+    /// The root segment resolves in `main.fields`, or is the reserved `$cards`:
+    /// `$cards.<kind>.<i>.<field>…` addresses a card field. An absolute index
+    /// (`$cards.<i>.…`) is rejected, since only the kind names which schema
+    /// field the slot binds.
+    ///
+    /// A variant container is addressed through its resting shape:
+    /// `classification.value` is the discriminant, which resolves to the
+    /// container's own enum, and `classification.<cell>` a variant field,
+    /// active world or not. A matrix member's own address is its tick, the
+    /// presence a checkbox shows ([`FieldSchema::matrix_tick`]); its columns
+    /// resolve one step further down.
+    pub fn field_at<'a, 'p>(&'a self, path: &'p str) -> Result<&'a FieldSchema, &'p str> {
+        let mut parts = path.split('.');
+        let root = parts.next().unwrap_or("");
+
+        let mut cur: &FieldSchema = if root == "$cards" {
+            let kind = parts.next().ok_or(root)?;
+            let card = self.card_kind(kind).ok_or(kind)?;
+            let idx = parts.next().ok_or(kind)?;
+            // All instances of a kind share one schema, so the index is
+            // validated but does not descend.
+            idx.parse::<usize>().map_err(|_| idx)?;
+            let card_field = parts.next().ok_or(idx)?;
+            card.fields.get(card_field).ok_or(card_field)?
+        } else {
+            self.main.fields.get(root).ok_or(root)?
+        };
+
+        let mut member = false;
+        for seg in parts.by_ref() {
+            // The discriminant is the container's own enum, so the step selects
+            // a value rather than a child schema: the walk stops on it, and the
+            // trailing check below rejects anything that follows.
+            if cur.is_variant_bearing() && seg == VARIANT_DISCRIMINANT_KEY {
+                break;
+            }
+            member = matches!(cur.r#type, FieldType::Matrix { .. });
+            cur = Self::descend(cur, seg).ok_or(seg)?;
+        }
+        match parts.next() {
+            Some(seg) => Err(seg),
+            None if member => Ok(FieldSchema::matrix_tick()),
+            None => Ok(cur),
+        }
+    }
+
+    fn descend<'a>(cur: &'a FieldSchema, seg: &str) -> Option<&'a FieldSchema> {
+        match seg.parse::<usize>() {
+            Ok(_) => match cur.r#type {
+                FieldType::Array => cur.items.as_deref(),
+                _ => None,
+            },
+            Err(_) => match cur.r#type {
+                FieldType::Object => cur.namespace_props()?.get(seg).map(Box::as_ref),
+                FieldType::Matrix { .. } => cur.matrix_member_at(seg),
+                _ => cur.variant_field(seg),
+            },
+        }
+    }
+
     /// The declaration view: the user-fillable fields of the main card and each
     /// named card kind, `ui` hints included. The quill reference and the
     /// card-kind discriminators are document-level metadata, not fields, so

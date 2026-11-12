@@ -339,7 +339,7 @@ See the [Typst tutorial](https://typst.app/docs/tutorial/) for the full styling 
 
 Value binding is the plate author's job: pass `value:` straight from your data; there is no resolver on the Typst side.
 
-`signature-field` is the ten-line wrapper for the common case — it is exactly `qm.form-field(name, type: "signature", width: width, height: height, field: field)`, with `height` defaulting to `50pt` instead of `20pt`:
+`signature-field` is the wrapper for the common case — it is exactly `qm.form-field(name, type: "signature", width: width, height: height, field: field, tooltip: tooltip)`, with `height` defaulting to `50pt` instead of `20pt`:
 
 ```typst
 Approving authority:
@@ -389,8 +389,9 @@ Inside `#box`, `#table`, `#figure`, `#footnote`, `#move`, `#pad`: a widget track
 | `font` | `str` | `"helvetica"` | `"helvetica"`, `"times"`, or `"courier"`; `"text"` only (see "Styling the value text"). |
 | `size` | `length` or `auto` | `auto` | Absolute length, or `auto` for the viewer's fit-to-box. `"text"` only. |
 | `align` | `str` | `"left"` | `"left"`, `"center"`, or `"right"`. `"text"` only. |
+| `tooltip` | `str` or `none` | `none` | The widget's `/TU`, the name a screen reader announces and a viewer shows on hover. `none` inherits the `description` of the schema field at `field` (see "Tooltips"). |
 
-`signature-field` takes `name`, `width`, `height` and `field`, and forwards them; the rest are `form-field`'s alone.
+`signature-field` takes `name`, `width`, `height`, `field` and `tooltip`, and forwards them; the rest are `form-field`'s alone.
 
 ### The two field types
 
@@ -423,6 +424,16 @@ By default a widget's only identity is its `/T` name. Pass `field:` to additiona
 
 A one-step suffix is checked against what the field actually offers, so `"refs.2"` needs an `array` and `"classification.poc"` a container — an `object` field, or an `enum` declaring `variants:`, whose cells and `value` discriminant address alike. `"subject.0"` and `"subject.poc"` are both rejected on a scalar `subject`.
 
+### Tooltips
+
+A widget's `/TU` is what a screen reader announces for it and what a viewer shows on hover, so a field without one is silent to assistive technology. A widget bound with `field:` inherits the `description` that schema field declares, the same tooltip an acroform widget bound to it gets; a variant cell's address takes the cell's description, and the `value` discriminant the container's. Pass `tooltip:` to say something else, or to name a widget no schema field describes:
+
+```typst
+#qm.signature-field("approver", field: "signature_block", tooltip: "Approving official's signature")
+```
+
+A widget with neither a `tooltip:` nor a described `field:` carries no `/TU`.
+
 ### Styling the value text
 
 A widget carrying a `value:` bakes it into an appearance stream, and a viewer re-synthesizes that appearance when someone fills the field. `font`, `size`, and `align` are what both read — except that the baked stream always draws from the box's left edge, so `align` moves the value only once a viewer re-synthesizes. All three apply to `"text"` only, a signature field having no variable text, and passing a non-default there raises an assert rather than silently doing nothing.
@@ -444,6 +455,7 @@ These affect the PDF only. SVG and PNG reserve the same invisible layout space r
 
 - Duplicate `name` across any `form-field`/`signature-field` calls → `typst::duplicate_form_field`.
 - A non-absolute `width`/`height`/`size`, a `type` outside the two values, a `font`/`align` outside its set, a name violating `[A-Za-z0-9_.]+`, or a `field:` that is not a known schema address → a Typst assert pointing at `form-field`.
+- A `tooltip` that is neither a string nor `none` → a Typst assert.
 - `font`/`size`/`align` set to a non-default on a `"signature"` field → a Typst assert.
 
 The label `<__qm_field__>` and metadata `kind: "__qm_field__"` are reserved for this hand-off: don't use them for unrelated metadata in your plate.

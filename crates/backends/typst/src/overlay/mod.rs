@@ -3,6 +3,7 @@
 //! here so the spine never imports `typst_layout`.
 
 use quillmark_core::error::RenderError;
+use quillmark_core::quill::QuillConfig;
 use quillmark_pdf::{FieldSpec, FieldType, FormFont, TextAlign};
 use typst_layout::PagedDocument;
 
@@ -27,13 +28,19 @@ pub(crate) struct FieldPlacement {
     pub font: FormFont,
     pub font_size: Option<f32>,
     pub align: TextAlign,
+    /// The `tooltip:` argument; `None` inherits the schema description at
+    /// `schema_field` in [`build_field_specs`].
+    pub tooltip: Option<String>,
 }
 
 /// Flips each rect from Typst's top-left origin to the PDF bottom-left origin
 /// the spine consumes. The two backends meet only at the `&[FieldSpec]` seam.
+/// A widget's tooltip is its `tooltip:` argument, else the `description` of
+/// the schema field at its `field:` address, as an acroform widget's is.
 pub(crate) fn build_field_specs(
     doc: &PagedDocument,
     placements: &[FieldPlacement],
+    config: &QuillConfig,
 ) -> Result<Vec<FieldSpec>, RenderError> {
     let page_heights: Vec<f32> = doc
         .pages()
@@ -68,7 +75,32 @@ pub(crate) fn build_field_specs(
             spec.font = p.font;
             spec.font_size = p.font_size;
             spec.align = p.align;
+            spec.tooltip = p.tooltip.clone().or_else(|| {
+                p.schema_field
+                    .as_deref()
+                    .and_then(|path| description_at(config, path))
+                    .map(str::to_string)
+            });
             Ok(spec)
         })
         .collect()
+}
+
+/// The `description` declared at a schema address: a `$body` address the
+/// body's, any other the field [`QuillConfig::field_at`] resolves it to, the
+/// resolver acroform binds by, so one address announces one tooltip on either
+/// backend. The helper has already rejected an unknown address.
+fn description_at<'a>(config: &'a QuillConfig, path: &str) -> Option<&'a str> {
+    let card = match path.strip_suffix("$body") {
+        Some("") => &config.main,
+        Some(prefix) => {
+            let mut parts = prefix.trim_end_matches('.').split('.');
+            match (parts.next(), parts.next()) {
+                (Some("$cards"), Some(kind)) => config.card_kind(kind)?,
+                _ => return None,
+            }
+        }
+        None => return config.field_at(path).ok()?.description.as_deref(),
+    };
+    card.body.as_ref()?.description.as_deref()
 }

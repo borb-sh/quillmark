@@ -186,4 +186,4 @@ The table of codes and keys lives in [Diagnostic Codes § Args](../docs/referenc
 
 **Escaping is total and one character to its bytes.** Document text can inject no markup, and the per-segment source map that click-to-caret reads stays exact. Smart quotes pass through, so the quill decides them with a set rule.
 
-**One address grammar, two implementations.** The plate helper and the acroform resolver each implement the schema address grammar, and a test holds both to one table, so one address binds on either backend.
+**One address grammar, two implementations.** The plate helper and core's `QuillConfig::field_at` each implement the schema address grammar, and a test holds both to one table, so one address binds on either backend. Rust code that resolves an address calls `field_at`: acroform binds by it, and a Typst widget's inherited tooltip reads its description through it, so a third walk would be a third implementation the table does not hold.
