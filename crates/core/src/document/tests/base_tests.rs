@@ -47,15 +47,15 @@ fn a_body_revise_lands_under_the_hash_now_and_refuses_a_stale_one() {
     let _ = card
         .revise_body_against(&read, "Alpha one, edited.\n\nBeta two.")
         .unwrap();
-    assert_eq!(card.body_lines().text, "Alpha one, edited.\nBeta two.");
+    assert_eq!(card.body().text, "Alpha one, edited.\nBeta two.");
 
-    let stored = card.body_lines().clone();
+    let stored = card.body().clone();
     let err = card
         .revise_body_against(&read, "Alpha one.\n\nBeta two, rewritten.")
         .unwrap_err();
     assert_eq!(err.code(), "edit::stale_base");
     assert_eq!(current_of(err), card.body_hash());
-    assert_eq!(card.body_lines(), &stored);
+    assert_eq!(card.body(), &stored);
 }
 
 #[test]

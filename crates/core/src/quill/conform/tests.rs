@@ -436,9 +436,9 @@ Body.
 fn a_0_124_0_row_migrates_then_converges() {
     let quill = quill();
     let body = |md: &str| {
-        quillmark_content::lines::serial::to_canonical_value(
-            &crate::document::import_body_lines(md).unwrap(),
-        )
+        quillmark_content::lines::serial::to_canonical_value(&quillmark_content::migrate::to_lines(
+            &crate::document::import_body(md).unwrap(),
+        ))
     };
     let legacy = json!({
         "schema": "quillmark/document@0.124.0",
@@ -449,7 +449,7 @@ fn a_0_124_0_row_migrates_then_converges() {
                 { "type": "field", "key": "subject", "value": "Q3 **results**" },
                 { "type": "field", "key": "note", "value":
                     quillmark_content::lines::serial::to_canonical_value(
-                        &quillmark_content::lines::import::from_plaintext("a *literal* line")) },
+                        &quillmark_content::migrate::to_lines(&quillmark_content::markdown::from_plaintext("a *literal* line"))) },
                 { "type": "field", "key": "qty", "value": 3 },
             ]},
             "body": body("Main **body**.")
@@ -512,21 +512,18 @@ Entry body.
 
 #[test]
 fn revise_document_revises_then_conforms() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
-
     let quill = quill();
     let (mut doc, _) = parse_bound(&quill, MD);
     let mut body = doc.cards()[0]
         .field_content("prose", crate::document::Codec::Richtext)
         .unwrap()
-        .unwrap()
-        .into_content();
+        .unwrap();
     // 0..4 is "card".
-    body.marks
-        .push(Mark::new(0, 4, MarkKind::Anchor { id: "k".into() }));
+    body.anchors
+        .push(quillmark_content::model::Anchor::new("k", 0, 4));
     doc.card_mut(0)
         .unwrap()
-        .overwrite_field("prose", body.into_lines())
+        .overwrite_field("prose", body)
         .unwrap();
 
     let md = MD
@@ -559,12 +556,7 @@ fn revise_document_revises_then_conforms() {
         .field_content("prose", crate::document::Codec::Richtext)
         .unwrap()
         .unwrap();
-    assert!(
-        anchored
-            .marks
-            .iter()
-            .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "k"))
-    );
+    assert!(anchored.holds_anchor("k"));
     for name in ["subject", "note", "tags"] {
         assert_eq!(
             doc.main().payload().get(name),

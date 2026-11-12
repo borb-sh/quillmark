@@ -1646,9 +1646,11 @@ fn single_line_coercion_takes_one_block_and_folds_or_refuses_more() {
     let folded = |value: &str| {
         let coerced =
             coerce("    f:\n      type: text\n", serde_json::json!(value)).expect("folds");
-        let content = quillmark_content::migrate::lines_from_value(&coerced).expect("content");
+        let content = quillmark_content::model::Content::from_value_lenient(&coerced)
+            .expect("content")
+            .content;
         assert!(content.is_inline(), "{value:?}");
-        quillmark_content::lines::export::to_plaintext(&content)
+        quillmark_content::view::plaintext(&content)
     };
     assert_eq!(folded("one\n\ntwo"), "one two");
     assert_eq!(folded("\none \ntwo\n"), " one  two");
@@ -1681,10 +1683,12 @@ fn text_field_caches_literal_content() {
         .default_content
         .as_ref()
         .expect("default_content cached");
-    let rt = quillmark_content::migrate::lines_from_value(content.as_json()).unwrap();
+    let rt = quillmark_content::model::Content::from_value_lenient(content.as_json())
+        .unwrap()
+        .content;
     assert!(rt.is_plain(), "cached text content is plain");
     assert_eq!(
-        quillmark_content::lines::export::to_plaintext(&rt),
+        quillmark_content::view::plaintext(&rt),
         "a *literal* subject",
         "the asterisks are literal, not emphasis"
     );
@@ -1696,12 +1700,11 @@ fn text_field_caches_literal_content() {
 fn text_coercion_imports_verbatim_and_refuses_marks() {
     const FIELD: &str = "    f:\n      type: text\n      multiline: true\n";
     let value = coerce(FIELD, serde_json::json!("*not bold* text")).expect("text coerces");
-    let rt = quillmark_content::migrate::lines_from_value(&value).unwrap();
+    let rt = quillmark_content::model::Content::from_value_lenient(&value)
+        .unwrap()
+        .content;
     assert!(rt.marks.is_empty(), "no marks: delimiters stayed literal");
-    assert_eq!(
-        quillmark_content::lines::export::to_plaintext(&rt),
-        "*not bold* text"
-    );
+    assert_eq!(quillmark_content::view::plaintext(&rt), "*not bold* text");
 
     let marked = quillmark_content::markdown::from_markdown("a **bold** word")
         .unwrap()

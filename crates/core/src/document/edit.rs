@@ -11,9 +11,8 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_content::lines::import::ImportError;
-#[cfg(test)]
-use quillmark_content::lines::model::Lines;
+use quillmark_content::markdown::ImportError;
+use quillmark_content::model::Content;
 
 use crate::document::base::StaleBase;
 use crate::document::meta::{CardKindError, validate_composable_kind};
@@ -858,7 +857,7 @@ impl<'a> CardMut<'a> {
 
     /// [`Card::overwrite_body`].
     #[cfg(test)]
-    pub(crate) fn overwrite_body(&mut self, content: impl Into<Lines>) {
+    pub(crate) fn overwrite_body(&mut self, content: Content) {
         self.0.overwrite_body(content)
     }
 
@@ -984,7 +983,7 @@ impl<'a> CardMut<'a> {
     pub(crate) fn overwrite_field(
         &mut self,
         name: &str,
-        content: impl Into<Lines>,
+        content: Content,
     ) -> Result<(), EditError> {
         self.0.overwrite_field(name, content)
     }
@@ -1176,10 +1175,7 @@ impl Card {
         check_kind(&kind)?;
         let mut payload = Payload::new();
         payload.set_kind(kind);
-        Ok(Card::from_parts(
-            payload,
-            quillmark_content::lines::model::Lines::empty(),
-        ))
+        Ok(Card::from_parts(payload, Content::empty()))
     }
 
     /// Store a payload field with no schema in play: schema coercion is
@@ -1325,15 +1321,15 @@ impl Card {
         self.remove_meta_namespace(MetaKey::Seed, card_kind)
     }
 
-    /// Overwrite the body with a line-form value: no diff, no schema check,
+    /// Overwrite the body, keeping the ids of what it kept: no diff, no schema check,
     /// infallible, the stored body's anchors gone. The public whole-value
     /// write is [`replace`](Self::replace).
     #[cfg(test)]
-    pub(crate) fn overwrite_body(&mut self, content: impl Into<Lines>) {
-        self.set_body_lines(content.into());
+    pub(crate) fn overwrite_body(&mut self, content: Content) {
+        self.set_body(quillmark_content::diff::align(self.body(), content));
     }
 
-    /// Overwrite a content field's value with a line-form value: the
+    /// Overwrite a content field's value: the
     /// field-level twin of [`overwrite_body`](Self::overwrite_body). Stores the
     /// canonical content JSON (identity and content-only marks intact), no diff,
     /// no schema check. The previous value's anchors are gone. Returns
@@ -1349,17 +1345,17 @@ impl Card {
     pub(crate) fn overwrite_field(
         &mut self,
         name: &str,
-        content: impl Into<Lines>,
+        content: Content,
     ) -> Result<(), EditError> {
         check_field_name(name)?;
-        self.store_field_content(name, &content.into())
+        self.store_field_content(name, &content)
     }
 
     /// Assumes `name` is already validated: every caller checks it or resolves an
     /// existing field first. The §8 field count is the payload's, so an absent
     /// `name` on a full card is [`EditError::InvalidPayload`].
     #[cfg(test)]
-    fn store_field_content(&mut self, name: &str, content: &Lines) -> Result<(), EditError> {
+    fn store_field_content(&mut self, name: &str, content: &Content) -> Result<(), EditError> {
         let stored = self
             .payload
             .get(name)
@@ -1453,7 +1449,7 @@ impl Card {
     ) -> Result<quillmark_content::model::Content, EditError> {
         check_field_name(name)?;
         match self.payload.get(name) {
-            None => Ok(quillmark_content::model::Content::empty()),
+            None => Ok(Content::empty()),
             Some(v) => Codec::Richtext
                 .read_content(v.as_json())
                 .map_err(|e| field_decode(name, &[], Codec::Richtext, e)),
@@ -1495,7 +1491,7 @@ impl Card {
         if matches!(schema.r#type, FieldType::Text { .. }) {
             let text = committed_text(name, body.into(), schema)?;
             let mut before = match self.payload.get(name) {
-                None => quillmark_content::model::Content::empty(),
+                None => Content::empty(),
                 Some(v) => Codec::Text
                     .read_content(v.as_json())
                     .map_err(|e| field_decode(name, &[], Codec::Text, e))?,
