@@ -11,7 +11,8 @@ use crate::change::{
 };
 use crate::delta::{Op, diff_words as text_diff, relocate, without_sentinel};
 use crate::ids::{Minter, prefix};
-use crate::lines::import::{ImportError, ImportWarning, from_markdown_against};
+use crate::lines::import::from_markdown_against;
+use crate::markdown::{ImportError, ImportWarning};
 use crate::migrate::{from_lines, to_lines};
 use crate::model::IslandType;
 use crate::model::{

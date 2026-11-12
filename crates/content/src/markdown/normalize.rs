@@ -532,7 +532,7 @@ mod tests {
     }
 
     fn normalized(md: &str) -> String {
-        normalize_markdown(md, crate::lines::import::options())
+        normalize_markdown(md, crate::markdown::import::options())
     }
 
     #[test]

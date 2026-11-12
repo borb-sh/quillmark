@@ -364,7 +364,7 @@ pub(crate) fn line_kind_from_value(v: &Value) -> Result<LineKind, ParseError> {
         "code" => Ok(LineKind::Code {
             lang: payload(o, legacy, "lang")
                 .and_then(Value::as_str)
-                .map(crate::lines::import::sanitize_lang)
+                .map(crate::markdown::import::sanitize_lang)
                 .filter(|l| !l.is_empty()),
         }),
         // No encoder writes `island`; the decoder reads it because the

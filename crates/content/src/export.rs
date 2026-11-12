@@ -826,8 +826,8 @@ fn emit_math(isl: &Island, out: &mut String) {
 pub fn tex_is_writable(tex: &str, display: bool) -> bool {
     let delim = if display { "$$" } else { "$" };
     let md = format!("{delim}{tex}{delim}");
-    let mut events =
-        pulldown_cmark::Parser::new_ext(&md, crate::lines::import::options()).filter(|e| {
+    let mut events = pulldown_cmark::Parser::new_ext(&md, crate::markdown::import::options())
+        .filter(|e| {
             !matches!(
                 e,
                 pulldown_cmark::Event::Start(_) | pulldown_cmark::Event::End(_)

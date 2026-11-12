@@ -1394,7 +1394,7 @@ impl Container {
 
 /// A code block's language: the identifier shape a fence spells unquoted.
 pub fn is_lang(lang: &str) -> bool {
-    !lang.is_empty() && crate::lines::import::sanitize_lang(lang) == lang
+    !lang.is_empty() && crate::markdown::import::sanitize_lang(lang) == lang
 }
 
 /// How deep a path nests, counted as the markdown codecs count it: an item
