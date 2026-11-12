@@ -4,13 +4,9 @@
 //! it; the markdown export and the renderers read the model through
 //! [`crate::view`].
 
-pub mod carrier;
 pub mod export;
-mod html;
-pub(crate) mod html_table;
 pub mod import;
 pub mod island;
 pub mod model;
-pub mod normalize;
 pub mod serial;
 pub mod traverse;

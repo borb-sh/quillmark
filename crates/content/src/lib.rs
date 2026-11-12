@@ -28,6 +28,7 @@ pub mod diff;
 mod draft;
 mod export;
 pub mod ids;
+mod json;
 #[doc(hidden)]
 pub mod lines;
 pub mod mapping;
@@ -103,4 +104,4 @@ pub const MAX_ANCHORS: usize = 100_000;
 /// own limit, so nothing a stored blob can carry is refused.
 pub const MAX_JSON_DEPTH: usize = 128;
 
-pub use lines::model::json_depth_exceeds;
+pub use json::json_depth_exceeds;

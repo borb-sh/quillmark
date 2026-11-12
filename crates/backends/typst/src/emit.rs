@@ -21,7 +21,7 @@
 //! emission with Typst's own parser: a syntax error there is a lowering bug,
 //! never a document's.
 
-use quillmark_content::lines::normalize::is_line_separator;
+use quillmark_content::model::is_line_separator;
 use quillmark_content::model::IslandType;
 use quillmark_content::model::{Content, ISLAND_SLOT, Island, Mark, MarkKind, NOTE_SLOT};
 use quillmark_content::view::{Level as Container, LineKind, View};

@@ -11,9 +11,9 @@
 use proptest::prelude::*;
 use serde_json::{Value, json};
 
-use crate::lines::html_table::writes_html;
 use crate::lines::model::{Content, ISLAND_SLOT, Island, Line, LineKind};
 use crate::markdown;
+use crate::markdown::html_table::writes_html;
 use crate::migrate::from_lines;
 use crate::model::IslandType;
 

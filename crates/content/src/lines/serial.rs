@@ -17,10 +17,11 @@
 //!
 //! Storage, the render seam and the binding seam carry one canonical form.
 
+use crate::json::canonicalize_keys;
 use crate::lines::model::{
-    Container, Content, Island, Line, LineKind, Lines, Mark, MarkKind, Scalar, canonicalize_keys,
-    is_font_family_name,
+    Container, Content, Island, Line, LineKind, Lines, Mark, MarkKind, Scalar,
 };
+use crate::model::is_font_family_name;
 use serde_json::{Map, Value};
 use std::borrow::Cow;
 
@@ -203,10 +204,10 @@ pub fn respell_retired(v: &Value) -> Value {
 /// holds; props the mint keeps as they are stay in their stored key order, so
 /// a comparison still sees keys out of order.
 fn respell_table(props: &mut Value) {
-    let stored = crate::lines::model::sort_keys_owned(props.clone());
+    let stored = crate::json::sort_keys_owned(props.clone());
     let mut settled = stored.clone();
     normalize_table_props(&mut settled);
-    let settled = crate::lines::model::sort_keys_owned(settled);
+    let settled = crate::json::sort_keys_owned(settled);
     if settled != stored {
         *props = settled;
     }
@@ -829,7 +830,7 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 ///   header means the markdown projection (header-derived) and the Typst
 ///   projection (widest-row) agree on one number.
 /// - **One break char.** A `\n` in a cell's text is a line break; a `\r` or a
-///   [`crate::lines::normalize::is_line_separator`] char becomes a space. A 1:1
+///   [`crate::model::is_line_separator`] char becomes a space. A 1:1
 ///   replacement keeps char offsets stable, so the cell's marks stay in range.
 /// - **Canonical cell marks.** Each cell's marks are re-normalized (formatting
 ///   edges trimmed off `\n` as prose's are, sort, same-kind union, drop
@@ -1008,10 +1009,10 @@ fn pad_row(v: &mut Value, cols: usize) {
 }
 
 /// Every char a downstream lexer reads as a line break other than `\n`, the
-/// separators [`crate::lines::normalize::is_line_separator`] names included. A cell's
+/// separators [`crate::model::is_line_separator`] names included. A cell's
 /// one line break is `\n`.
 fn is_cell_break(c: char) -> bool {
-    c == '\r' || crate::lines::normalize::is_line_separator(c)
+    c == '\r' || crate::model::is_line_separator(c)
 }
 
 /// Space a cell's stray line-break chars (1:1, so mark offsets hold) and
@@ -1090,7 +1091,7 @@ pub fn settle_tex(tex: &str) -> String {
     let mut uncommented = String::with_capacity(tex.len());
     let (mut comment, mut escaped) = (false, false);
     for c in tex.chars() {
-        let ends_line = c == '\n' || c == '\r' || crate::lines::normalize::is_line_separator(c);
+        let ends_line = c == '\n' || c == '\r' || crate::model::is_line_separator(c);
         comment &= !ends_line;
         if !comment && c == '%' && !escaped {
             comment = true;
@@ -1103,7 +1104,7 @@ pub fn settle_tex(tex: &str) -> String {
     let spaced: String = uncommented
         .chars()
         .map(|c| {
-            if c.is_control() || crate::lines::normalize::is_line_separator(c) {
+            if c.is_control() || crate::model::is_line_separator(c) {
                 ' '
             } else {
                 c
@@ -1382,7 +1383,7 @@ mod tests {
     /// backstop repairs it — so nothing else notices the regression.
     #[test]
     fn encoders_emit_keys_in_ascending_order() {
-        use crate::lines::model::is_value_key_sorted;
+        use crate::json::is_value_key_sorted;
         let bag = || serde_json::json!({"a": 1, "b": 2});
         let sorted = |v: &Value| is_value_key_sorted(v);
 
@@ -2116,7 +2117,7 @@ mod tests {
         for k in &all {
             let wire = mark_to_value(&Mark::new(0, 1, k.clone()));
             let attrs = match wire.get("attrs") {
-                Some(a) => crate::lines::model::canonical_json_string(a),
+                Some(a) => crate::json::canonical_json_string(a),
                 None => String::new(),
             };
             assert_eq!(

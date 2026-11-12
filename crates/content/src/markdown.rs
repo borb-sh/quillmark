@@ -5,6 +5,11 @@
 //! [`Codec::Plain`]) and exports with [`to_plaintext`]. [`to_text`] and
 //! [`to_text_annotated`] export under the value's own codec.
 
+pub mod carrier;
+pub(crate) mod html;
+pub(crate) mod html_table;
+pub mod normalize;
+
 use crate::ids::prefix;
 use crate::lines;
 pub use crate::lines::import::{DroppedConstruct, ImportError, ImportWarning};
@@ -128,7 +133,7 @@ pub fn from_plaintext(s: &str) -> Content {
     for c in s
         .chars()
         .filter(|&c| c != ISLAND_SLOT)
-        .filter_map(lines::normalize::admit_char)
+        .filter_map(crate::model::admit_char)
     {
         match c {
             '\n' => breaks += 1,

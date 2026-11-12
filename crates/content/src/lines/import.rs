@@ -62,12 +62,12 @@
 
 use crate::MAX_NESTING_DEPTH;
 use crate::carry::Pin;
-use crate::lines::carrier;
-use crate::lines::html;
 use crate::lines::model::{
     Container, Content, ISLAND_SLOT, Island, Line, LineKind, Lines, Mark, MarkKind,
 };
-use crate::lines::normalize::parse_markdown;
+use crate::markdown::carrier;
+use crate::markdown::html;
+use crate::markdown::normalize::parse_markdown;
 use crate::model::IslandType;
 use pulldown_cmark::{Event, Options, Tag, TagEnd};
 use serde_json::json;
@@ -324,13 +324,13 @@ fn import(markdown: &str, tags: Tags) -> Result<(Content, Vec<ImportWarning>), I
     };
     let cells = b.tags.cells();
     parse_markdown(markdown, options(), |text, events| {
-        b.refs = crate::lines::html_table::refs(events.reference_definitions());
+        b.refs = crate::markdown::html_table::refs(events.reference_definitions());
         b.run(MarkdownFixer::new(text, events.into_iter(), cells))
     })?;
     let (content, mut dropped) = b.finish();
     let mut at = 0;
     for c in markdown.chars() {
-        if crate::lines::normalize::is_bidi_char(c) {
+        if crate::model::is_bidi_char(c) {
             dropped.add(DroppedConstruct::Bidi, at);
         } else if c != '\r' {
             at += c.len_utf8();
@@ -356,7 +356,7 @@ pub fn from_plaintext(s: &str) -> Lines {
     let text: String = s
         .chars()
         .filter(|&c| c != ISLAND_SLOT)
-        .filter_map(crate::lines::normalize::admit_char)
+        .filter_map(crate::model::admit_char)
         .collect();
     // One line per `\n`-separated segment. A single streaming pass carries the
     // prior segment's non-emptiness, so line 0 is `false` and no intermediate
@@ -412,7 +412,7 @@ struct OpenSpan {
 }
 
 impl Inline {
-    /// Append inline text under the [`crate::lines::normalize::admit_char`] contract,
+    /// Append inline text under the [`crate::model::admit_char`] contract,
     /// with a stray [`ISLAND_SLOT`] dropped and a stray `\n` spaced, real line
     /// boundaries going through [`Self::push_raw`]. Admitting a bare slot char
     /// would break the slot-count invariant.
@@ -640,7 +640,7 @@ struct Builder {
     pinned: HashSet<String>,
     /// The document's link reference definitions, which an HTML table's
     /// cells, read by parses of their own, resolve against.
-    refs: crate::lines::html_table::Refs,
+    refs: crate::markdown::html_table::Refs,
 }
 
 /// How an import reads the `qm-anchor` tags and `qm-island` tokens of an
@@ -1457,8 +1457,8 @@ impl Builder {
     /// An HTML table: an island on a line of its own, as a pipe table is, each
     /// cell's content read through the inline import into the cell. In a
     /// footnote's note it is the note's text, a line per row.
-    fn html_table(&mut self, table: crate::lines::html_table::Table) -> Result<(), ImportError> {
-        use crate::lines::html_table::Slot;
+    fn html_table(&mut self, table: crate::markdown::html_table::Table) -> Result<(), ImportError> {
+        use crate::markdown::html_table::Slot;
         if self.note.is_some() {
             return self.note_table(table);
         }
@@ -1492,7 +1492,7 @@ impl Builder {
 
     fn html_cell(
         &mut self,
-        cell: crate::lines::html_table::Cell,
+        cell: crate::markdown::html_table::Cell,
     ) -> Result<serde_json::Value, ImportError> {
         if let Some(acc) = self.table.as_mut() {
             acc.cell = Some(Inline::default());
@@ -1531,8 +1531,8 @@ impl Builder {
 
     /// An HTML table inside a footnote's note, flattened as a pipe table is:
     /// each row a line of the note, its cells' text apart by a space.
-    fn note_table(&mut self, table: crate::lines::html_table::Table) -> Result<(), ImportError> {
-        use crate::lines::html_table::Slot;
+    fn note_table(&mut self, table: crate::markdown::html_table::Table) -> Result<(), ImportError> {
+        use crate::markdown::html_table::Slot;
         if let Some(note) = self.note.as_mut() {
             note.dropped
                 .add(DroppedConstruct::NoteBlock("table"), note.at);
@@ -1558,13 +1558,13 @@ impl Builder {
 
     /// Read an HTML table cell's content, at source offset `at`, through the
     /// inline import, as one line of markdown
-    /// ([`cell_source`](crate::lines::html_table::cell_source)): whether a
+    /// ([`cell_source`](crate::markdown::html_table::cell_source)): whether a
     /// formatting tag in it read as a mark.
     fn inline_source(&mut self, content: &str, at: usize) -> Result<bool, ImportError> {
-        let src = crate::lines::html_table::cell_source(
-            &crate::lines::html_table::cell_paragraphs(content),
+        let src = crate::markdown::html_table::cell_source(
+            &crate::markdown::html_table::cell_paragraphs(content),
         );
-        let (events, paired) = crate::lines::html_table::cell_events(&src, &self.refs);
+        let (events, paired) = crate::markdown::html_table::cell_events(&src, &self.refs);
         self.run(
             MarkdownFixer::new(&src, events.into_iter(), crate::MAX_TABLE_CELLS)
                 .map(|item| item.shifted(at)),
@@ -1850,23 +1850,23 @@ fn mark_kind(tag: &Tag) -> Option<MarkKind> {
     })
 }
 
-/// `s` as inline text admits it: under [`crate::lines::normalize::admit_char`], a
+/// `s` as inline text admits it: under [`crate::model::admit_char`], a
 /// stray [`ISLAND_SLOT`] dropped and a stray `\n` spaced.
 fn admitted(s: &str) -> impl Iterator<Item = char> + '_ {
     s.chars().filter_map(|c| match c {
         ISLAND_SLOT => None,
         '\n' => Some(' '),
-        other => crate::lines::normalize::admit_char(other),
+        other => crate::model::admit_char(other),
     })
 }
 
-/// A link or image destination under [`crate::lines::normalize::admit_char`], with
+/// A link or image destination under [`crate::model::admit_char`], with
 /// no line ending, which a destination can hold only as a character
 /// reference and a URL parser strips.
 fn admit_url(url: &str) -> String {
     url.chars()
         .filter(|&c| c != '\n')
-        .filter_map(crate::lines::normalize::admit_char)
+        .filter_map(crate::model::admit_char)
         .collect()
 }
 
@@ -1944,7 +1944,7 @@ enum Fixed<'a> {
         at: usize,
     },
     /// A table an HTML block spells.
-    HtmlTable(crate::lines::html_table::Table),
+    HtmlTable(crate::markdown::html_table::Table),
     /// An inline `qm-anchor` or `qm-island` open tag.
     Held(HeldTag),
 }
@@ -2253,7 +2253,7 @@ where
     }
 
     /// Consume an HTML block through its end. One opening `<table>` hands on
-    /// the tables it spells ([`crate::lines::html_table::scan`]). Any other reports
+    /// the tables it spells ([`crate::markdown::html_table::scan`]). Any other reports
     /// its [markup tags](html::block_tags): a block of tag lines alone passes its
     /// carrier tags on; one that drops text with them drops them too, each
     /// open tag reported, and its first tag where no open tag reports: a
@@ -2272,14 +2272,14 @@ where
                 _ => {}
             }
         }
-        if crate::lines::html_table::opens(&text) {
+        if crate::markdown::html_table::opens(&text) {
             let source = |off: usize| {
                 let k = lines
                     .partition_point(|&(block, _)| block <= off)
                     .saturating_sub(1);
                 lines.get(k).map_or(at, |&(block, src)| src + (off - block))
             };
-            let (tables, drops) = crate::lines::html_table::scan(&text, source, &mut self.cells);
+            let (tables, drops) = crate::markdown::html_table::scan(&text, source, &mut self.cells);
             self.held.extend(
                 drops
                     .into_iter()

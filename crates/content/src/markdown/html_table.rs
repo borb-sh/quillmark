@@ -2,9 +2,9 @@
 //! is written in where a GFM pipe table cannot carry it, read off an HTML block
 //! into the grid a table island holds, and written back from one.
 
-use crate::lines::carrier;
-use crate::lines::html;
 use crate::lines::import::DroppedConstruct;
+use crate::markdown::carrier;
+use crate::markdown::html;
 use crate::table::{
     CELL_VALIGNS, TABLE_ALIGNS, TableLayout, cell_alignment, is_weight, table_rows, table_spans,
 };

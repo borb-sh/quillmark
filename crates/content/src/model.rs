@@ -4,8 +4,8 @@
 //! whose slots hold content of their own.
 
 use crate::ids::is_id;
-use crate::lines::model::{self as line, is_font_family_name};
-use crate::lines::normalize::{is_bidi_char, is_line_separator};
+use crate::json::{canonical_json_string, json_depth_exceeds};
+use crate::lines::model as line;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -285,7 +285,7 @@ impl MarkKind {
             }
             (MarkKind::Ext { name, attrs }, None) => (
                 name.clone(),
-                line::canonical_json_string(&JsonValue::Object(attrs.clone())),
+                canonical_json_string(&JsonValue::Object(attrs.clone())),
             ),
             (_, None) => (String::new(), String::new()),
         }
@@ -638,6 +638,71 @@ impl std::error::Error for Invariant {}
 /// Whether the text may hold `c`.
 pub fn is_text_char(c: char) -> bool {
     c != '\r' && !is_bidi_char(c) && (c == HARD_BREAK || !is_line_separator(c))
+}
+
+/// The Unicode bidi formatting controls, which sit adjacent to `**`/`_` and
+/// defeat delimiter recognition.
+#[inline]
+pub(crate) fn is_bidi_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061C}' // ARABIC LETTER MARK (ALM)
+        | '\u{200E}' // LEFT-TO-RIGHT MARK (LRM)
+        | '\u{200F}' // RIGHT-TO-LEFT MARK (RLM)
+        | '\u{202A}' // LEFT-TO-RIGHT EMBEDDING (LRE)
+        | '\u{202B}' // RIGHT-TO-LEFT EMBEDDING (RLE)
+        | '\u{202C}' // POP DIRECTIONAL FORMATTING (PDF)
+        | '\u{202D}' // LEFT-TO-RIGHT OVERRIDE (LRO)
+        | '\u{202E}' // RIGHT-TO-LEFT OVERRIDE (RLO)
+        | '\u{2066}' // LEFT-TO-RIGHT ISOLATE (LRI)
+        | '\u{2067}' // RIGHT-TO-LEFT ISOLATE (RLI)
+        | '\u{2068}' // FIRST STRONG ISOLATE (FSI)
+        | '\u{2069}' // POP DIRECTIONAL ISOLATE (PDI)
+    )
+}
+
+/// Every character Typst's lexer reads as a line break (`is_newline`) besides
+/// `\n` and `\r`: one mid-paragraph reopens `at_start`, so what follows it is
+/// read as a block marker the author never wrote, and two in a row are a
+/// paragraph break.
+#[inline]
+pub fn is_line_separator(c: char) -> bool {
+    matches!(
+        c,
+        '\u{000B}' // LINE TABULATION (VT)
+        | '\u{000C}' // FORM FEED (FF)
+        | '\u{0085}' // NEXT LINE (NEL)
+        | '\u{2028}' // LINE SEPARATOR
+        | '\u{2029}' // PARAGRAPH SEPARATOR
+    )
+}
+
+/// What the content admits `c` as, `None` dropping it. A `\r` is dropped
+/// because it pairs with a `\n` that stays; a line separator becomes a space,
+/// both being Unicode whitespace, so dropping one would join the words it parts.
+/// No downstream escape can neutralize a separator — a `\` before whitespace is
+/// Typst's own linebreak — so it cannot survive in the text. U+0000 is U+FFFD,
+/// as CommonMark replaces it.
+#[inline]
+pub(crate) fn admit_char(c: char) -> Option<char> {
+    match c {
+        '\r' => None,
+        '\0' => Some('\u{FFFD}'),
+        c if is_bidi_char(c) => None,
+        c if is_line_separator(c) => Some(' '),
+        c => Some(c),
+    }
+}
+
+/// Whether `name` is a family a [`MarkKind::FontFamily`] may carry: not empty,
+/// no whitespace at either edge, and no character the content text refuses or
+/// that a font book could not hold in a name.
+pub fn is_font_family_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.trim() == name
+        && !name
+            .chars()
+            .any(|c| c.is_control() || is_bidi_char(c) || is_line_separator(c) || c == ISLAND_SLOT)
 }
 
 /// `marks` over `chars` in the canonical form: cut at each `\n` and
@@ -1323,7 +1388,7 @@ fn check_ext(
     }
     if attrs
         .values()
-        .any(|v| line::json_depth_exceeds(v, crate::MAX_JSON_DEPTH - 1))
+        .any(|v| json_depth_exceeds(v, crate::MAX_JSON_DEPTH - 1))
     {
         return Err(Invariant::JsonTooDeep {
             what,
@@ -1409,7 +1474,7 @@ pub(crate) fn mark_spans(
 }
 
 pub(crate) fn check_island(island: &Island) -> Result<(), Invariant> {
-    if line::json_depth_exceeds(&island.props, crate::MAX_JSON_DEPTH) {
+    if json_depth_exceeds(&island.props, crate::MAX_JSON_DEPTH) {
         return Err(Invariant::JsonTooDeep {
             what: "island props",
             max: crate::MAX_JSON_DEPTH,
@@ -1479,5 +1544,5 @@ pub(crate) fn check_island(island: &Island) -> Result<(), Invariant> {
 
 /// Whether a content value nests past what a slot and an island's props may.
 pub(crate) fn json_too_deep(v: &JsonValue) -> bool {
-    line::json_depth_exceeds(v, crate::MAX_JSON_DEPTH + 8)
+    json_depth_exceeds(v, crate::MAX_JSON_DEPTH + 8)
 }

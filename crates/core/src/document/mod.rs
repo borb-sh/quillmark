@@ -132,7 +132,7 @@ fn listed(words: &[&str], last: &str) -> String {
 /// [`dropped_construct`]'s message, naming what dropped, and its hint, naming
 /// the spelling that keeps it.
 fn dropped_message(construct: &DroppedConstruct, n: usize) -> (String, String) {
-    use quillmark_content::lines::carrier::RESERVED_ATTRS;
+    use quillmark_content::markdown::carrier::RESERVED_ATTRS;
     use quillmark_content::table::{CELL_VALIGNS, TABLE_ALIGNS};
     const TIGHT: &str =
         "Markdown on the lines under a tag line drops with it, up to the next blank line.";
@@ -267,9 +267,9 @@ fn dropped_message(construct: &DroppedConstruct, n: usize) -> (String, String) {
             },
         ),
         DroppedConstruct::ElementAttr { element, attr }
-            if attr == "ref" && quillmark_content::lines::carrier::RESERVED.contains(&element.as_str()) =>
+            if attr == "ref" && quillmark_content::markdown::carrier::RESERVED.contains(&element.as_str()) =>
         {
-            let (what, spelling) = match element == quillmark_content::lines::carrier::ANCHOR {
+            let (what, spelling) = match element == quillmark_content::markdown::carrier::ANCHOR {
                 true => ("anchor", ("tag", "tags")),
                 false => ("island", ("token", "tokens")),
             };
@@ -306,7 +306,7 @@ fn dropped_message(construct: &DroppedConstruct, n: usize) -> (String, String) {
                  opening with a letter. {TIGHT}"
             ),
         ),
-        DroppedConstruct::Element(name) if name == quillmark_content::lines::carrier::SPAN => (
+        DroppedConstruct::Element(name) if name == quillmark_content::markdown::carrier::SPAN => (
             format!(
                 "markdown import dropped {} in this field",
                 some(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
@@ -316,7 +316,7 @@ fn dropped_message(construct: &DroppedConstruct, n: usize) -> (String, String) {
                  HTML reads `<{tag}/>` as an open tag. A family is a run's, never a block's. {BESIDE}"
             ),
         ),
-        DroppedConstruct::Element(name) if name == quillmark_content::lines::carrier::ISLAND => (
+        DroppedConstruct::Element(name) if name == quillmark_content::markdown::carrier::ISLAND => (
             format!(
                 "markdown import dropped {} in this field",
                 some(&format!("`<{tag}>` token"), &format!("`<{tag}>` tokens"))
