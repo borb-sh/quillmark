@@ -21,8 +21,8 @@
 //! emission with Typst's own parser: a syntax error there is a lowering bug,
 //! never a document's.
 
-use quillmark_content::model::is_line_separator;
 use quillmark_content::model::IslandType;
+use quillmark_content::model::is_line_separator;
 use quillmark_content::model::{Content, ISLAND_SLOT, Island, Mark, MarkKind, NOTE_SLOT};
 use quillmark_content::view::{Level as Container, LineKind, View};
 use quillmark_core::error::MAX_NESTING_DEPTH;
@@ -1313,47 +1313,23 @@ fn cell_markup(text: &str, marks: &[Mark], breakable: bool) -> String {
 ///   each cell its span covers left out, which Typst's own placement skips.
 /// - `head`: that many rows from the top in one `table.header`, none at `0`.
 fn table_markup(isl: &Island) -> String {
-    use serde_json::Value;
-    let props = &quillmark_content::view::layout(isl);
-    let table = quillmark_content::table::Table::read(&isl.props);
-    let header = props.get("header").and_then(|v| v.as_array());
-    let rows = props.get("rows").and_then(|v| v.as_array());
-    let aligns = props.get("aligns").and_then(|v| v.as_array());
-    // The widest row, not just the header: an editor-built island can carry a
-    // short header over wider data rows, and `columns: 0` fails to compile.
-    let mut cols = header.map(|h| h.len()).unwrap_or(0);
-    if let Some(rs) = rows {
-        for row in rs {
-            if let Some(r) = row.as_array() {
-                cols = cols.max(r.len());
-            }
-        }
-    }
     // `Content::validate` accepts an empty table island, so this is reachable;
     // emit nothing, matching `export::emit_table`.
-    if cols == 0 {
+    let Some(layout) = quillmark_content::table::Layout::of(isl) else {
         return String::new();
-    }
+    };
+    let cols = layout.aligns.len();
 
-    let layout = quillmark_content::table::TableLayout::of(props);
-    let spans = quillmark_content::table::table_spans(props);
-    let grid = quillmark_content::table::table_rows(props);
-
-    let cell = |r: usize, c: usize, v: &Value, (colspan, rowspan): (usize, usize)| {
-        let held = table
-            .as_ref()
-            .and_then(|t| t.slot(r, c))
-            .and_then(|s| isl.slots.get(s))
-            .map(quillmark_content::view::cell);
+    let cell = |at: &quillmark_content::table::CellLayout, (colspan, rowspan): (usize, usize)| {
+        let held = isl.slots.get(&at.slot).map(quillmark_content::view::cell);
         let body = held.map_or_else(String::new, |h| cell_markup(&h.text, &h.marks, true));
-        let (align, valign) = quillmark_content::table::cell_alignment(v);
-        let valign = valign.map(|v| if v == "middle" { "horizon" } else { v });
+        let valign = at.valign.map(|v| if v == "middle" { "horizon" } else { v });
         let mut args: Vec<String> = [("colspan", colspan), ("rowspan", rowspan)]
             .into_iter()
             .filter(|(_, n)| *n > 1)
             .map(|(key, n)| format!("{key}: {n}"))
             .collect();
-        match (align, valign) {
+        match (at.align, valign) {
             (None, None) => {}
             (Some(a), None) | (None, Some(a)) => args.push(format!("align: {a}")),
             (Some(a), Some(v)) => args.push(format!("align: {a} + {v}")),
@@ -1364,9 +1340,9 @@ fn table_markup(isl: &Island) -> String {
         }
     };
     let row = |r: usize, out: &mut String| {
-        for (c, v) in grid[r].iter().enumerate() {
-            if let Some(span) = spans[r][c] {
-                out.push_str(&cell(r, c, v, span));
+        for at in &layout.rows[r] {
+            if let Some(span) = at.span {
+                out.push_str(&cell(at, span));
                 out.push_str(", ");
             }
         }
@@ -1375,8 +1351,9 @@ fn table_markup(isl: &Island) -> String {
     let mut out = String::from("table(\n");
     match &layout.widths {
         Some(weights) => {
-            let tracks: Vec<String> = (0..cols)
-                .map(|i| match weights.get(i).copied().flatten() {
+            let tracks: Vec<String> = weights
+                .iter()
+                .map(|w| match w {
                     Some(n) => format!("{n}fr"),
                     None => "auto".to_string(),
                 })
@@ -1385,17 +1362,9 @@ fn table_markup(isl: &Island) -> String {
         }
         None => out.push_str(&format!("  columns: {},\n", cols)),
     }
-    let aligned = aligns.filter(|al| al.iter().any(|a| a.as_str().is_some_and(|s| s != "none")));
-    if let Some(al) = aligned {
+    if layout.aligns.iter().any(Option::is_some) {
         // One entry per column: Typst cycles a shorter array from the start.
-        let tracks: Vec<&str> = (0..cols)
-            .map(|i| match al.get(i).and_then(Value::as_str) {
-                Some("left") => "left",
-                Some("center") => "center",
-                Some("right") => "right",
-                _ => "auto",
-            })
-            .collect();
+        let tracks: Vec<&str> = layout.aligns.iter().map(|a| a.unwrap_or("auto")).collect();
         out.push_str(&format!("  align: ({}),\n", tracks.join(", ")));
     }
     if layout.head > 0 {
@@ -1403,7 +1372,7 @@ fn table_markup(isl: &Island) -> String {
         (0..layout.head).for_each(|r| row(r, &mut out));
         out.push_str("),\n");
     }
-    for r in layout.head..grid.len() {
+    for r in layout.head..layout.rows.len() {
         out.push_str("  ");
         row(r, &mut out);
         out.push('\n');

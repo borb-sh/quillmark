@@ -5,9 +5,7 @@
 use crate::lines::import::DroppedConstruct;
 use crate::markdown::carrier;
 use crate::markdown::html;
-use crate::table::{
-    CELL_VALIGNS, TABLE_ALIGNS, TableLayout, cell_alignment, is_weight, table_rows, table_spans,
-};
+use crate::table::{CELL_VALIGNS, Layout, TABLE_ALIGNS, is_weight};
 use pulldown_cmark::{BrokenLink, CowStr, Event, LinkType, Parser, RefDefs, Tag as PTag, TagEnd};
 use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
@@ -1092,61 +1090,37 @@ fn html_marks<'a>(
 /// Whether a table writes as HTML: one holding more or fewer header rows than
 /// one, `widths`, a placement, or a cell's alignment or span, which a GFM pipe
 /// table has no spelling for.
-pub(crate) fn writes_html(props: &Value) -> bool {
-    let layout = TableLayout::of(props);
+pub(crate) fn writes_html(layout: &Layout) -> bool {
     layout.head != 1
         || layout.widths.is_some()
         || layout.align.is_some()
-        || crate::lines::serial::table_cell_values(props)
-            .any(|cell| cell_alignment(cell) != (None, None))
-        || table_spans(props)
-            .iter()
-            .flatten()
-            .flatten()
-            .any(|span| *span != (1, 1))
+        || layout.rows.iter().flatten().any(|cell| {
+            cell.align.is_some() || cell.valign.is_some() || cell.span.is_some_and(|s| s != (1, 1))
+        })
 }
 
 /// The table's HTML spelling: the `<table>` tag's layout attributes, its head
 /// rows in a `thead` and the rest in a `tbody`, each row on its own line and
 /// each drawn cell's content as `cell` writes the one at its row and column.
 /// A covered cell is left out, as HTML leaves one out.
-pub(crate) fn write(props: &Value, cell: impl Fn(usize, usize) -> String) -> String {
-    let layout = TableLayout::of(props);
-    let rows = table_rows(props);
-    let spans = table_spans(props);
-    let cols = rows[0].len();
+pub(crate) fn write(layout: &Layout, cell: impl Fn(usize, usize) -> String) -> String {
     let mut out = String::from("<table");
     if let Some(widths) = &layout.widths {
-        let tokens: Vec<String> = (0..cols)
-            .map(|k| {
-                widths
-                    .get(k)
-                    .copied()
-                    .flatten()
-                    .map_or_else(|| AUTO.to_string(), |n| n.to_string())
-            })
+        let tokens: Vec<String> = widths
+            .iter()
+            .map(|w| w.map_or_else(|| AUTO.to_string(), |n| n.to_string()))
             .collect();
         out.push_str(&format!(" widths=\"{}\"", tokens.join(" ")));
     }
-    let aligns: Vec<&str> = (0..cols)
-        .map(|k| {
-            let entry = props
-                .get("aligns")
-                .and_then(|a| a.get(k))
-                .and_then(Value::as_str);
-            entry
-                .and_then(|a| COLUMN_ALIGNS.into_iter().find(|v| *v == a))
-                .unwrap_or("none")
-        })
-        .collect();
-    if aligns.iter().any(|a| *a != "none") {
+    if layout.aligns.iter().any(Option::is_some) {
+        let aligns: Vec<&str> = layout.aligns.iter().map(|a| a.unwrap_or("none")).collect();
         out.push_str(&format!(" aligns=\"{}\"", aligns.join(" ")));
     }
     if let Some(align) = layout.align {
         out.push_str(&format!(" align=\"{align}\""));
     }
     out.push('>');
-    for (r, row) in rows.iter().enumerate() {
+    for (r, row) in layout.rows.iter().enumerate() {
         if r == 0 && layout.head > 0 {
             out.push_str("\n<thead>");
         }
@@ -1158,8 +1132,8 @@ pub(crate) fn write(props: &Value, cell: impl Fn(usize, usize) -> String) -> Str
         }
         let tag = if r < layout.head { "th" } else { "td" };
         out.push_str("\n<tr>");
-        for (c, value) in row.iter().enumerate() {
-            let Some((w, h)) = spans[r][c] else { continue };
+        for (c, at) in row.iter().enumerate() {
+            let Some((w, h)) = at.span else { continue };
             out.push('<');
             out.push_str(tag);
             for (key, n) in [("colspan", w), ("rowspan", h)] {
@@ -1167,8 +1141,7 @@ pub(crate) fn write(props: &Value, cell: impl Fn(usize, usize) -> String) -> Str
                     out.push_str(&format!(" {key}=\"{n}\""));
                 }
             }
-            let (align, valign) = cell_alignment(value);
-            for (key, v) in [("align", align), ("valign", valign)] {
+            for (key, v) in [("align", at.align), ("valign", at.valign)] {
                 if let Some(v) = v {
                     out.push_str(&format!(" {key}=\"{v}\""));
                 }
@@ -1179,7 +1152,7 @@ pub(crate) fn write(props: &Value, cell: impl Fn(usize, usize) -> String) -> Str
         }
         out.push_str("</tr>");
     }
-    out.push_str(if layout.head == rows.len() {
+    out.push_str(if layout.head == layout.rows.len() {
         "\n</thead>"
     } else {
         "\n</tbody>"

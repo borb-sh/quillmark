@@ -6,8 +6,8 @@
 
 use crate::model::IslandType;
 use crate::model::{
-    BlockKind, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT, Island, Mark, MarkKind, NOTE_SLOT,
-    Scalar,
+    Anchor, BlockKind, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT, Island, Mark, MarkKind,
+    NOTE_SLOT, Scalar, split_marks_at_breaks, union_marks,
 };
 use crate::table::Table;
 use std::collections::HashMap;
@@ -20,12 +20,6 @@ pub struct Cell {
     pub text: String,
     pub marks: Vec<Mark>,
     pub anchors: Vec<(String, Scalar)>,
-}
-
-/// The island's props with each cell its text and marks inline, the shape
-/// the table readers in [`crate::table`] read its layout from.
-pub fn layout(isl: &Island) -> serde_json::Value {
-    crate::table::to_line_props(isl)
 }
 
 /// The first run at `depth` in `range`: the lines from its first holding a
@@ -267,21 +261,51 @@ pub fn cells(isl: &Island) -> Vec<Cell> {
 
 /// A slot as a [`Cell`].
 pub fn cell(slot: &Content) -> Cell {
-    let (text, line_marks) = crate::table::slot_to_cell(slot);
-    let mut marks = Vec::new();
-    let mut anchors = Vec::new();
-    for m in line_marks {
-        match &m.kind {
-            crate::lines::model::MarkKind::Anchor { id } => anchors.push((id.clone(), m.start)),
-            kind => marks.extend(kind.to_model().map(|k| Mark::new(m.start, m.end, k))),
-        }
-    }
+    let (text, marks, anchors) = cell_parts(slot);
     Cell {
         text,
         marks,
-        anchors,
+        anchors: anchors.into_iter().map(|a| (a.id, a.start)).collect(),
     }
 }
+
+/// A slot's text as a [`Cell`] holds it, its marks but its `x-` ones cut at
+/// each line break there, and its anchors by range then id.
+pub(crate) fn cell_parts(slot: &Content) -> (String, Vec<Mark>, Vec<Anchor>) {
+    let mut text = String::with_capacity(slot.text.len());
+    let mut shift = Vec::with_capacity(slot.text.len() + 1);
+    let mut extra = 0usize;
+    for c in slot.text.chars() {
+        shift.push(extra);
+        match c {
+            '\n' => {
+                text.push_str("\n\n");
+                extra += 1;
+            }
+            HARD_BREAK => text.push('\n'),
+            c => text.push(c),
+        }
+    }
+    shift.push(extra);
+    let at = |p: usize| p + shift[p.min(shift.len() - 1)];
+    let marks = slot
+        .marks
+        .iter()
+        .filter(|m| !matches!(m.kind, MarkKind::Ext { .. }))
+        .map(|m| Mark::new(at(m.start), at(m.end), m.kind.clone()))
+        .collect();
+    let chars: Vec<char> = text.chars().collect();
+    let marks = union_marks(split_marks_at_breaks(&chars, marks));
+    let mut anchors: Vec<Anchor> = slot
+        .anchors
+        .iter()
+        .map(|a| Anchor::new(a.id.clone(), at(a.start), at(a.end)))
+        .collect();
+    anchors.sort_by(|a, b| (a.start, a.end, &a.id).cmp(&(b.start, b.end, &b.id)));
+    anchors.dedup();
+    (text, marks, anchors)
+}
+
 /// One line's char range `[start, end)` into the view's text, with the
 /// matching byte range and the count of island slots before the line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -105,9 +105,10 @@ pub fn carry_pinned(base: &Content, new: Content, pins: &[Pin]) -> (Content, Del
 /// the one at its place: an edited table.
 fn carry_island_ids(base: &[Island], new: &mut Content) {
     let key = |island: &Island| {
-        let mut props = crate::view::layout(island);
-        crate::lines::export::drop_anchor_marks(&mut props);
-        (island.island_type.as_str().to_string(), props.to_string())
+        (
+            island.island_type.as_str().to_string(),
+            crate::table::shape(island),
+        )
     };
     let old: Vec<_> = base.iter().map(key).collect();
     let fresh: Vec<_> = new.islands.iter().map(key).collect();

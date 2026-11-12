@@ -177,7 +177,8 @@ proptest! {
         let checked = markdown::to_markdown_checked(&from_lines(&rt));
         prop_assume!(!checked.losses.iter().any(|l| matches!(l, markdown::Loss::SlotBreaks { .. })));
         let md = checked.markdown;
-        prop_assert_eq!(md.starts_with("<table"), writes_html(&rt.islands[0].props), "{}", md);
+        let layout = crate::table::Layout::of(&from_lines(&rt).islands[0]);
+        prop_assert_eq!(md.starts_with("<table"), layout.as_ref().is_some_and(writes_html), "{}", md);
         let back = markdown::from_markdown(&md).unwrap();
         prop_assert!(back.warnings.is_empty(), "{:?}\n{}", back.warnings, md);
         prop_assert_eq!(&back.content, &from_lines(&without_covered_alignment(&rt)), "{}", md);
