@@ -11,9 +11,8 @@ use crate::change::{
 };
 use crate::delta::{Op, diff_words as text_diff, relocate, without_sentinel};
 use crate::ids::{Minter, prefix};
-use crate::lines::import::from_markdown_against;
 use crate::markdown::{ImportError, ImportWarning};
-use crate::migrate::{from_lines, to_lines};
+use crate::migrate::from_lines;
 use crate::model::IslandType;
 use crate::model::{
     Block, BlockKind, Codec, Container, ContainerKind, Content, ISLAND_SLOT, Invariant, Island,
@@ -947,8 +946,8 @@ impl From<ImportError> for ReviseError {
 pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ReviseError> {
     let (imported, warnings, pins) = match before.codec {
         Codec::Rich => {
-            let read = from_markdown_against(markdown, &to_lines(before))?;
-            (from_lines(&read.content), read.warnings, read.pins)
+            let read = crate::markdown::import::walk_against(markdown, before)?;
+            (read.content, read.warnings, read.pins)
         }
         Codec::Plain => (
             crate::markdown::from_plaintext(markdown),

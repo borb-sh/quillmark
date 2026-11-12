@@ -35,7 +35,7 @@
 //!   or from an HTML block opening `<table>`, whose subset (markdown-spec
 //!   §6.8) resolves into the same grid, each cell's content read as one line
 //!   of inline markdown.
-//! - A task list item's marker is its [`Container::ListItem::checked`]; `[X]`
+//! - A task list item's marker is its [`Level::ListItem::checked`]; `[X]`
 //!   reads as `[x]`.
 //! - A footnote reference is an inline island holding its note, read off the
 //!   definition its label names. A note is flat, as a table cell is: each
@@ -61,15 +61,19 @@
 //!   reported.
 
 use crate::MAX_NESTING_DEPTH;
-use crate::lines::model::{
-    Container, Content, ISLAND_SLOT, Island, Line, LineKind, Mark, MarkKind,
-};
+use crate::carry::Pin;
+use crate::ids::prefix;
 use crate::markdown::carrier;
 use crate::markdown::html;
 use crate::markdown::normalize::parse_markdown;
-use crate::model::IslandType;
+use crate::model::{
+    Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT,
+    Island, IslandType, Mark, MarkKind, NOTE_SLOT, Scalar,
+};
+use crate::table::Table;
 use pulldown_cmark::{Event, Options, Tag, TagEnd};
-use serde_json::json;
+use serde_json::{Map, Value, json};
+use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use unicase::UniCase;
@@ -206,33 +210,66 @@ pub(crate) fn options() -> Options {
     options
 }
 
-/// The walk of `markdown` before its lift onto the content model, which
-/// [`crate::migrate::from_lines`] normalizes: a cold import, or with
-/// `unresolved` each `qm-island` token dropped silently.
+/// A cold import of `markdown`, or with `unresolved` one that drops each
+/// `qm-island` token silently.
 pub(crate) fn walk(
     markdown: &str,
     unresolved: bool,
 ) -> Result<(Content, Vec<ImportWarning>), ImportError> {
-    import(
-        markdown,
-        match unresolved {
-            true => Tags::Unresolved,
-            false => Tags::Cold,
-        },
-    )
+    let tags = match unresolved {
+        true => Tags::Unresolved,
+        false => Tags::Cold,
+    };
+    let (walked, warnings) = import(markdown, tags)?;
+    Ok((walked.lift().0, warnings))
 }
 
-/// The walk of `markdown` as a revise of a stored value holding the prose
-/// anchors `anchors` and the islands `islands`, by id.
-pub(crate) fn walk_against(
-    markdown: &str,
-    anchors: HashSet<String>,
-    islands: HashMap<String, Island>,
-) -> Result<(Content, Vec<ImportWarning>), ImportError> {
-    import(markdown, Tags::Against { anchors, islands })
+/// A [`walk_against`] import.
+pub(crate) struct Against {
+    /// The content, each token's island in it and no anchor.
+    pub(crate) content: Content,
+    /// A cold import's warnings, with each tag and token reported in place
+    /// of a token's drop.
+    pub(crate) warnings: Vec<ImportWarning>,
+    /// Each anchor a tag pins, in position order.
+    pub(crate) pins: Vec<Pin>,
 }
 
-fn import(markdown: &str, tags: Tags) -> Result<(Content, Vec<ImportWarning>), ImportError> {
+/// Import `markdown` as a revise of `stored`, reading the tags of an
+/// annotated read (markdown-spec §6.4). A `<qm-anchor ref="ID">` tag in prose
+/// pins the anchor `ID` the stored value holds in prose to start where the
+/// tag sits; one with an `at` attribute, which the read writes where its tag
+/// moved to its line's end, pins nothing. A `<qm-island ref="ID">` token in
+/// prose is the stored island `ID`, its type and props as stored but for its
+/// cells' anchors, which the revise carries onto the island that continues it
+/// ([`crate::carry::carry_onto`]), so a token written twice copies none. A tag or a
+/// token naming nothing the stored value holds there, and a second tag naming
+/// one anchor, drop reported under `qm-anchor[ref]` or `qm-island[ref]`; a
+/// token in a table cell, a note, an image's alt text or a code span drops
+/// reported under `qm-island`. An anchor tag outside prose pins nothing. A
+/// note holds no hard break at its edge.
+pub(crate) fn walk_against(markdown: &str, stored: &Content) -> Result<Against, ImportError> {
+    let anchors = stored.anchors.iter().map(|a| a.id.clone()).collect();
+    let islands = stored
+        .islands
+        .iter()
+        .map(|i| (i.id.clone(), i.clone()))
+        .collect();
+    let (walked, warnings) = import(markdown, Tags::Against { anchors, islands })?;
+    let (mut content, pins) = walked.lift();
+    for island in &mut content.islands {
+        if island.island_type == IslandType::Footnote {
+            island.slots = crate::export::held_slots(island).into_iter().collect();
+        }
+    }
+    Ok(Against {
+        content,
+        warnings,
+        pins,
+    })
+}
+
+fn import(markdown: &str, tags: Tags) -> Result<(Walked, Vec<ImportWarning>), ImportError> {
     if markdown.len() > crate::MAX_MARKDOWN_SIZE {
         return Err(ImportError::TooLarge {
             size: markdown.len(),
@@ -260,6 +297,349 @@ fn import(markdown: &str, tags: Tags) -> Result<(Content, Vec<ImportWarning>), I
     Ok((content, dropped.into_warnings()))
 }
 
+/// One line the walk opens: the block it starts or, across a hard break,
+/// continues, and the lists and quotes around it, outermost first.
+#[derive(Debug, Clone, PartialEq)]
+struct Line {
+    kind: BlockKind,
+    containers: Vec<Level>,
+    continues: bool,
+}
+
+/// A list item or a quote around a line. `instance` tells a list or quote
+/// from an adjacent one of its shape, and `ordinal` an item from its list's
+/// others.
+#[derive(Debug, Clone, PartialEq)]
+enum Level {
+    ListItem {
+        ordered: bool,
+        start: u64,
+        ordinal: u64,
+        checked: Option<bool>,
+        instance: u64,
+    },
+    Quote {
+        instance: u64,
+    },
+}
+
+impl Level {
+    /// Whether `other` sits in the same list or quote.
+    fn same_run(&self, other: &Level) -> bool {
+        match (self, other) {
+            (
+                Level::ListItem {
+                    ordered: a,
+                    start: s,
+                    instance: i,
+                    ..
+                },
+                Level::ListItem {
+                    ordered: b,
+                    start: t,
+                    instance: j,
+                    ..
+                },
+            ) => a == b && s == t && i == j,
+            (Level::Quote { instance: i }, Level::Quote { instance: j }) => i == j,
+            _ => false,
+        }
+    }
+}
+
+/// What a walk read: the text, a `\n` between lines, one [`Line`] per
+/// segment, the marks and pins over it and an island per slot.
+struct Walked {
+    text: String,
+    lines: Vec<Line>,
+    marks: Vec<Mark>,
+    pins: Vec<Pin>,
+    islands: Vec<Island>,
+}
+
+impl Walked {
+    /// The content, ids minted in reading order, and each pin where
+    /// normalizing leaves it: a line run joined by hard breaks is one block,
+    /// and a table sharing its line takes a block of its own.
+    fn lift(mut self) -> (Content, Vec<Pin>) {
+        self.split_block_islands();
+        self.settle_continues();
+        let mut text = String::with_capacity(self.text.len());
+        let mut lines = self.lines.iter();
+        let mut segs = self.text.split('\n');
+        let mut starts: Vec<&Line> = Vec::new();
+        if let (Some(first), Some(seg)) = (lines.next(), segs.next()) {
+            text.push_str(seg);
+            starts.push(first);
+        }
+        for (l, seg) in lines.zip(segs) {
+            if l.continues {
+                text.push(HARD_BREAK);
+            } else {
+                text.push('\n');
+                starts.push(l);
+            }
+            text.push_str(seg);
+        }
+        enum Open {
+            List { list: String, item: String },
+            Quote(String),
+        }
+        let mut blocks: Vec<Block> = Vec::with_capacity(starts.len());
+        let mut containers: Vec<Container> = Vec::new();
+        let mut minter = crate::ids::Minter::default();
+        let mut open: Vec<Open> = Vec::new();
+        let mut prev: Option<&[Level]> = None;
+        for (n, l) in starts.iter().enumerate() {
+            let mut path = Vec::new();
+            let mut opened = false;
+            for (d, here) in l.containers.iter().enumerate() {
+                let before = prev.and_then(|p| p.get(d));
+                let same_run = !opened && before.is_some_and(|b| b.same_run(here));
+                if !same_run {
+                    open.truncate(d);
+                    opened = true;
+                    open.push(match here {
+                        Level::ListItem {
+                            ordered,
+                            start,
+                            checked,
+                            ..
+                        } => {
+                            let list = minter.mint(prefix::LIST);
+                            let item = minter.mint(prefix::ITEM);
+                            containers.push(Container::new(
+                                &list,
+                                ContainerKind::List {
+                                    ordered: *ordered,
+                                    start: *start,
+                                },
+                            ));
+                            containers.push(Container::new(
+                                &item,
+                                ContainerKind::Item { checked: *checked },
+                            ));
+                            Open::List { list, item }
+                        }
+                        Level::Quote { .. } => {
+                            let quote = minter.mint(prefix::QUOTE);
+                            containers.push(Container::new(&quote, ContainerKind::Quote));
+                            Open::Quote(quote)
+                        }
+                    });
+                } else if let (Level::ListItem { checked, .. }, Some(b)) = (here, before)
+                    && b != here
+                {
+                    open.truncate(d + 1);
+                    opened = true;
+                    let item = minter.mint(prefix::ITEM);
+                    containers.push(Container::new(
+                        &item,
+                        ContainerKind::Item { checked: *checked },
+                    ));
+                    if let Some(Open::List { item: held, .. }) = open.get_mut(d) {
+                        *held = item;
+                    }
+                }
+                match &open[d] {
+                    Open::List { list, item } => {
+                        path.push(list.clone());
+                        path.push(item.clone());
+                    }
+                    Open::Quote(q) => path.push(q.clone()),
+                }
+            }
+            open.truncate(l.containers.len());
+            prev = Some(&l.containers);
+            let kind = match &l.kind {
+                BlockKind::Code { lang } => BlockKind::Code {
+                    lang: lang.clone().filter(|l| !l.is_empty()),
+                },
+                kind => kind.clone(),
+            };
+            blocks.push(Block::new(format!("{}{n}", prefix::BLOCK), kind).with_path(path));
+        }
+        let mut content = Content {
+            text,
+            blocks,
+            containers,
+            marks: self.marks,
+            anchors: self
+                .pins
+                .into_iter()
+                .map(|pin| Anchor::new(pin.id, pin.at, pin.at))
+                .collect(),
+            islands: self.islands,
+            codec: Codec::Rich,
+        };
+        content.normalize();
+        let pins = std::mem::take(&mut content.anchors)
+            .into_iter()
+            .map(|a| Pin {
+                at: a.start,
+                id: a.id,
+            })
+            .collect();
+        (content, pins)
+    }
+
+    /// Clear `continues` on a line no hard break can join to the one above:
+    /// one under a different container path, under a heading or a rule,
+    /// under a line a table's slot ends, or holding a table's slot alone.
+    fn settle_continues(&mut self) {
+        let mut slot = 0usize;
+        let tables: Vec<(bool, bool)> = self
+            .text
+            .split('\n')
+            .map(|seg| {
+                let slots = seg.chars().filter(|&c| c == ISLAND_SLOT).count();
+                let ends = seg.ends_with(ISLAND_SLOT)
+                    && self
+                        .islands
+                        .get(slot + slots - 1)
+                        .is_some_and(|i| i.island_type.block_only());
+                slot += slots;
+                (ends, ends && seg.chars().count() == 1)
+            })
+            .collect();
+        for i in 0..self.lines.len() {
+            let joins = i > 0
+                && self.lines[i].containers == self.lines[i - 1].containers
+                && matches!(
+                    self.lines[i - 1].kind,
+                    BlockKind::Para | BlockKind::Code { .. }
+                )
+                && !tables.get(i - 1).is_some_and(|t| t.0)
+                && !tables.get(i).is_some_and(|t| t.1);
+            self.lines[i].continues &= joins;
+        }
+    }
+
+    /// Give a table's slot the line its markup needs: a `\n` on each side
+    /// that has other content, so the prose around it is its own line and the
+    /// slot is alone. The slot's line is a paragraph, the prose pieces keep
+    /// the line's role, and only the first still continues the block above. A
+    /// pin right after the slot moves onto the line after it.
+    fn split_block_islands(&mut self) {
+        use crate::delta::{Assoc, Delta, Op};
+
+        let chars: Vec<char> = self.text.chars().collect();
+        let alone = |at: usize| {
+            (at == 0 || chars[at - 1] == '\n') && matches!(chars.get(at + 1), None | Some('\n'))
+        };
+        let breaks: Vec<Scalar> = chars
+            .iter()
+            .enumerate()
+            .filter(|&(_, &c)| c == ISLAND_SLOT)
+            .zip(&self.islands)
+            .filter(|&((at, _), island)| island.island_type.block_only() && !alone(at))
+            .map(|((at, _), _)| at)
+            .collect();
+        if breaks.is_empty() {
+            return;
+        }
+        let mut cuts: Vec<Scalar> = Vec::with_capacity(breaks.len() * 2);
+        for &at in &breaks {
+            if at > 0 && chars[at - 1] != '\n' {
+                cuts.push(at);
+            }
+            if chars.get(at + 1).is_some_and(|&c| c != '\n') {
+                cuts.push(at + 1);
+            }
+        }
+        cuts.dedup();
+
+        let fragment = |line: &Line, span: Range<Scalar>, first: bool| {
+            if span.len() == 1 && breaks.binary_search(&span.start).is_ok() {
+                return Line {
+                    kind: BlockKind::Para,
+                    containers: line.containers.clone(),
+                    continues: false,
+                };
+            }
+            Line {
+                kind: line.kind.clone(),
+                containers: line.containers.clone(),
+                continues: first && line.continues,
+            }
+        };
+        let mut lines = Vec::with_capacity(self.lines.len() + cuts.len());
+        let mut cut = cuts.iter().copied().peekable();
+        let mut pos = 0usize;
+        for (line, seg) in self.lines.iter().zip(self.text.split('\n')) {
+            let end = pos + seg.chars().count();
+            let mut start = pos;
+            let mut first = true;
+            while let Some(p) = cut.next_if(|&p| p < end) {
+                lines.push(fragment(line, start..p, first));
+                (start, first) = (p, false);
+            }
+            lines.push(fragment(line, start..end, first));
+            pos = end + 1;
+        }
+
+        let mut text = String::with_capacity(self.text.len() + cuts.len());
+        let mut at_cut = cuts.iter().copied().peekable();
+        for (i, &c) in chars.iter().enumerate() {
+            if at_cut.next_if_eq(&i).is_some() {
+                text.push('\n');
+            }
+            text.push(c);
+        }
+        let mut ops = Vec::with_capacity(cuts.len() * 2);
+        let mut last = 0usize;
+        for &p in &cuts {
+            ops.push(Op::Retain(p - last));
+            ops.push(Op::Insert("\n".to_string()));
+            last = p;
+        }
+        let delta = Delta { ops };
+        for m in &mut self.marks {
+            m.start = delta.map_pos(m.start, Assoc::After);
+            m.end = delta.map_pos(m.end, Assoc::Before);
+        }
+        for pin in &mut self.pins {
+            let assoc = match breaks.contains(&(pin.at.wrapping_sub(1))) {
+                true => Assoc::After,
+                false => Assoc::Before,
+            };
+            pin.at = delta.map_pos(pin.at, assoc);
+        }
+        self.text = text;
+        self.lines = lines;
+    }
+}
+
+/// A table's props and slots from the rows its source writes, the header
+/// first: `layout` the layout keys an HTML table's tags set, and `aligns`
+/// each column's alignment.
+fn table_island(
+    layout: Map<String, Value>,
+    aligns: &[&'static str],
+    rows: Vec<Vec<Cell>>,
+) -> (Value, BTreeMap<String, Content>) {
+    let aligns: Vec<Value> = aligns.iter().map(|a| Value::from(*a)).collect();
+    let rows: Vec<Vec<crate::table::GridCell>> = rows
+        .into_iter()
+        .map(|row| {
+            row.into_iter()
+                .map(|cell| crate::table::GridCell {
+                    text: cell.text,
+                    marks: cell.marks,
+                    anchors: Vec::new(),
+                    keys: cell.keys,
+                })
+                .collect()
+        })
+        .collect();
+    crate::table::from_grid(
+        &layout,
+        Some(&aligns),
+        &rows,
+        &mut crate::ids::Minter::default(),
+    )
+}
+
 /// A flat inline accumulator: `text` plus `marks` over local scalar offsets, with
 /// the content char-filtering baked in. Serves both a prose line's inline
 /// content (embedded in the [`Builder`]) and a table cell's isolated content.
@@ -269,6 +649,8 @@ struct Inline {
     /// scalar position = char count of [`Self::text`].
     pos: usize,
     marks: Vec<Mark>,
+    /// Each anchor a revise's tag pins, where the tag sits.
+    pins: Vec<Pin>,
     /// `(kind, start)` for each mark opened but not yet closed.
     open: Vec<(MarkKind, usize)>,
     /// Each `<u>` this run has read and whose `</u>` it awaits, innermost last:
@@ -319,6 +701,9 @@ impl Inline {
         for m in &mut self.marks {
             m.start = m.start.min(pos);
             m.end = m.end.min(pos);
+        }
+        for pin in &mut self.pins {
+            pin.at = pin.at.min(pos);
         }
         for (_, start) in &mut self.open {
             *start = (*start).min(pos);
@@ -471,7 +856,7 @@ struct Builder {
     /// Paragraph wrapper, so Item must force a line) with `continues = false`; a
     /// hard break sets `continues = true`. Cleared when a block that owns its own
     /// lines (List/Quote/CodeBlock/Table) takes over.
-    pending: Option<(LineKind, bool)>,
+    pending: Option<(BlockKind, bool)>,
     /// The text position after the boundary of the line a mark or `<u>` opened
     /// [early](Self::open_early), while nothing has landed in it.
     early: Option<usize>,
@@ -480,7 +865,7 @@ struct Builder {
     soft_at: Option<usize>,
     broke_at: Option<usize>,
     islands: Vec<Island>,
-    containers: Vec<Container>,
+    containers: Vec<Level>,
     /// Parallel to `containers`: the [`Self::emitted`] count when each container
     /// opened, so a container that closes having emitted no line (an empty `>`
     /// quote, an empty `- ` item) can still get one.
@@ -551,7 +936,8 @@ impl Tags {
             Tags::Against { islands, .. } => islands
                 .values()
                 .filter(|i| i.island_type == IslandType::Table)
-                .map(|i| crate::lines::serial::table_slots(&i.props))
+                .filter_map(|i| Table::read(&i.props))
+                .map(|t| t.rows.len().saturating_mul(t.columns.len()))
                 .fold(0, usize::saturating_add),
             Tags::Cold | Tags::Unresolved => 0,
         };
@@ -600,7 +986,8 @@ impl NoteAcc {
 
 /// A note read off its definition.
 struct Note {
-    props: serde_json::Value,
+    text: String,
+    marks: Vec<Mark>,
     /// The note's characters, which each reference past the first copies.
     chars: usize,
     at: usize,
@@ -619,14 +1006,21 @@ struct ListInfo {
     instance: u64,
 }
 
+/// One cell a table's source writes: its text and marks, and the cell keys
+/// its attributes set.
+#[derive(Default)]
+struct Cell {
+    text: String,
+    marks: Vec<Mark>,
+    keys: Map<String, Value>,
+}
+
 #[derive(Default)]
 struct TableAcc {
     aligns: Vec<&'static str>,
-    /// Cells as canonical `{text, marks}` JSON (via `serial::cell_to_value`), so
-    /// nothing downstream re-parses markdown to render a formatted cell.
-    header: Vec<serde_json::Value>,
-    rows: Vec<Vec<serde_json::Value>>,
-    cur_row: Vec<serde_json::Value>,
+    header: Vec<Cell>,
+    rows: Vec<Vec<Cell>>,
+    cur_row: Vec<Cell>,
     in_head: bool,
     /// The cell currently open, a pipe table's between `Tag::TableCell` start
     /// and end or an HTML table's through its content, building its inline
@@ -648,7 +1042,7 @@ impl Builder {
     /// open sets the line directly; each later one first closes the previous
     /// line with a single `\n` boundary, so `lines.len()` always equals the
     /// `\n`-segment count.
-    fn open_line(&mut self, kind: LineKind, continues: bool) {
+    fn open_line(&mut self, kind: BlockKind, continues: bool) {
         // The first line (no line yet open) can never continue anything.
         let continues = continues && self.cur.is_some();
         if let Some(prev) = self.cur.take() {
@@ -666,7 +1060,7 @@ impl Builder {
     /// (defensively) a `default` line if inline content arrives with none
     /// pending and no line open. A no-op when a line is already open and no new
     /// one is pending.
-    fn ensure_open(&mut self, default: LineKind) {
+    fn ensure_open(&mut self, default: BlockKind) {
         if let Some((k, cont)) = self.pending.take() {
             self.open_line(k, cont);
         } else if self.cur.is_none() {
@@ -675,7 +1069,7 @@ impl Builder {
     }
 
     fn push_inline(&mut self, s: &str) {
-        self.ensure_open(LineKind::Para);
+        self.ensure_open(BlockKind::Para);
         self.inline.push_text(s);
     }
 
@@ -702,7 +1096,7 @@ impl Builder {
         let Some((kind, continues)) = self.pending.take() else {
             return;
         };
-        if matches!(kind, LineKind::Para) {
+        if matches!(kind, BlockKind::Para) {
             return;
         }
         self.open_line(kind, continues);
@@ -714,7 +1108,7 @@ impl Builder {
     fn close_container(&mut self, mark: usize) {
         if self.emitted() == mark {
             self.pending = None;
-            self.open_line(LineKind::Para, false);
+            self.open_line(BlockKind::Para, false);
         }
         self.containers.pop();
     }
@@ -733,7 +1127,7 @@ impl Builder {
     /// an empty paragraph, which [`Self::retract_empty_line`] takes back.
     fn open_early(&mut self) {
         let emitted = self.emitted();
-        self.ensure_open(LineKind::Para);
+        self.ensure_open(BlockKind::Para);
         if self.emitted() > emitted {
             self.early = Some(self.inline.pos);
         }
@@ -744,7 +1138,7 @@ impl Builder {
     /// its line.
     fn retract_empty_line(&mut self) {
         if self.early.take() != Some(self.inline.pos)
-            || !self.cur.as_ref().is_some_and(|l| l.kind == LineKind::Para)
+            || !self.cur.as_ref().is_some_and(|l| l.kind == BlockKind::Para)
         {
             return;
         }
@@ -765,12 +1159,18 @@ impl Builder {
     }
 
     /// Minting `isl-{seq}` by position keeps import a pure function.
-    fn mint_island(&mut self, kind: IslandType, props: serde_json::Value) {
+    fn mint_island(
+        &mut self,
+        kind: IslandType,
+        props: serde_json::Value,
+        slots: BTreeMap<String, Content>,
+    ) {
         let id = format!("isl-{}", self.islands.len());
         self.islands.push(Island {
             id,
             island_type: kind,
             props,
+            slots,
         });
     }
 
@@ -909,11 +1309,11 @@ impl Builder {
                     }
                 }
                 Event::Code(t) => {
-                    self.ensure_open(LineKind::Para);
+                    self.ensure_open(BlockKind::Para);
                     self.inline.push_code(&t);
                 }
                 Event::Rule => {
-                    self.open_line(LineKind::Rule, false);
+                    self.open_line(BlockKind::Rule, false);
                     self.rearm_item();
                 }
                 // A soft break with nothing before it on its line, all before it
@@ -925,7 +1325,7 @@ impl Builder {
                     self.soft_at = Some(self.inline.pos);
                 }
                 Event::TaskListMarker(done) => {
-                    if let Some(Container::ListItem { checked, .. }) = self.containers.last_mut() {
+                    if let Some(Level::ListItem { checked, .. }) = self.containers.last_mut() {
                         *checked = Some(done);
                     }
                 }
@@ -942,7 +1342,7 @@ impl Builder {
                     }
                     match self.cur.as_ref().map(|l| &l.kind) {
                         // A heading is one line.
-                        Some(LineKind::Heading { .. }) => {
+                        Some(BlockKind::Heading { .. }) => {
                             self.push_inline(" ");
                             self.broke_at = Some(self.inline.pos);
                         }
@@ -953,7 +1353,7 @@ impl Builder {
                                 .cur
                                 .as_ref()
                                 .map(|l| l.kind.clone())
-                                .unwrap_or(LineKind::Para);
+                                .unwrap_or(BlockKind::Para);
                             self.pending = Some((kind, true));
                         }
                     }
@@ -969,9 +1369,9 @@ impl Builder {
         match tag {
             // Block starts arm a pending line (new block, continues = false);
             // the next inline content opens it.
-            Tag::Paragraph => self.pending = Some((LineKind::Para, false)),
+            Tag::Paragraph => self.pending = Some((BlockKind::Para, false)),
             Tag::Heading { level, .. } => {
-                self.pending = Some((LineKind::Heading { level: level as u8 }, false))
+                self.pending = Some((BlockKind::Heading { level: level as u8 }, false))
             }
             Tag::CodeBlock(kind) => {
                 self.pending = None; // code opens its own lines
@@ -1000,13 +1400,13 @@ impl Builder {
             Tag::Item => {
                 // Tight-list items carry no Paragraph wrapper, so the item start
                 // is what forces a new line for the item's first inline content.
-                self.pending = Some((LineKind::Para, false));
+                self.pending = Some((BlockKind::Para, false));
                 self.container_marks.push(self.emitted());
                 let container = match self.list_stack.last_mut() {
                     Some(info) => {
                         let ordinal = info.count;
                         info.count += 1;
-                        Container::ListItem {
+                        Level::ListItem {
                             ordered: info.ordered,
                             start: info.start,
                             ordinal,
@@ -1014,7 +1414,7 @@ impl Builder {
                             instance: info.instance,
                         }
                     }
-                    None => Container::ListItem {
+                    None => Level::ListItem {
                         ordered: false,
                         start: 1,
                         ordinal: 0,
@@ -1029,12 +1429,12 @@ impl Builder {
                 self.pending = None; // quote content sets its own
                 self.container_marks.push(self.emitted());
                 let instance = self.mint_instance();
-                self.containers.push(Container::Quote { instance });
+                self.containers.push(Level::Quote { instance });
                 self.check_depth()?;
             }
             Tag::Table(aligns) => {
                 self.pending = None;
-                self.open_line(LineKind::Para, false);
+                self.open_line(BlockKind::Para, false);
                 self.inline.push_raw(ISLAND_SLOT);
                 self.table = Some(TableAcc {
                     aligns: aligns.iter().map(align_str).collect(),
@@ -1061,7 +1461,7 @@ impl Builder {
                 if !self.code_opened {
                     // Empty code block: one empty Code line.
                     let lang = self.code_lang.take();
-                    self.open_line(LineKind::Code { lang }, false);
+                    self.open_line(BlockKind::Code { lang }, false);
                 }
                 self.in_code = false;
                 self.code_lang = None;
@@ -1128,15 +1528,11 @@ impl Builder {
             Tags::Against { islands, .. } if element == carrier::ISLAND => {
                 match id.and_then(|id| islands.get(id)) {
                     Some(island) if prose => {
-                        let Island {
-                            island_type,
-                            mut props,
-                            ..
-                        } = island.clone();
-                        crate::lines::export::drop_anchor_marks(&mut props);
-                        self.ensure_open(LineKind::Para);
+                        let (props, slots) = crate::table::token_island(island);
+                        let island_type = island.island_type.clone();
+                        self.ensure_open(BlockKind::Para);
                         self.inline.push_raw(ISLAND_SLOT);
-                        self.mint_island(island_type, props);
+                        self.mint_island(island_type, props, slots);
                         None
                     }
                     Some(_) => Some(DroppedConstruct::Element(element)),
@@ -1151,11 +1547,10 @@ impl Builder {
                     if prose && !attrs.values.contains_key("at") {
                         self.open_early();
                         let pos = self.inline.pos;
-                        self.inline.marks.push(Mark::new(
-                            pos,
-                            pos,
-                            MarkKind::Anchor { id: id.clone() },
-                        ));
+                        self.inline.pins.push(Pin {
+                            at: pos,
+                            id: id.clone(),
+                        });
                     }
                     None
                 }
@@ -1247,8 +1642,8 @@ impl Builder {
     /// arm its line, so after a block nested in the item the next text must be
     /// armed here or it joins that block's last line.
     fn rearm_item(&mut self) {
-        if matches!(self.containers.last(), Some(Container::ListItem { .. })) {
-            self.pending = Some((LineKind::Para, false));
+        if matches!(self.containers.last(), Some(Level::ListItem { .. })) {
+            self.pending = Some((BlockKind::Para, false));
         }
     }
 
@@ -1261,7 +1656,7 @@ impl Builder {
             // line is a within-block continuation, so the fence stays one block.
             let continues = self.code_opened;
             self.open_line(
-                LineKind::Code {
+                BlockKind::Code {
                     lang: self.code_lang.clone(),
                 },
                 continues,
@@ -1296,8 +1691,11 @@ impl Builder {
                 if let Some(mut cell) = acc.cell.take() {
                     cell.close_marks();
                     cell.drop_open(&mut self.dropped);
-                    acc.cur_row
-                        .push(crate::lines::serial::cell_to_value(&cell.text, &cell.marks));
+                    acc.cur_row.push(Cell {
+                        text: cell.text,
+                        marks: cell.marks,
+                        keys: Map::new(),
+                    });
                 }
             }
             _ => {
@@ -1325,12 +1723,10 @@ impl Builder {
 
     fn emit_table(&mut self) {
         if let Some(acc) = self.table.take() {
-            let props = json!({
-                "aligns": acc.aligns,
-                "header": acc.header,
-                "rows": acc.rows,
-            });
-            self.mint_island(IslandType::Table, props);
+            let mut rows = vec![acc.header];
+            rows.extend(acc.rows);
+            let (props, slots) = table_island(Map::new(), &acc.aligns, rows);
+            self.mint_island(IslandType::Table, props, slots);
             self.rearm_item();
         }
     }
@@ -1346,7 +1742,7 @@ impl Builder {
         self.inline.drop_open(&mut self.dropped);
         self.retract_empty_line();
         self.pending = None;
-        self.open_line(LineKind::Para, false);
+        self.open_line(BlockKind::Para, false);
         self.inline.push_raw(ISLAND_SLOT);
         self.table = Some(TableAcc::default());
         let mut grid = Vec::with_capacity(table.rows.len());
@@ -1354,27 +1750,23 @@ impl Builder {
             let mut cells = Vec::with_capacity(row.len());
             for slot in row {
                 cells.push(match slot {
-                    Slot::Empty => crate::lines::serial::cell_to_value("", &[]),
+                    Slot::Empty => Cell::default(),
                     Slot::Cell(cell) => self.html_cell(cell)?,
                 });
             }
-            grid.push(serde_json::Value::Array(cells));
+            grid.push(cells);
         }
         self.table = None;
-        let mut props = table.layout;
-        let mut rows = grid.into_iter();
-        props.insert("aligns".into(), json!(table.aligns));
-        props.insert("header".into(), rows.next().unwrap_or_else(|| json!([])));
-        props.insert("rows".into(), serde_json::Value::Array(rows.collect()));
-        self.mint_island(IslandType::Table, serde_json::Value::Object(props));
+        if grid.is_empty() {
+            grid.push(Vec::new());
+        }
+        let (props, slots) = table_island(table.layout, &table.aligns, grid);
+        self.mint_island(IslandType::Table, props, slots);
         self.rearm_item();
         Ok(())
     }
 
-    fn html_cell(
-        &mut self,
-        cell: crate::markdown::html_table::Cell,
-    ) -> Result<serde_json::Value, ImportError> {
+    fn html_cell(&mut self, cell: crate::markdown::html_table::Cell) -> Result<Cell, ImportError> {
         if let Some(acc) = self.table.as_mut() {
             acc.cell = Some(Inline::default());
         }
@@ -1392,11 +1784,11 @@ impl Builder {
             inline = self.take_cell();
             inline.drop_open(&mut Drops::default());
         }
-        let mut value = crate::lines::serial::cell_to_value(&inline.text, &inline.marks);
-        if let Some(o) = value.as_object_mut() {
-            o.extend(cell.keys);
-        }
-        Ok(value)
+        Ok(Cell {
+            text: inline.text,
+            marks: inline.marks,
+            keys: cell.keys,
+        })
     }
 
     /// The open HTML table cell's run, its marks closed.
@@ -1454,13 +1846,13 @@ impl Builder {
     }
 
     fn emit_image(&mut self) {
-        self.ensure_open(LineKind::Para);
+        self.ensure_open(BlockKind::Para);
         self.inline.push_raw(ISLAND_SLOT);
         let props = json!({
             "url": self.image_url,
             "alt": self.image_alt.trim(),
         });
-        self.mint_island(IslandType::Image, props);
+        self.mint_island(IslandType::Image, props, BTreeMap::new());
     }
 
     /// One event of the definition being read into its note.
@@ -1553,12 +1945,12 @@ impl Builder {
         if self.notes.contains_key(&key) {
             return self.dropped.add(DroppedConstruct::Footnote, note.at);
         }
-        let props = crate::lines::serial::cell_to_value(&note.inline.text, &note.inline.marks);
         let chars = note.inline.text.chars().count();
         self.notes.insert(
             key,
             Note {
-                props,
+                text: note.inline.text,
+                marks: note.inline.marks,
                 chars,
                 at: note.at,
                 used: false,
@@ -1576,11 +1968,11 @@ impl Builder {
         if self.table.is_some() || self.image_depth > 0 {
             return self.dropped.add(DroppedConstruct::Footnote, at);
         }
-        self.ensure_open(LineKind::Para);
+        self.ensure_open(BlockKind::Para);
         self.inline.push_raw(ISLAND_SLOT);
         self.note_refs
             .push((self.islands.len(), UniCase::new(label), at));
-        self.mint_island(IslandType::Footnote, serde_json::Value::Null);
+        self.mint_island(IslandType::Footnote, json!({}), BTreeMap::new());
     }
 
     /// An equation: an island in prose, and its markup's text, `source`,
@@ -1600,19 +1992,19 @@ impl Builder {
                 Some(cell) => cell.push_text(source),
                 None if self.image_depth > 0 => self.image_alt.extend(admitted(source)),
                 None => {
-                    self.ensure_open(LineKind::Para);
+                    self.ensure_open(BlockKind::Para);
                     self.inline.push_text(source);
                 }
             }
             return self.dropped.add(DroppedConstruct::Math, at);
         }
-        self.ensure_open(LineKind::Para);
+        self.ensure_open(BlockKind::Para);
         self.inline.push_raw(ISLAND_SLOT);
         let props = match display {
             true => json!({ "tex": tex, "display": true }),
             false => json!({ "tex": tex }),
         };
-        self.mint_island(IslandType::Math, props);
+        self.mint_island(IslandType::Math, props, BTreeMap::new());
     }
 
     /// Put `text` where island `index`'s slot sits, the island gone.
@@ -1639,10 +2031,15 @@ impl Builder {
                 m.end += grown;
             }
         }
+        for pin in &mut self.inline.pins {
+            if pin.at > at {
+                pin.at += grown;
+            }
+        }
         self.islands.remove(index);
     }
 
-    fn finish(mut self) -> (Content, Drops) {
+    fn finish(mut self) -> (Walked, Drops) {
         self.close_note();
         // A reference whose definition dropped, nested in another, reads
         // back as the text it is, as one naming no definition does, and so
@@ -1668,7 +2065,8 @@ impl Builder {
         {
             match self.notes.get_mut(&label) {
                 Some(note) if copied => {
-                    self.islands[index].props = note.props.clone();
+                    let slot = crate::table::cell_slot(&note.text, &note.marks, &[], false);
+                    self.islands[index].slots = [(NOTE_SLOT.to_string(), slot)].into();
                     note.used = true;
                 }
                 held => {
@@ -1694,16 +2092,21 @@ impl Builder {
             self.lines.push(last);
         }
         if self.lines.is_empty() {
-            self.lines.push(Line::new(LineKind::Para));
+            self.lines.push(Line {
+                kind: BlockKind::Para,
+                containers: Vec::new(),
+                continues: false,
+            });
         }
         self.inline.close_marks();
-        let content = Content {
+        let walked = Walked {
             text: self.inline.text,
             lines: self.lines,
             marks: self.inline.marks,
+            pins: self.inline.pins,
             islands: self.islands,
         };
-        (content, self.dropped)
+        (walked, self.dropped)
     }
 }
 
@@ -1775,7 +2178,7 @@ fn is_inline(event: &Event) -> bool {
 /// A code-block info string reduced to a language identifier: its leading run of
 /// ASCII alphanumerics and `-`/`_`/`.`/`+`. Every stored `lang` has this shape,
 /// so an emitter writes it into its own syntax unquoted and unescaped. Every
-/// lane that mints a `LineKind::Code` runs it — the storage decode and the op
+/// lane that mints a `BlockKind::Code` runs it — the storage decode and the op
 /// wires as much as this importer.
 pub(crate) fn sanitize_lang(lang: &str) -> String {
     lang.chars()

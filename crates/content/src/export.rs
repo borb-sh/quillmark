@@ -1890,11 +1890,11 @@ fn render_cell_md(slot: &Content, frag: Frag) -> String {
     .0
 }
 
-/// A line-form HTML table cell's markdown, as export writes it between its
+/// An HTML table cell's markdown, as export writes it between its
 /// tags.
-pub(crate) fn html_cell_markdown(text: &str, marks: &[crate::lines::model::Mark]) -> String {
+pub(crate) fn html_cell_markdown(text: &str, marks: &[Mark]) -> String {
     render_cell_md(
-        &crate::table::cell_to_slot(text, marks, false),
+        &crate::table::cell_slot(text, marks, &[], false),
         Frag::HtmlCell,
     )
 }

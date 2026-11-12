@@ -12,7 +12,6 @@ pub(crate) mod import;
 pub mod normalize;
 
 use crate::ids::prefix;
-use crate::migrate::from_lines;
 use crate::model::Scalar;
 use crate::model::{Block, BlockKind, Codec, Content, HARD_BREAK, ISLAND_SLOT, MarkKind};
 pub use import::{DroppedConstruct, ImportError, ImportWarning};
@@ -95,22 +94,16 @@ pub enum Loss {
 /// holds reports nothing of its own. A `qm-island` token, which only a revise
 /// reads, drops reported under `qm-island`.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
-    let (walked, warnings) = import::walk(markdown, false)?;
-    Ok(Imported {
-        content: from_lines(&walked),
-        warnings,
-    })
+    let (content, warnings) = import::walk(markdown, false)?;
+    Ok(Imported { content, warnings })
 }
 
 /// [`from_markdown`] with each `qm-island` token dropped silently: the read
 /// of a markdown whose tokens a revise of the same markdown resolves once the
 /// stored value it revises is known.
 pub fn from_markdown_unresolved(markdown: &str) -> Result<Imported, ImportError> {
-    let (walked, warnings) = import::walk(markdown, true)?;
-    Ok(Imported {
-        content: from_lines(&walked),
-        warnings,
-    })
+    let (content, warnings) = import::walk(markdown, true)?;
+    Ok(Imported { content, warnings })
 }
 
 /// The literal codec: each blank line a paragraph break and each other `\n`
