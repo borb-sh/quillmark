@@ -737,16 +737,23 @@ pub(crate) fn cell_source(content: &str) -> String {
 /// A cell's content with its `<p>` tags read as the lines of the one
 /// paragraph a cell is: each run of them and the whitespace around it a `<br>`
 /// between text, and nothing at the content's edges. Each run keeps its
-/// length but a bare `<p>`, one byte shorter than its `<br>`.
+/// length but a bare `<p>`, one byte shorter than its `<br>`. A `<` a
+/// backslash escapes opens no tag.
 pub(crate) fn cell_paragraphs(content: &str) -> std::borrow::Cow<'_, str> {
-    let tags: Vec<Range<usize>> = content
-        .match_indices('<')
-        .filter_map(|(i, _)| {
-            html::tag_at(content, i)
-                .filter(|t| t.name.eq_ignore_ascii_case("p"))
-                .map(|t| t.span)
-        })
-        .collect();
+    let b = content.as_bytes();
+    let mut tags: Vec<Range<usize>> = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'\\' if b.get(i + 1).is_some_and(u8::is_ascii_punctuation) => i += 1,
+            b'<' => {
+                let tag = html::tag_at(content, i).filter(|t| t.name.eq_ignore_ascii_case("p"));
+                tags.extend(tag.map(|t| t.span));
+            }
+            _ => {}
+        }
+        i += 1;
+    }
     if tags.is_empty() {
         return content.into();
     }
@@ -1164,4 +1171,14 @@ pub(crate) fn write(layout: &Layout, cell: impl Fn(usize, usize) -> String) -> S
 #[cfg(test)]
 mod tests {
     mod properties;
+
+    #[test]
+    fn an_escaped_angle_bracket_opens_no_paragraph_tag() {
+        use super::cell_paragraphs;
+        assert_eq!(cell_paragraphs("a<p>b"), "a<br>b");
+        for text in ["\\<p>", "a \\<p> b", "\\</P>"] {
+            assert_eq!(cell_paragraphs(text), text);
+        }
+        assert_eq!(cell_paragraphs("a\\\\<p>b"), "a\\\\<br>b");
+    }
 }
