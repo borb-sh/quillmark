@@ -19,20 +19,6 @@ pub fn to_markdown_annotated(rt: &Lines) -> Annotated {
     crate::markdown::to_markdown_annotated(&from_lines(rt))
 }
 
-/// `props` with every anchor mark of each `{text, marks}` it holds gone.
-pub(crate) fn drop_anchor_marks(props: &mut serde_json::Value) {
-    match props {
-        serde_json::Value::Object(map) => {
-            if let Some(serde_json::Value::Array(marks)) = map.get_mut("marks") {
-                marks.retain(|m| m.get("type").and_then(|t| t.as_str()) != Some("anchor"));
-            }
-            map.values_mut().for_each(drop_anchor_marks);
-        }
-        serde_json::Value::Array(items) => items.iter_mut().for_each(drop_anchor_marks),
-        _ => {}
-    }
-}
-
 /// Render a content to plaintext: [`Content::text`] with island slots
 /// ([`ISLAND_SLOT`]) removed. The lossy sibling of [`to_markdown`]: it drops
 /// every mark and island, keeping only literal text.

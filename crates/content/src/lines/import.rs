@@ -2,7 +2,7 @@
 //! still on it.
 
 use crate::carry::Pin;
-use crate::lines::model::{Content, ISLAND_SLOT, Line, LineKind, Lines, MarkKind};
+use crate::lines::model::{Content, ISLAND_SLOT, Line, LineKind, Lines};
 #[cfg(test)]
 pub(crate) use crate::markdown::import::options;
 pub use crate::markdown::import::{DroppedConstruct, ImportError, ImportWarning};
@@ -48,51 +48,15 @@ pub struct Against {
     pub pins: Vec<Pin>,
 }
 
-/// Import `markdown` as a revise of `stored`, reading the tags of an
-/// annotated read (markdown-spec §6.4). A `<qm-anchor ref="ID">` tag in prose
-/// pins the anchor `ID` the stored value holds in prose to start where the
-/// tag sits; one with an `at` attribute, which the read writes where its tag
-/// moved to its line's end, pins nothing. A `<qm-island ref="ID">` token in
-/// prose is the stored island `ID`, its type and props as stored but for its
-/// cells' anchors, which the revise carries onto the island that continues it
-/// ([`crate::carry::carry_onto`]), so a token written twice copies none. A tag or a
-/// token naming nothing the stored value holds there, and a second tag naming
-/// one anchor, drop reported under `qm-anchor[ref]` or `qm-island[ref]`; a
-/// token in a table cell, a note, an image's alt text or a code span drops
-/// reported under `qm-island`. An anchor tag outside prose pins nothing.
+/// [`crate::diff::revise`]'s read of `markdown` against `stored`, lowered to
+/// the line form.
 pub fn from_markdown_against(markdown: &str, stored: &Content) -> Result<Against, ImportError> {
-    let anchors = stored
-        .marks
-        .iter()
-        .filter_map(|m| match &m.kind {
-            MarkKind::Anchor { id } => Some(id.clone()),
-            _ => None,
-        })
-        .collect();
-    let islands = stored
-        .islands
-        .iter()
-        .map(|i| (i.id.clone(), i.clone()))
-        .collect();
-    let (mut content, warnings) =
-        crate::markdown::import::walk_against(markdown, anchors, islands)?;
-    content.split_block_islands();
-    let mut content = content.into_lines().into_content();
-    let mut pins = Vec::new();
-    content.marks.retain(|m| match &m.kind {
-        MarkKind::Anchor { id } => {
-            pins.push(Pin {
-                at: m.start,
-                id: id.clone(),
-            });
-            false
-        }
-        _ => true,
-    });
+    let read =
+        crate::markdown::import::walk_against(markdown, &crate::migrate::from_lines(stored))?;
     Ok(Against {
-        content: content.into_lines(),
-        warnings,
-        pins,
+        content: crate::migrate::to_lines(&read.content),
+        warnings: read.warnings,
+        pins: read.pins,
     })
 }
 
@@ -143,7 +107,7 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::MAX_NESTING_DEPTH;
-    use crate::lines::model::{Container, Island, Mark};
+    use crate::lines::model::{Container, Island, Mark, MarkKind};
     use crate::model::IslandType;
     use serde_json::json;
 
