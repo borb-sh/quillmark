@@ -22,6 +22,12 @@ pub struct Cell {
     pub anchors: Vec<(String, Scalar)>,
 }
 
+/// The island's props with each cell its text and marks inline, the line
+/// form's spelling.
+pub fn layout(isl: &Island) -> serde_json::Value {
+    crate::table::to_line_props(isl)
+}
+
 /// The first run at `depth` in `range`: the lines from its first holding a
 /// container there, while each holds one in the same list or quote.
 pub fn run(
