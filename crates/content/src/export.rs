@@ -46,7 +46,7 @@
 //! delimiter never sits against whitespace. [`to_markdown_checked`] names each
 //! loss where a content meets one.
 
-use crate::markdown::{AnchorRead, Annotated, Loss};
+use crate::markdown::{AnchorRead, Annotated, Loss, html_table};
 use crate::model::IslandType;
 use crate::model::{Content, ISLAND_SLOT, Island, Mark, MarkKind, NOTE_SLOT, Scalar};
 use crate::table::Table;
@@ -229,40 +229,70 @@ pub(crate) fn island_reads_back(isl: &Island) -> bool {
     matches!(&back.content.islands[..], [one] if one.island_type == isl.island_type && island_props(one) == island_props(isl))
 }
 
-/// What of an island markdown reads back: its props and its slots' text and
-/// marks in their reading order, ids and anchors aside, each slot as
-/// [`held_slots`] holds it, so a slot's breaks that read back otherwise are
-/// [`Loss::SlotBreaks`] and not the island's.
-fn island_props(isl: &Island) -> serde_json::Value {
+/// What of an island markdown reads back: its [shape](crate::table::shape)
+/// with each slot as [`held_slots`] holds it, so a slot's breaks that read
+/// back otherwise are [`Loss::SlotBreaks`] and not the island's.
+fn island_props(isl: &Island) -> String {
     let mut isl = isl.clone();
     for (id, slot) in held_slots(&isl) {
         isl.slots.insert(id, slot);
     }
-    let mut props = crate::table::to_line_props(&isl);
-    crate::lines::export::drop_anchor_marks(&mut props);
-    props
+    crate::table::shape(&isl)
 }
 
-/// Each slot of `isl` by its id as its cell holds it: a hard break at the
-/// slot's edge gone, and two in a row, or one ending a paragraph another
-/// follows, read as markdown reads their `<br>`s.
+/// Each slot of `isl` by its id as its cell holds it: a line break markdown
+/// does not write a space, a hard break at a note's edge gone, and in a
+/// table's cell or a note two hard breaks in a row, or a paragraph break,
+/// read as markdown reads their `<br>`s.
 pub(crate) fn held_slots(isl: &Island) -> Vec<(String, Content)> {
-    let mut props = crate::table::to_line_props(isl);
-    isl.island_type.normalize_props(&mut props);
-    let (held_props, mut held) =
-        crate::table::from_line_props(&isl.island_type, &props, &mut crate::ids::Minter::default());
+    let empty = Content::default();
+    let held = |id: &str, note: bool| {
+        let (text, marks, anchors) = crate::view::cell_parts(isl.slots.get(id).unwrap_or(&empty));
+        let stray = |c: char| c == '\r' || crate::model::is_line_separator(c);
+        let chars: Vec<char> = text
+            .chars()
+            .map(|c| if stray(c) { ' ' } else { c })
+            .collect();
+        let breaks =
+            |edge: &mut dyn Iterator<Item = &char>| edge.take_while(|c| **c == '\n').count();
+        let lead = if note { breaks(&mut chars.iter()) } else { 0 };
+        let end = match note {
+            true => lead.max(chars.len() - breaks(&mut chars.iter().rev())),
+            false => chars.len(),
+        };
+        let clip = |at: Scalar| at.clamp(lead, end) - lead;
+        let marks: Vec<Mark> = marks
+            .into_iter()
+            .map(|m| Mark::new(clip(m.start), clip(m.end), m.kind))
+            .collect();
+        let anchors: Vec<_> = anchors
+            .into_iter()
+            .map(|a| crate::model::Anchor::new(a.id, clip(a.start), clip(a.end)))
+            .collect();
+        let text: String = chars[lead..end].iter().collect();
+        crate::table::cell_slot(&text, &marks, &anchors, false)
+    };
     match isl.island_type {
-        IslandType::Table => {
-            let (Some(from), Some(to)) = (Table::read(&isl.props), Table::read(&held_props)) else {
-                return Vec::new();
-            };
-            from.slot_order()
-                .into_iter()
-                .zip(to.slot_order())
-                .filter_map(|(id, at)| Some((id, held.remove(&at)?)))
-                .collect()
-        }
-        _ => held.into_iter().collect(),
+        IslandType::Table => Table::read(&isl.props)
+            .map(|t| t.slot_order())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|id| {
+                let slot = held(&id, false);
+                (id, slot)
+            })
+            .collect(),
+        IslandType::Footnote => vec![(NOTE_SLOT.to_string(), held(NOTE_SLOT, true))],
+        IslandType::Ext(_) => isl
+            .slots
+            .iter()
+            .map(|(id, slot)| {
+                let (text, marks, anchors) = crate::view::cell_parts(slot);
+                let slot = crate::table::cell_slot(&text, &marks, &anchors, true);
+                (id.clone(), slot)
+            })
+            .collect(),
+        IslandType::Image | IslandType::Math => Vec::new(),
     }
 }
 
@@ -829,9 +859,8 @@ fn emit_table(isl: &Island, out: &mut String) {
             .and_then(|s| isl.slots.get(s))
             .map_or_else(String::new, |slot| render_cell_md(slot, frag))
     };
-    let layout = crate::table::to_line_props(isl);
-    if crate::markdown::html_table::writes_html(&layout) {
-        out.push_str(&crate::markdown::html_table::write(&layout, |r, c| {
+    if let Some(layout) = crate::table::Layout::of(isl).filter(html_table::writes_html) {
+        out.push_str(&html_table::write(&layout, |r, c| {
             render(r, c, Frag::HtmlCell)
         }));
         return;
