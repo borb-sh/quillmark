@@ -6,7 +6,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::lines::model::Lines;
 use quillmark_content::markdown::from_markdown as import_markdown;
 use quillmark_content::model::Content;
 
@@ -14,16 +13,10 @@ use crate::error::ParseError;
 use crate::error::{Diagnostic, Severity};
 use crate::version::QuillReference;
 
-/// The stored spelling of a line-form value: under the ids of what it kept
-/// from `old`, the value it is written over, or minted fresh where there is
-/// none.
+/// [`stored_as`] under the codec `content` holds.
 #[cfg(test)]
-pub(crate) fn stored_over(old: Option<&serde_json::Value>, lines: &Lines) -> serde_json::Value {
-    match held_value(old) {
-        Some(held) => quillmark_content::diff::lift(&held, lines),
-        None => quillmark_content::migrate::from_lines(lines),
-    }
-    .to_value()
+pub(crate) fn stored_over(old: Option<&serde_json::Value>, content: &Content) -> serde_json::Value {
+    stored_as(old, content, content.codec)
 }
 
 /// `content` stored under `codec` over `old`, the value it is written over:
@@ -45,12 +38,6 @@ fn held_value(old: Option<&serde_json::Value>) -> Option<Content> {
     old.filter(|v| v.is_object())
         .and_then(|v| Content::from_value_lenient(v).ok())
         .map(|read| read.content)
-}
-
-/// [`import_body`] lowered to the line form, for the tests that read it.
-#[cfg(test)]
-pub(crate) fn import_body_lines(md: &str) -> Result<Lines, ImportError> {
-    import_body(md).map(|c| quillmark_content::migrate::to_lines(&c))
 }
 
 pub(crate) fn import_body(md: &str) -> Result<Content, ImportError> {
@@ -378,7 +365,7 @@ impl ContentDecodeError {
     }
 }
 
-/// A content codec: which authored string a [`Content`](quillmark_content::lines::model::Content) field accepts, and which
+/// A content codec: which authored string a [`Content`](quillmark_content::model::Content) field accepts, and which
 /// text a stored content projects back to. Both codecs also accept a canonical
 /// content object, so a codec is exactly the string end of the round trip. The
 /// declared type names one (`FieldType::codec`), and every schema-bound
@@ -712,28 +699,6 @@ pub struct Card {
     payload: Payload,
     body: Content,
     hashes: Hashes,
-    #[cfg(test)]
-    lines: Lowered,
-}
-
-/// The body's line form for the tests that read it, lowered when first read
-/// and no part of equality.
-#[cfg(test)]
-#[derive(Clone, Default)]
-struct Lowered(std::sync::OnceLock<Lines>);
-
-#[cfg(test)]
-impl PartialEq for Lowered {
-    fn eq(&self, _: &Self) -> bool {
-        true
-    }
-}
-
-#[cfg(test)]
-impl std::fmt::Debug for Lowered {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Lowered")
-    }
 }
 
 /// The hash a write left on the body and on each richtext field it wrote,
@@ -768,34 +733,13 @@ impl std::fmt::Debug for Hashes {
     }
 }
 
-/// What a card body is built from: a line-form value migrates, minting its
-/// ids, and a content value lands as it is.
-pub(crate) trait IntoBody {
-    fn into_body(self) -> Content;
-}
-
-impl IntoBody for Lines {
-    fn into_body(self) -> Content {
-        quillmark_content::migrate::from_lines(&self)
-    }
-}
-
-impl IntoBody for Content {
-    fn into_body(self) -> Content {
-        self
-    }
-}
-
 impl Card {
     /// Create a `Card` from its parts without validation.
-    pub(crate) fn from_parts(payload: Payload, body: impl IntoBody) -> Self {
-        let body = body.into_body();
+    pub(crate) fn from_parts(payload: Payload, body: Content) -> Self {
         Self {
             payload,
             body,
             hashes: Hashes::default(),
-            #[cfg(test)]
-            lines: Lowered::default(),
         }
     }
 
@@ -838,15 +782,6 @@ impl Card {
         &self.body
     }
 
-    /// The body lowered to the line form the markdown codecs and the renderers
-    /// read.
-    #[cfg(test)]
-    pub(crate) fn body_lines(&self) -> &Lines {
-        self.lines
-            .0
-            .get_or_init(|| quillmark_content::migrate::to_lines(&self.body))
-    }
-
     /// The card body rendered back to its markdown projection. This is a
     /// derived view (`export ∘ body`), not stored state; a `Document` round-trip
     /// therefore canonicalizes the body (e.g. `__b__` → `**b**`).
@@ -855,10 +790,6 @@ impl Card {
     }
 
     pub(crate) fn set_body(&mut self, body: Content) {
-        #[cfg(test)]
-        {
-            self.lines = Lowered::default();
-        }
         self.hashes.body = None;
         self.body = body;
     }
@@ -871,13 +802,6 @@ impl Card {
                 self.hashes.fields.insert(name.to_string(), hash);
             }
         }
-    }
-
-    /// Writes a line-form body over the stored one, keeping the ids of what it
-    /// kept.
-    pub(crate) fn set_body_lines(&mut self, lines: Lines) {
-        let body = quillmark_content::diff::lift(&self.body, &lines);
-        self.set_body(body);
     }
 
     /// Read a content-valued user field back through `codec`: the field-level
@@ -898,12 +822,8 @@ impl Card {
         &self,
         name: &str,
         codec: Codec,
-    ) -> Option<Result<Lines, ContentDecodeError>> {
-        Some(
-            codec
-                .decode_field(self.payload.get(name)?.as_json())
-                .map(|c| quillmark_content::migrate::to_lines(&c)),
-        )
+    ) -> Option<Result<Content, ContentDecodeError>> {
+        Some(codec.decode_field(self.payload.get(name)?.as_json()))
     }
 
     /// The text projection of a content-valued field (`project ∘ decode`),
@@ -1010,7 +930,7 @@ impl Document {
         // it in); match that shape so a blank document round-trips equal.
         payload.set_kind("main");
         Self {
-            main: Card::from_parts(payload, Lines::empty()),
+            main: Card::from_parts(payload, Content::empty()),
             cards: Vec::new(),
         }
     }

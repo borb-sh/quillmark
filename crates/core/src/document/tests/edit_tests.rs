@@ -195,30 +195,26 @@ fn test_replace_body_reports_import_error() {
 
 #[test]
 fn test_overwrite_body_sets_directly() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_content::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::lines::import::from_markdown("underlined body")
+    let mut content = quillmark_content::markdown::from_markdown("underlined body")
         .unwrap()
-        .content
-        .into_content();
+        .content;
     content.marks.push(Mark::new(0, 10, MarkKind::Underline));
-    let content = content.into_lines();
 
     let mut card = Card::new("note").unwrap();
     card.overwrite_body(content.clone());
-    assert_eq!(card.body_lines(), &content);
+    assert_eq!(card.body(), &content);
 }
 
 #[test]
 fn test_overwrite_field_sets_directly() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_content::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
+    let mut content = quillmark_content::markdown::from_markdown("underlined intro")
         .unwrap()
-        .content
-        .into_content();
+        .content;
     content.marks.push(Mark::new(0, 10, MarkKind::Underline));
-    let content = content.into_lines();
 
     let mut card = Card::new("note").unwrap();
     card.overwrite_field("intro", content.clone()).unwrap();
@@ -229,7 +225,7 @@ fn test_overwrite_field_sets_directly() {
     assert_eq!(read, content);
 
     assert_eq!(
-        card.overwrite_field("$bad", quillmark_content::lines::model::Lines::empty())
+        card.overwrite_field("$bad", quillmark_content::model::Content::empty())
             .unwrap_err()
             .code(),
         "edit::invalid_field_name"
@@ -238,7 +234,7 @@ fn test_overwrite_field_sets_directly() {
 
 #[test]
 fn test_revise_field_diff_imports_and_returns_its_change() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_content::model::Anchor;
 
     let mut card = Card::new("note").unwrap();
     let revised = card
@@ -253,12 +249,9 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
     let mut base = card
         .field_content("intro", Codec::Richtext)
         .unwrap()
-        .unwrap()
-        .into_content();
+        .unwrap();
     // 6..12 is "target".
-    base.marks
-        .push(Mark::new(6, 12, MarkKind::Anchor { id: "c1".into() }));
-    let base = base.into_lines();
+    base.anchors.push(Anchor::new("c1", 6, 12));
     card.overwrite_field("intro", base).unwrap();
     let _ = card
         .revise(
@@ -271,11 +264,7 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
         .field_content("intro", Codec::Richtext)
         .unwrap()
         .unwrap();
-    assert!(
-        read.marks
-            .iter()
-            .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
-    );
+    assert!(read.holds_anchor("c1"));
 
     card.store_field(
         "count",
@@ -293,7 +282,7 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
 #[test]
 fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
     use crate::quill::{FieldSchema, FieldType};
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_content::model::Anchor;
 
     let inline = FieldSchema::new(
         "subject".to_string(),
@@ -310,12 +299,9 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
     let mut base = card
         .field_content("subject", Codec::Richtext)
         .unwrap()
-        .unwrap()
-        .into_content();
+        .unwrap();
     // 6..12 is "target".
-    base.marks
-        .push(Mark::new(6, 12, MarkKind::Anchor { id: "c1".into() }));
-    let base = base.into_lines();
+    base.anchors.push(Anchor::new("c1", 6, 12));
     card.overwrite_field("subject", base).unwrap();
     let _ = card
         .revise_field_checked("subject", "why keep the target here", &inline)
@@ -325,9 +311,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
         .unwrap()
         .unwrap();
     assert!(
-        read.marks
-            .iter()
-            .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1")),
+        read.holds_anchor("c1"),
         "anchor should carry onto surviving text, unlike the cold commit_field"
     );
 
@@ -383,7 +367,7 @@ fn test_commit_field_richtext_content_object_reads_back() {
         .field_content("intro", Codec::Richtext)
         .unwrap()
         .unwrap();
-    assert_eq!(read, quillmark_content::migrate::to_lines(&content));
+    assert_eq!(read, content);
 }
 
 #[test]
@@ -581,7 +565,7 @@ fn test_revise_body_returns_its_change_and_updates_body() {
         .revise(crate::document::Target::Body, "hello brave world", None)
         .unwrap()
         .applied;
-    assert_eq!(card.body_lines().text, "hello brave world");
+    assert_eq!(card.body().text, "hello brave world");
     let mapping = Mapping::from_change(&applied).unwrap();
     assert_eq!(mapping.map(&Pos::at(6), Assoc::Before).pos, Pos::at(6));
     assert_eq!(mapping.map(&Pos::at(11), Assoc::After).pos, Pos::at(17));
@@ -589,27 +573,22 @@ fn test_revise_body_returns_its_change_and_updates_body() {
 
 #[test]
 fn test_revise_body_carries_anchor() {
-    use quillmark_content::lines::model::{Mark, MarkKind};
+    use quillmark_content::model::Anchor;
 
-    let mut base = quillmark_content::lines::import::from_markdown("keep the target word")
+    let mut base = quillmark_content::markdown::from_markdown("keep the target word")
         .unwrap()
-        .content
-        .into_content();
+        .content;
     // Anchor over "target" (chars 9..15).
-    base.marks
-        .push(Mark::new(9, 15, MarkKind::Anchor { id: "c1".into() }));
-    let base = base.into_lines();
+    base.anchors.push(Anchor::new("c1", 9, 15));
     let mut card = Card::new("note").unwrap();
     card.overwrite_body(base);
 
     let _ = card.revise_body("why keep the target word").unwrap();
     let anchor = card
-        .body_lines()
-        .marks
-        .iter()
-        .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
+        .body()
+        .anchor("c1")
         .expect("identity anchor survives the whole-document replace");
-    let text = &card.body_lines().text;
+    let text = &card.body().text;
     let s = quillmark_content::units::char_to_byte(text, anchor.start);
     let e = quillmark_content::units::char_to_byte(text, anchor.end);
     assert_eq!(&text[s..e], "target");
@@ -924,7 +903,7 @@ fn storage_dto_refuses_what_the_parser_refuses() {
 #[test]
 fn a_field_write_past_the_count_is_refused_at_the_write() {
     use crate::document::edit::{PayloadViolation, validate_payload};
-    use quillmark_content::lines::model::Lines;
+    use quillmark_content::model::Content;
 
     let max = crate::error::MAX_FIELD_COUNT;
     let names: Vec<String> = (0..max).map(|i| format!("f{i}")).collect();
@@ -953,7 +932,7 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
     );
     refused.push(
         doc.main_mut()
-            .overwrite_field("late", Lines::empty())
+            .overwrite_field("late", Content::empty())
             .unwrap_err(),
     );
     refused.push(
@@ -985,7 +964,7 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
 fn no_verb_on_a_placed_card_moves_it_between_roles() {
     use crate::document::CardMut;
     use crate::quill::{FieldSchema, FieldType};
-    use quillmark_content::lines::model::Lines;
+    use quillmark_content::model::Content;
 
     fn richtext() -> FieldSchema {
         FieldSchema::new(
@@ -1008,9 +987,9 @@ fn no_verb_on_a_placed_card_moves_it_between_roles() {
         ("remove_seed_overlay", |c| {
             c.remove_seed_overlay("note");
         }),
-        ("overwrite_body", |c| c.overwrite_body(Lines::empty())),
+        ("overwrite_body", |c| c.overwrite_body(Content::empty())),
         ("overwrite_field", |c| {
-            ignore(c.overwrite_field("f", Lines::empty()))
+            ignore(c.overwrite_field("f", Content::empty()))
         }),
         ("revise_body", |c| {
             ignore(c.revise(crate::document::Target::Body, "body", None))

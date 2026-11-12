@@ -349,14 +349,14 @@ pub enum FieldType {
     Date,
     DateTime,
     /// Formatted prose over the canonical content model,
-    /// [`Content`](quillmark_content::lines::model::Content); markdown is a projection of it.
+    /// [`Content`](quillmark_content::model::Content); markdown is a projection of it.
     RichText {
         /// Lifts the one-paragraph constraint (exactly one `Para` line, no
         /// container, no islands) to admit block structure. The constraint is
         /// enforced at coercion, validation, and load-time literal import.
         multiline: bool,
     },
-    /// The same [`Content`](quillmark_content::lines::model::Content) through a *literal*
+    /// The same [`Content`](quillmark_content::model::Content) through a *literal*
     /// codec ([`from_plaintext`](quillmark_content::markdown::from_plaintext) /
     /// [`to_plaintext`](quillmark_content::markdown::to_plaintext)): `*hi*` is four
     /// characters, never emphasis, a blank line a paragraph break and any other
@@ -1124,9 +1124,9 @@ impl FieldSchema {
         }
     }
 
-    /// The character count `max:` caps on a `text` or `richtext` value
-    /// ([`quillmark_content::lines::export::char_count`] of its plain text), read as
-    /// the render floor reads it: a bare scalar or a one-string array as its
+    /// The character count `max:` caps on a `text` or `richtext` value, the
+    /// Unicode scalar values of its plain text less trailing line breaks, read
+    /// as the render floor reads it: a bare scalar or a one-string array as its
     /// text, and a one-line `text` less its trailing whitespace. `None` for any
     /// other type, or a value the floor cannot read as text.
     pub(crate) fn char_count(&self, value: &serde_json::Value) -> Option<usize> {
@@ -1144,7 +1144,7 @@ impl FieldSchema {
             FieldType::Text { multiline: false } => text.trim_end(),
             _ => text.as_str(),
         };
-        Some(quillmark_content::lines::export::char_count(text))
+        Some(text.trim_end_matches(['\n', '\r']).chars().count())
     }
 }
 

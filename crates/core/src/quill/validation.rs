@@ -965,7 +965,7 @@ main:
         let mut p = Payload::from_index_map(payload);
         p.set_quill("test_quill".parse().unwrap());
         p.set_kind("main");
-        let main = Card::from_parts(p, quillmark_content::lines::model::Lines::empty());
+        let main = Card::from_parts(p, quillmark_content::model::Content::empty());
         Document::from_main_and_cards(main, cards)
     }
 

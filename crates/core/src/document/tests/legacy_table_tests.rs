@@ -34,7 +34,9 @@ fn saved_by_0_130() -> Value {
         parse("~~~card-yaml\n$quill: q@1.0\n$kind: main\nsummary: x\n~~~\n\n| h |\n|---|\n| c |\n");
     let mut row = serde_json::to_value(&doc).expect("the document serializes");
     row["schema"] = json!(STORAGE_V0_129_0);
-    let mut body = quillmark_content::lines::serial::to_canonical_value(doc.main().body_lines());
+    let mut body = quillmark_content::lines::serial::to_canonical_value(
+        &quillmark_content::migrate::to_lines(doc.main().body()),
+    );
     body["islands"][0]["props"]["headless"] = json!(true);
     let body = sorted(body);
     *summary(&mut row) = body.clone();

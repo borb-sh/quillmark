@@ -1993,7 +1993,7 @@ impl Addr {
 #[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Imported")]
 pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
     let imported = quillmark_content::markdown::from_markdown(markdown).map_err(|e| match e {
-        quillmark_content::lines::import::ImportError::TooLarge { .. } => WasmError {
+        quillmark_content::markdown::ImportError::TooLarge { .. } => WasmError {
             diagnostics: vec![quillmark_core::document::EditError::import(e).to_diagnostic(None)],
         }
         .to_js_value(),

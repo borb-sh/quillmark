@@ -3185,7 +3185,7 @@ fn populate_card_content(card: &mut CardSchema, label: &str, errors: &mut Vec<Di
     let Some(example) = card.body.as_ref().and_then(|b| b.example.as_deref()) else {
         return;
     };
-    let reason = match quillmark_content::lines::import::from_markdown(example) {
+    let reason = match quillmark_content::markdown::from_markdown(example) {
         Err(e) => e.to_string(),
         Ok(imported) => match imported.warnings.first() {
             None => return,

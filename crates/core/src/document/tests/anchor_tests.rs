@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use quillmark_content::lines::model::{Lines, MarkKind};
+use quillmark_content::model::{Anchor, Content};
 use serde_json::{Value as JsonValue, json};
 
 use crate::document::{AnchorSelector, Card, Codec, Document};
@@ -18,17 +18,14 @@ const SOURCE: &str = "~~~\n$quill: q\n~~~\n\nThe committee met on Monday to plan
 /// item of the note's `items` list.
 fn document() -> Document {
     let mut doc = parse(SOURCE);
-    let body = anchored(doc.main().body_lines(), "met on Monday", "m1");
+    let body = anchored(doc.main().body(), "met on Monday", "m1");
     doc.main_mut().overwrite_body(body);
     let mut note = doc.card_mut(0).unwrap();
-    let body = anchored(note.body_lines(), "orchard rows", "n1");
+    let body = anchored(note.body(), "orchard rows", "n1");
     note.overwrite_body(body);
-    let item = crate::document::import_body_lines("an item worth a flag").unwrap();
+    let item = crate::document::import_body("an item worth a flag").unwrap();
     let items = json!([
-        crate::document::stored_over(
-            None,
-            &crate::document::import_body_lines("a plain item").unwrap()
-        ),
+        crate::document::stored_over(None, &crate::document::import_body("a plain item").unwrap()),
         crate::document::stored_over(None, &anchored(&item, "worth a flag", "i1")),
     ]);
     doc.unchecked()
@@ -128,7 +125,7 @@ fn a_cold_reopen_recovers_the_body_anchors_from_their_selectors() {
         ["i1"],
         "the reopened list holds markdown, not content"
     );
-    assert_eq!(anchor_ids(reopened.main().body_lines()), ["m1"]);
+    assert_eq!(anchor_ids(reopened.main().body()), ["m1"]);
 }
 
 #[test]
@@ -157,14 +154,10 @@ fn a_path_naming_no_body_or_content_value_orphans_its_selector() {
 #[test]
 fn an_id_live_anywhere_is_answered_and_not_written() {
     let mut doc = document();
-    let table = crate::document::import_body_lines("Lead line.\n\n| a | b |\n|---|---|\n| 1 | 2 |")
-        .unwrap();
-    let mut table = table.into_content();
-    table.islands[0].props["rows"][0][0]["marks"] =
-        json!([{ "start": 0, "end": 1, "type": "anchor", "id": "cell1" }]);
-    doc.main_mut()
-        .overwrite_field("grid", Lines::from(table))
-        .unwrap();
+    let mut table =
+        crate::document::import_body("Lead line.\n\n| a | b |\n|---|---|\n| 1 | 2 |").unwrap();
+    anchor_cell(&mut table, "1", Anchor::new("cell1", 0, 1));
+    doc.main_mut().overwrite_field("grid", table).unwrap();
     let held = doc.clone();
 
     let cell = AnchorSelector::new(
@@ -189,7 +182,7 @@ fn an_id_live_anywhere_is_answered_and_not_written() {
 fn a_delta_binds_only_the_path_it_is_keyed_by() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nThe committee met on Monday to plan.\n");
     let body = anchored(
-        &anchored(doc.main().body_lines(), "met on Monday", "m1"),
+        &anchored(doc.main().body(), "met on Monday", "m1"),
         "to plan",
         "m2",
     );
@@ -216,7 +209,7 @@ fn a_delta_binds_only_the_path_it_is_keyed_by() {
     let elsewhere = HashMap::from([("cards.note[0].body".parse().unwrap(), revised.applied)]);
     let out = bare.reattach(&before, &elsewhere);
     assert_eq!(ids(&out.reattached), ["m1", "m2"]);
-    assert_eq!(anchor_ids(bare.main().body_lines()), ["m1", "m2"]);
+    assert_eq!(anchor_ids(bare.main().body()), ["m1", "m2"]);
 }
 
 #[test]
@@ -224,7 +217,7 @@ fn a_quote_found_again_in_inserted_text_is_placed_with_the_change() {
     let mut doc = parse(
         "~~~\n$quill: q\n~~~\n\nIntro.\n\nOver the fiscal year we approved the budget for roads.\n",
     );
-    let body = anchored(doc.main().body_lines(), "approved the budget", "c1");
+    let body = anchored(doc.main().body(), "approved the budget", "c1");
     doc.main_mut().overwrite_body(body);
     let before = doc.anchor_contexts();
     let rewritten = "Intro.\n\nEverything else changed: one two three four five six seven eight \
@@ -254,10 +247,9 @@ fn a_quote_found_again_in_inserted_text_is_placed_with_the_change() {
 /// the text it held.
 #[test]
 fn every_field_revise_names_the_anchor_it_drops() {
-    let base =
-        crate::document::import_body_lines("Keep this line.\n\nDrop this anchored line.").unwrap();
+    let base = crate::document::import_body("Keep this line.\n\nDrop this anchored line.").unwrap();
     let base = anchored(&base, "anchored", "c1");
-    let next = crate::document::import_body_lines("Keep this line.").unwrap();
+    let next = crate::document::import_body("Keep this line.").unwrap();
     let schema = FieldSchema::new(
         "f".to_string(),
         FieldType::RichText { multiline: true },
@@ -269,7 +261,7 @@ fn every_field_revise_names_the_anchor_it_drops() {
         card.overwrite_field("f", base.clone()).unwrap();
         card
     };
-    type Rung = fn(&mut Card, &Lines, &FieldSchema) -> crate::document::Receipt;
+    type Rung = fn(&mut Card, &Content, &FieldSchema) -> crate::document::Receipt;
     let rungs: [(&str, Rung); 5] = [
         ("revise_body", |c, _, _| {
             c.revise_body("Keep this line.").unwrap()
@@ -279,12 +271,10 @@ fn every_field_revise_names_the_anchor_it_drops() {
                 .unwrap()
         }),
         ("replace body", |c, n, _| {
-            let n = quillmark_content::migrate::from_lines(n);
-            c.replace(crate::document::Target::Body, &n, None).unwrap()
+            c.replace(crate::document::Target::Body, n, None).unwrap()
         }),
         ("replace field", |c, n, _| {
-            let n = quillmark_content::migrate::from_lines(n);
-            c.replace(crate::document::Target::Field("f"), &n, None)
+            c.replace(crate::document::Target::Field("f"), n, None)
                 .unwrap()
         }),
         ("revise_field_checked", |c, _, s| {
@@ -312,11 +302,7 @@ fn every_field_revise_names_the_anchor_it_drops() {
         .unwrap();
     assert!(kept.dropped_anchors.is_empty(), "{kept:?}");
     let read = card.field_content("f", Codec::Richtext).unwrap().unwrap();
-    assert!(
-        read.marks
-            .iter()
-            .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
-    );
+    assert!(read.holds_anchor("c1"));
 }
 
 /// A selector naming its card's `$id` finds the card wherever it moved, and
@@ -345,7 +331,7 @@ fn a_selector_resolves_its_card_by_id() {
     assert_eq!(reopened.cards()[1].id(), Some(id.as_str()));
     let out = reopened.reattach(&[n1.clone()], &HashMap::new());
     assert_eq!(out.reattached[0].path.to_string(), "cards.note[1].body");
-    assert_eq!(anchor_ids(reopened.cards()[1].body_lines()), ["n1"]);
+    assert_eq!(anchor_ids(reopened.cards()[1].body()), ["n1"]);
 
     let gone = AnchorSelector {
         card_id: Some("nobody".into()),
@@ -361,14 +347,22 @@ fn a_selector_resolves_its_card_by_id() {
     }
 }
 
-fn table_body(cell_id: &str) -> Lines {
-    let table =
-        crate::document::import_body_lines("Lead line.\n\n| a | b |\n|---|---|\n| one cell | 2 |")
+fn table_body(cell_id: &str) -> Content {
+    let mut table =
+        crate::document::import_body("Lead line.\n\n| a | b |\n|---|---|\n| one cell | 2 |")
             .unwrap();
-    let mut table = table.into_content();
-    table.islands[0].props["rows"][0][0]["marks"] =
-        json!([{ "start": 4, "end": 8, "type": "anchor", "attrs": { "id": cell_id } }]);
-    Lines::from(table)
+    anchor_cell(&mut table, "one cell", Anchor::new(cell_id, 4, 8));
+    table
+}
+
+/// Places `anchor` in the cell of `table`'s first island reading `text`.
+fn anchor_cell(table: &mut Content, text: &str, anchor: Anchor) {
+    let cell = table.islands[0]
+        .slots
+        .values_mut()
+        .find(|slot| slot.text == text)
+        .expect("a cell reading the text");
+    cell.anchors.push(anchor);
 }
 
 #[test]
@@ -410,15 +404,20 @@ fn a_revise_names_a_cell_anchor_it_drops() {
     assert!(revised.dropped_anchors[0].slot.is_some());
 }
 
-/// The content model holds an anchor id once, so a line-form collision a
-/// cell takes part in keeps the text's holder.
+/// The content model holds an anchor id once, so a line-form row whose
+/// collision a cell takes part in loads keeping the text's holder.
 #[test]
 fn a_collision_a_cell_takes_part_in_keeps_the_first_holder() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nBody.\n");
-    doc.main_mut()
-        .overwrite_body(anchored(&table_body("t1"), "Lead", "t1"));
-    let stored = serde_json::to_string(&doc).unwrap();
-    let loaded: Document = serde_json::from_str(&stored).expect("the save loads");
+    doc.main_mut().overwrite_body(table_body("t1"));
+    let mut row = serde_json::to_value(&doc).unwrap();
+    row["schema"] = crate::document::STORAGE_V0_129_0.into();
+    let mut body = quillmark_content::lines::serial::to_canonical_value(
+        &quillmark_content::migrate::to_lines(doc.main().body()),
+    );
+    body["marks"] = json!([{ "start": 0, "end": 4, "type": "anchor", "id": "t1" }]);
+    row["main"]["body"] = body;
+    let loaded: Document = serde_json::from_value(row).expect("the row loads");
     assert_eq!(ids(&loaded.anchor_contexts()), ["t1"]);
     assert_eq!(loaded.anchor_context("t1").unwrap().quote, "Lead");
 }

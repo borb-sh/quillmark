@@ -38,8 +38,8 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::lines::import::ImportError;
-use quillmark_content::lines::model::{Container, Content, Lines, MarkKind};
+use quillmark_content::lines::model::Lines;
+use quillmark_content::markdown::ImportError;
 use quillmark_content::model::Content as ContentModel;
 
 use super::meta::validate_composable_kind;
@@ -320,9 +320,8 @@ pub enum PayloadItemV0_124_0 {
 ///   rejected at load rather than silently round-tripped.
 ///
 /// Both directions check because [`Lines`] is the canonical-form token and
-/// not a validity one: `validate` refuses only what `normalize` cannot repair,
-/// and `Card::overwrite_body` takes a caller's content on that token alone. A
-/// store that checked only on load would accept bytes it cannot read back.
+/// not a validity one: `validate` refuses only what `normalize` cannot repair.
+/// A store that checked only on load would accept bytes it cannot read back.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CanonicalContent(pub Lines);
 
@@ -694,11 +693,10 @@ fn fold_kindless(mut main: Card, cards: Vec<Card>) -> Result<Document, StorageEr
         let mut yaml = String::new();
         super::emit::emit_payload_items(&mut yaml, &payload);
         let code = code_block(&yaml).map_err(|e| malformed(&e))?;
-        let lowered = |c: &Card| quillmark_content::migrate::to_lines(c.body()).into_content();
-        let body = append_block(lowered(target), code);
-        let body = append_block(body, lowered(&card)).into_lines();
+        let body = append_block(target.body(), &code).map_err(|e| malformed(&e))?;
+        let body = append_block(&body, card.body()).map_err(|e| malformed(&e))?;
         body.validate().map_err(|e| malformed(&e))?;
-        target.set_body_lines(body);
+        target.set_body(body);
     }
     Ok(Document::from_main_and_cards(main, kept))
 }
@@ -706,99 +704,57 @@ fn fold_kindless(mut main: Card, cards: Vec<Card>) -> Result<Document, StorageEr
 /// `yaml` as one untagged code block, imported as markdown so its text is
 /// admitted as any body's is: a field value may hold a bidi control or a line
 /// separator that body text refuses.
-fn code_block(yaml: &str) -> Result<Content, ImportError> {
+fn code_block(yaml: &str) -> Result<quillmark_content::model::Content, ImportError> {
     if yaml.trim().is_empty() {
-        return Ok(Content::empty());
+        return Ok(quillmark_content::model::Content::empty());
     }
     let longest = yaml.split(|c| c != '`').map(str::len).max().unwrap_or(0);
     let fence = "`".repeat((longest + 1).max(3));
     let newline = if yaml.ends_with('\n') { "" } else { "\n" };
     super::import_body(&format!("{fence}\n{yaml}{newline}{fence}\n"))
-        .map(|c| quillmark_content::migrate::to_lines(&c).into_content())
 }
 
-/// `src` as the blocks following `dst`'s, each its own block: its top-level
-/// containers never continue `dst`'s last run. `src` lands as new content, so
-/// an island id `dst` already holds is minted anew past the highest `isl-{n}`
-/// either holds, and an anchor whose id `dst` already holds drops whole.
-fn append_block(mut dst: Content, mut src: Content) -> Content {
-    let void = |c: &Content| c.text.is_empty() && c.marks.is_empty() && c.islands.is_empty();
-    if void(&src) {
-        return dst;
+/// `src` as the blocks following `dst`'s, each its own block outside every
+/// container `dst` holds. `src` lands as new content under fresh ids, and an
+/// anchor whose id `dst` already holds drops whole.
+fn append_block(
+    dst: &quillmark_content::model::Content,
+    src: &quillmark_content::model::Content,
+) -> Result<quillmark_content::model::Content, quillmark_content::change::ApplyError> {
+    use quillmark_content::change::{AnchorStep, Step};
+    use quillmark_content::model::{Anchor, Content};
+
+    let void = |c: &Content| {
+        c.text.is_empty() && c.marks.is_empty() && c.anchors.is_empty() && c.islands.is_empty()
+    };
+    if void(src) {
+        return Ok(dst.clone());
     }
-    if void(&dst) {
-        return src;
+    let held: HashSet<String> = dst.anchor_ids().into_iter().collect();
+    fn unheld(c: &mut Content, held: &HashSet<String>) {
+        c.anchors.retain(|a| !held.contains(&a.id));
+        for island in &mut c.islands {
+            island
+                .slots
+                .values_mut()
+                .for_each(|slot| unheld(slot, held));
+        }
+    }
+    let mut src = src.clone();
+    unheld(&mut src, &held);
+    if void(dst) {
+        return Ok(src);
     }
     let offset = dst.len_scalars() + 1;
-
-    let held: HashSet<&str> = dst.islands.iter().map(|i| i.id.as_str()).collect();
-    let taken: HashSet<String> = dst
-        .islands
-        .iter()
-        .chain(&src.islands)
-        .map(|i| i.id.clone())
-        .collect();
-    // `u128` counts past `isl-{u64::MAX}`; `taken` steps over an id past that,
-    // which the count does not parse.
-    let mut next = dst
-        .islands
-        .iter()
-        .chain(&src.islands)
-        .filter_map(|i| i.id.strip_prefix("isl-")?.parse::<u64>().ok())
-        .max()
-        .map_or(0, |n| u128::from(n) + 1);
-    for island in &mut src.islands {
-        if held.contains(island.id.as_str()) {
-            while taken.contains(&format!("isl-{next}")) {
-                next += 1;
-            }
-            island.id = format!("isl-{next}");
-            next += 1;
-        }
-    }
-
-    let held: HashSet<&str> = dst
-        .marks
-        .iter()
-        .filter_map(|m| match &m.kind {
-            MarkKind::Anchor { id } => Some(id.as_str()),
-            _ => None,
+    let mut change = quillmark_content::blocks::append(dst, &src);
+    change.steps.extend(src.anchors.iter().map(|a| {
+        Step::Anchor(AnchorStep::Place {
+            anchor: Anchor::new(a.id.clone(), a.start + offset, a.end + offset),
+            quote: None,
         })
-        .collect();
-    src.marks
-        .retain(|m| !matches!(&m.kind, MarkKind::Anchor { id } if held.contains(id.as_str())));
-
-    // A run opens where the stored `instance` changes, so lifting every
-    // top-level instance past `dst`'s keeps `src`'s runs its own.
-    let lift = dst
-        .lines
-        .iter()
-        .filter_map(|l| l.containers.first().map(Container::instance))
-        .max()
-        .map_or(0, |max| max + 1);
-    for line in &mut src.lines {
-        if let Some(top) = line.containers.first_mut() {
-            match top {
-                Container::ListItem { instance, .. } | Container::Quote { instance } => {
-                    *instance += lift;
-                }
-            }
-        }
-    }
-
-    if let Some(first) = src.lines.first_mut() {
-        first.continues = false;
-    }
-    dst.text.push('\n');
-    dst.text.push_str(&src.text);
-    dst.lines.append(&mut src.lines);
-    dst.marks.extend(src.marks.into_iter().map(|mut m| {
-        m.start += offset;
-        m.end += offset;
-        m
     }));
-    dst.islands.append(&mut src.islands);
-    dst
+    let filled = quillmark_content::mint::fill(&change, &[dst])?;
+    Ok(quillmark_content::change::apply(dst, &filled.change)?.content)
 }
 
 impl TryFrom<CardV0_134_0> for Card {
@@ -1036,18 +992,22 @@ This body and the metadata above are an indorsement card.
         .document
     }
 
-    /// `overwrite_body` takes a caller's content on the canonical-form token
-    /// alone, so an invalid shape reaches the DTO.
+    /// `overwrite_body` takes a caller's content unchecked, so an invalid
+    /// shape reaches the DTO.
     #[test]
     fn an_unreadable_body_is_refused_on_write() {
-        use quillmark_content::lines::model::{Container, Content, Line, LineKind};
+        use quillmark_content::model::{Container, ContainerKind, Content};
 
         let mut doc = sample();
-        let mut line = Line::new(LineKind::Para);
-        line.containers =
-            vec![Container::Quote { instance: 0 }; quillmark_content::MAX_NESTING_DEPTH + 1];
-        doc.main_mut()
-            .overwrite_body(Content::new("x".to_string(), vec![line]));
+        let mut body = Content::empty();
+        body.text = "x".to_string();
+        for n in 0..=quillmark_content::MAX_NESTING_DEPTH {
+            let id = format!("q{n}");
+            body.containers
+                .push(Container::new(id.clone(), ContainerKind::Quote));
+            body.blocks[0].path.push(id);
+        }
+        doc.main_mut().overwrite_body(body);
         let err = serde_json::to_string(&doc).expect_err("write refuses what load would reject");
         assert!(err.to_string().contains("nests 13 deep"), "{err}");
     }
@@ -1056,7 +1016,7 @@ This body and the metadata above are an indorsement card.
     fn content_field_survives_storage_round_trip_losslessly() {
         // The storage DTO is the lossless carrier: an `underline` with no
         // markdown form survives here where a markdown save would drop it.
-        use quillmark_content::lines::model::MarkKind;
+        use quillmark_content::model::MarkKind;
 
         let mut doc = sample();
         let mut content = quillmark_content::markdown::from_markdown("underlined intro")
@@ -1213,7 +1173,7 @@ This body and the metadata above are an indorsement card.
             "text": "a",
         });
         let doc: Document = serde_json::from_value(row.into()).unwrap();
-        assert!(doc.main().body_lines().lines[0].containers.is_empty());
+        assert!(doc.main().body().blocks[0].path.is_empty());
         let rewritten = serde_json::to_string(&doc).unwrap();
         assert_eq!(
             peek_storage_version(&rewritten).as_deref(),
@@ -1354,11 +1314,11 @@ title: Hi
             )
         };
 
-        let content = quillmark_content::lines::import::from_markdown(
-            "see ![a](u.png)\n\n| h |\n|---|\n| c |",
-        )
-        .expect("content")
-        .content;
+        let content = quillmark_content::migrate::to_lines(
+            &quillmark_content::markdown::from_markdown("see ![a](u.png)\n\n| h |\n|---|\n| c |")
+                .expect("content")
+                .content,
+        );
         let canonical = serde_json::to_string(
             &quillmark_content::lines::serial::to_canonical_value(&content),
         )
@@ -1441,7 +1401,7 @@ title: Hi
                 value: QuillValue::from_json(serde_json::json!("server")),
             },
         ]);
-        let body = super::super::import_body_lines("Conclusion. ![c](c.png)").unwrap();
+        let body = super::super::import_body("Conclusion. ![c](c.png)").unwrap();
         let kindless = Card::from_parts(kindless, body);
         let stored = Document {
             main: parsed.main().clone(),
@@ -1465,22 +1425,21 @@ title: Hi
             restored.main().body_markdown(),
             "Intro. ![a](a.png)\n\n```\n# note\nname: server\n```\n\nConclusion. ![c](c.png)"
         );
-        let main = restored.main().body_lines();
+        let main = restored.main().body();
         let islands: Vec<&str> = main.islands.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(islands, ["isl-1", "isl-2"]);
         let anchors: Vec<(String, String)> = main
-            .marks
+            .anchors
             .iter()
-            .map(|m| match &m.kind {
-                MarkKind::Anchor { id } => (
-                    id.clone(),
+            .map(|a| {
+                (
+                    a.id.clone(),
                     main.text
                         .chars()
-                        .skip(m.start)
-                        .take(m.end - m.start)
+                        .skip(a.start)
+                        .take(a.end - a.start)
                         .collect(),
-                ),
-                other => panic!("{other:?}"),
+                )
             })
             .collect();
         let expected = [("c1", "Intro"), ("c2", "Conclusion")];
@@ -1488,27 +1447,7 @@ title: Hi
             anchors,
             expected.map(|(i, t)| (i.to_string(), t.to_string()))
         );
-        assert_eq!(restored.cards()[0].body_lines().marks.len(), 1);
-    }
-
-    /// The id past `isl-{u64::MAX}` is `isl-{u64::MAX + 1}`, and one either body
-    /// holds is stepped over.
-    #[test]
-    fn a_folded_island_id_past_u64_max_is_fresh() {
-        let body = |ids: &[&str]| {
-            let md = vec!["![a](a.png)"; ids.len()].join("\n\n");
-            let mut content = super::super::import_body_lines(&md).unwrap().into_content();
-            for (island, id) in content.islands.iter_mut().zip(ids) {
-                island.id = id.to_string();
-            }
-            content
-        };
-        let isl = |n: u128| format!("isl-{n}");
-        let max = u128::from(u64::MAX);
-        let folded = append_block(body(&[&isl(max)]), body(&[&isl(max), &isl(max + 1)]));
-        let ids: Vec<&str> = folded.islands.iter().map(|i| i.id.as_str()).collect();
-        assert_eq!(ids, [isl(max), isl(max + 2), isl(max + 1)]);
-        folded.validate().unwrap();
+        assert_eq!(restored.cards()[0].body().anchors.len(), 1);
     }
 
     /// A fold loads whatever the stored card holds, keeps the blocks on either
@@ -1532,7 +1471,7 @@ title: Hi
                 .collect();
             let card = Card::from_parts(
                 Payload::from_items(items),
-                super::super::import_body_lines(body_md).unwrap(),
+                super::super::import_body(body_md).unwrap(),
             );
             let json = serde_json::to_value(&Document {
                 main,
@@ -1542,8 +1481,14 @@ title: Hi
             let restored: Document = serde_json::from_value(json).unwrap_or_else(|e| panic!("{e}"));
             let again = Document::parse(&restored.to_markdown()).unwrap().document;
             assert_eq!(again.to_markdown(), restored.to_markdown());
-            assert_eq!(again.main().body_lines(), restored.main().body_lines());
-            restored.main().body_lines().clone()
+            assert_eq!(
+                &quillmark_content::diff::align(
+                    restored.main().body(),
+                    again.main().body().clone()
+                ),
+                restored.main().body()
+            );
+            restored.main().body().clone()
         };
 
         let body = fold(
@@ -1558,11 +1503,9 @@ title: Hi
 
         for (above, below) in [("> a", "> b"), ("1. a", "1. b"), ("- a", "- b")] {
             let body = fold(above, serde_json::json!({}), below);
-            let top =
-                |line: &quillmark_content::lines::model::Line| line.containers.first().cloned();
             assert_ne!(
-                top(&body.lines[0]),
-                top(body.lines.last().unwrap()),
+                body.blocks[0].path.first(),
+                body.blocks.last().unwrap().path.first(),
                 "{above:?}: {body:?}"
             );
         }
@@ -1649,11 +1592,13 @@ title: Hi
     fn v1_row(doc: &Document, schema: &str) -> serde_json::Value {
         let mut row = serde_json::to_value(doc).unwrap();
         row["schema"] = schema.into();
-        row["main"]["body"] =
-            quillmark_content::lines::serial::to_canonical_value(doc.main().body_lines());
+        row["main"]["body"] = quillmark_content::lines::serial::to_canonical_value(
+            &quillmark_content::migrate::to_lines(doc.main().body()),
+        );
         for (n, card) in doc.cards().iter().enumerate() {
-            row["cards"][n]["body"] =
-                quillmark_content::lines::serial::to_canonical_value(card.body_lines());
+            row["cards"][n]["body"] = quillmark_content::lines::serial::to_canonical_value(
+                &quillmark_content::migrate::to_lines(card.body()),
+            );
         }
         row
     }
@@ -1859,7 +1804,9 @@ title: Hi
     #[test]
     fn an_older_row_migrates_its_body_and_saves_under_the_newest_tag() {
         let intro = quillmark_content::lines::serial::to_canonical_value(
-            &super::super::import_body_lines("**hi** there").unwrap(),
+            &quillmark_content::migrate::to_lines(
+                &super::super::import_body("**hi** there").unwrap(),
+            ),
         );
         for schema in [
             STORAGE_V0_135_0,
@@ -1904,7 +1851,9 @@ title: Hi
     #[test]
     fn a_line_form_field_or_seed_value_migrates_and_warns() {
         let intro = quillmark_content::lines::serial::to_canonical_value(
-            &super::super::import_body_lines("**hi** there").unwrap(),
+            &quillmark_content::migrate::to_lines(
+                &super::super::import_body("**hi** there").unwrap(),
+            ),
         );
         for schema in [
             STORAGE_V0_135_0,

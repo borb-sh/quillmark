@@ -91,7 +91,7 @@ fn the_example_document_commits_every_declared_example() {
         json!({ "value": "CUI", "poc": "J. Doe" })
     );
     assert_eq!(
-        quillmark_content::lines::export::to_markdown(main.body_lines()),
+        quillmark_content::markdown::to_markdown(main.body()),
         "Filled-in *prose*."
     );
 

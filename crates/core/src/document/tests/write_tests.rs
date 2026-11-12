@@ -172,7 +172,7 @@ fn a_write_lands_on_the_card_its_writer_read() {
         |doc| {
             let mut card = Card::new("note").unwrap();
             card.overwrite_body(
-                quillmark_content::lines::import::from_markdown("Hello")
+                quillmark_content::markdown::from_markdown("Hello")
                     .unwrap()
                     .content,
             );
