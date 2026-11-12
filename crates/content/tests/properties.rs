@@ -1,10 +1,8 @@
 //! The content property suite: the exact round-trip
-//! (`import(export(rt)) == rt`), canonical serialization, diff-import
-//! preserving the marks markdown cannot carry, and the JSON doors refusing
+//! (`import(export(rt)) == rt`), canonical serialization, and the JSON doors refusing
 //! rather than panicking on what a caller hands them.
 
 use proptest::prelude::*;
-use quillmark_content::lines::delta::diff_import;
 use quillmark_content::lines::export::{to_markdown, to_markdown_annotated};
 use quillmark_content::lines::import::from_markdown;
 use quillmark_content::lines::model::{Content, Island, Line, LineKind, Lines, Mark, MarkKind};
@@ -514,30 +512,9 @@ proptest! {
         );
     }
 
-    /// Property 3: an anchor over surviving text is carried forward.
-    #[test]
-    fn diff_import_preserves_surviving_anchor(a in "[a-z]{3,8}", b in "[a-z]{3,8}") {
-        let base_md = format!("keep {a} here");
-        let mut base = from_markdown(&base_md).unwrap().content.into_content();
-        let start = 5;
-        let end = 5 + a.chars().count();
-        prop_assert_eq!(&base.text[start..end], a.as_str());
-        base.marks.push(Mark::new(start, end, MarkKind::Anchor { id: "c1".into() }));
-        let base = base.into_lines();
-
-        let new_md = format!("{b} keep {a} here");
-        let (new_rt, _delta, _) = diff_import(&base, &new_md).unwrap();
-        let anchor = new_rt.marks.iter()
-            .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"));
-        prop_assert!(anchor.is_some(), "anchor lost across surviving edit");
-        let anchor = anchor.unwrap();
-        prop_assert_eq!(&new_rt.text[anchor.start..anchor.end], a.as_str());
-    }
-
     /// The annotated read of an imported content spells no island token,
-    /// imports as the plain projection does, lists every prose anchor once,
-    /// in `(start, id)` order, and revises its content to itself, or names
-    /// the mark its markdown cannot write.
+    /// imports as the plain projection does, and lists every prose anchor
+    /// once, in `(start, id)` order.
     #[test]
     fn the_annotated_read_imports_as_the_plain_one(
         md in prop_oneof![document(), delimiter_run()],
@@ -570,22 +547,6 @@ proptest! {
         let got: Vec<&str> = read.anchors.iter().map(|a| a.id.as_str()).collect();
         prop_assert_eq!(got, want.into_iter().map(|(_, id)| id).collect::<Vec<_>>());
 
-        let (revised, _, warnings) = diff_import(&rt, &read.markdown).unwrap();
-        prop_assert!(warnings.is_empty(), "{:?}", warnings);
-        // An imported mark markdown cannot write back, a strike over escaped
-        // punctuation a letter follows, is a named loss, not a silent one; the
-        // text and the islands always come home.
-        let losses = quillmark_content::markdown::to_markdown_checked(&quillmark_content::migrate::from_lines(&rt)).losses;
-        if losses.is_empty() {
-            prop_assert_eq!(&revised, &rt, "the read does not revise to itself: {:?}", read.markdown);
-        } else {
-            prop_assert!(
-                losses.iter().all(|l| matches!(l, quillmark_content::markdown::Loss::Mark { .. })),
-                "the read loses more than marks: {:?} in {:?}", losses, read.markdown
-            );
-            prop_assert_eq!(&revised.text, &rt.text, "the read does not revise its text to itself: {:?}", read.markdown);
-            prop_assert_eq!(&revised.islands, &rt.islands, "the read does not revise its islands to itself: {:?}", read.markdown);
-        }
     }
 
 }

@@ -695,8 +695,7 @@ pub enum Invariant {
     /// stable across renumbers.
     IslandIdCollision { id: String },
     /// Two prose anchors share an `id`, or one carries the empty id. Scope is
-    /// prose marks: a collision a cell takes part in loads, and
-    /// [`Content::anchor_sites`] lists each holder.
+    /// prose marks: a collision a cell takes part in loads.
     AnchorIdCollision { id: String },
     /// A line's container path is nested deeper than
     /// [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH). The Typst emitter
@@ -975,7 +974,7 @@ impl Content {
     /// reaches it, and the mint never moves text. A point mark right after the
     /// slot moves onto the line after it.
     pub(crate) fn split_block_islands(&mut self) {
-        use crate::lines::delta::{Assoc, Delta, Op};
+        use crate::delta::{Assoc, Delta, Op};
 
         if !self.islands.iter().any(|i| i.island_type.block_only())
             || self.lines.len() != self.segment_count()
