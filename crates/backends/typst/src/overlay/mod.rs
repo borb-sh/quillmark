@@ -3,9 +3,7 @@
 //! here so the spine never imports `typst_layout`.
 
 use quillmark_core::error::RenderError;
-use quillmark_core::quill::{
-    FieldSchema, FieldType as SchemaType, QuillConfig, VARIANT_DISCRIMINANT_KEY,
-};
+use quillmark_core::quill::QuillConfig;
 use quillmark_pdf::{FieldSpec, FieldType, FormFont, TextAlign};
 use typst_layout::PagedDocument;
 
@@ -88,36 +86,21 @@ pub(crate) fn build_field_specs(
         .collect()
 }
 
-/// The `description` declared at a schema address, walked the way the
-/// helper's `_qm-node` admits it: a card address resolves through its kind,
-/// `$body` to the card's body, and a variant container's discriminant to the
-/// container itself. The helper has already rejected an unknown address, so a
-/// step that fails here just yields no description.
+/// The `description` declared at a schema address: a `$body` address the
+/// body's, any other the field [`QuillConfig::field_at`] resolves it to, the
+/// resolver acroform binds by, so one address announces one tooltip on either
+/// backend. The helper has already rejected an unknown address.
 fn description_at<'a>(config: &'a QuillConfig, path: &str) -> Option<&'a str> {
-    let mut parts = path.split('.');
-    let root = parts.next()?;
-    let (card, head) = if root == "$cards" {
-        let card = config.card_kind(parts.next()?)?;
-        parts.next()?;
-        (card, parts.next()?)
-    } else {
-        (&config.main, root)
-    };
-    if head == "$body" {
-        return card.body.as_ref()?.description.as_deref();
-    }
-    let mut cur: &FieldSchema = card.fields.get(head)?;
-    for seg in parts {
-        if cur.is_variant_bearing() && seg == VARIANT_DISCRIMINANT_KEY {
-            break;
+    let card = match path.strip_suffix("$body") {
+        Some("") => &config.main,
+        Some(prefix) => {
+            let mut parts = prefix.trim_end_matches('.').split('.');
+            match (parts.next(), parts.next()) {
+                (Some("$cards"), Some(kind)) => config.card_kind(kind)?,
+                _ => return None,
+            }
         }
-        cur = match (&cur.r#type, seg.parse::<usize>()) {
-            (SchemaType::Array, Ok(_)) => cur.items.as_deref()?,
-            (SchemaType::Object, Err(_)) => cur.namespace_props()?.get(seg)?,
-            (SchemaType::Matrix { .. }, Err(_)) => cur.matrix_member_at(seg)?,
-            (_, Err(_)) if cur.is_variant_bearing() => cur.variant_field(seg)?,
-            _ => return None,
-        };
-    }
-    cur.description.as_deref()
+        None => return config.field_at(path).ok()?.description.as_deref(),
+    };
+    card.body.as_ref()?.description.as_deref()
 }

@@ -286,80 +286,22 @@ fn flip_rect(r: Rect, canvas_box: [f32; 4]) -> [f32; 4] {
     [left + r.x, top - (r.y + r.h), left + r.x + r.w, top - r.y]
 }
 
-/// Resolve a `schema_field` path to the leaf [`FieldSchema`] it addresses.
-///
-/// The root segment resolves in `main.fields`, or is the reserved `$cards`:
-/// `$cards.<kind>.<i>.<field>…` addresses a card field. An absolute index
-/// (`$cards.<i>.…`) is rejected — only the kind names which schema field the
-/// slot binds, and the widget's kind must be derivable at load.
-///
-/// A variant container is addressed through its resting shape rather than as a
-/// whole: `classification.value` is the discriminant and `classification.<cell>`
-/// a variant field, active world or not, since a form binds against the schema
-/// once and the document selects its world later. The container itself resolves
-/// but binds nothing — its value is the container object, which no widget
-/// coerces — so a plate wanting the level binds `.value`.
+/// Resolve a `schema_field` path to the leaf [`FieldSchema`] it addresses,
+/// through [`QuillConfig::field_at`]. The container of a variant resolves but
+/// binds nothing, since its value is the container object, which no widget
+/// coerces; a plate wanting the level binds `.value`.
 pub fn bind<'a>(
     config: &'a QuillConfig,
     name: &str,
     path: &str,
 ) -> Result<&'a FieldSchema, BindError> {
-    let dangling = |segment: &str| BindError::Dangling {
-        name: name.to_string(),
-        path: path.to_string(),
-        segment: segment.to_string(),
-    };
-
-    let mut parts = path.split('.');
-    let root = parts.next().unwrap_or("");
-
-    let mut cur: &FieldSchema = if root == "$cards" {
-        let kind = parts.next().ok_or_else(|| dangling(root))?;
-        let card = config.card_kind(kind).ok_or_else(|| dangling(kind))?;
-        let idx = parts.next().ok_or_else(|| dangling(kind))?;
-        // All instances of a kind share one schema, so the index is validated
-        // but does not descend.
-        idx.parse::<usize>().map_err(|_| dangling(idx))?;
-        let card_field = parts.next().ok_or_else(|| dangling(idx))?;
-        card.fields
-            .get(card_field)
-            .ok_or_else(|| dangling(card_field))?
-    } else {
-        config.main.fields.get(root).ok_or_else(|| dangling(root))?
-    };
-
-    let mut member = false;
-    for seg in parts.by_ref() {
-        // The discriminant is the container's own enum, so the step selects a
-        // value rather than a child schema: the walk stops on it, and the
-        // trailing check below rejects anything that follows.
-        if cur.is_variant_bearing() && seg == VARIANT_DISCRIMINANT_KEY {
-            break;
-        }
-        member = matches!(cur.r#type, SchemaType::Matrix { .. });
-        cur = descend(cur, seg).ok_or_else(|| dangling(seg))?;
-    }
-    match parts.next() {
-        Some(seg) => Err(dangling(seg)),
-        // A matrix member's own address is its tick, the presence a checkbox
-        // shows; its columns bind one step further down.
-        None if member => Ok(FieldSchema::matrix_tick()),
-        None => Ok(cur),
-    }
-}
-
-fn descend<'a>(cur: &'a FieldSchema, seg: &str) -> Option<&'a FieldSchema> {
-    match seg.parse::<usize>() {
-        Ok(_) => match cur.r#type {
-            SchemaType::Array => cur.items.as_deref(),
-            _ => None,
-        },
-        Err(_) => match cur.r#type {
-            SchemaType::Object => cur.namespace_props()?.get(seg).map(Box::as_ref),
-            SchemaType::Matrix { .. } => cur.matrix_member_at(seg),
-            _ => cur.variant_field(seg),
-        },
-    }
+    config
+        .field_at(path)
+        .map_err(|segment| BindError::Dangling {
+            name: name.to_string(),
+            path: path.to_string(),
+            segment: segment.to_string(),
+        })
 }
 
 /// Project a resolved [`FieldSchema`] to its widget kind: an `enum` is a

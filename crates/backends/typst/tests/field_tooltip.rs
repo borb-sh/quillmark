@@ -24,6 +24,12 @@ const SCHEMA: &str = r#"main:
           poc:
             type: text
             description: CUI point of contact
+    quals:
+      type: matrix
+      description: Qualifications held
+      members: { dco: DCO }
+      properties:
+        detail: { type: text, description: Qualification detail }
 card_kinds:
   endorsement:
     fields:
@@ -48,6 +54,10 @@ const PLATE: &str = r#"
 #qm.form-field("Cell", field: "classification.poc")
 
 #qm.form-field("Level", field: "classification.value")
+
+#qm.form-field("Member", field: "quals.dco")
+
+#qm.form-field("Column", field: "quals.dco.detail")
 
 #for card in qm.data.at("$cards") {
   qm.form-field("Office", field: card.at("$path") + "office")
@@ -90,6 +100,9 @@ fn tooltip_overrides_the_description_it_otherwise_inherits() {
     assert_eq!(tooltip("Undescribed"), None);
     assert_eq!(tooltip("Cell").as_deref(), Some("CUI point of contact"));
     assert_eq!(tooltip("Level").as_deref(), Some("Banner marking"));
+    // A matrix member's own address is its tick, which declares no description.
+    assert_eq!(tooltip("Member"), None);
+    assert_eq!(tooltip("Column").as_deref(), Some("Qualification detail"));
     assert_eq!(
         tooltip("Office").as_deref(),
         Some("Endorsing office symbol")

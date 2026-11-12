@@ -1,4 +1,5 @@
-//! One schema address grammar, two implementations: acroform's `bind` walks the
+//! One schema address grammar, two implementations: `QuillConfig::field_at`,
+//! which acroform's `bind` and the Typst widget tooltip resolve through, walks the
 //! `QuillConfig`, and the Typst helper's `_qm-known-path` walks the address tree
 //! `SchemaMeta` derives from the transform schema. `prose/INVARIANTS.md` promises a
 //! plate author that one address binds on either backend, and `GRAMMAR` is what
