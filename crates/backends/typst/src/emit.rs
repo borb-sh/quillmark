@@ -879,10 +879,10 @@ struct Wrap {
 
 /// Clip wrapping marks out of atomic `#raw(...)` interiors and drop any a span
 /// swallowed whole, via the shared
-/// [`clip_range_to_atomic`](quillmark_content::lines::export::clip_range_to_atomic).
+/// [`clip_range_to_atomic`](quillmark_content::view::clip_range_to_atomic).
 fn clip_wraps_to_codes(wraps: &mut Vec<Wrap>, codes: &[(usize, usize)]) {
     for w in wraps.iter_mut() {
-        quillmark_content::lines::export::clip_range_to_atomic(&mut w.start, &mut w.end, codes);
+        quillmark_content::view::clip_range_to_atomic(&mut w.start, &mut w.end, codes);
     }
     wraps.retain(|w| w.start < w.end);
 }
@@ -1388,30 +1388,31 @@ fn table_markup(isl: &Island) -> String {
 
 #[cfg(test)]
 mod tests {
-    use quillmark_content::lines::model::{Content, Island, LineKind, Mark, MarkKind};
+    use quillmark_content::model::{Block, BlockKind, Content, Island, Mark, MarkKind};
 
-    /// [`table_markup`] of a table its line-form `props` spell.
-    fn table_of(props: &serde_json::Value) -> String {
-        let rt = Content::new(
-            "\u{FFFC}".into(),
-            vec![quillmark_content::lines::model::Line::new(LineKind::Para)],
-        )
-        .with_islands(vec![
-            Island::new("isl-0".into(), IslandType::Table).with_props(props.clone()),
-        ])
-        .into_lines();
-        table_markup(&lift(&rt).islands[0])
+    /// [`table_markup`] of the table `md` spells.
+    fn table_of(md: &str) -> String {
+        table_markup(&from_markdown(md).expect("import").content.islands[0])
     }
 
-    /// A line-form value on the content model, as a stored one reads.
-    fn lift(rt: &Content) -> quillmark_content::model::Content {
-        quillmark_content::migrate::from_lines(rt)
+    /// `text` as paragraphs, one per `\n`, under `marks` and holding `islands`,
+    /// as written: no import and no normalize reads it first.
+    fn paras(text: &str, marks: Vec<Mark>, islands: Vec<Island>) -> Content {
+        Content {
+            text: text.to_string(),
+            blocks: (0..text.split('\n').count())
+                .map(|n| Block::new(format!("b{n}"), BlockKind::Para))
+                .collect(),
+            marks,
+            islands,
+            ..Content::empty()
+        }
     }
 
     mod properties;
 
     use super::*;
-    use quillmark_content::lines::import::from_markdown;
+    use quillmark_content::markdown::from_markdown;
     use typst::syntax::SyntaxKind;
 
     fn emit(md: &str) -> Emission {
@@ -1590,9 +1591,9 @@ mod tests {
     fn inline_emits_no_block_terminator() {
         let rt = from_markdown("A **bold** subject").expect("import").content;
         assert!(rt.is_inline());
-        let inline = emit_content_inline(&lift(&rt)).expect("emit").markup;
+        let inline = emit_content_inline(&rt).expect("emit").markup;
         assert!(!inline.contains("\n\n"), "no parbreak in {inline:?}");
-        let block = emit_content(&lift(&rt)).expect("emit").markup;
+        let block = emit_content(&rt).expect("emit").markup;
         assert!(block.ends_with("\n\n"), "block path keeps its terminator");
     }
 
@@ -1602,8 +1603,8 @@ mod tests {
             let rt = from_markdown(md).expect("import").content;
             assert!(!rt.is_inline(), "{md:?} is not inline");
             assert_eq!(
-                emit_content_inline(&lift(&rt)).expect("emit").markup,
-                emit_content(&lift(&rt)).expect("emit").markup,
+                emit_content_inline(&rt).expect("emit").markup,
+                emit_content(&rt).expect("emit").markup,
                 "non-inline {md:?} must fall back to block lowering"
             );
         }
@@ -1683,17 +1684,18 @@ mod tests {
     /// from the clip.
     #[test]
     fn clipping_two_marks_together_nests_them_in_their_stored_order() {
-        use quillmark_content::lines::model::Line;
-        let rt = Content::new("abcdefghij".to_string(), vec![Line::new(LineKind::Para)])
-            .with_marks(vec![
+        let rt = paras(
+            "abcdefghij",
+            vec![
                 Mark::new(0, 3, MarkKind::Code),
                 Mark::new(1, 10, MarkKind::Link { url: "z".into() }),
                 Mark::new(3, 10, MarkKind::Strike),
-            ])
-            .into_lines();
+            ],
+            Vec::new(),
+        );
         assert_eq!(rt.validate(), Ok(()));
         assert_eq!(
-            emit_content(&lift(&rt)).unwrap().markup,
+            emit_content(&rt).unwrap().markup,
             "#raw(\"abc\")#link(\"z\")[#strike[defghij]]\n\n"
         );
     }
@@ -1873,17 +1875,19 @@ mod tests {
     /// U+2028 is the content's own hard break, and lowers as one.
     #[test]
     fn a_stray_newline_lowers_to_a_space_and_opens_no_block() {
-        use quillmark_content::lines::model::Line;
         let stray = |c: &char| *c != '\n' && *c != quillmark_content::model::HARD_BREAK;
         for c in ('\0'..=char::MAX).filter(|c| stray(c) && reads_as_newline(*c)) {
             let text = format!("{c}- item{c}{c}tail{c}= not a heading");
-            let rt = Content::new(text, vec![Line::new(LineKind::Para)]).into_lines();
+            let rt = Content {
+                text,
+                ..Content::empty()
+            };
             assert!(
                 rt.validate().is_err(),
                 "{c:?} passes the content invariants"
             );
 
-            let markup = emit_content(&lift(&rt)).unwrap().markup;
+            let markup = emit_content(&rt).unwrap().markup;
             assert_eq!(markup, "~- item  tail = not a heading\n\n", "for {c:?}");
             for k in resolve(&markup).1 {
                 assert!(ALLOWED_LEAVES.contains(&k), "{c:?} lowered to a {k:?} leaf");
@@ -1944,8 +1948,6 @@ mod tests {
     /// whatever the marks and islands.
     #[test]
     fn no_emission_forms_a_shorthand_or_a_comment() {
-        use quillmark_content::lines::model::{Island, Line};
-
         let mut cases: Vec<String> = sample_inputs().iter().map(|md| emit(md).markup).collect();
 
         let all = |t: &str, k| vec![Mark::new(0, t.chars().count(), k)];
@@ -1966,11 +1968,11 @@ mod tests {
         for ty in [IslandType::Image, IslandType::Ext("x-chart".into())] {
             for text in ["a/{}/b", "a-{}-b", "a-{}?b", "a-{}5b", "a.{}..b", "a..{}.b"] {
                 let text = text.replace("{}", &ISLAND_SLOT.to_string());
-                let rt = Content::new(text.clone(), vec![Line::new(LineKind::Para)])
-                    .with_islands(vec![Island::new("isl-0".into(), ty.clone())])
-                    .into_lines();
+                let island = Island::new("isl-0", ty.clone())
+                    .with_props(serde_json::json!({ "url": "u.png", "alt": "" }));
+                let rt = paras(&text, Vec::new(), vec![island]);
                 assert_eq!(rt.validate(), Ok(()), "content invariants for {text:?}");
-                let markup = emit_content(&lift(&rt)).unwrap().markup;
+                let markup = emit_content(&rt).unwrap().markup;
                 assert!(
                     !markup.contains(ISLAND_SLOT),
                     "the slot char reached the markup: {markup:?}"
@@ -2090,7 +2092,7 @@ mod tests {
     fn runs_map_content_to_generated_bytes() {
         for md in sample_inputs() {
             let rt = from_markdown(md).unwrap().content;
-            let ec = emit_content(&lift(&rt)).unwrap();
+            let ec = emit_content(&rt).unwrap();
             let chars: Vec<char> = rt.text.chars().collect();
             for seg in &ec.segments {
                 // Segment window is within the markup and non-decreasing.
@@ -2119,15 +2121,16 @@ mod tests {
     /// Free-overlapping marks are never produced by import, only by an editor.
     #[test]
     fn overlapping_marks_close_and_reopen() {
-        use quillmark_content::lines::model::{Line, Mark};
-        let rt =
-            Content::new("abcdef".to_string(), vec![Line::new(LineKind::Para)]).with_marks(vec![
+        let rt = paras(
+            "abcdef",
+            vec![
                 Mark::new(0, 4, MarkKind::Strong),
                 Mark::new(2, 6, MarkKind::Emph),
-            ]);
-        let rt = rt.into_lines();
+            ],
+            Vec::new(),
+        );
         assert_eq!(rt.validate(), Ok(()));
-        let out = emit_content(&lift(&rt)).unwrap().markup;
+        let out = emit_content(&rt).unwrap().markup;
         assert_eq!(out, "#strong[ab#emph[cd]]#emph[ef]\n\n");
         // Bracket-balanced regardless.
         assert_eq!(out.matches('[').count(), out.matches(']').count());
@@ -2135,11 +2138,9 @@ mod tests {
 
     /// Hand-placed `marks` reach the free-overlap shapes import never produces.
     fn emit_marked(text: &str, marks: Vec<Mark>) -> String {
-        use quillmark_content::lines::model::Line;
-        let rt = Content::new(text.to_string(), vec![Line::new(LineKind::Para)]).with_marks(marks);
-        let rt = rt.into_lines();
+        let rt = paras(text, marks, Vec::new());
         assert_eq!(rt.validate(), Ok(()), "content invariants");
-        emit_content(&lift(&rt)).unwrap().markup
+        emit_content(&rt).unwrap().markup
     }
 
     fn balanced(out: &str) -> bool {
@@ -2299,29 +2300,15 @@ mod tests {
     /// `columns: 0` fails to compile.
     #[test]
     fn table_columns_span_widest_row() {
-        let cell = |t: &str| serde_json::json!({ "text": t, "marks": [] });
-        let props = serde_json::json!({
-            "header": [ cell("H") ],
-            "rows": [ [ cell("a"), cell("b"), cell("c") ] ],
-        });
-        let out = table_of(&props);
+        let out = table_of("| H | | |\n|---|---|---|\n| a | b | c |");
         assert!(out.contains("columns: 3,"), "got {out:?}");
 
-        // Empty header, populated rows: still counts the rows.
-        let props = serde_json::json!({
-            "header": [],
-            "rows": [ [ cell("a"), cell("b") ] ],
-        });
-        let out = table_of(&props);
+        // No header row: still counts the rows.
+        let out = table_of("<table><tr><td>a</td><td>b</td></tr></table>");
         assert!(out.contains("columns: 2,"), "got {out:?}");
 
-        // `align` names every column, so a short `aligns` does not cycle.
-        let props = serde_json::json!({
-            "header": [ cell("H") ],
-            "aligns": [ "right" ],
-            "rows": [ [ cell("a"), cell("b"), cell("c") ] ],
-        });
-        let out = table_of(&props);
+        // `align` names every column, so one aligned column does not cycle.
+        let out = table_of("| H | | |\n|--:|---|---|\n| a | b | c |");
         assert!(out.contains("align: (right, auto, auto),"), "got {out:?}");
     }
 
@@ -2474,10 +2461,8 @@ mod tests {
 
         // Source-map integrity: every run's generated slice equals the escape of
         // its content, and the leading `\` is not inside any run.
-        use quillmark_content::lines::model::Line;
-        let rt = Content::new("= x".to_string(), vec![Line::new(LineKind::Para)]);
-        let rt = rt.into_lines();
-        let ec = emit_content(&lift(&rt)).unwrap();
+        let rt = paras("= x", Vec::new(), Vec::new());
+        let ec = emit_content(&rt).unwrap();
         let chars: Vec<char> = rt.text.chars().collect();
         for seg in &ec.segments {
             for (content, generated, ctx) in &seg.runs {

@@ -5,8 +5,8 @@
 //! The oracle is [`resolve`], shared with the fixed-sample tests beside it.
 
 use proptest::prelude::*;
-use quillmark_content::lines::export::to_plaintext;
-use quillmark_content::lines::import::from_plaintext;
+use quillmark_content::markdown::from_plaintext;
+use quillmark_content::view::plaintext as to_plaintext;
 use typst::syntax::{SyntaxKind, ast, ast::AstNode};
 
 use super::{ALLOWED_LEAVES, resolve};
