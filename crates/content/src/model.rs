@@ -643,7 +643,7 @@ pub fn is_text_char(c: char) -> bool {
 /// The Unicode bidi formatting controls, which sit adjacent to `**`/`_` and
 /// defeat delimiter recognition.
 #[inline]
-pub fn is_bidi_char(c: char) -> bool {
+pub(crate) fn is_bidi_char(c: char) -> bool {
     matches!(
         c,
         '\u{061C}' // ARABIC LETTER MARK (ALM)
@@ -684,7 +684,7 @@ pub fn is_line_separator(c: char) -> bool {
 /// Typst's own linebreak — so it cannot survive in the text. U+0000 is U+FFFD,
 /// as CommonMark replaces it.
 #[inline]
-pub fn admit_char(c: char) -> Option<char> {
+pub(crate) fn admit_char(c: char) -> Option<char> {
     match c {
         '\r' => None,
         '\0' => Some('\u{FFFD}'),
