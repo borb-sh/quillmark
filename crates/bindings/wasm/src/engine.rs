@@ -111,11 +111,14 @@ export interface QuillFieldSchema {
      *  document over the cap warns `validation::cardinality` or
      *  `validation::over_length` and renders. */
     max?: number;
-    /** The line shape of a `text` or `richtext` field, valid nowhere else.
-     *  Absent or `false`, the field is one line (`text`) or one paragraph with
-     *  no container or island (`richtext`); `true` admits line breaks
-     *  (`text`) or block structure (`richtext`). A `richtext` always carries
-     *  it. */
+    /** How much a `text` or `richtext` value holds, valid nowhere else.
+     *  Absent, the field is one line, with no break, container or island.
+     *  `"lines"` admits line breaks and paragraphs. `"blocks"`, on a
+     *  `richtext` only, admits lists, headings, quotes, code, rules and
+     *  tables too. */
+    shape?: "lines" | "blocks";
+    /** `true` beside every `shape`: the legacy spelling of "more than one
+     *  line". Read `shape`. */
     multiline?: boolean;
 }
 
@@ -1993,7 +1996,7 @@ impl Addr {
 #[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Imported")]
 pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
     let imported = quillmark_content::markdown::from_markdown(markdown).map_err(|e| match e {
-        quillmark_content::lines::import::ImportError::TooLarge { .. } => WasmError {
+        quillmark_content::markdown::ImportError::TooLarge { .. } => WasmError {
             diagnostics: vec![quillmark_core::document::EditError::import(e).to_diagnostic(None)],
         }
         .to_js_value(),

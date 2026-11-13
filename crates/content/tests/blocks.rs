@@ -1,7 +1,7 @@
 //! Block ops addressed by id: each keeps every id it does not name, and an id
 //! no block holds is refused.
 
-use quillmark_content::blocks::{BlockOp, batch, blocks, change};
+use quillmark_content::blocks::{BlockOp, append, batch, blocks, change};
 use quillmark_content::change::{ApplyError, apply};
 use quillmark_content::markdown::{from_markdown, to_markdown};
 use quillmark_content::mint::fill;
@@ -129,6 +129,16 @@ fn insert_after_an_item_lands_a_sibling_past_its_nested_blocks() {
         }],
     );
     assert!(to_markdown(&out).contains("- item d\n\n- x\n\n- y"));
+}
+
+#[test]
+fn append_lands_outside_the_list_the_last_block_sits_in() {
+    let c = md("- a\n- b");
+    let filled = fill(&append(&c, &md("- c")), &[&c]).unwrap();
+    let out = apply(&c, &filled.change).unwrap().content;
+    out.validate().unwrap();
+    assert_eq!(ids(&out)[..2], ids(&c));
+    assert_ne!(out.blocks[2].path[0], out.blocks[1].path[0]);
 }
 
 #[test]

@@ -41,6 +41,7 @@ A document checked against its quill's schema.
 - `validation::held_stored`
 - `validation::line_break_folded`
 - `validation::not_single_line`
+- `validation::not_lines`
 - `validation::not_plain`
 - `validation::out_of_variant`
 - `validation::over_length`
@@ -71,6 +72,7 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::default_type_mismatch`
 - `quill::deprecated_flat`
 - `quill::deprecated_groups`
+- `quill::deprecated_multiline`
 - `quill::deprecated_license`
 - `quill::duplicate_group`
 - `quill::empty_description`
@@ -124,6 +126,7 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::seed_enum_violation`
 - `quill::seed_format_violation`
 - `quill::seed_held_stored`
+- `quill::seed_not_lines`
 - `quill::seed_not_plain`
 - `quill::seed_not_single_line`
 - `quill::seed_out_of_variant`
@@ -339,6 +342,7 @@ A code missing from the table carries no args, and a consumer falls back on it. 
 | `validation::seed_overlay_shape` | — | code-determined |
 | `validation::seed_unknown_field` | — | code-determined |
 | `validation::not_single_line` | — | code-determined |
+| `validation::not_lines` | — | code-determined |
 | `validation::not_plain` | — | code-determined |
 | `validation::line_break_folded` | — | code-determined |
 | `edit::invalid_field_name` | `field` | structured |

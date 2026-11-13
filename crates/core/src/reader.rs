@@ -457,22 +457,21 @@ main:
   fields:
     subject:
       type: richtext
-      multiline: false
     note:
       type: text
-      multiline: true
+      shape: lines
     qty:
       type: integer
     recipients:
       type: array
       items:
         type: text
-        multiline: true
+        shape: lines
     paragraphs:
       type: array
       items:
         type: richtext
-        multiline: true
+        shape: blocks
     tags:
       type: array
       items:
@@ -483,7 +482,7 @@ main:
       properties:
         motto:
           type: richtext
-          multiline: true
+          shape: blocks
         code:
           type: integer
     rows:
@@ -493,7 +492,7 @@ main:
         properties:
           notes:
             type: richtext
-            multiline: true
+            shape: blocks
     plain_enum:
       type: enum
       values: [a, b]
@@ -504,10 +503,10 @@ main:
         CUI:
           controlled_by:
             type: text
-            multiline: true
+            shape: lines
           banner:
             type: richtext
-            multiline: true
+            shape: blocks
           count:
             type: integer
           nest:
@@ -515,18 +514,18 @@ main:
             properties:
               deep:
                 type: richtext
-                multiline: true
+                shape: blocks
 card_kinds:
   note:
     fields:
       prose:
         type: richtext
-        multiline: true
+        shape: blocks
       lines:
         type: array
         items:
           type: text
-          multiline: true
+          shape: lines
 ";
 
     fn config() -> QuillConfig {

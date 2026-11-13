@@ -5,9 +5,9 @@
 //! form. [`invert`] reads back the inverse each step gives as it applies;
 //! [`compose`] and [`map_pos`] are pure helpers over changes.
 
+use crate::anchors::AnchorContext;
 use crate::draft::{Draft, HeldTwice};
 use crate::ids::is_id;
-use crate::lines::anchor::AnchorContext;
 pub use crate::mapping::{MapResult, Mapping};
 use crate::model::{
     Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Scalar,
@@ -1026,9 +1026,7 @@ impl Run {
         }
         let was = std::mem::replace(&mut island.props, props.clone());
         let order = island.slot_order();
-        if island.island_type == crate::lines::island::IslandType::Table
-            && Table::read(props).is_none()
-        {
+        if island.island_type == crate::model::IslandType::Table && Table::read(props).is_none() {
             return Err(ApplyError::BadStep {
                 step: n,
                 reason: "a table's props do not spell a grid",
@@ -1699,7 +1697,7 @@ mod wire {
 
     impl Change {
         pub fn to_value(&self) -> Value {
-            crate::lines::model::sort_keys_owned(obj([(
+            crate::json::sort_keys_owned(obj([(
                 "steps",
                 self.steps.iter().map(step_value).collect(),
             )]))

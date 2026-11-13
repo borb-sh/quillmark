@@ -43,7 +43,7 @@ fn content_fields_emit_frame_regions() {
     // Long enough to overflow page 0 and continue.
     let long = "This is a markdown paragraph that wraps across several lines. ".repeat(200);
     let session = open(
-        "main:\n  fields:\n    intro: { type: richtext, multiline: true }\n    prose: { type: richtext, multiline: true }\n",
+        "main:\n  fields:\n    intro: { type: richtext, shape: blocks }\n    prose: { type: richtext, shape: blocks }\n",
         PLATE,
         serde_json::json!({
             "intro": content("A **short** intro paragraph on the first page."),
@@ -94,7 +94,7 @@ fn field_placed_twice_surfaces_first_region_but_field_at_resolves_every_placemen
 #qm.data.intro
 "#;
     let session = open(
-        "main:\n  fields:\n    intro: { type: richtext, multiline: true }\n",
+        "main:\n  fields:\n    intro: { type: richtext, shape: blocks }\n",
         PLATE,
         serde_json::json!({ "intro": content("The same intro, placed twice.") }),
     );
@@ -241,7 +241,7 @@ fn content_survives_a_rebuilding_show_rule() {
 }
 "#;
     let session = open(
-        "main:\n  fields:\n    prose: { type: richtext, multiline: true }\n",
+        "main:\n  fields:\n    prose: { type: richtext, shape: blocks }\n",
         PLATE,
         serde_json::json!({ "prose": content("A body paragraph the package rebuilds.") }),
     );
@@ -263,7 +263,7 @@ fn markdown_array_elements_surface_indexed_regions() {
 }
 "#;
     let session = open(
-        "main:\n  fields:\n    refs:\n      type: array\n      items: { type: richtext, multiline: true }\n",
+        "main:\n  fields:\n    refs:\n      type: array\n      items: { type: richtext, shape: blocks }\n",
         PLATE,
         serde_json::json!({ "refs": [content("First reference."), content("Second reference.")] }),
     );
@@ -287,14 +287,14 @@ fn card_regions_use_canonical_kind_ordinal_path() {
     const SCHEMA: &str = "\
 main:
   fields:
-    intro: { type: richtext, multiline: true }
+    intro: { type: richtext, shape: blocks }
 card_kinds:
   alpha:
     fields:
-      note: { type: richtext, multiline: true }
+      note: { type: richtext, shape: blocks }
   beta:
     fields:
-      note: { type: richtext, multiline: true }
+      note: { type: richtext, shape: blocks }
 ";
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.2.0" as qm
@@ -455,7 +455,7 @@ fn failed_update_keeps_serving_last_good_regions() {
 #qm.data.intro
 "#;
     let mut session = open(
-        "main:\n  fields:\n    intro: { type: richtext, multiline: true }\n    when: { type: date }\n",
+        "main:\n  fields:\n    intro: { type: richtext, shape: blocks }\n    when: { type: date }\n",
         PLATE,
         serde_json::json!({
             "intro": content("A stable paragraph the session keeps serving."),
@@ -521,7 +521,7 @@ fn adversarial_codegen_inputs_still_compile() {
     //   - `strong[0,4)` partially overlapping `code[2,6)`, a content an editor
     //     can build but markdown import never produces;
     //   - `i64::MIN` cannot be a Typst int literal (its magnitude overflows).
-    use quillmark_content::lines::model::{Content, Line, LineKind, Mark, MarkKind};
+    use quillmark_content::model::{Content, Mark, MarkKind};
     // The plate's assert proves the int round-tripped.
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.2.0" as qm
@@ -530,20 +530,23 @@ fn adversarial_codegen_inputs_still_compile() {
 #qm.data.prose
 #qm.data.overlap
 "#;
-    let overlap =
-        Content::new("abcdef".to_string(), vec![Line::new(LineKind::Para)]).with_marks(vec![
+    let overlap = Content {
+        text: "abcdef".to_string(),
+        marks: vec![
             Mark::new(0, 4, MarkKind::Strong),
             Mark::new(2, 6, MarkKind::Code),
-        ]);
+        ],
+        ..Content::empty()
+    };
     TypstBackend::default()
         .open(
             &quill(
-                &yaml("main:\n  fields:\n    prose: { type: richtext, multiline: true }\n    overlap: { type: richtext, multiline: true }\n"),
+                &yaml("main:\n  fields:\n    prose: { type: richtext, shape: blocks }\n    overlap: { type: richtext, shape: blocks }\n"),
                 PLATE,
             ),
             &serde_json::json!({
                 "prose": content("Please <u>sign here"),
-                "overlap": quillmark_content::migrate::from_lines(&overlap.into_lines()).to_value(),
+                "overlap": overlap.to_value(),
                 "n": i64::MIN,
             }),
             common::test_date(),
@@ -742,17 +745,13 @@ fn locate_past_a_trailing_hard_break_holds_the_preceding_run() {
     // Shift+enter at the end of a paragraph: the segment's last content
     // character is the hard break, which lowers to `#linebreak()` and closes no
     // run, so the caret past it has only a preceding run to hold.
-    use quillmark_content::lines::model::{Content, Line, LineKind};
-    let rt = Content::new(
-        "Alpha beta\n".to_string(),
-        vec![
-            Line::new(LineKind::Para),
-            Line::new(LineKind::Para).with_continues(true),
-        ],
-    )
-    .into_lines();
+    use quillmark_content::model::{Content, HARD_BREAK};
+    let rt = Content {
+        text: format!("Alpha beta{HARD_BREAK}"),
+        ..Content::empty()
+    };
     assert_eq!(rt.validate(), Ok(()));
-    let session = body_session(quillmark_content::migrate::from_lines(&rt).to_value());
+    let session = body_session(rt.to_value());
 
     let first = session.locate("prose", 0).expect("first-glyph caret");
     let last = session.locate("prose", 10).expect("last-glyph caret");

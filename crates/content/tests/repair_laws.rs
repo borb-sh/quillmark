@@ -6,8 +6,8 @@
 
 use proptest::prelude::*;
 use quillmark_content::change::{Assoc, Change, Mapping};
-use quillmark_content::lines::island::IslandType;
 use quillmark_content::markdown::from_markdown;
+use quillmark_content::model::IslandType;
 use quillmark_content::model::Pos;
 use quillmark_content::model::{
     Anchor, Block, BlockKind, ContainerKind, Content, ISLAND_SLOT, Invariant, Mark, MarkKind,

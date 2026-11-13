@@ -258,7 +258,12 @@ main:
 
     let title_field = &config.main.fields["title"];
     assert_eq!(title_field.description, Some("Document title".to_string()));
-    assert_eq!(title_field.r#type, FieldType::Text { multiline: false });
+    assert_eq!(
+        title_field.r#type,
+        FieldType::Text {
+            shape: crate::quill::Shape::Line
+        }
+    );
 }
 
 /// `MAJOR.MINOR` is a selector's spelling, never a quill's version, and an
@@ -366,7 +371,7 @@ fn test_quill_config_rejects_non_snake_case_identifiers() {
 fn a_field_named_body_is_refused() {
     for yaml in [
         "main:\n  fields:\n    body: { type: text }\n",
-        "card_kinds:\n  note:\n    fields:\n      body: { type: richtext, multiline: true }\n",
+        "card_kinds:\n  note:\n    fields:\n      body: { type: richtext, shape: blocks }\n",
     ] {
         let errs = QuillConfig::from_yaml_with_warnings(&with_header(yaml)).expect_err(yaml);
         assert!(
@@ -588,7 +593,9 @@ fn containers_nest_at_every_position() {
         .expect("properties")["lines"];
     assert_eq!(
         lines.items.as_ref().expect("items").r#type,
-        FieldType::Text { multiline: false }
+        FieldType::Text {
+            shape: crate::quill::Shape::Line
+        }
     );
 }
 
@@ -1350,7 +1357,9 @@ fn enum_blank_ignores_a_declared_blank_member() {
 /// A declaration the field grammar does not admit, including the retired keys
 /// `must_fill`, `enum` and `ui.order`, which `deny_unknown_fields` refuses
 /// rather than a named arm, the retired `string` and `plaintext` types and
-/// `inline` and `ui.multiline` keys, and a `richtext` leaving `multiline` unsaid.
+/// `inline` and `ui.multiline` keys, a shape outside the three, a `text` of
+/// blocks, a shape on a type that takes none, and a shape its legacy
+/// `multiline` contradicts.
 #[test]
 fn a_declaration_outside_the_field_grammar_is_a_field_parse_error() {
     for field in [
@@ -1361,7 +1370,10 @@ fn a_declaration_outside_the_field_grammar_is_a_field_parse_error() {
         "    f:\n      type: plaintext\n",
         "    f:\n      type: text\n      inline: true\n",
         "    f:\n      type: text\n      ui: { multiline: true }\n",
-        "    f:\n      type: richtext\n",
+        "    f:\n      type: richtext\n      shape: paragraphs\n",
+        "    f:\n      type: text\n      shape: blocks\n",
+        "    f:\n      type: number\n      shape: lines\n",
+        "    f:\n      type: richtext\n      shape: line\n      multiline: true\n",
         "    f:\n      type: enum\n",
         "    f:\n      type: text\n      values: [a, b]\n",
         "    f:\n      type: text\n      must_fill: true\n",
@@ -1385,13 +1397,16 @@ fn a_retired_spelling_names_its_replacement() {
         ("    f:\n      type: string?\n", "type: text"),
         (
             "    f:\n      type: text\n      inline: true\n",
-            "multiline: false",
+            "drop inline: true",
         ),
         (
             "    f:\n      type: text\n      ui: { multiline: true }\n",
-            "multiline: true",
+            "shape: lines",
         ),
-        ("    f:\n      type: richtext\n", "multiline:"),
+        (
+            "    f:\n      type: text\n      shape: blocks\n",
+            "type: richtext",
+        ),
     ] {
         let err = quill_with_field(field).expect_err(field);
         assert!(
@@ -1403,10 +1418,8 @@ fn a_retired_spelling_names_its_replacement() {
 
 #[test]
 fn single_line_richtext_default_over_one_para_is_a_load_error() {
-    let err = quill_with_field(
-        "    tag:\n      type: richtext\n      multiline: false\n      default: \"one\\n\\ntwo\"\n",
-    )
-    .unwrap_err();
+    let err = quill_with_field("    tag:\n      type: richtext\n      default: \"one\\n\\ntwo\"\n")
+        .unwrap_err();
     assert!(
         has_code(&err, "validation::not_single_line"),
         "a two-paragraph single-line default should fail load with validation::not_single_line, got: {err:?}"
@@ -1419,7 +1432,7 @@ fn single_line_richtext_default_over_one_para_is_a_load_error() {
 #[test]
 fn a_bare_scalar_richtext_default_is_a_load_error() {
     let err = quill_with_field(
-        "    tag:\n      type: richtext\n      multiline: true\n      default: 47\n",
+        "    tag:\n      type: richtext\n      shape: blocks\n      default: 47\n",
     )
     .unwrap_err();
     assert!(has_code(&err, "quill::richtext_default_import"), "{err:?}");
@@ -1435,14 +1448,14 @@ fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
   fields:
     top:
       type: richtext
-      multiline: true
+      shape: blocks
       default: "A **top** note"
     dict:
       type: object
       properties:
         note:
           type: richtext
-          multiline: true
+          shape: blocks
           default: "A **dict** note"
     rows:
       type: array
@@ -1451,13 +1464,13 @@ fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
         properties:
           note:
             type: richtext
-            multiline: true
+            shape: blocks
             default: "A **row** note"
     literal:
       type: array
       items:
         type: text
-        multiline: true
+        shape: lines
         default: "A *literal* line"
     c:
       type: enum
@@ -1467,7 +1480,7 @@ fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
         CUI:
           note:
             type: richtext
-            multiline: true
+            shape: blocks
             default: "A **variant** note"
 "#,
     );
@@ -1524,14 +1537,14 @@ fn a_content_default_inside_an_absent_container_reaches_the_plate_as_content() {
       properties:
         note:
           type: richtext
-          multiline: true
+          shape: blocks
           default: "A **dict** note"
     rows:
       type: array
       default: ["A **row** note"]
       items:
         type: richtext
-        multiline: true
+        shape: blocks
     plain:
       type: object
       properties:
@@ -1584,7 +1597,6 @@ fn a_nested_single_line_richtext_default_over_one_para_is_a_load_error() {
         "      properties:\n",
         "        tag:\n",
         "          type: richtext\n",
-        "          multiline: false\n",
         "          default: \"one\\n\\ntwo\"\n",
     ))
     .unwrap_err();
@@ -1611,7 +1623,7 @@ fn a_single_line_text_literal_ending_in_a_newline_loads() {
 #[test]
 fn array_of_single_line_richtext_caches_each_element() {
     let config = quill_with_field(
-        "    refs:\n      type: array\n      items:\n        type: richtext\n        multiline: false\n      default:\n        - \"first *ref*\"\n        - \"second ref\"\n",
+        "    refs:\n      type: array\n      items:\n        type: richtext\n      default:\n        - \"first *ref*\"\n        - \"second ref\"\n",
     )
     .expect("array<single-line richtext> loads");
     let field = config.main.fields.get("refs").unwrap();
@@ -1627,18 +1639,18 @@ fn array_of_single_line_richtext_caches_each_element() {
     );
 }
 
-/// `multiline: false` at the render floor: one block imports to content for
+/// A one-line field at the render floor: one block imports to content for
 /// both codecs; more is refused for `richtext`, and folds onto one line for
 /// `text`, each break one space and the length kept.
 #[test]
 fn single_line_coercion_takes_one_block_and_folds_or_refuses_more() {
     for ty in ["richtext", "text"] {
-        let field = format!("    f:\n      type: {ty}\n      multiline: false\n");
+        let field = format!("    f:\n      type: {ty}\n");
         assert!(coerce(&field, serde_json::json!("just one line")).is_ok_and(|v| v.is_object()));
     }
     assert_eq!(
         coerce(
-            "    f:\n      type: richtext\n      multiline: false\n",
+            "    f:\n      type: richtext\n",
             serde_json::json!("one\n\ntwo")
         ),
         Err(("f".to_string(), "richtext(single_line)".to_string()))
@@ -1646,9 +1658,11 @@ fn single_line_coercion_takes_one_block_and_folds_or_refuses_more() {
     let folded = |value: &str| {
         let coerced =
             coerce("    f:\n      type: text\n", serde_json::json!(value)).expect("folds");
-        let content = quillmark_content::migrate::lines_from_value(&coerced).expect("content");
+        let content = quillmark_content::model::Content::from_value_lenient(&coerced)
+            .expect("content")
+            .content;
         assert!(content.is_inline(), "{value:?}");
-        quillmark_content::lines::export::to_plaintext(&content)
+        quillmark_content::view::plaintext(&content)
     };
     assert_eq!(folded("one\n\ntwo"), "one two");
     assert_eq!(folded("\none \ntwo\n"), " one  two");
@@ -1658,7 +1672,9 @@ fn single_line_coercion_takes_one_block_and_folds_or_refuses_more() {
 fn richtext_blank_is_empty_content() {
     let field = FieldSchema::new(
         "x".to_string(),
-        FieldType::RichText { multiline: true },
+        FieldType::RichText {
+            shape: crate::quill::Shape::Blocks,
+        },
         None,
     );
     let floor = blank(&field);
@@ -1672,19 +1688,26 @@ fn richtext_blank_is_empty_content() {
 #[test]
 fn text_field_caches_literal_content() {
     let config = quill_with_field(
-        "    subject:\n      type: text\n      multiline: true\n      default: \"a *literal* subject\"\n",
+        "    subject:\n      type: text\n      shape: lines\n      default: \"a *literal* subject\"\n",
     )
     .expect("text default loads");
     let field = config.main.fields.get("subject").unwrap();
-    assert_eq!(field.r#type, FieldType::Text { multiline: true });
+    assert_eq!(
+        field.r#type,
+        FieldType::Text {
+            shape: crate::quill::Shape::Lines
+        }
+    );
     let content = field
         .default_content
         .as_ref()
         .expect("default_content cached");
-    let rt = quillmark_content::migrate::lines_from_value(content.as_json()).unwrap();
+    let rt = quillmark_content::model::Content::from_value_lenient(content.as_json())
+        .unwrap()
+        .content;
     assert!(rt.is_plain(), "cached text content is plain");
     assert_eq!(
-        quillmark_content::lines::export::to_plaintext(&rt),
+        quillmark_content::view::plaintext(&rt),
         "a *literal* subject",
         "the asterisks are literal, not emphasis"
     );
@@ -1694,14 +1717,13 @@ fn text_field_caches_literal_content() {
 /// refused rather than stripped.
 #[test]
 fn text_coercion_imports_verbatim_and_refuses_marks() {
-    const FIELD: &str = "    f:\n      type: text\n      multiline: true\n";
+    const FIELD: &str = "    f:\n      type: text\n      shape: lines\n";
     let value = coerce(FIELD, serde_json::json!("*not bold* text")).expect("text coerces");
-    let rt = quillmark_content::migrate::lines_from_value(&value).unwrap();
+    let rt = quillmark_content::model::Content::from_value_lenient(&value)
+        .unwrap()
+        .content;
     assert!(rt.marks.is_empty(), "no marks: delimiters stayed literal");
-    assert_eq!(
-        quillmark_content::lines::export::to_plaintext(&rt),
-        "*not bold* text"
-    );
+    assert_eq!(quillmark_content::view::plaintext(&rt), "*not bold* text");
 
     let marked = quillmark_content::markdown::from_markdown("a **bold** word")
         .unwrap()
@@ -1713,20 +1735,56 @@ fn text_coercion_imports_verbatim_and_refuses_marks() {
 }
 
 #[test]
-fn multiline_survives_the_declaration_wire_for_both_content_types() {
-    for ty in ["richtext", "text"] {
+fn a_shape_past_one_line_survives_the_declaration_wire() {
+    for (ty, shape) in [
+        ("richtext", "lines"),
+        ("richtext", "blocks"),
+        ("text", "lines"),
+    ] {
         let config = quill_with_field(&format!(
-            "    subject:\n      type: {ty}\n      multiline: true\n"
+            "    subject:\n      type: {ty}\n      shape: {shape}\n"
         ))
         .expect("loads");
         let field = config.main.fields.get("subject").unwrap();
         let wire = serde_json::to_value(field).expect("serializes");
-        assert_eq!(
-            wire["multiline"],
-            serde_json::json!(true),
-            "{ty} lost `multiline: true` on the wire: {wire}"
-        );
+        assert_eq!(wire["shape"], shape, "{ty}: {wire}");
+        assert_eq!(wire["multiline"], true, "{ty}: {wire}");
+        let back = quill_with_field(&format!(
+            "    subject: {}\n",
+            serde_json::to_string(&wire).unwrap()
+        ))
+        .expect("the emitted declaration loads back");
+        assert_eq!(back.main.fields["subject"].r#type, field.r#type);
     }
+    let line = quill_with_field("    subject:\n      type: richtext\n").expect("loads");
+    let wire = serde_json::to_value(&line.main.fields["subject"]).unwrap();
+    assert!(
+        wire.get("shape").is_none() && wire.get("multiline").is_none(),
+        "{wire}"
+    );
+}
+
+/// The legacy `multiline:` reads as the shape it meant, and warns once for
+/// the quill.
+#[test]
+fn the_legacy_multiline_reads_as_the_shape_it_meant() {
+    use crate::quill::Shape;
+    let yaml = with_header(
+        "main:\n  fields:\n    a: { type: richtext, multiline: true }\n    \
+         b: { type: richtext, multiline: false }\n    c: { type: text, multiline: true }\n    \
+         d: { type: text, multiline: false }\n",
+    );
+    let (config, warnings) = QuillConfig::from_yaml_with_warnings(&yaml).expect("loads");
+    let shape = |name: &str| match config.main.fields[name].r#type {
+        FieldType::RichText { shape } | FieldType::Text { shape } => shape,
+        _ => unreachable!(),
+    };
+    assert_eq!(
+        ["a", "b", "c", "d"].map(shape),
+        [Shape::Blocks, Shape::Line, Shape::Lines, Shape::Line]
+    );
+    let codes: Vec<_> = warnings.iter().filter_map(|w| w.code.as_deref()).collect();
+    assert_eq!(codes, ["quill::deprecated_multiline"]);
 }
 
 #[test]
@@ -1914,7 +1972,7 @@ fn a_table_column_is_a_leaf_and_a_container_column_is_refused() {
     quill_with_field(
         "    notes:\n      type: array\n      ui:\n        layout: table\n      \
          items:\n        type: object\n        properties:\n          \
-         body: { type: richtext, multiline: true }\n",
+         body: { type: richtext, shape: blocks }\n",
     )
     .expect("a block richtext is a leaf: how tall it renders is the consumer's call");
 
@@ -1959,7 +2017,7 @@ fn max_loads_on_an_array_or_text_and_is_refused_elsewhere() {
 
     let config = quill_with_field(
         "    s:\n      type: text\n      max: 9\n    r:\n      type: richtext\n      \
-         multiline: true\n      max: 1350\n",
+         shape: blocks\n      max: 1350\n",
     )
     .expect("a text field may declare its cap");
     assert_eq!(config.main.fields["s"].max, Some(9));
@@ -2011,7 +2069,7 @@ fn a_literal_longer_than_max_is_a_load_error() {
 fn a_text_literal_longer_than_max_is_a_load_error() {
     for field in [
         "    s:\n      type: text\n      max: 3\n      default: abcd\n",
-        "    r:\n      type: richtext\n      multiline: false\n      max: 3\n      default: abcd\n",
+        "    r:\n      type: richtext\n      max: 3\n      default: abcd\n",
         "    rows:\n      type: array\n      default: [ab, abcd]\n      \
          items: { type: text, max: 3 }\n",
         "    rows:\n      type: array\n      default: [{ code: abcd }]\n      items:\n        \
@@ -2026,10 +2084,8 @@ fn a_text_literal_longer_than_max_is_a_load_error() {
         );
     }
 
-    quill_with_field(
-        "    r:\n      type: richtext\n      multiline: false\n      max: 3\n      default: \"**abc**\"\n",
-    )
-    .expect("markup is not counted");
+    quill_with_field("    r:\n      type: richtext\n      max: 3\n      default: \"**abc**\"\n")
+        .expect("markup is not counted");
     quill_with_field("    s:\n      type: text\n      max: 3\n      default: \"abc  \"\n")
         .expect("a one-line text renders without its trailing spaces");
 }
@@ -2044,7 +2100,7 @@ fn an_over_long_text_warns_at_its_own_path() {
     let quill = quill_from_yaml(&with_header(
         r#"main:
   fields:
-    citation: { type: richtext, multiline: true, max: 10 }
+    citation: { type: richtext, shape: blocks, max: 10 }
     ssn: { type: text, max: 4 }
     zip: { type: text, max: 5 }
     code: { type: text, max: 3 }

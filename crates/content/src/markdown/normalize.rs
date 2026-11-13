@@ -1,66 +1,13 @@
 //! Markdown-string preprocessing at the
-//! [`from_markdown`](crate::lines::import::from_markdown) boundary (markdown-spec §7):
+//! [`from_markdown`](crate::markdown::from_markdown) boundary (markdown-spec §7):
 //! characters the content cannot hold, then the parser-guided repair.
 
-use crate::lines::carrier;
-use crate::lines::html::{self, BlockKind};
-use crate::lines::html_table;
+use crate::markdown::carrier;
+use crate::markdown::html::{self, BlockKind};
+use crate::markdown::html_table;
+use crate::model::admit_char;
 use pulldown_cmark::{Event, OffsetIter, Options, Parser, Tag as PTag, TagEnd};
 use std::ops::Range;
-
-/// The Unicode bidi formatting controls, which sit adjacent to `**`/`_` and
-/// defeat delimiter recognition.
-#[inline]
-pub(crate) fn is_bidi_char(c: char) -> bool {
-    matches!(
-        c,
-        '\u{061C}' // ARABIC LETTER MARK (ALM)
-        | '\u{200E}' // LEFT-TO-RIGHT MARK (LRM)
-        | '\u{200F}' // RIGHT-TO-LEFT MARK (RLM)
-        | '\u{202A}' // LEFT-TO-RIGHT EMBEDDING (LRE)
-        | '\u{202B}' // RIGHT-TO-LEFT EMBEDDING (RLE)
-        | '\u{202C}' // POP DIRECTIONAL FORMATTING (PDF)
-        | '\u{202D}' // LEFT-TO-RIGHT OVERRIDE (LRO)
-        | '\u{202E}' // RIGHT-TO-LEFT OVERRIDE (RLO)
-        | '\u{2066}' // LEFT-TO-RIGHT ISOLATE (LRI)
-        | '\u{2067}' // RIGHT-TO-LEFT ISOLATE (RLI)
-        | '\u{2068}' // FIRST STRONG ISOLATE (FSI)
-        | '\u{2069}' // POP DIRECTIONAL ISOLATE (PDI)
-    )
-}
-
-/// Every character Typst's lexer reads as a line break (`is_newline`) besides
-/// `\n` and `\r`: one mid-paragraph reopens `at_start`, so what follows it is
-/// read as a block marker the author never wrote, and two in a row are a
-/// paragraph break.
-#[inline]
-pub fn is_line_separator(c: char) -> bool {
-    matches!(
-        c,
-        '\u{000B}' // LINE TABULATION (VT)
-        | '\u{000C}' // FORM FEED (FF)
-        | '\u{0085}' // NEXT LINE (NEL)
-        | '\u{2028}' // LINE SEPARATOR
-        | '\u{2029}' // PARAGRAPH SEPARATOR
-    )
-}
-
-/// What the content admits `c` as, `None` dropping it. A `\r` is dropped
-/// because it pairs with a `\n` that stays; a line separator becomes a space,
-/// both being Unicode whitespace, so dropping one would join the words it parts.
-/// No downstream escape can neutralize a separator — a `\` before whitespace is
-/// Typst's own linebreak — so it cannot survive in the text. U+0000 is U+FFFD,
-/// as CommonMark replaces it.
-#[inline]
-pub(crate) fn admit_char(c: char) -> Option<char> {
-    match c {
-        '\r' => None,
-        '\0' => Some('\u{FFFD}'),
-        c if is_bidi_char(c) => None,
-        c if is_line_separator(c) => Some(' '),
-        c => Some(c),
-    }
-}
 
 fn admit_chars(s: &str) -> String {
     if !s.chars().any(|c| admit_char(c) != Some(c)) {
@@ -585,7 +532,7 @@ mod tests {
     }
 
     fn normalized(md: &str) -> String {
-        normalize_markdown(md, crate::lines::import::options())
+        normalize_markdown(md, crate::markdown::import::options())
     }
 
     #[test]

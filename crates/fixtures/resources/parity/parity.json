@@ -3654,10 +3654,10 @@
           "kind": "para"
         }
       ],
-      "text": "Term : Description."
+      "text": "Term : Description."
     },
     "typst": [
-      "Term : Description."
+      "Term#linebreak(): Description."
     ],
     "signals": {
       "import": [],

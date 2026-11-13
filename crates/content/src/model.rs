@@ -4,9 +4,7 @@
 //! whose slots hold content of their own.
 
 use crate::ids::is_id;
-pub use crate::lines::island::IslandType;
-use crate::lines::model::{self as line, is_font_family_name};
-use crate::lines::normalize::{is_bidi_char, is_line_separator};
+use crate::json::{canonical_json_string, json_depth_exceeds};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -167,6 +165,33 @@ pub struct Island {
     pub slots: BTreeMap<String, Content>,
 }
 
+/// The island types. Closed but for [`Ext`](Self::Ext): a wire `type` outside
+/// this set and not a reserved `x-` name is
+/// [`ParseError::UnknownName`](crate::wire::ParseError::UnknownName).
+///
+/// Every emitter dispatches over the whole set: an island type wired into some
+/// and not others projects the island away silently.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IslandType {
+    /// A grid of cells, each a slot; [`crate::table`] holds its props.
+    Table,
+    /// `{url, alt}`. No slot.
+    Image,
+    /// A footnote: its note is the [`NOTE_SLOT`] slot. Its place in the text
+    /// is the reference, so the note sits where it is cited.
+    Footnote,
+    /// An equation: `{tex}`, its TeX source, and `display: true` for one set
+    /// apart from the line. `tex` holds no line break and no whitespace at
+    /// either edge, which TeX reads as nothing; `display` is absent at
+    /// `false`. No slot.
+    Math,
+    /// A type this build does not know, by its reserved `x-` name
+    /// ([`is_ext_name`](crate::ids::is_ext_name)): its props as written and
+    /// its slots by id, rendered as a placeholder and written to markdown as
+    /// nothing.
+    Ext(String),
+}
+
 /// A position: an offset into a field's text, or one inside an island's slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pos {
@@ -210,10 +235,17 @@ impl ContainerKind {
 }
 
 impl MarkKind {
+    /// The wire `type` name.
     pub fn tag(&self) -> &str {
         match self {
+            MarkKind::Strong => "strong",
+            MarkKind::Emph => "emph",
+            MarkKind::Underline => "underline",
+            MarkKind::Strike => "strike",
+            MarkKind::Code => "code",
+            MarkKind::Link { .. } => "link",
+            MarkKind::FontFamily { .. } => "font_family",
             MarkKind::Ext { name, .. } => name,
-            known => known.to_line().map_or("", |k| k.tag()),
         }
     }
 
@@ -222,47 +254,23 @@ impl MarkKind {
         matches!(self, MarkKind::Link { .. } | MarkKind::FontFamily { .. })
     }
 
-    /// The mark the line form spells, `None` for one it does not: a type this
-    /// build does not know formats nothing there.
-    pub(crate) fn to_line(&self) -> Option<line::MarkKind> {
-        Some(match self {
-            MarkKind::Strong => line::MarkKind::Strong,
-            MarkKind::Emph => line::MarkKind::Emph,
-            MarkKind::Underline => line::MarkKind::Underline,
-            MarkKind::Strike => line::MarkKind::Strike,
-            MarkKind::Code => line::MarkKind::Code,
-            MarkKind::Link { url } => line::MarkKind::Link { url: url.clone() },
-            MarkKind::FontFamily { name } => line::MarkKind::FontFamily { name: name.clone() },
-            MarkKind::Ext { .. } => return None,
-        })
-    }
-
-    pub(crate) fn from_line(kind: &line::MarkKind) -> Option<MarkKind> {
-        Some(match kind {
-            line::MarkKind::Strong => MarkKind::Strong,
-            line::MarkKind::Emph => MarkKind::Emph,
-            line::MarkKind::Underline => MarkKind::Underline,
-            line::MarkKind::Strike => MarkKind::Strike,
-            line::MarkKind::Code => MarkKind::Code,
-            line::MarkKind::Link { url } => MarkKind::Link { url: url.clone() },
-            line::MarkKind::FontFamily { name } => MarkKind::FontFamily { name: name.clone() },
-            line::MarkKind::Anchor { .. } => return None,
-        })
-    }
-
-    /// The `(type, attrs)` pair the wire spells, which orders marks.
+    /// The `(type, attrs)` pair the wire spells, which orders marks and groups
+    /// the marks that union: two links union only at one url.
     pub fn sort_key(&self) -> (String, String) {
-        match (self, self.to_line()) {
-            (_, Some(known)) => known.sort_key(),
-            (MarkKind::Ext { name, attrs }, None) if attrs.is_empty() => {
-                (name.clone(), String::new())
+        let one = |key: &str, value: &str| {
+            let mut attrs = JsonMap::new();
+            attrs.insert(key.to_string(), JsonValue::String(value.to_string()));
+            canonical_json_string(&JsonValue::Object(attrs))
+        };
+        let attrs = match self {
+            MarkKind::Link { url } => one("url", url),
+            MarkKind::FontFamily { name } => one("name", name),
+            MarkKind::Ext { attrs, .. } if !attrs.is_empty() => {
+                canonical_json_string(&JsonValue::Object(attrs.clone()))
             }
-            (MarkKind::Ext { name, attrs }, None) => (
-                name.clone(),
-                line::canonical_json_string(&JsonValue::Object(attrs.clone())),
-            ),
-            (_, None) => (String::new(), String::new()),
-        }
+            _ => String::new(),
+        };
+        (self.tag().to_string(), attrs)
     }
 }
 
@@ -339,6 +347,58 @@ impl Island {
             IslandType::Image | IslandType::Math => Vec::new(),
             IslandType::Ext(_) => self.slots.keys().cloned().collect(),
         }
+    }
+}
+
+impl IslandType {
+    /// Every known type, for a reader that needs the closed set whole.
+    pub const ALL: &'static [IslandType] = &[
+        IslandType::Table,
+        IslandType::Image,
+        IslandType::Footnote,
+        IslandType::Math,
+    ];
+
+    /// The wire discriminator; `parse(k.as_str()) == Some(k)` for every variant.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Table => "table",
+            Self::Image => "image",
+            Self::Footnote => "footnote",
+            Self::Math => "math",
+            Self::Ext(name) => name,
+        }
+    }
+
+    /// Parse a wire discriminator; `parse(k.as_str()) == Some(k)` for every
+    /// variant.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "table" => Some(Self::Table),
+            "image" => Some(Self::Image),
+            "footnote" => Some(Self::Footnote),
+            "math" => Some(Self::Math),
+            _ if crate::ids::is_ext_name(s) => Some(Self::Ext(s.to_string())),
+            _ => None,
+        }
+    }
+
+    /// Whether this type's markdown projection is a **block**: markup no
+    /// paragraph line can hold, so its slot has to sit alone on its line. A
+    /// pipe table is one; an image (`![alt](url)`), a footnote reference
+    /// (`[^1]`) and an equation (`$x$`, `$$x$$`) are inline.
+    pub fn block_only(&self) -> bool {
+        match self {
+            Self::Table => true,
+            Self::Image | Self::Footnote | Self::Math | Self::Ext(_) => false,
+        }
+    }
+
+    /// Whether this type's slots hold paragraphs: an `x-` island's slots do,
+    /// and a table's cell and a footnote's note are each one paragraph, its
+    /// lines parted by hard breaks.
+    pub fn slot_holds_paragraphs(&self) -> bool {
+        matches!(self, Self::Ext(_))
     }
 }
 
@@ -562,28 +622,190 @@ pub fn is_text_char(c: char) -> bool {
     c != '\r' && !is_bidi_char(c) && (c == HARD_BREAK || !is_line_separator(c))
 }
 
+/// The Unicode bidi formatting controls, which sit adjacent to `**`/`_` and
+/// defeat delimiter recognition.
+#[inline]
+pub(crate) fn is_bidi_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061C}' // ARABIC LETTER MARK (ALM)
+        | '\u{200E}' // LEFT-TO-RIGHT MARK (LRM)
+        | '\u{200F}' // RIGHT-TO-LEFT MARK (RLM)
+        | '\u{202A}' // LEFT-TO-RIGHT EMBEDDING (LRE)
+        | '\u{202B}' // RIGHT-TO-LEFT EMBEDDING (RLE)
+        | '\u{202C}' // POP DIRECTIONAL FORMATTING (PDF)
+        | '\u{202D}' // LEFT-TO-RIGHT OVERRIDE (LRO)
+        | '\u{202E}' // RIGHT-TO-LEFT OVERRIDE (RLO)
+        | '\u{2066}' // LEFT-TO-RIGHT ISOLATE (LRI)
+        | '\u{2067}' // RIGHT-TO-LEFT ISOLATE (RLI)
+        | '\u{2068}' // FIRST STRONG ISOLATE (FSI)
+        | '\u{2069}' // POP DIRECTIONAL ISOLATE (PDI)
+    )
+}
+
+/// Every character Typst's lexer reads as a line break (`is_newline`) besides
+/// `\n` and `\r`: one mid-paragraph reopens `at_start`, so what follows it is
+/// read as a block marker the author never wrote, and two in a row are a
+/// paragraph break.
+#[inline]
+pub fn is_line_separator(c: char) -> bool {
+    matches!(
+        c,
+        '\u{000B}' // LINE TABULATION (VT)
+        | '\u{000C}' // FORM FEED (FF)
+        | '\u{0085}' // NEXT LINE (NEL)
+        | '\u{2028}' // LINE SEPARATOR
+        | '\u{2029}' // PARAGRAPH SEPARATOR
+    )
+}
+
+/// What the content admits `c` as, `None` dropping it. A `\r` is dropped
+/// because it pairs with a `\n` that stays; a line separator becomes a space,
+/// both being Unicode whitespace, so dropping one would join the words it parts.
+/// No downstream escape can neutralize a separator — a `\` before whitespace is
+/// Typst's own linebreak — so it cannot survive in the text. U+0000 is U+FFFD,
+/// as CommonMark replaces it.
+#[inline]
+pub(crate) fn admit_char(c: char) -> Option<char> {
+    match c {
+        '\r' => None,
+        '\0' => Some('\u{FFFD}'),
+        c if is_bidi_char(c) => None,
+        c if is_line_separator(c) => Some(' '),
+        c => Some(c),
+    }
+}
+
+/// Whether `name` is a family a [`MarkKind::FontFamily`] may carry: not empty,
+/// no whitespace at either edge, and no character the content text refuses or
+/// that a font book could not hold in a name.
+pub fn is_font_family_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.trim() == name
+        && !name
+            .chars()
+            .any(|c| c.is_control() || is_bidi_char(c) || is_line_separator(c) || c == ISLAND_SLOT)
+}
+
 /// `marks` over `chars` in the canonical form: cut at each `\n` and
 /// [`HARD_BREAK`], merged and sorted.
 pub(crate) fn normalized_marks(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
-    let mut ext = Vec::new();
-    let mut known: Vec<line::Mark> = Vec::with_capacity(marks.len());
-    for m in marks {
-        match m.kind.to_line() {
-            Some(kind) => known.push(line::Mark::new(m.start, m.end, kind)),
-            None => ext.push(m),
-        }
-    }
-    let known = line::normalize_marks(line::split_marks_at_newlines(
-        chars,
-        line::normalize_marks(known),
-    ));
-    let mut out: Vec<Mark> = known
+    let (ext, known): (Vec<Mark>, Vec<Mark>) = marks
         .into_iter()
-        .filter_map(|m| MarkKind::from_line(&m.kind).map(|k| Mark::new(m.start, m.end, k)))
-        .collect();
+        .partition(|m| matches!(m.kind, MarkKind::Ext { .. }));
+    let mut out = union_marks(split_marks_at_breaks(chars, union_marks(known)));
     if !ext.is_empty() {
         out.extend(settle_ext(chars, ext));
         out.sort_by_cached_key(|m| (m.start, m.end, m.kind.sort_key()));
+    }
+    out
+}
+
+/// Cut each mark at every `\n` and [`HARD_BREAK`] in `chars`, keeping the
+/// pieces between them: prose export closes a mark at a line's end and reopens
+/// it on the next, so in prose a mark never spans a line join. Zero-width
+/// pieces are left for [`union_marks`] to drop.
+pub(crate) fn split_marks_at_breaks(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
+    let breaks = break_positions(chars);
+    let mut out = Vec::with_capacity(marks.len());
+    for m in marks {
+        let lo = breaks.partition_point(|&b| b < m.start);
+        let hi = breaks.partition_point(|&b| b < m.end);
+        let mut start = m.start;
+        for &at in &breaks[lo..hi.max(lo)] {
+            out.push(Mark::new(start, at, m.kind.clone()));
+            start = at + 1;
+        }
+        out.push(Mark::new(start.min(m.end), m.end, m.kind));
+    }
+    out
+}
+
+/// The merge rules and the canonical sort over a flat list of marks of the
+/// known types: marks of one [`sort_key`](MarkKind::sort_key) union when
+/// adjacent or overlapping, and marks of different keys overlap freely.
+/// [Keyed](MarkKind::is_keyed) marks of one tag are first cut at every edge
+/// among them and each piece given to the one [`keyed_rank`] puts first, so
+/// the union that follows joins only pieces of one value and none of one tag
+/// overlap. A zero-width or inverted mark is dropped.
+pub(crate) fn union_marks(marks: Vec<Mark>) -> Vec<Mark> {
+    let mut groups: BTreeMap<(String, String), (MarkKind, Vec<(Scalar, Scalar)>)> = BTreeMap::new();
+    let (keyed, marks): (Vec<Mark>, Vec<Mark>) = marks.into_iter().partition(|m| m.kind.is_keyed());
+    for m in marks.into_iter().chain(settle_keyed(keyed)) {
+        if m.start >= m.end {
+            continue;
+        }
+        groups
+            .entry(m.kind.sort_key())
+            .or_insert_with(|| (m.kind.clone(), Vec::new()))
+            .1
+            .push((m.start, m.end));
+    }
+    let mut out: Vec<Mark> = Vec::new();
+    for (kind, mut ranges) in groups.into_values() {
+        ranges.sort_unstable();
+        let mut cur = ranges[0];
+        for &(s, e) in &ranges[1..] {
+            if s <= cur.1 {
+                cur.1 = cur.1.max(e);
+            } else {
+                out.push(Mark::new(cur.0, cur.1, kind.clone()));
+                cur = (s, e);
+            }
+        }
+        out.push(Mark::new(cur.0, cur.1, kind));
+    }
+    out.sort_by_cached_key(|m| (m.start, m.end, m.kind.sort_key()));
+    out
+}
+
+/// How a raw keyed mark ranks over a character it shares with another of its
+/// tag, the greater setting it: the later start, then the shorter mark, then
+/// the later in canonical order. Only [`union_marks`] reads it, settling raw
+/// overlap once; normalized content holds none.
+fn keyed_rank(m: &Mark) -> (Scalar, std::cmp::Reverse<Scalar>, (String, String)) {
+    (m.start, std::cmp::Reverse(m.end), m.kind.sort_key())
+}
+
+/// Raw keyed marks as disjoint pieces per tag: each stretch between two edges
+/// of a tag's marks goes to the mark [`keyed_rank`] puts first over it, read
+/// off one sweep over the edges.
+fn settle_keyed(keyed: Vec<Mark>) -> Vec<Mark> {
+    use std::collections::BTreeSet;
+
+    let mut by_tag: BTreeMap<String, Vec<Mark>> = BTreeMap::new();
+    for m in keyed.into_iter().filter(|m| m.start < m.end) {
+        by_tag.entry(m.kind.tag().to_string()).or_default().push(m);
+    }
+    let mut out = Vec::new();
+    for mut marks in by_tag.into_values() {
+        marks.sort_by_key(|m| (m.start, m.end));
+        if marks.windows(2).all(|w| w[0].end <= w[1].start) {
+            out.extend(marks);
+            continue;
+        }
+        let ranks: Vec<_> = marks.iter().map(keyed_rank).collect();
+        let mut by_end: Vec<usize> = (0..marks.len()).collect();
+        by_end.sort_by_key(|&i| marks[i].end);
+        let mut edges: Vec<Scalar> = marks.iter().flat_map(|m| [m.start, m.end]).collect();
+        edges.sort_unstable();
+        edges.dedup();
+        let mut over = BTreeSet::new();
+        let (mut opened, mut closed) = (0, 0);
+        for cut in edges.windows(2) {
+            let (a, b) = (cut[0], cut[1]);
+            while closed < by_end.len() && marks[by_end[closed]].end <= a {
+                over.remove(&(&ranks[by_end[closed]], by_end[closed]));
+                closed += 1;
+            }
+            while opened < marks.len() && marks[opened].start <= a {
+                over.insert((&ranks[opened], opened));
+                opened += 1;
+            }
+            if let Some(&(_, i)) = over.last() {
+                out.push(Mark::new(a, b, marks[i].kind.clone()));
+            }
+        }
     }
     out
 }
@@ -692,6 +914,16 @@ impl Content {
             && self.blocks.len() == 1
             && self.blocks[0].kind == BlockKind::Para
             && self.blocks[0].path.is_empty()
+    }
+
+    /// Paragraphs in no container, with no island: what a field of lines
+    /// holds.
+    pub fn is_lines(&self) -> bool {
+        self.islands.is_empty()
+            && self
+                .blocks
+                .iter()
+                .all(|b| b.kind == BlockKind::Para && b.path.is_empty())
     }
 
     /// Paragraphs in no container, with no mark and no island: the shape a
@@ -1172,7 +1404,7 @@ impl Container {
 
 /// A code block's language: the identifier shape a fence spells unquoted.
 pub fn is_lang(lang: &str) -> bool {
-    !lang.is_empty() && crate::lines::import::sanitize_lang(lang) == lang
+    !lang.is_empty() && crate::markdown::import::sanitize_lang(lang) == lang
 }
 
 /// How deep a path nests, counted as the markdown codecs count it: an item
@@ -1245,7 +1477,7 @@ fn check_ext(
     }
     if attrs
         .values()
-        .any(|v| line::json_depth_exceeds(v, crate::MAX_JSON_DEPTH - 1))
+        .any(|v| json_depth_exceeds(v, crate::MAX_JSON_DEPTH - 1))
     {
         return Err(Invariant::JsonTooDeep {
             what,
@@ -1259,12 +1491,7 @@ fn check_ext(
 /// cut at each `\n` and [`HARD_BREAK`], one name and attributes unioned where
 /// they touch, an empty one dropped.
 fn settle_ext(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
-    let breaks: Vec<Scalar> = chars
-        .iter()
-        .enumerate()
-        .filter(|(_, c)| is_break(**c))
-        .map(|(i, _)| i)
-        .collect();
+    let breaks = break_positions(chars);
     let mut groups: BTreeMap<(String, String), (MarkKind, Vec<(Scalar, Scalar)>)> = BTreeMap::new();
     for m in marks {
         let entry = groups
@@ -1305,6 +1532,16 @@ fn is_break(c: char) -> bool {
     matches!(c, '\n' | HARD_BREAK)
 }
 
+/// Each position of `chars` holding a [break](is_break), ascending.
+fn break_positions(chars: &[char]) -> Vec<Scalar> {
+    chars
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| is_break(**c))
+        .map(|(i, _)| i)
+        .collect()
+}
+
 /// The offset of each `\n` and [`HARD_BREAK`] in `text`.
 pub(crate) fn break_offsets(text: &str) -> Vec<Scalar> {
     text.chars()
@@ -1331,7 +1568,7 @@ pub(crate) fn mark_spans(
 }
 
 pub(crate) fn check_island(island: &Island) -> Result<(), Invariant> {
-    if line::json_depth_exceeds(&island.props, crate::MAX_JSON_DEPTH) {
+    if json_depth_exceeds(&island.props, crate::MAX_JSON_DEPTH) {
         return Err(Invariant::JsonTooDeep {
             what: "island props",
             max: crate::MAX_JSON_DEPTH,
@@ -1401,5 +1638,53 @@ pub(crate) fn check_island(island: &Island) -> Result<(), Invariant> {
 
 /// Whether a content value nests past what a slot and an island's props may.
 pub(crate) fn json_too_deep(v: &JsonValue) -> bool {
-    line::json_depth_exceeds(v, crate::MAX_JSON_DEPTH + 8)
+    json_depth_exceeds(v, crate::MAX_JSON_DEPTH + 8)
+}
+
+/// Repair an equation's props in place: `tex` settled by [`settle_tex`], and
+/// `display: false` absent. A `tex` that is no string rides as written.
+pub(crate) fn normalize_math_props(props: &mut JsonValue) {
+    let Some(o) = props.as_object_mut() else {
+        return;
+    };
+    if let Some(JsonValue::String(tex)) = o.get_mut("tex") {
+        let settled = settle_tex(tex);
+        if settled != *tex {
+            *tex = settled;
+        }
+    }
+    if o.get("display") == Some(&JsonValue::Bool(false)) {
+        o.remove("display");
+    }
+}
+
+/// TeX source as an equation stores it: each `%` comment dropped to the end
+/// of its line, each line break or other control char a space, which TeX
+/// reads it as, and the whitespace at either edge dropped.
+pub fn settle_tex(tex: &str) -> String {
+    let mut uncommented = String::with_capacity(tex.len());
+    let (mut comment, mut escaped) = (false, false);
+    for c in tex.chars() {
+        let ends_line = c == '\n' || c == '\r' || is_line_separator(c);
+        comment &= !ends_line;
+        if !comment && c == '%' && !escaped {
+            comment = true;
+        }
+        if !comment {
+            uncommented.push(c);
+        }
+        escaped = c == '\\' && !escaped;
+    }
+    let spaced: String = uncommented
+        .chars()
+        .map(|c| {
+            if c.is_control() || is_line_separator(c) {
+                ' '
+            } else {
+                c
+            }
+        })
+        .filter(|&c| c != ISLAND_SLOT)
+        .collect();
+    spaced.trim().to_string()
 }

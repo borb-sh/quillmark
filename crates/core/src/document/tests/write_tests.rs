@@ -172,7 +172,7 @@ fn a_write_lands_on_the_card_its_writer_read() {
         |doc| {
             let mut card = Card::new("note").unwrap();
             card.overwrite_body(
-                quillmark_content::lines::import::from_markdown("Hello")
+                quillmark_content::markdown::from_markdown("Hello")
                     .unwrap()
                     .content,
             );
@@ -209,8 +209,8 @@ fn a_write_lands_on_the_card_its_writer_read() {
 #[test]
 fn a_revise_or_replace_refuses_to_remove_an_x_island() {
     use quillmark_content::change::IslandStep;
-    use quillmark_content::lines::island::IslandType;
     use quillmark_content::model::Island;
+    use quillmark_content::model::IslandType;
 
     let mut doc = parse(SOURCE);
     let island = Island::new("isl-x", IslandType::Ext("x-chart".into()))

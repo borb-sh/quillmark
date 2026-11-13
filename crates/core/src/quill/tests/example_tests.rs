@@ -91,7 +91,7 @@ fn the_example_document_commits_every_declared_example() {
         json!({ "value": "CUI", "poc": "J. Doe" })
     );
     assert_eq!(
-        quillmark_content::lines::export::to_markdown(main.body_lines()),
+        quillmark_content::markdown::to_markdown(main.body()),
         "Filled-in *prose*."
     );
 
@@ -179,7 +179,7 @@ fn an_example_is_checked_at_load_as_a_default_is() {
             "quill::example_on_namespace",
         ),
         (
-            "    r: { type: richtext, multiline: false, example: \"# Heading\" }\n",
+            "    r: { type: richtext, example: \"one\\n\\ntwo\" }\n",
             "validation::not_single_line",
         ),
     ] {

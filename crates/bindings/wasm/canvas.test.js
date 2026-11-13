@@ -113,7 +113,6 @@ main:
       type: array
       items:
         type: richtext
-        multiline: false
 `
 
 const ARRAY_PLATE = `#import "@local/quillmark-helper:0.2.0" as qm

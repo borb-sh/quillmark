@@ -46,8 +46,8 @@
 //! delimiter never sits against whitespace. [`to_markdown_checked`] names each
 //! loss where a content meets one.
 
-use crate::lines::island::IslandType;
-use crate::markdown::{AnchorRead, Annotated, Loss};
+use crate::markdown::{AnchorRead, Annotated, Loss, html_table};
+use crate::model::IslandType;
 use crate::model::{Content, ISLAND_SLOT, Island, Mark, MarkKind, NOTE_SLOT, Scalar};
 use crate::table::Table;
 use crate::view::{Level, LineKind, Segment, View, cell, cells, item, line_segments, segment};
@@ -85,14 +85,14 @@ pub(crate) fn to_markdown_checked(c: &Content) -> (String, Vec<Loss>) {
     if !same_text || read.lines != rt.lines {
         losses.push(Loss::Text);
     }
-    let to_stored = (!same_text).then(|| crate::lines::delta::diff(&read.text, &rt.text));
+    let to_stored = (!same_text).then(|| crate::delta::diff(&read.text, &rt.text));
     let held: Vec<(Scalar, Scalar, &MarkKind)> = read
         .marks
         .iter()
         .map(|m| match &to_stored {
             Some(d) => (
-                d.map_pos(m.start, crate::lines::delta::Assoc::After),
-                d.map_pos(m.end, crate::lines::delta::Assoc::Before),
+                d.map_pos(m.start, crate::delta::Assoc::After),
+                d.map_pos(m.end, crate::delta::Assoc::Before),
                 &m.kind,
             ),
             None => (m.start, m.end, &m.kind),
@@ -229,40 +229,70 @@ pub(crate) fn island_reads_back(isl: &Island) -> bool {
     matches!(&back.content.islands[..], [one] if one.island_type == isl.island_type && island_props(one) == island_props(isl))
 }
 
-/// What of an island markdown reads back: its props and its slots' text and
-/// marks in their reading order, ids and anchors aside, each slot as
-/// [`held_slots`] holds it, so a slot's breaks that read back otherwise are
-/// [`Loss::SlotBreaks`] and not the island's.
-fn island_props(isl: &Island) -> serde_json::Value {
+/// What of an island markdown reads back: its [shape](crate::table::shape)
+/// with each slot as [`held_slots`] holds it, so a slot's breaks that read
+/// back otherwise are [`Loss::SlotBreaks`] and not the island's.
+fn island_props(isl: &Island) -> String {
     let mut isl = isl.clone();
     for (id, slot) in held_slots(&isl) {
         isl.slots.insert(id, slot);
     }
-    let mut props = crate::table::to_line_props(&isl);
-    crate::lines::export::drop_anchor_marks(&mut props);
-    props
+    crate::table::shape(&isl)
 }
 
-/// Each slot of `isl` by its id as its cell holds it: a hard break at the
-/// slot's edge gone, and two in a row, or one ending a paragraph another
-/// follows, read as markdown reads their `<br>`s.
+/// Each slot of `isl` by its id as its cell holds it: a line break markdown
+/// does not write a space, a hard break at a note's edge gone, and in a
+/// table's cell or a note two hard breaks in a row, or a paragraph break,
+/// read as markdown reads their `<br>`s.
 pub(crate) fn held_slots(isl: &Island) -> Vec<(String, Content)> {
-    let mut props = crate::table::to_line_props(isl);
-    isl.island_type.normalize_props(&mut props);
-    let (held_props, mut held) =
-        crate::table::from_line_props(&isl.island_type, &props, &mut crate::ids::Minter::default());
+    let empty = Content::default();
+    let held = |id: &str, note: bool| {
+        let (text, marks, anchors) = crate::view::cell_parts(isl.slots.get(id).unwrap_or(&empty));
+        let stray = |c: char| c == '\r' || crate::model::is_line_separator(c);
+        let chars: Vec<char> = text
+            .chars()
+            .map(|c| if stray(c) { ' ' } else { c })
+            .collect();
+        let breaks =
+            |edge: &mut dyn Iterator<Item = &char>| edge.take_while(|c| **c == '\n').count();
+        let lead = if note { breaks(&mut chars.iter()) } else { 0 };
+        let end = match note {
+            true => lead.max(chars.len() - breaks(&mut chars.iter().rev())),
+            false => chars.len(),
+        };
+        let clip = |at: Scalar| at.clamp(lead, end) - lead;
+        let marks: Vec<Mark> = marks
+            .into_iter()
+            .map(|m| Mark::new(clip(m.start), clip(m.end), m.kind))
+            .collect();
+        let anchors: Vec<_> = anchors
+            .into_iter()
+            .map(|a| crate::model::Anchor::new(a.id, clip(a.start), clip(a.end)))
+            .collect();
+        let text: String = chars[lead..end].iter().collect();
+        crate::table::cell_slot(&text, &marks, &anchors, false)
+    };
     match isl.island_type {
-        IslandType::Table => {
-            let (Some(from), Some(to)) = (Table::read(&isl.props), Table::read(&held_props)) else {
-                return Vec::new();
-            };
-            from.slot_order()
-                .into_iter()
-                .zip(to.slot_order())
-                .filter_map(|(id, at)| Some((id, held.remove(&at)?)))
-                .collect()
-        }
-        _ => held.into_iter().collect(),
+        IslandType::Table => Table::read(&isl.props)
+            .map(|t| t.slot_order())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|id| {
+                let slot = held(&id, false);
+                (id, slot)
+            })
+            .collect(),
+        IslandType::Footnote => vec![(NOTE_SLOT.to_string(), held(NOTE_SLOT, true))],
+        IslandType::Ext(_) => isl
+            .slots
+            .iter()
+            .map(|(id, slot)| {
+                let (text, marks, anchors) = crate::view::cell_parts(slot);
+                let slot = crate::table::cell_slot(&text, &marks, &anchors, true);
+                (id.clone(), slot)
+            })
+            .collect(),
+        IslandType::Image | IslandType::Math => Vec::new(),
     }
 }
 
@@ -658,8 +688,8 @@ fn emit_code(ctx: &Ctx, range: std::ops::Range<usize>, lang: Option<&str>, out: 
 }
 
 /// Emit one leaf block: the lines `range.start` (a block start) plus any
-/// continuation lines. A paragraph block joins its lines with a markdown hard
-/// break (`\` + newline); a code block renders one fence; a heading is a single
+/// continuation lines. A paragraph block joins its lines with a newline, the
+/// line break the import reads; a code block renders one fence; a heading is a single
 /// line. A block island's line is a `Para` whose slot's markup *is* the block,
 /// so the island writes the whole line and `normalize` leaves it no
 /// continuation to join to it.
@@ -685,14 +715,23 @@ fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
             // heading to a space), so only the first line contributes.
             out.push_str(&render_inline(ctx, range.start, true, dollar));
         }
-        // An empty line between hard breaks writes nothing, which a trailing
-        // `\` would spell as text.
+        // An empty line between hard breaks writes nothing, which a second
+        // newline would spell as a paragraph break.
         LineKind::Para => {
             let parts: Vec<String> = range
                 .map(|i| render_inline(ctx, i, false, dollar))
                 .filter(|part| !part.is_empty())
                 .collect();
-            out.push_str(&parts.join("\\\n"));
+            for (n, part) in parts.iter().enumerate() {
+                if n > 0 {
+                    out.push('\n');
+                    // Under the line above it, a delimiter row opens a table.
+                    if is_delimiter_row(part) {
+                        out.push('\\');
+                    }
+                }
+                out.push_str(part);
+            }
         }
         // `***`, not `---`: all three break spellings import alike, but `---` is
         // also a setext underline, a front-matter fence, and — with the spaces a
@@ -701,6 +740,15 @@ fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
         // prefix.
         LineKind::Rule => out.push_str("***"),
     }
+}
+
+/// Whether `line` reads as a pipe table's delimiter row.
+fn is_delimiter_row(line: &str) -> bool {
+    line.contains('-')
+        && line.contains('|')
+        && line
+            .chars()
+            .all(|c| matches!(c, '-' | '|' | ':' | ' ' | '\t'))
 }
 
 /// Whether the block in `range` writes each `$` of its text as `\$`: one
@@ -759,8 +807,8 @@ fn island_markup(ctx: &Ctx, index: usize, out: &mut String) {
 
 /// The carrier's canonical spelling of island `id`'s token.
 fn island_token(id: &str) -> String {
-    crate::lines::carrier::Element::spelling(
-        crate::lines::carrier::ISLAND,
+    crate::markdown::carrier::Element::spelling(
+        crate::markdown::carrier::ISLAND,
         [("ref".to_string(), id.to_string())].into(),
     )
     .expect("`island` and `ref` are in the carrier grammar")
@@ -796,8 +844,8 @@ fn emit_math(isl: &Island, out: &mut String) {
 pub fn tex_is_writable(tex: &str, display: bool) -> bool {
     let delim = if display { "$$" } else { "$" };
     let md = format!("{delim}{tex}{delim}");
-    let mut events =
-        pulldown_cmark::Parser::new_ext(&md, crate::lines::import::options()).filter(|e| {
+    let mut events = pulldown_cmark::Parser::new_ext(&md, crate::markdown::import::options())
+        .filter(|e| {
             !matches!(
                 e,
                 pulldown_cmark::Event::Start(_) | pulldown_cmark::Event::End(_)
@@ -812,7 +860,7 @@ pub fn tex_is_writable(tex: &str, display: bool) -> bool {
 }
 
 /// A table as a GFM pipe table, or as HTML where it holds what a pipe table
-/// cannot write ([`crate::lines::html_table::writes_html`]). Each cell's
+/// cannot write ([`crate::markdown::html_table::writes_html`]). Each cell's
 /// markdown is rebuilt from its slot, so nothing re-parses markdown and
 /// `import(export(table))` is a fixed point.
 fn emit_table(isl: &Island, out: &mut String) {
@@ -829,9 +877,8 @@ fn emit_table(isl: &Island, out: &mut String) {
             .and_then(|s| isl.slots.get(s))
             .map_or_else(String::new, |slot| render_cell_md(slot, frag))
     };
-    let layout = crate::table::to_line_props(isl);
-    if crate::lines::html_table::writes_html(&layout) {
-        out.push_str(&crate::lines::html_table::write(&layout, |r, c| {
+    if let Some(layout) = crate::table::Layout::of(isl).filter(html_table::writes_html) {
+        out.push_str(&html_table::write(&layout, |r, c| {
             render(r, c, Frag::HtmlCell)
         }));
         return;
@@ -1054,7 +1101,7 @@ fn list_marker_punct(chars: &[char]) -> Option<usize> {
 /// back as the net reads one, inside `,…,`.
 pub(crate) fn annotate(md: String, points: &[usize], tags: &[(Scalar, &str)]) -> String {
     let reads = |line: &str| {
-        crate::lines::import::from_markdown(&format!(",{line},"))
+        crate::markdown::from_markdown(&format!(",{line},"))
             .ok()
             .map(|i| i.content)
     };
@@ -1094,7 +1141,7 @@ fn anchor_tag(id: &str, at: Option<&str>) -> String {
     if let Some(at) = at {
         attrs.insert("at".to_string(), at.to_string());
     }
-    crate::lines::carrier::Element::spelling(crate::lines::carrier::ANCHOR, attrs)
+    crate::markdown::carrier::Element::spelling(crate::markdown::carrier::ANCHOR, attrs)
         .expect("`anchor`, `at` and `ref` are in the carrier grammar")
         .wrap_inline("")
 }
@@ -1264,7 +1311,7 @@ fn render_marked_core(
     clip_asterisk_overlap(&mut fmt);
 
     // The slice's edge whitespace runs, found on the content chars: the heading,
-    // quote, or list prefix and the hard break's `\` land around them later. An
+    // quote, or list prefix and the line break land around them later. An
     // all-whitespace slice is one leading run.
     let lead_edge = chars
         .iter()
@@ -1572,17 +1619,11 @@ fn render_marked_core(
     // form re-import hands back: a mark the sweep splits around an overlap
     // re-imports as one span, so both sides are normalized before they are compared.
     let want_marks = |keep: &[bool]| {
-        crate::lines::model::normalize_marks(
+        crate::model::union_marks(
             fmt.iter()
                 .enumerate()
                 .filter(|&(i, m)| keep[i] && is_flanking(m.2))
-                .filter_map(|(_, &(s, e, k))| {
-                    Some(crate::lines::model::Mark::new(
-                        kept[s],
-                        kept[e],
-                        k.to_line()?,
-                    ))
-                })
+                .map(|(_, &(s, e, k))| Mark::new(kept[s], kept[e], k.clone()))
                 .collect(),
         )
     };
@@ -1595,46 +1636,46 @@ fn render_marked_core(
     // A cell fragment is read back as a cell and a note as a note, where `<br>`
     // is a `\n` wherever it sits; prose reads a break at a mark edge or a
     // second one in a row differently.
-    let probe = |md: &str, want_marks: &[crate::lines::model::Mark]| -> Option<bool> {
+    let probe = |md: &str, want_marks: &[Mark]| -> Option<bool> {
+        let read = |md: String| Some(crate::markdown::from_markdown(&md).ok()?.content);
+        let table_cell = |rt: &Content, row: usize| {
+            let isl = rt.islands.first()?;
+            let slot = isl.slots.get(Table::read(&isl.props)?.slot(row, 0)?)?;
+            let held = cell(slot);
+            Some((held.text, held.marks))
+        };
         let (text, marks) = match esc.frag {
-            Frag::Cell => {
-                let rt =
-                    crate::lines::import::from_markdown(&format!("| h |\n| --- |\n| ,{md}, |"))
-                        .ok()?
-                        .content;
-                let cell = rt.islands.first()?.props.get("rows")?.get(0)?.get(0)?;
-                crate::lines::serial::parse_cell(cell)
-            }
-            Frag::HtmlCell => {
-                let rt = crate::lines::import::from_markdown(&format!(
-                    "<table><tr><td>,{md},</td></tr></table>"
-                ))
-                .ok()?
-                .content;
-                crate::lines::serial::parse_cell(rt.islands.first()?.props.get("header")?.get(0)?)
-            }
+            Frag::Cell => table_cell(&read(format!("| h |\n| --- |\n| ,{md}, |"))?, 1)?,
+            Frag::HtmlCell => table_cell(
+                &read(format!("<table><tr><td>,{md},</td></tr></table>"))?,
+                0,
+            )?,
             Frag::Note => {
-                let rt = crate::lines::import::from_markdown(&format!("a[^1]\n\n[^1]: ,{md},"))
-                    .ok()?
-                    .content;
-                crate::lines::serial::parse_cell(&rt.islands.first()?.props)
+                let rt = read(format!("a[^1]\n\n[^1]: ,{md},"))?;
+                let held = cell(rt.islands.first()?.slots.get(NOTE_SLOT)?);
+                (held.text, held.marks)
             }
             Frag::Prose => {
-                let rt = crate::lines::import::from_markdown(&format!(",{md},{probe_tail}"))
-                    .ok()?
-                    .content
-                    .into_content();
-                (rt.text, rt.marks)
+                let rt = read(format!(",{md},{probe_tail}"))?;
+                let text = rt
+                    .text
+                    .chars()
+                    .map(|c| {
+                        if c == crate::model::HARD_BREAK {
+                            '\n'
+                        } else {
+                            c
+                        }
+                    })
+                    .collect();
+                (text, rt.marks)
             }
         };
         if text != want {
             return None;
         }
-        let got: Vec<&crate::lines::model::Mark> = marks
-            .iter()
-            .filter(|m| MarkKind::from_line(&m.kind).is_some_and(|k| is_flanking(&k)))
-            .collect();
-        Some(got.into_iter().eq(want_marks.iter()))
+        let got = marks.iter().filter(|m| is_flanking(&m.kind));
+        Some(got.eq(want_marks.iter()))
     };
     // Re-spell before dropping anything. The leak is rarely an unrepresentable
     // span; it is two same-character delimiters abutting: a `Strong` closing `**`
@@ -1803,7 +1844,7 @@ fn split_around_table_tags(chars: &[char], start: usize, end: usize) -> Vec<(usi
     let text: String = chars[start..end].iter().collect();
     let mut at = start;
     let mut out = Vec::new();
-    for (piece, tag) in crate::lines::html_table::tag_pieces(&text) {
+    for (piece, tag) in crate::markdown::html_table::tag_pieces(&text) {
         let len = text[piece].chars().count();
         if !tag {
             out.push((at, at + len));
@@ -1867,11 +1908,11 @@ fn render_cell_md(slot: &Content, frag: Frag) -> String {
     .0
 }
 
-/// A line-form HTML table cell's markdown, as export writes it between its
+/// An HTML table cell's markdown, as export writes it between its
 /// tags.
-pub(crate) fn html_cell_markdown(text: &str, marks: &[crate::lines::model::Mark]) -> String {
+pub(crate) fn html_cell_markdown(text: &str, marks: &[Mark]) -> String {
     render_cell_md(
-        &crate::table::cell_to_slot(text, marks, false),
+        &crate::table::cell_slot(text, marks, &[], false),
         Frag::HtmlCell,
     )
 }
@@ -1957,9 +1998,9 @@ const DELIM_SPELLINGS: [Delims; 4] = [
 ];
 
 /// The `qm-span` pair a `font_family` mark writes.
-fn font_pair(kind: &MarkKind) -> crate::lines::carrier::Element {
+fn font_pair(kind: &MarkKind) -> crate::markdown::carrier::Element {
     match kind {
-        MarkKind::FontFamily { name } => crate::lines::carrier::span::pair(name),
+        MarkKind::FontFamily { name } => crate::markdown::carrier::span::pair(name),
         _ => unreachable!("only a font_family mark is a qm-span pair"),
     }
 }
@@ -2059,3 +2100,6 @@ fn longest_backtick_run(s: &str) -> usize {
     }
     max
 }
+
+#[cfg(test)]
+mod tests;

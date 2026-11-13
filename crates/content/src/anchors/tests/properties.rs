@@ -6,26 +6,31 @@
 
 use proptest::prelude::*;
 
-use crate::lines::anchor::{
+use super::locate;
+use crate::anchors::{
     ANCHOR_AGREE_SCALARS, ANCHOR_CONTEXT_SCALARS, AnchorContext, MIN_ANCHOR_QUOTE, anchor_contexts,
-    locate,
 };
-use crate::lines::island::IslandType;
-use crate::lines::model::{Content, ISLAND_SLOT, Island, Line, LineKind, Lines, Mark, MarkKind};
+use crate::markdown::from_plaintext;
+use crate::model::{Anchor, Block, BlockKind, Content, ISLAND_SLOT, Island, IslandType, NOTE_SLOT};
 
 const ALPHABET: [char; 5] = ['a', 'b', ' ', '\n', ISLAND_SLOT];
 
-fn content(text: &str) -> Lines {
-    let lines = vec![Line::new(LineKind::Para); text.matches('\n').count() + 1];
+fn content(text: &str) -> Content {
+    let blocks = (0..text.matches('\n').count() + 1)
+        .map(|n| Block::new(format!("b{n}"), BlockKind::Para))
+        .collect();
     let islands = (0..text.matches(ISLAND_SLOT).count())
         .map(|i| {
             Island::new(format!("isl-{i}"), IslandType::Footnote)
-                .with_props(serde_json::json!({ "text": "note", "marks": [] }))
+                .with_slots([(NOTE_SLOT.to_string(), from_plaintext("note"))].into())
         })
         .collect();
-    Content::new(text.to_string(), lines)
-        .with_islands(islands)
-        .into_lines()
+    Content {
+        text: text.to_string(),
+        blocks,
+        islands,
+        ..Content::empty()
+    }
 }
 
 fn text(max: usize) -> impl Strategy<Value = String> {
@@ -72,7 +77,7 @@ fn field_and_selector() -> impl Strategy<Value = (String, AnchorContext)> {
         })
 }
 
-/// Every place the rule counts, read off its statement on `lines::anchor::locate`.
+/// Every place the rule counts, read off its statement on `locate_site`.
 fn counted(
     text: &[char],
     ctx: &AnchorContext,
@@ -160,17 +165,14 @@ proptest! {
         a in 0usize..61,
         b in 0usize..61,
     ) {
-        let mut rt = content(&field).into_content();
+        let mut rt = content(&field);
         let len = rt.len_scalars();
-        rt.marks.push(Mark::new(a.min(b).min(len), a.max(b).min(len), MarkKind::Anchor { id: "c".into() }));
-        let rt = rt.into_lines();
+        let (start, end) = (a.min(b).min(len), a.max(b).min(len));
+        rt.anchors.push(Anchor::new("c", start, end));
         prop_assume!(rt.validate().is_ok());
-        let Some(anchor) = rt.marks.iter().find(|m| matches!(m.kind, MarkKind::Anchor { .. })) else {
-            return Ok(());
-        };
         let ctx = anchor_contexts(&rt).remove(0);
         if let Some(found) = locate(&rt, &ctx, None) {
-            prop_assert_eq!(found, (anchor.start, anchor.end));
+            prop_assert_eq!(found, (start, end));
         }
     }
 }

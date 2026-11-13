@@ -1065,7 +1065,7 @@ main:
   fields:
     intro:
       type: richtext
-      multiline: true
+      shape: blocks
       description: a probe field
 "#;
         const PLATE: &str = r#"
@@ -1120,7 +1120,7 @@ main:
     /// `Foreign` would truncate the region at the mark's start.
     #[test]
     fn decoration_marks_do_not_truncate_the_region() {
-        use quillmark_content::lines::model::{Content, Line, LineKind, Mark, MarkKind};
+        use quillmark_content::model::{Content, Mark, MarkKind};
         const YAML: &str = r#"
 quill:
   name: deco_probe
@@ -1133,7 +1133,7 @@ main:
   fields:
     prose:
       type: richtext
-      multiline: true
+      shape: blocks
       description: one paragraph with one decorated run
 "#;
         const PLATE: &str = r#"
@@ -1143,9 +1143,11 @@ main:
 "#;
         const TEXT: &str = "Start uline and then a long trailing plain run of text.";
         let region_width = |kind: MarkKind| -> f32 {
-            let rt = Content::new(TEXT.to_string(), vec![Line::new(LineKind::Para)])
-                .with_marks(vec![Mark::new(6, 11, kind)])
-                .into_lines();
+            let rt = Content {
+                text: TEXT.to_string(),
+                marks: vec![Mark::new(6, 11, kind)],
+                ..Content::empty()
+            };
             let q = quill(YAML, PLATE);
             let plate = crate::read_plate(&q).expect("plate");
             let schema = quillmark_core::quill::build_transform_schema(
@@ -1153,7 +1155,7 @@ main:
                 quillmark_core::quill::SchemaCodec::Content,
             );
             let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
-            let data = serde_json::json!({ "prose": quillmark_content::migrate::from_lines(&rt).to_value() });
+            let data = serde_json::json!({ "prose": rt.to_value() });
             let mut world =
                 QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
             let windows = world.inject_helper_package(&data, &meta).expect("inject");
@@ -1218,7 +1220,7 @@ main:
   fields:
     prose:
       type: richtext
-      multiline: true
+      shape: blocks
       description: a two-item list
 "#;
         const PLATE: &str = r#"
@@ -1296,7 +1298,7 @@ main:
   fields:
     prose:
       type: richtext
-      multiline: true
+      shape: blocks
       description: the body
     classification:
       type: enum

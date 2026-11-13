@@ -11,11 +11,11 @@
 use proptest::prelude::*;
 use serde_json::{Value, json};
 
-use crate::lines::html_table::writes_html;
-use crate::lines::island::IslandType;
 use crate::lines::model::{Content, ISLAND_SLOT, Island, Line, LineKind};
 use crate::markdown;
+use crate::markdown::html_table::writes_html;
 use crate::migrate::from_lines;
+use crate::model::IslandType;
 
 /// A cell: literal text over characters the HTML and pipe spellings both
 /// escape, or a word under one mark.
@@ -148,7 +148,7 @@ fn soup() -> impl Strategy<Value = String> {
 fn without_covered_alignment(rt: &crate::lines::model::Lines) -> crate::lines::model::Lines {
     let mut content = rt.clone().into_content();
     for island in &mut content.islands {
-        let spans = crate::lines::island::table_spans(&island.props);
+        let spans = crate::table::table_spans(&island.props);
         for (r, row) in spans.iter().enumerate() {
             for c in (0..row.len()).filter(|c| row[*c].is_none()) {
                 let at = if r == 0 {
@@ -157,7 +157,7 @@ fn without_covered_alignment(rt: &crate::lines::model::Lines) -> crate::lines::m
                     format!("/rows/{}/{c}", r - 1)
                 };
                 if let Some(cell) = island.props.pointer_mut(&at).and_then(Value::as_object_mut) {
-                    for (key, _) in crate::lines::island::CELL_KEYS {
+                    for (key, _) in crate::table::CELL_KEYS {
                         cell.remove(key);
                     }
                 }
@@ -177,7 +177,8 @@ proptest! {
         let checked = markdown::to_markdown_checked(&from_lines(&rt));
         prop_assume!(!checked.losses.iter().any(|l| matches!(l, markdown::Loss::SlotBreaks { .. })));
         let md = checked.markdown;
-        prop_assert_eq!(md.starts_with("<table"), writes_html(&rt.islands[0].props), "{}", md);
+        let layout = crate::table::Layout::of(&from_lines(&rt).islands[0]);
+        prop_assert_eq!(md.starts_with("<table"), layout.as_ref().is_some_and(writes_html), "{}", md);
         let back = markdown::from_markdown(&md).unwrap();
         prop_assert!(back.warnings.is_empty(), "{:?}\n{}", back.warnings, md);
         prop_assert_eq!(&back.content, &from_lines(&without_covered_alignment(&rt)), "{}", md);

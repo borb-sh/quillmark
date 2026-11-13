@@ -24,29 +24,28 @@ main:
   fields:
     rich:
       type: richtext
-      multiline: true
+      shape: blocks
     rich_inline:
       type: richtext
-      multiline: false
     plain:
       type: text
-      multiline: true
+      shape: lines
     plain_inline:
       type: text
     riches:
       type: array
       items:
         type: richtext
-        multiline: true
+        shape: blocks
     pair:
       type: object
       properties:
         label:
           type: text
-          multiline: true
+          shape: lines
         blurb:
           type: richtext
-          multiline: true
+          shape: blocks
     qty:
       type: integer
 "#;

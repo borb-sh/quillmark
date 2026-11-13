@@ -63,12 +63,11 @@ fn serde_expected(yaml: &str) -> BTreeSet<String> {
 /// A field of `token`'s type carrying the keys its type requires.
 fn minimal_field(token: &str) -> String {
     let companion = match token.trim_end_matches('?') {
-        "richtext" => ", multiline: false",
         "enum" => ", values: [a]",
         "array" => ", items: { type: text }",
         "object" => ", properties: { a: { type: text } }",
         "matrix" => ", members: { a: A }",
-        "number" | "integer" | "boolean" | "date" | "datetime" | "text" => "",
+        "number" | "integer" | "boolean" | "date" | "datetime" | "text" | "richtext" => "",
         other => panic!("give type `{other}` its companion keys here"),
     };
     format!("{HEADER}main:\n  fields:\n    f: {{ type: \"{token}\"{companion} }}\n")
@@ -163,6 +162,8 @@ fn the_schema_scopes_each_key_to_the_types_the_loader_takes_it_on() {
         ("variants", "{ a: { g: { type: text } } }"),
         ("items", "{ type: text }"),
         ("properties", "{ a: { type: text } }"),
+        ("shape", "lines"),
+        ("shape", "blocks"),
         ("multiline", "true"),
         ("max", "3"),
         ("members", "{ a: A }"),
@@ -270,7 +271,9 @@ fn the_schema_refuses_the_shape_errors_the_loader_refuses() {
         field("type: array"),
         field("type: object"),
         field("type: matrix"),
-        field("type: richtext"),
+        field("type: richtext, shape: paragraphs"),
+        field("type: text, shape: blocks"),
+        field("type: number, shape: lines"),
         field("type: text, items: { type: text }"),
         field("type: text, values: [a]"),
         field("type: text, variants: { a: {} }"),

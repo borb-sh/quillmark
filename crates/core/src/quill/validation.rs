@@ -5,7 +5,8 @@ use crate::error::{Diagnostic, Severity, diag_args};
 use crate::path::DocPath;
 use crate::quill::formats::{format_grammar, is_valid_date, is_valid_datetime};
 use crate::quill::{
-    CardSchema, FieldSchema, FieldType, MATRIX_HELD_KEY, QuillConfig, VARIANT_DISCRIMINANT_KEY,
+    CardSchema, FieldSchema, FieldType, MATRIX_HELD_KEY, QuillConfig, Shape,
+    VARIANT_DISCRIMINANT_KEY,
 };
 use crate::value::QuillValue;
 
@@ -52,9 +53,15 @@ pub enum ValidationError {
 
     /// A one-line field whose content is not a single line: a block, a
     /// list or quote container, or an island. Both prose types are one line
-    /// unless `multiline: true`, so this is one condition under one code, the validation twin of
+    /// unless their `shape` says more, so this is one condition under one code, the validation twin of
     /// [`EditError::FieldNotSingleLine`](crate::document::EditError::FieldNotSingleLine).
     NotSingleLine {
+        path: String,
+    },
+
+    /// A `richtext` of `shape: lines` whose content holds a block other than
+    /// a paragraph, a list or quote container, or an island.
+    NotLines {
         path: String,
     },
 
@@ -127,6 +134,13 @@ impl std::fmt::Display for ValidationError {
                     hint = not_single_line_hint(),
                 )
             }
+            ValidationError::NotLines { path } => {
+                write!(
+                    f,
+                    "field `{path}` holds lines but its content holds more: {hint}",
+                    hint = not_lines_hint(),
+                )
+            }
             ValidationError::NotPlain { path } => {
                 write!(
                     f,
@@ -163,7 +177,13 @@ pub(crate) fn format_hint(format: &str) -> String {
 /// prose types are one line by default.
 pub(crate) fn not_single_line_hint() -> &'static str {
     "keep the value to a single line (no blank lines, headings, lists, \
-     quotes, or tables), or declare `multiline: true` in the schema"
+     quotes, or tables), or declare `shape: lines` or `shape: blocks` in the schema"
+}
+
+/// Actionable exit clause for a `NotLines` error.
+pub(crate) fn not_lines_hint() -> &'static str {
+    "keep the value to paragraphs and line breaks (no headings, lists, quotes, code \
+     blocks, tables, images, footnotes or equations), or declare `shape: blocks` in the schema"
 }
 
 /// Actionable exit clause for a `NotPlain` error.
@@ -202,6 +222,7 @@ impl ValidationError {
             | ValidationError::HeldStored { path }
             | ValidationError::FormatViolation { path, .. }
             | ValidationError::NotSingleLine { path, .. }
+            | ValidationError::NotLines { path, .. }
             | ValidationError::NotPlain { path, .. } => path,
         }
     }
@@ -215,6 +236,7 @@ impl ValidationError {
             ValidationError::HeldStored { .. } => "validation::held_stored",
             ValidationError::FormatViolation { .. } => "validation::format_violation",
             ValidationError::NotSingleLine { .. } => "validation::not_single_line",
+            ValidationError::NotLines { .. } => "validation::not_lines",
             ValidationError::NotPlain { .. } => "validation::not_plain",
         }
     }
@@ -271,6 +293,7 @@ impl ValidationError {
                 "format" => format,
             },
             ValidationError::NotSingleLine { path: _ } => diag_args! {},
+            ValidationError::NotLines { path: _ } => diag_args! {},
             ValidationError::NotPlain { path: _ } => diag_args! {},
         }
     }
@@ -287,6 +310,7 @@ impl ValidationError {
                 ..
             } => Some(type_mismatch_hint(expected, actual, default.as_deref())),
             ValidationError::NotSingleLine { .. } => Some(not_single_line_hint().to_string()),
+            ValidationError::NotLines { .. } => Some(not_lines_hint().to_string()),
             ValidationError::NotPlain { .. } => Some(not_plain_hint().to_string()),
             ValidationError::FormatViolation { format, .. } => Some(format_hint(format)),
             ValidationError::EnumViolation {
@@ -622,19 +646,22 @@ fn validate_value(
     // schema literal it is the load-time import's.
     if type_valid {
         match field.r#type {
-            FieldType::RichText { multiline: false } => {
+            FieldType::RichText { shape } if shape != Shape::Blocks => {
                 let parsed = crate::document::Codec::Richtext
-                    .decode_value(value.as_json())
+                    .decode_value_admitting(value.as_json(), shape.admit())
                     .and_then(Result::ok);
                 if let Some(rt) = parsed.map(|imported| imported.content) {
-                    if !rt.is_inline() {
-                        errors.push(ValidationError::NotSingleLine {
-                            path: path.to_string(),
+                    if !shape.admits(&rt) {
+                        let path = path.to_string();
+                        errors.push(match shape {
+                            Shape::Line => ValidationError::NotSingleLine { path },
+                            _ => ValidationError::NotLines { path },
                         });
                     }
                 }
             }
-            FieldType::Text { multiline } => {
+            FieldType::Text { shape } => {
+                let multiline = shape != Shape::Line;
                 // A schema literal decodes through the literal codec, a
                 // document value being a canonical content object already.
                 if let Some(rt) = crate::document::Codec::Text
@@ -965,7 +992,7 @@ main:
         let mut p = Payload::from_index_map(payload);
         p.set_quill("test_quill".parse().unwrap());
         p.set_kind("main");
-        let main = Card::from_parts(p, quillmark_content::lines::model::Lines::empty());
+        let main = Card::from_parts(p, quillmark_content::model::Content::empty());
         Document::from_main_and_cards(main, cards)
     }
 
@@ -1142,7 +1169,7 @@ main:
 
     #[test]
     fn rejects_single_line_richtext_with_multi_block_content() {
-        let config = config_with("    tag:\n      type: richtext\n      multiline: false", "");
+        let config = config_with("    tag:\n      type: richtext", "");
         let content = quillmark_content::markdown::from_markdown("one\n\ntwo")
             .unwrap()
             .content
@@ -1174,7 +1201,7 @@ main:
         validate("|\n  one line\n");
         validate("\"one line \\t\\n\\n\"\n");
 
-        let config = config_with("    pti:\n      type: richtext\n      multiline: false", "");
+        let config = config_with("    pti:\n      type: richtext", "");
         let md = "~~~\n$quill: native_validation@1.0.0\npti: |\n  *one* line\n~~~\n";
         let doc = Document::parse(md).expect("parses").document;
         assert!(config.validate_document(&doc).is_ok());
@@ -1182,7 +1209,7 @@ main:
 
     #[test]
     fn accepts_single_line_richtext_single_para_content() {
-        let config = config_with("    tag:\n      type: richtext\n      multiline: false", "");
+        let config = config_with("    tag:\n      type: richtext", "");
         let content = quillmark_content::markdown::from_markdown("one line only")
             .unwrap()
             .content

@@ -43,7 +43,6 @@ main:
 
     subject:
       type: richtext
-      multiline: false
       example: Transition to the Base Records Portal (Suspense 15 Mar 26)
       description: Be brief and clear. Capitalize the first letter of each word except articles, prepositions, and conjunctions. Include suspense dates in parentheses if applicable.
 
@@ -88,7 +87,6 @@ main:
 
     tag_line:
       type: richtext
-      multiline: false
       default: ""
       ui:
         compact: true
@@ -137,7 +135,6 @@ main:
       type: array
       items:
         type: richtext
-        multiline: false
       default: []
       example:
         - "AFMAN 33-326, 25 November 2011, *Preparing Official Communications*"

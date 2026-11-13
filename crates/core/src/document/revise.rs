@@ -19,6 +19,80 @@ use crate::value::QuillValue;
 use quillmark_content::anchors::anchor_contexts;
 use quillmark_content::model::Content as ContentModel;
 
+impl Revising {
+    /// The parse with each markdown string a `richtext` field of `config`
+    /// holds rewritten as the field's shape reads it
+    /// ([`admitting`](quillmark_content::markdown::admitting)), so the revise
+    /// imports what the conform after it would.
+    pub(crate) fn admitting(mut self, config: &crate::quill::QuillConfig) -> Self {
+        let document = &mut self.parsed.document;
+        admit_card(&mut document.main, Some(&config.main.fields));
+        for card in &mut document.cards {
+            let fields = card
+                .kind()
+                .and_then(|kind| config.card_kind(kind))
+                .map(|schema| &schema.fields);
+            admit_card(card, fields);
+        }
+        self
+    }
+}
+
+fn admit_card(
+    card: &mut Card,
+    fields: Option<&indexmap::IndexMap<String, crate::quill::FieldSchema>>,
+) {
+    let Some(fields) = fields else {
+        return;
+    };
+    for (name, value) in card.payload_mut().fields_mut() {
+        let Some(schema) = fields.get(name) else {
+            continue;
+        };
+        let mut json = value.as_json().clone();
+        if admit_value(schema, &mut json) {
+            *value = QuillValue::from_json(json);
+        }
+    }
+}
+
+/// Rewrite the markdown strings under `value` as `schema` shapes them, and
+/// whether any changed.
+fn admit_value(schema: &crate::quill::FieldSchema, value: &mut JsonValue) -> bool {
+    use crate::quill::FieldType;
+    match (&schema.r#type, value) {
+        (FieldType::RichText { shape }, JsonValue::String(text)) => {
+            match quillmark_content::markdown::admitting(text, shape.admit()) {
+                std::borrow::Cow::Owned(read) if read != *text => {
+                    *text = read;
+                    true
+                }
+                _ => false,
+            }
+        }
+        (_, JsonValue::Array(items)) => schema.items.as_deref().is_some_and(|item| {
+            items
+                .iter_mut()
+                .fold(false, |changed, value| admit_value(item, value) | changed)
+        }),
+        (_, JsonValue::Object(map)) => {
+            let cells = schema.properties.iter().flatten().chain(
+                schema
+                    .variants
+                    .iter()
+                    .flat_map(|variants| variants.values())
+                    .flatten(),
+            );
+            cells.fold(false, |changed, (name, cell)| {
+                map.get_mut(name)
+                    .is_some_and(|value| admit_value(cell, value))
+                    | changed
+            })
+        }
+        _ => false,
+    }
+}
+
 /// The receipt of [`Document::revise`].
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]

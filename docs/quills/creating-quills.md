@@ -220,7 +220,7 @@ Three types hold text, and two questions pick one:
 1. **Is the set of allowed values closed?** Then it is an `enum`.
 2. Otherwise: **should `*text*` render as emphasis, or stay literal?** (`richtext` over `text`.)
 
-`text` is one line and `richtext` one paragraph; `multiline: true` admits more, and a `richtext` declares `multiline:` either way. A name, a URL or a reference key is a one-line `text`, and an abstract or a summary is a `richtext`. The letter needs no `richtext` field: its prose is the document body, which is already rich text. A plate that computes with a `text` value (`upper`, a comparison, `set document(author: ..)`) reads it through [`qm.str`](typst-backend.md#text-as-a-str).
+`text` and `richtext` are one line; `shape: lines` admits line breaks, and `shape: blocks` on a `richtext` admits lists, headings and other blocks. A name, a URL or a reference key is a one-line `text`, and an abstract or a summary is a `richtext`. The letter needs no `richtext` field: its prose is the document body, which is already rich text. A plate that computes with a `text` value (`upper`, a comparison, `set document(author: ..)`) reads it through [`qm.str`](typst-backend.md#text-as-a-str).
 
 Pick before documents exist. Changing a declared type reinterprets every value already stored in that field, and `text` → `richtext` is lossy: see [Choosing among `enum`, `text`, and `richtext`](quill-yaml-reference.md#choosing-among-enum-text-and-richtext).
 

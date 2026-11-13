@@ -11,10 +11,10 @@ use std::sync::Arc;
 
 use quillmark_content::change::{self, Change, Dropped, Moved, Step};
 use quillmark_content::diff;
-use quillmark_content::lines::import::ImportWarning;
-use quillmark_content::lines::island::IslandType;
+use quillmark_content::markdown::ImportWarning;
 use quillmark_content::mint;
 use quillmark_content::model::Content;
+use quillmark_content::model::IslandType;
 use quillmark_content::structural::{StructuralEdit, Wrap};
 use quillmark_content::units::{self, Units};
 
@@ -178,7 +178,7 @@ impl Card {
     pub fn annotated<'t>(
         &self,
         target: impl Into<Target<'t>>,
-    ) -> Result<quillmark_content::lines::export::Annotated, EditError> {
+    ) -> Result<quillmark_content::markdown::Annotated, EditError> {
         match target.into() {
             Target::Body => Ok(self.body_annotated()),
             Target::Field(name) => self.field_annotated(name),

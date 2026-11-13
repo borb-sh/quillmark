@@ -22,7 +22,7 @@ main:
     quorum: { type: integer? }
     attendees: { type: array?, items: { type: text } }
     adjourned: { type: date? }
-    minutes: { type: richtext?, multiline: true }
+    minutes: { type: richtext?, shape: blocks }
     tally:
       type: object
       properties:

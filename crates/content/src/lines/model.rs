@@ -6,8 +6,9 @@
 //! encoded: the model stores only the resulting range, so the stored form is
 //! identical whatever the editor did.
 
-use crate::lines::island::IslandType;
-use crate::lines::normalize::{is_bidi_char, is_line_separator};
+use crate::json::{canonical_json_string, canonicalize_keys, json_depth_exceeds};
+use crate::model::IslandType;
+use crate::model::{is_bidi_char, is_line_separator};
 use serde_json::Value as JsonValue;
 use std::borrow::Cow;
 
@@ -332,7 +333,7 @@ impl Container {
 ///
 /// A projection taking a token may therefore assume only what the mint
 /// establishes, and must be **total over any token**:
-/// [`to_markdown`](crate::lines::export::to_markdown) walks containers on an explicit stack
+/// [`to_markdown`](crate::markdown::to_markdown) walks containers on an explicit stack
 /// rather than a frame per level, and `emit_content` checks the depth and
 /// returns an error. An unguarded recursion aborts the process, which no
 /// `Result` can catch.
@@ -395,7 +396,7 @@ pub enum MarkKind {
         url: String,
     },
     /// The font family a run sets in, stored as written and matched against a
-    /// font book lowercased. [`is_font_family_name`] is the spelling every
+    /// font book lowercased. [`is_font_family_name`](crate::model::is_font_family_name) is the spelling every
     /// decoder admits. A [keyed](MarkKind::is_keyed) mark: one family per
     /// character.
     FontFamily {
@@ -406,30 +407,11 @@ pub enum MarkKind {
     /// edits like any position. The id is caller-supplied, unique per `Content`,
     /// and invariant while the mark lives; moved-and-rewritten text drops the
     /// mark whole. No markdown projection: it is omitted on export, spelled
-    /// read-only by [`to_markdown_annotated`](crate::lines::export::to_markdown_annotated),
+    /// read-only by [`to_markdown_annotated`](crate::markdown::to_markdown_annotated),
     /// and survives a revise through the diff that carries it.
     Anchor {
         id: String,
     },
-}
-
-/// Whether `name` is a family a [`MarkKind::FontFamily`] may carry: not empty,
-/// no whitespace at either edge, and no character the content text refuses or
-/// that a font book could not hold in a name.
-pub fn is_font_family_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.trim() == name
-        && !name
-            .chars()
-            .any(|c| c.is_control() || is_bidi_char(c) || is_line_separator(c) || c == ISLAND_SLOT)
-}
-
-/// How a raw keyed mark ranks over a character it shares with another of its
-/// tag, the greater setting it: the later start, then the shorter mark, then
-/// the later in canonical order. Only [`normalize_marks`] reads it, settling
-/// raw overlap once; normalized content holds none.
-fn keyed_rank(m: &Mark) -> (Scalar, std::cmp::Reverse<Scalar>, (String, String)) {
-    (m.start, std::cmp::Reverse(m.end), m.kind.sort_key())
 }
 
 /// A structured object with no honest text encoding (a table, figure, or future
@@ -465,6 +447,38 @@ impl Island {
 }
 
 impl MarkKind {
+    /// The model's mark of this kind, `None` for an anchor, which the model
+    /// holds beside its marks.
+    pub(crate) fn to_model(&self) -> Option<crate::model::MarkKind> {
+        use crate::model::MarkKind as Model;
+        Some(match self {
+            MarkKind::Strong => Model::Strong,
+            MarkKind::Emph => Model::Emph,
+            MarkKind::Underline => Model::Underline,
+            MarkKind::Strike => Model::Strike,
+            MarkKind::Code => Model::Code,
+            MarkKind::Link { url } => Model::Link { url: url.clone() },
+            MarkKind::FontFamily { name } => Model::FontFamily { name: name.clone() },
+            MarkKind::Anchor { .. } => return None,
+        })
+    }
+
+    /// The line form's mark of the model's `kind`, `None` for a type this
+    /// build does not know, which formats nothing here.
+    pub(crate) fn from_model(kind: &crate::model::MarkKind) -> Option<MarkKind> {
+        use crate::model::MarkKind as Model;
+        Some(match kind {
+            Model::Strong => MarkKind::Strong,
+            Model::Emph => MarkKind::Emph,
+            Model::Underline => MarkKind::Underline,
+            Model::Strike => MarkKind::Strike,
+            Model::Code => MarkKind::Code,
+            Model::Link { url } => MarkKind::Link { url: url.clone() },
+            Model::FontFamily { name } => MarkKind::FontFamily { name: name.clone() },
+            Model::Ext { .. } => return None,
+        })
+    }
+
     /// Formatting marks are a property of a range and union when coincident;
     /// an identity mark is a handle and never merges.
     ///
@@ -539,61 +553,6 @@ impl MarkKind {
     }
 }
 
-/// A `serde_json::Value` rendered to a string with object keys recursively
-/// sorted: order-insensitive, so it is a stable comparison/grouping key.
-pub(crate) fn canonical_json_string(v: &JsonValue) -> String {
-    if is_value_key_sorted(v) {
-        return serde_json::to_string(v).unwrap_or_default();
-    }
-    serde_json::to_string(&sort_keys_owned(v.clone())).unwrap_or_default()
-}
-
-/// Whether every object in `v` already has its keys in ascending order,
-/// recursively: the allocation-free check that lets a re-normalize skip
-/// rebuilding an already-canonical tree.
-pub(crate) fn is_value_key_sorted(v: &JsonValue) -> bool {
-    match v {
-        JsonValue::Array(items) => items.iter().all(is_value_key_sorted),
-        JsonValue::Object(map) => {
-            map.keys().zip(map.keys().skip(1)).all(|(a, b)| a <= b)
-                && map.values().all(is_value_key_sorted)
-        }
-        _ => true,
-    }
-}
-
-/// `true` when `v` nests deeper than `max` container levels: the guard that
-/// keeps the recursive walkers here and `Value`'s own `Drop` inside a bounded
-/// frame count. The walk is iterative, so the check itself cannot overflow on
-/// the adversarially deep input it exists to detect.
-///
-/// The unit is **container levels**, not nodes: only arrays/objects are charged
-/// a level and a scalar leaf is never checked, so an empty container at level
-/// `max + 1` is rejected exactly like a full one. `quillmark_core` re-exports
-/// this as its own depth guard, so every boundary rejects the identical shape.
-pub fn json_depth_exceeds(v: &JsonValue, max: usize) -> bool {
-    // (value, depth) pairs; depth counts container levels entered.
-    let mut stack: Vec<(&JsonValue, usize)> = vec![(v, 0)];
-    while let Some((v, depth)) = stack.pop() {
-        match v {
-            JsonValue::Array(items) => {
-                if depth + 1 > max {
-                    return true;
-                }
-                stack.extend(items.iter().map(|c| (c, depth + 1)));
-            }
-            JsonValue::Object(map) => {
-                if depth + 1 > max {
-                    return true;
-                }
-                stack.extend(map.values().map(|c| (c, depth + 1)));
-            }
-            _ => {}
-        }
-    }
-    false
-}
-
 /// [`json_depth_exceeds`] against [`MAX_JSON_DEPTH`](crate::MAX_JSON_DEPTH) as
 /// an [`Invariant`] result, `what` naming the bag.
 pub(crate) fn check_json_depth(v: &JsonValue, what: &'static str) -> Result<(), Invariant> {
@@ -616,44 +575,6 @@ pub(crate) fn check_table_cells(props: &JsonValue) -> Result<(), Invariant> {
         });
     }
     Ok(())
-}
-
-/// Put `v` in canonical key order, rebuilding it only when a key is out of
-/// order, so an untouched tree pays the scan and skips the deep clone.
-///
-/// Both walks below recurse, where the container walks do not: a container path
-/// is flat memory at any depth, so nothing but the walk bounds it, while a
-/// [`JsonValue`] deep enough to overflow these overflows its own `Drop` in the
-/// frame that built it. The bound belongs where such a value enters —
-/// `bag_from_wire` before the decode clone, [`check_json_depth`] in
-/// [`Content::validate`].
-pub(crate) fn canonicalize_keys(v: &mut JsonValue) {
-    if !is_value_key_sorted(v) {
-        *v = sort_keys_owned(std::mem::take(v));
-    }
-}
-
-/// Reorder every object's keys by **moving** each entry into a freshly
-/// key-sorted map, recursively. Pins the canonical bytes against
-/// `serde_json`'s `preserve_order` leaking insertion order; rebuilding the map
-/// (rather than sorting in place) keeps that independent of whether the feature
-/// is on in the crate graph.
-pub(crate) fn sort_keys_owned(v: JsonValue) -> JsonValue {
-    match v {
-        JsonValue::Array(items) => {
-            JsonValue::Array(items.into_iter().map(sort_keys_owned).collect())
-        }
-        JsonValue::Object(map) => {
-            let mut entries: Vec<(String, JsonValue)> = map.into_iter().collect();
-            entries.sort_by(|a, b| a.0.cmp(&b.0));
-            let mut out = serde_json::Map::with_capacity(entries.len());
-            for (k, child) in entries {
-                out.insert(k, sort_keys_owned(child));
-            }
-            JsonValue::Object(out)
-        }
-        other => other,
-    }
 }
 
 /// What a [`Content`] can hold that [`Content::normalize`] cannot repair.
@@ -695,8 +616,7 @@ pub enum Invariant {
     /// stable across renumbers.
     IslandIdCollision { id: String },
     /// Two prose anchors share an `id`, or one carries the empty id. Scope is
-    /// prose marks: a collision a cell takes part in loads, and
-    /// [`Content::anchor_sites`] lists each holder.
+    /// prose marks: a collision a cell takes part in loads.
     AnchorIdCollision { id: String },
     /// A line's container path is nested deeper than
     /// [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH). The Typst emitter
@@ -792,7 +712,7 @@ impl Content {
     /// Constructing neither normalizes nor checks: the canonical form is the
     /// caller's until [`into_lines`](Self::into_lines) runs, and
     /// [`validate`](Self::validate) reports what that cannot repair. The codecs
-    /// ([`crate::lines::import`], [`Content::from_canonical_json`]) do both.
+    /// ([`crate::migrate::to_lines`], [`Content::from_canonical_json`]) do both.
     pub fn new(text: String, lines: Vec<Line>) -> Self {
         Content {
             text,
@@ -831,7 +751,7 @@ impl Content {
     }
 
     /// Whether this content is one line, as a `text` or `richtext` field
-    /// without `multiline: true` requires: exactly one `Para` line, sitting in
+    /// of one line requires: exactly one `Para` line, sitting in
     /// no container, with no islands. [`Content::empty`] is one line, so a
     /// blank one-line field passes.
     pub fn is_inline(&self) -> bool {
@@ -847,7 +767,7 @@ impl Content {
     /// `continues` is unconstrained. [`Content::empty`] is plain.
     ///
     /// The distinguishing property of `text` over a mark-free `richtext` is
-    /// the *literal* codec ([`crate::lines::import::from_plaintext`]), not this
+    /// the *literal* codec ([`crate::markdown::from_plaintext`]), not this
     /// predicate.
     pub fn is_plain(&self) -> bool {
         self.marks
@@ -975,7 +895,7 @@ impl Content {
     /// reaches it, and the mint never moves text. A point mark right after the
     /// slot moves onto the line after it.
     pub(crate) fn split_block_islands(&mut self) {
-        use crate::lines::delta::{Assoc, Delta, Op};
+        use crate::delta::{Assoc, Delta, Op};
 
         if !self.islands.iter().any(|i| i.island_type.block_only())
             || self.lines.len() != self.segment_count()
@@ -1129,7 +1049,7 @@ impl Content {
             // Depth before any pass that walks `props`; a cell's own `attrs` is
             // a subtree, so this bounds the cell marks read below as well.
             check_json_depth(&island.props, "island props")?;
-            if island.island_type == crate::lines::island::IslandType::Table {
+            if island.island_type == crate::model::IslandType::Table {
                 check_table_cells(&island.props)?;
             }
             for (text, marks) in island.island_type.cell_marks(&island.props) {
@@ -1265,93 +1185,24 @@ pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
     }
 }
 
-/// Cut each formatting mark at every `\n` and hard break in `chars`, keeping
-/// the pieces between them: prose export closes a mark at a line's end and
-/// reopens it on the next, so in prose a mark never spans a line join. Zero-width
-/// pieces are left for [`normalize_marks`] to drop.
+/// Cut each formatting mark at every `\n` and hard break in `chars`
+/// ([`split_marks_at_breaks`](crate::model::split_marks_at_breaks)); every
+/// other mark is kept whole.
 pub(crate) fn split_marks_at_newlines(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
-    let breaks: Vec<Scalar> = chars
-        .iter()
-        .enumerate()
-        .filter(|(_, c)| matches!(**c, '\n' | crate::model::HARD_BREAK))
-        .map(|(i, _)| i)
-        .collect();
-    let within = |m: &Mark| {
-        let lo = breaks.partition_point(|&b| b < m.start);
-        let hi = breaks.partition_point(|&b| b < m.end);
-        &breaks[lo..hi.max(lo)]
-    };
-    let mut out = Vec::with_capacity(marks.len());
-    for m in marks {
-        if !m.kind.is_formatting() {
-            out.push(m);
-            continue;
-        }
-        let mut start = m.start;
-        for &at in within(&m) {
-            out.push(Mark::new(start, at, m.kind.clone()));
-            start = at + 1;
-        }
-        out.push(Mark::new(start.min(m.end), m.end, m.kind));
-    }
+    let (formatting, mut out) = by_class(marks);
+    out.extend(from_model(crate::model::split_marks_at_breaks(
+        chars, formatting,
+    )));
     out
 }
 
-/// Apply the merge rules and the canonical sort to a flat mark list:
-/// same-kind formatting marks union when adjacent *or* overlapping, different
-/// kinds overlap freely (never split into runs), and an identity mark never
-/// merges. Keyed marks of one tag are first cut at every edge among them and
-/// each piece given to the one [`keyed_rank`] puts first, so the union that
-/// follows joins only pieces of one value and none of one tag overlap.
-/// Zero-width formatting is dropped; zero-width anchors survive.
+/// The merge rules and the canonical sort over a flat mark list: the
+/// formatting marks as [`union_marks`](crate::model::union_marks) settles
+/// them, and an identity mark never merged. Zero-width formatting is dropped;
+/// zero-width anchors survive.
 pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
-    use std::collections::BTreeMap;
-
-    let mut groups: BTreeMap<(String, String), Vec<(Scalar, Scalar)>> = BTreeMap::new();
-    let mut kind_of: BTreeMap<(String, String), MarkKind> = BTreeMap::new();
-    let mut passthrough: Vec<Mark> = Vec::new();
-
-    let (keyed, marks): (Vec<Mark>, Vec<Mark>) = marks.into_iter().partition(|m| m.kind.is_keyed());
-    let marks = marks.into_iter().chain(settle_keyed(keyed));
-    for m in marks {
-        if m.kind.is_formatting() {
-            if m.start >= m.end {
-                continue; // drop zero-width / inverted formatting
-            }
-            let key = m.kind.sort_key();
-            kind_of.entry(key.clone()).or_insert_with(|| m.kind.clone());
-            groups.entry(key).or_default().push((m.start, m.end));
-        } else {
-            passthrough.push(m);
-        }
-    }
-
-    let mut out: Vec<Mark> = Vec::new();
-    for (key, mut ranges) in groups {
-        ranges.sort_unstable();
-        let kind = kind_of.remove(&key).expect("kind recorded with group");
-        let mut cur = ranges[0];
-        for &(s, e) in &ranges[1..] {
-            if s <= cur.1 {
-                // adjacent (s == cur.1) or overlapping: union
-                cur.1 = cur.1.max(e);
-            } else {
-                out.push(Mark {
-                    start: cur.0,
-                    end: cur.1,
-                    kind: kind.clone(),
-                });
-                cur = (s, e);
-            }
-        }
-        out.push(Mark {
-            start: cur.0,
-            end: cur.1,
-            kind,
-        });
-    }
-    out.extend(passthrough);
-
+    let (formatting, mut out) = by_class(marks);
+    out.extend(from_model(crate::model::union_marks(formatting)));
     // Key cached per mark so `sort_key`'s allocation runs once each, not once
     // per comparison.
     out.sort_by_cached_key(|m| (m.start, m.end, m.kind.sort_key()));
@@ -1361,56 +1212,32 @@ pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
     out
 }
 
-/// Raw keyed marks as disjoint pieces per tag: each stretch between two edges
-/// of a tag's marks goes to the mark [`keyed_rank`] puts first over it, read
-/// off one sweep over the edges.
-fn settle_keyed(keyed: Vec<Mark>) -> Vec<Mark> {
-    use std::collections::{BTreeMap, BTreeSet};
+/// `marks` as its formatting marks, in the model's spelling, and the rest.
+fn by_class(marks: Vec<Mark>) -> (Vec<crate::model::Mark>, Vec<Mark>) {
+    let mut formatting = Vec::with_capacity(marks.len());
+    let mut rest = Vec::new();
+    for m in marks {
+        match m.kind.to_model() {
+            Some(kind) => formatting.push(crate::model::Mark::new(m.start, m.end, kind)),
+            None => rest.push(m),
+        }
+    }
+    (formatting, rest)
+}
 
-    let mut by_tag: BTreeMap<&'static str, Vec<Mark>> = BTreeMap::new();
-    for m in keyed.into_iter().filter(|m| m.start < m.end) {
-        by_tag.entry(m.kind.tag()).or_default().push(m);
-    }
-    let mut out = Vec::new();
-    for mut marks in by_tag.into_values() {
-        marks.sort_by_key(|m| (m.start, m.end));
-        if marks.windows(2).all(|w| w[0].end <= w[1].start) {
-            out.extend(marks);
-            continue;
-        }
-        let ranks: Vec<_> = marks.iter().map(keyed_rank).collect();
-        let mut by_end: Vec<usize> = (0..marks.len()).collect();
-        by_end.sort_by_key(|&i| marks[i].end);
-        let mut edges: Vec<Scalar> = marks.iter().flat_map(|m| [m.start, m.end]).collect();
-        edges.sort_unstable();
-        edges.dedup();
-        let mut over = BTreeSet::new();
-        let (mut opened, mut closed) = (0, 0);
-        for cut in edges.windows(2) {
-            let (a, b) = (cut[0], cut[1]);
-            while closed < by_end.len() && marks[by_end[closed]].end <= a {
-                over.remove(&(&ranks[by_end[closed]], by_end[closed]));
-                closed += 1;
-            }
-            while opened < marks.len() && marks[opened].start <= a {
-                over.insert((&ranks[opened], opened));
-                opened += 1;
-            }
-            if let Some(&(_, i)) = over.last() {
-                out.push(Mark {
-                    start: a,
-                    end: b,
-                    kind: marks[i].kind.clone(),
-                });
-            }
-        }
-    }
-    out
+fn from_model(marks: Vec<crate::model::Mark>) -> impl Iterator<Item = Mark> {
+    marks
+        .into_iter()
+        .filter_map(|m| Some(Mark::new(m.start, m.end, MarkKind::from_model(&m.kind)?)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lines_of(md: &str) -> Lines {
+        crate::migrate::to_lines(&crate::markdown::from_markdown(md).unwrap().content)
+    }
 
     fn f(start: Scalar, end: Scalar, kind: MarkKind) -> Mark {
         Mark { start, end, kind }
@@ -1564,14 +1391,8 @@ mod tests {
                 .into_lines();
             assert_eq!(rt.validate(), Ok(()), "{what}");
             assert_eq!(rt.lines[0].kind, LineKind::Para, "{what}");
-            let md = crate::lines::export::to_markdown(&rt);
-            assert_eq!(
-                crate::lines::import::from_markdown(&md)
-                    .expect("re-imports")
-                    .content,
-                rt,
-                "{what} is not a fixed point: {md:?}"
-            );
+            let md = crate::markdown::to_markdown(&crate::migrate::from_lines(&rt));
+            assert_eq!(lines_of(&md), rt, "{what} is not a fixed point: {md:?}");
         }
     }
 
@@ -1655,7 +1476,7 @@ mod tests {
             ("# heading", false),
             ("- item", false),
         ] {
-            let content = crate::lines::import::from_markdown(md).unwrap().content;
+            let content = lines_of(md);
             assert_eq!(content.is_inline(), inline, "{md:?}");
         }
         assert!(Content::empty().is_inline());
@@ -1779,7 +1600,7 @@ mod tests {
             assert!(!rt.lines[1].continues, "normalize clears it after {kind:?}");
             assert_eq!(rt.validate(), Ok(()));
             assert_eq!(
-                crate::lines::export::to_markdown(&rt.into_lines()),
+                crate::markdown::to_markdown(&crate::migrate::from_lines(&rt.into_lines())),
                 markdown,
                 "the continuation projects as the paragraph it is"
             );
@@ -1817,10 +1638,8 @@ mod tests {
         .into_lines();
         assert!(!rt.lines[1].continues);
         assert_eq!(rt.validate(), Ok(()));
-        let markdown = crate::lines::export::to_markdown(&rt);
-        let back = crate::lines::import::from_markdown(&markdown)
-            .unwrap()
-            .content;
+        let markdown = crate::markdown::to_markdown(&crate::migrate::from_lines(&rt));
+        let back = lines_of(&markdown);
         assert_eq!(back, rt, "the markdown is a fixed point: {markdown:?}");
     }
 

@@ -453,7 +453,7 @@ main:
   fields:
     subject:
       type: text
-      multiline: true
+      shape: lines
 ";
 
     fn config() -> QuillConfig {

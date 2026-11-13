@@ -6,7 +6,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::lines::model::Lines;
 use quillmark_content::markdown::from_markdown as import_markdown;
 use quillmark_content::model::Content;
 
@@ -14,16 +13,10 @@ use crate::error::ParseError;
 use crate::error::{Diagnostic, Severity};
 use crate::version::QuillReference;
 
-/// The stored spelling of a line-form value: under the ids of what it kept
-/// from `old`, the value it is written over, or minted fresh where there is
-/// none.
+/// [`stored_as`] under the codec `content` holds.
 #[cfg(test)]
-pub(crate) fn stored_over(old: Option<&serde_json::Value>, lines: &Lines) -> serde_json::Value {
-    match held_value(old) {
-        Some(held) => quillmark_content::diff::lift(&held, lines),
-        None => quillmark_content::migrate::from_lines(lines),
-    }
-    .to_value()
+pub(crate) fn stored_over(old: Option<&serde_json::Value>, content: &Content) -> serde_json::Value {
+    stored_as(old, content, content.codec)
 }
 
 /// `content` stored under `codec` over `old`, the value it is written over:
@@ -45,12 +38,6 @@ fn held_value(old: Option<&serde_json::Value>) -> Option<Content> {
     old.filter(|v| v.is_object())
         .and_then(|v| Content::from_value_lenient(v).ok())
         .map(|read| read.content)
-}
-
-/// [`import_body`] lowered to the line form, for the tests that read it.
-#[cfg(test)]
-pub(crate) fn import_body_lines(md: &str) -> Result<Lines, ImportError> {
-    import_body(md).map(|c| quillmark_content::migrate::to_lines(&c))
 }
 
 pub(crate) fn import_body(md: &str) -> Result<Content, ImportError> {
@@ -132,8 +119,8 @@ fn listed(words: &[&str], last: &str) -> String {
 /// [`dropped_construct`]'s message, naming what dropped, and its hint, naming
 /// the spelling that keeps it.
 fn dropped_message(construct: &DroppedConstruct, n: usize) -> (String, String) {
-    use quillmark_content::lines::carrier::RESERVED_ATTRS;
-    use quillmark_content::lines::island::{CELL_VALIGNS, TABLE_ALIGNS};
+    use quillmark_content::markdown::carrier::RESERVED_ATTRS;
+    use quillmark_content::table::{CELL_VALIGNS, TABLE_ALIGNS};
     const TIGHT: &str =
         "Markdown on the lines under a tag line drops with it, up to the next blank line.";
     const BESIDE: &str = "A tag line beside a line of other tags drops with the markdown under it, up to the next blank line.";
@@ -267,9 +254,9 @@ fn dropped_message(construct: &DroppedConstruct, n: usize) -> (String, String) {
             },
         ),
         DroppedConstruct::ElementAttr { element, attr }
-            if attr == "ref" && quillmark_content::lines::carrier::RESERVED.contains(&element.as_str()) =>
+            if attr == "ref" && quillmark_content::markdown::carrier::RESERVED.contains(&element.as_str()) =>
         {
-            let (what, spelling) = match element == quillmark_content::lines::carrier::ANCHOR {
+            let (what, spelling) = match element == quillmark_content::markdown::carrier::ANCHOR {
                 true => ("anchor", ("tag", "tags")),
                 false => ("island", ("token", "tokens")),
             };
@@ -306,7 +293,7 @@ fn dropped_message(construct: &DroppedConstruct, n: usize) -> (String, String) {
                  opening with a letter. {TIGHT}"
             ),
         ),
-        DroppedConstruct::Element(name) if name == quillmark_content::lines::carrier::SPAN => (
+        DroppedConstruct::Element(name) if name == quillmark_content::markdown::carrier::SPAN => (
             format!(
                 "markdown import dropped {} in this field",
                 some(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
@@ -316,7 +303,7 @@ fn dropped_message(construct: &DroppedConstruct, n: usize) -> (String, String) {
                  HTML reads `<{tag}/>` as an open tag. A family is a run's, never a block's. {BESIDE}"
             ),
         ),
-        DroppedConstruct::Element(name) if name == quillmark_content::lines::carrier::ISLAND => (
+        DroppedConstruct::Element(name) if name == quillmark_content::markdown::carrier::ISLAND => (
             format!(
                 "markdown import dropped {} in this field",
                 some(&format!("`<{tag}>` token"), &format!("`<{tag}>` tokens"))
@@ -378,7 +365,7 @@ impl ContentDecodeError {
     }
 }
 
-/// A content codec: which authored string a [`Content`](quillmark_content::lines::model::Content) field accepts, and which
+/// A content codec: which authored string a [`Content`](quillmark_content::model::Content) field accepts, and which
 /// text a stored content projects back to. Both codecs also accept a canonical
 /// content object, so a codec is exactly the string end of the round trip. The
 /// declared type names one (`FieldType::codec`), and every schema-bound
@@ -437,6 +424,15 @@ impl Codec {
         self,
         value: &serde_json::Value,
     ) -> Option<Result<quillmark_content::markdown::Imported, ContentDecodeError>> {
+        self.decode_value_admitting(value, quillmark_content::markdown::Admit::Blocks)
+    }
+
+    /// [`decode_value`](Self::decode_value) of a value that admits `admit`.
+    pub(crate) fn decode_value_admitting(
+        self,
+        value: &serde_json::Value,
+        admit: quillmark_content::markdown::Admit,
+    ) -> Option<Result<quillmark_content::markdown::Imported, ContentDecodeError>> {
         let whole = |content| quillmark_content::markdown::Imported {
             content,
             warnings: Vec::new(),
@@ -448,7 +444,7 @@ impl Codec {
                     .map_err(|e| ContentDecodeError::NotContent(e.to_string())),
             ),
             serde_json::Value::String(s) => Some(match self {
-                Codec::Richtext => quillmark_content::markdown::from_markdown(s)
+                Codec::Richtext => quillmark_content::markdown::from_markdown_admitting(s, admit)
                     .map_err(|e| ContentDecodeError::BadMarkdown(e.to_string())),
                 Codec::Text => Ok(whole(quillmark_content::markdown::plain(s))),
             }),
@@ -542,15 +538,17 @@ pub(crate) enum RichtextValueError {
     Unshaped,
     /// The field is one line and the content spans more than one paragraph.
     NotSingleLine,
+    /// The field holds lines and the content holds a block or an island.
+    NotLines,
 }
 
 /// The contract for a richtext value that must *become* stored content: decode
-/// either accepted encoding, enforce one line unless multiline, canonicalize, and hand back what
-/// the import dropped. The strict typed write and the schema-literal companion
+/// either accepted encoding, a markdown string read as `shape` admits, enforce the shape,
+/// canonicalize, and hand back what the import dropped. The strict typed write and the schema-literal companion
 /// cache share it and differ only in the diagnostic they render from the error.
 pub(crate) fn canonical_richtext_value(
     value: &serde_json::Value,
-    inline: bool,
+    shape: crate::quill::Shape,
 ) -> Result<(serde_json::Value, Vec<ImportWarning>), RichtextValueError> {
     let (mut content, warnings) = match value {
         serde_json::Value::Object(_) => (
@@ -560,15 +558,19 @@ pub(crate) fn canonical_richtext_value(
             Vec::new(),
         ),
         serde_json::Value::String(s) => {
-            let imported = quillmark_content::markdown::from_markdown(s).map_err(|e| {
+            let imported = quillmark_content::markdown::from_markdown_admitting(s, shape.admit())
+                .map_err(|e| {
                 RichtextValueError::Decode(ContentDecodeError::BadMarkdown(e.to_string()))
             })?;
             (imported.content, imported.warnings)
         }
         _ => return Err(RichtextValueError::Unshaped),
     };
-    if inline && !content.is_inline() {
-        return Err(RichtextValueError::NotSingleLine);
+    if !shape.admits(&content) {
+        return Err(match shape {
+            crate::quill::Shape::Line => RichtextValueError::NotSingleLine,
+            _ => RichtextValueError::NotLines,
+        });
     }
     content.codec = quillmark_content::model::Codec::Rich;
     Ok((content.to_value(), warnings))
@@ -712,28 +714,6 @@ pub struct Card {
     payload: Payload,
     body: Content,
     hashes: Hashes,
-    #[cfg(test)]
-    lines: Lowered,
-}
-
-/// The body's line form for the tests that read it, lowered when first read
-/// and no part of equality.
-#[cfg(test)]
-#[derive(Clone, Default)]
-struct Lowered(std::sync::OnceLock<Lines>);
-
-#[cfg(test)]
-impl PartialEq for Lowered {
-    fn eq(&self, _: &Self) -> bool {
-        true
-    }
-}
-
-#[cfg(test)]
-impl std::fmt::Debug for Lowered {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Lowered")
-    }
 }
 
 /// The hash a write left on the body and on each richtext field it wrote,
@@ -768,34 +748,13 @@ impl std::fmt::Debug for Hashes {
     }
 }
 
-/// What a card body is built from: a line-form value migrates, minting its
-/// ids, and a content value lands as it is.
-pub(crate) trait IntoBody {
-    fn into_body(self) -> Content;
-}
-
-impl IntoBody for Lines {
-    fn into_body(self) -> Content {
-        quillmark_content::migrate::from_lines(&self)
-    }
-}
-
-impl IntoBody for Content {
-    fn into_body(self) -> Content {
-        self
-    }
-}
-
 impl Card {
     /// Create a `Card` from its parts without validation.
-    pub(crate) fn from_parts(payload: Payload, body: impl IntoBody) -> Self {
-        let body = body.into_body();
+    pub(crate) fn from_parts(payload: Payload, body: Content) -> Self {
         Self {
             payload,
             body,
             hashes: Hashes::default(),
-            #[cfg(test)]
-            lines: Lowered::default(),
         }
     }
 
@@ -838,15 +797,6 @@ impl Card {
         &self.body
     }
 
-    /// The body lowered to the line form the markdown codecs and the renderers
-    /// read.
-    #[cfg(test)]
-    pub(crate) fn body_lines(&self) -> &Lines {
-        self.lines
-            .0
-            .get_or_init(|| quillmark_content::migrate::to_lines(&self.body))
-    }
-
     /// The card body rendered back to its markdown projection. This is a
     /// derived view (`export ∘ body`), not stored state; a `Document` round-trip
     /// therefore canonicalizes the body (e.g. `__b__` → `**b**`).
@@ -855,10 +805,6 @@ impl Card {
     }
 
     pub(crate) fn set_body(&mut self, body: Content) {
-        #[cfg(test)]
-        {
-            self.lines = Lowered::default();
-        }
         self.hashes.body = None;
         self.body = body;
     }
@@ -871,13 +817,6 @@ impl Card {
                 self.hashes.fields.insert(name.to_string(), hash);
             }
         }
-    }
-
-    /// Writes a line-form body over the stored one, keeping the ids of what it
-    /// kept.
-    pub(crate) fn set_body_lines(&mut self, lines: Lines) {
-        let body = quillmark_content::diff::lift(&self.body, &lines);
-        self.set_body(body);
     }
 
     /// Read a content-valued user field back through `codec`: the field-level
@@ -898,12 +837,8 @@ impl Card {
         &self,
         name: &str,
         codec: Codec,
-    ) -> Option<Result<Lines, ContentDecodeError>> {
-        Some(
-            codec
-                .decode_field(self.payload.get(name)?.as_json())
-                .map(|c| quillmark_content::migrate::to_lines(&c)),
-        )
+    ) -> Option<Result<Content, ContentDecodeError>> {
+        Some(codec.decode_field(self.payload.get(name)?.as_json()))
     }
 
     /// The text projection of a content-valued field (`project ∘ decode`),
@@ -1010,7 +945,7 @@ impl Document {
         // it in); match that shape so a blank document round-trips equal.
         payload.set_kind("main");
         Self {
-            main: Card::from_parts(payload, Lines::empty()),
+            main: Card::from_parts(payload, Content::empty()),
             cards: Vec::new(),
         }
     }

@@ -23,7 +23,7 @@ pub fn is_id(id: &str) -> bool {
         if n > MAX_ID_LEN
             || c.is_whitespace()
             || c.is_control()
-            || crate::lines::normalize::is_bidi_char(c)
+            || crate::model::is_bidi_char(c)
             || c == crate::model::ISLAND_SLOT
         {
             return false;

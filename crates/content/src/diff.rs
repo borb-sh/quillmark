@@ -9,11 +9,11 @@ use crate::change::{
     AnchorStep, ApplyError, Change, ContainerStep, IslandStep, SetBlock, Splice, Step, apply,
     mark_fixups, run,
 };
+use crate::delta::{Op, diff_words as text_diff, relocate, without_sentinel};
 use crate::ids::{Minter, prefix};
-use crate::lines::delta::{Op, diff_words as text_diff, relocate, without_sentinel};
-use crate::lines::import::{ImportError, ImportWarning, from_markdown_against};
-use crate::lines::island::IslandType;
-use crate::migrate::{from_lines, to_lines};
+use crate::markdown::{ImportError, ImportWarning};
+use crate::migrate::from_lines;
+use crate::model::IslandType;
 use crate::model::{
     Block, BlockKind, Codec, Container, ContainerKind, Content, ISLAND_SLOT, Invariant, Island,
     Mark, MarkKind, Scalar,
@@ -946,8 +946,8 @@ impl From<ImportError> for ReviseError {
 pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ReviseError> {
     let (imported, warnings, pins) = match before.codec {
         Codec::Rich => {
-            let read = from_markdown_against(markdown, &to_lines(before))?;
-            (from_lines(&read.content), read.warnings, read.pins)
+            let read = crate::markdown::import::walk_against(markdown, before)?;
+            (read.content, read.warnings, read.pins)
         }
         Codec::Plain => (
             crate::markdown::from_plaintext(markdown),
@@ -980,7 +980,7 @@ pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ReviseError>
 /// placement for each anchor of `before`'s text that `after` holds nowhere
 /// and whose text `after` holds again in what `change` inserted: a
 /// paragraph moved whole keeps its anchor. A quote shorter than
-/// [`MIN_MOVE`](crate::lines::delta::MIN_MOVE) characters is too weak to
+/// [`MIN_MOVE`](crate::delta::MIN_MOVE) characters is too weak to
 /// follow, and drops.
 fn relocating(
     before: &Content,

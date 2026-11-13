@@ -235,7 +235,7 @@ impl TryFrom<CardWire> for Card {
     }
 }
 
-/// Read a [`CardWire::body`] into a [`Content`](quillmark_content::lines::model::Content) content. The body is the source
+/// Read a [`CardWire::body`] into a [`Content`](quillmark_content::model::Content) content. The body is the source
 /// of truth and reads through the richtext codec whatever the schema declares,
 /// so its accepted encodings are [`super::Codec::decode_field`]'s.
 fn body_from_wire(body: &JsonValue) -> Result<quillmark_content::model::Content, WireError> {
@@ -259,7 +259,7 @@ mod tests {
     /// `underline` with no markdown projection survives Card → wire → Card.
     #[test]
     fn card_wire_round_trips_content_field_losslessly() {
-        use quillmark_content::lines::model::MarkKind;
+        use quillmark_content::model::MarkKind;
 
         let mut card = Card::new("note").unwrap();
         let mut content = quillmark_content::markdown::from_markdown("underlined intro")
@@ -273,7 +273,9 @@ mod tests {
         let json = content.to_value();
         let schema = crate::quill::FieldSchema::new(
             "intro".to_string(),
-            crate::quill::FieldType::RichText { multiline: true },
+            crate::quill::FieldType::RichText {
+                shape: crate::quill::Shape::Blocks,
+            },
             None,
         );
         card.commit_field("intro", crate::value::QuillValue::from_json(json), &schema)
@@ -304,10 +306,7 @@ mod tests {
             PayloadItem::field("count", QuillValue::from_json(json!(3))),
         ]);
         payload.set_kind("note");
-        let card = Card::from_parts(
-            payload,
-            crate::document::import_body_lines("body text").unwrap(),
-        );
+        let card = Card::from_parts(payload, crate::document::import_body("body text").unwrap());
 
         let wire = CardWire::from(&card);
         assert_eq!(wire.kind, "note");
@@ -322,7 +321,7 @@ mod tests {
         let mut payload = Payload::from_index_map(Default::default());
         payload.set_quill("memo@1.2.3".parse().unwrap());
         payload.set_kind("main");
-        let card = Card::from_parts(payload, quillmark_content::lines::model::Lines::empty());
+        let card = Card::from_parts(payload, quillmark_content::model::Content::empty());
 
         let wire = CardWire::from(&card);
         assert_eq!(wire.quill.as_deref(), Some("memo@1.2.3"));
@@ -425,8 +424,8 @@ mod tests {
         let with_body = |body: JsonValue| Card::try_from(CardWire::new("note".to_string(), body));
 
         assert_eq!(
-            with_body(JsonValue::Null).unwrap().body_lines(),
-            &quillmark_content::lines::model::Lines::empty()
+            with_body(JsonValue::Null).unwrap().body(),
+            &quillmark_content::model::Content::empty()
         );
         assert_eq!(
             Codec::Richtext.project(with_body(json!("hi *there*")).unwrap().body()),
@@ -483,10 +482,9 @@ mod tests {
 
         let card = Card::try_from(CardWire::new(String::new(), legacy.clone()))
             .expect("the card wire decodes storage-lane");
-        let storage = quillmark_content::migrate::lines_from_value(&legacy).unwrap();
-        assert_eq!(
-            quillmark_content::lines::serial::to_canonical_value(card.body_lines()),
-            quillmark_content::lines::serial::to_canonical_value(&storage)
-        );
+        let storage = quillmark_content::model::Content::from_value_lenient(&legacy)
+            .unwrap()
+            .content;
+        assert_eq!(card.body(), &storage);
     }
 }

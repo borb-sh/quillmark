@@ -21,8 +21,8 @@
 //! emission with Typst's own parser: a syntax error there is a lowering bug,
 //! never a document's.
 
-use quillmark_content::lines::island::IslandType;
-use quillmark_content::lines::normalize::is_line_separator;
+use quillmark_content::model::IslandType;
+use quillmark_content::model::is_line_separator;
 use quillmark_content::model::{Content, ISLAND_SLOT, Island, Mark, MarkKind, NOTE_SLOT};
 use quillmark_content::view::{Level as Container, LineKind, View};
 use quillmark_core::error::MAX_NESTING_DEPTH;
@@ -879,10 +879,10 @@ struct Wrap {
 
 /// Clip wrapping marks out of atomic `#raw(...)` interiors and drop any a span
 /// swallowed whole, via the shared
-/// [`clip_range_to_atomic`](quillmark_content::lines::export::clip_range_to_atomic).
+/// [`clip_range_to_atomic`](quillmark_content::view::clip_range_to_atomic).
 fn clip_wraps_to_codes(wraps: &mut Vec<Wrap>, codes: &[(usize, usize)]) {
     for w in wraps.iter_mut() {
-        quillmark_content::lines::export::clip_range_to_atomic(&mut w.start, &mut w.end, codes);
+        quillmark_content::view::clip_range_to_atomic(&mut w.start, &mut w.end, codes);
     }
     wraps.retain(|w| w.start < w.end);
 }
@@ -1313,47 +1313,23 @@ fn cell_markup(text: &str, marks: &[Mark], breakable: bool) -> String {
 ///   each cell its span covers left out, which Typst's own placement skips.
 /// - `head`: that many rows from the top in one `table.header`, none at `0`.
 fn table_markup(isl: &Island) -> String {
-    use serde_json::Value;
-    let props = &quillmark_content::view::layout(isl);
-    let table = quillmark_content::table::Table::read(&isl.props);
-    let header = props.get("header").and_then(|v| v.as_array());
-    let rows = props.get("rows").and_then(|v| v.as_array());
-    let aligns = props.get("aligns").and_then(|v| v.as_array());
-    // The widest row, not just the header: an editor-built island can carry a
-    // short header over wider data rows, and `columns: 0` fails to compile.
-    let mut cols = header.map(|h| h.len()).unwrap_or(0);
-    if let Some(rs) = rows {
-        for row in rs {
-            if let Some(r) = row.as_array() {
-                cols = cols.max(r.len());
-            }
-        }
-    }
     // `Content::validate` accepts an empty table island, so this is reachable;
     // emit nothing, matching `export::emit_table`.
-    if cols == 0 {
+    let Some(layout) = quillmark_content::table::Layout::of(isl) else {
         return String::new();
-    }
+    };
+    let cols = layout.aligns.len();
 
-    let layout = quillmark_content::lines::island::TableLayout::of(props);
-    let spans = quillmark_content::lines::island::table_spans(props);
-    let grid = quillmark_content::lines::island::table_rows(props);
-
-    let cell = |r: usize, c: usize, v: &Value, (colspan, rowspan): (usize, usize)| {
-        let held = table
-            .as_ref()
-            .and_then(|t| t.slot(r, c))
-            .and_then(|s| isl.slots.get(s))
-            .map(quillmark_content::view::cell);
+    let cell = |at: &quillmark_content::table::CellLayout, (colspan, rowspan): (usize, usize)| {
+        let held = isl.slots.get(&at.slot).map(quillmark_content::view::cell);
         let body = held.map_or_else(String::new, |h| cell_markup(&h.text, &h.marks, true));
-        let (align, valign) = quillmark_content::lines::island::cell_alignment(v);
-        let valign = valign.map(|v| if v == "middle" { "horizon" } else { v });
+        let valign = at.valign.map(|v| if v == "middle" { "horizon" } else { v });
         let mut args: Vec<String> = [("colspan", colspan), ("rowspan", rowspan)]
             .into_iter()
             .filter(|(_, n)| *n > 1)
             .map(|(key, n)| format!("{key}: {n}"))
             .collect();
-        match (align, valign) {
+        match (at.align, valign) {
             (None, None) => {}
             (Some(a), None) | (None, Some(a)) => args.push(format!("align: {a}")),
             (Some(a), Some(v)) => args.push(format!("align: {a} + {v}")),
@@ -1364,9 +1340,9 @@ fn table_markup(isl: &Island) -> String {
         }
     };
     let row = |r: usize, out: &mut String| {
-        for (c, v) in grid[r].iter().enumerate() {
-            if let Some(span) = spans[r][c] {
-                out.push_str(&cell(r, c, v, span));
+        for at in &layout.rows[r] {
+            if let Some(span) = at.span {
+                out.push_str(&cell(at, span));
                 out.push_str(", ");
             }
         }
@@ -1375,8 +1351,9 @@ fn table_markup(isl: &Island) -> String {
     let mut out = String::from("table(\n");
     match &layout.widths {
         Some(weights) => {
-            let tracks: Vec<String> = (0..cols)
-                .map(|i| match weights.get(i).copied().flatten() {
+            let tracks: Vec<String> = weights
+                .iter()
+                .map(|w| match w {
                     Some(n) => format!("{n}fr"),
                     None => "auto".to_string(),
                 })
@@ -1385,17 +1362,9 @@ fn table_markup(isl: &Island) -> String {
         }
         None => out.push_str(&format!("  columns: {},\n", cols)),
     }
-    let aligned = aligns.filter(|al| al.iter().any(|a| a.as_str().is_some_and(|s| s != "none")));
-    if let Some(al) = aligned {
+    if layout.aligns.iter().any(Option::is_some) {
         // One entry per column: Typst cycles a shorter array from the start.
-        let tracks: Vec<&str> = (0..cols)
-            .map(|i| match al.get(i).and_then(Value::as_str) {
-                Some("left") => "left",
-                Some("center") => "center",
-                Some("right") => "right",
-                _ => "auto",
-            })
-            .collect();
+        let tracks: Vec<&str> = layout.aligns.iter().map(|a| a.unwrap_or("auto")).collect();
         out.push_str(&format!("  align: ({}),\n", tracks.join(", ")));
     }
     if layout.head > 0 {
@@ -1403,7 +1372,7 @@ fn table_markup(isl: &Island) -> String {
         (0..layout.head).for_each(|r| row(r, &mut out));
         out.push_str("),\n");
     }
-    for r in layout.head..grid.len() {
+    for r in layout.head..layout.rows.len() {
         out.push_str("  ");
         row(r, &mut out);
         out.push('\n');
@@ -1419,30 +1388,31 @@ fn table_markup(isl: &Island) -> String {
 
 #[cfg(test)]
 mod tests {
-    use quillmark_content::lines::model::{Content, Island, LineKind, Mark, MarkKind};
+    use quillmark_content::model::{Block, BlockKind, Content, Island, Mark, MarkKind};
 
-    /// [`table_markup`] of a table its line-form `props` spell.
-    fn table_of(props: &serde_json::Value) -> String {
-        let rt = Content::new(
-            "\u{FFFC}".into(),
-            vec![quillmark_content::lines::model::Line::new(LineKind::Para)],
-        )
-        .with_islands(vec![
-            Island::new("isl-0".into(), IslandType::Table).with_props(props.clone()),
-        ])
-        .into_lines();
-        table_markup(&lift(&rt).islands[0])
+    /// [`table_markup`] of the table `md` spells.
+    fn table_of(md: &str) -> String {
+        table_markup(&from_markdown(md).expect("import").content.islands[0])
     }
 
-    /// A line-form value on the content model, as a stored one reads.
-    fn lift(rt: &Content) -> quillmark_content::model::Content {
-        quillmark_content::migrate::from_lines(rt)
+    /// `text` as paragraphs, one per `\n`, under `marks` and holding `islands`,
+    /// as written: no import and no normalize reads it first.
+    fn paras(text: &str, marks: Vec<Mark>, islands: Vec<Island>) -> Content {
+        Content {
+            text: text.to_string(),
+            blocks: (0..text.split('\n').count())
+                .map(|n| Block::new(format!("b{n}"), BlockKind::Para))
+                .collect(),
+            marks,
+            islands,
+            ..Content::empty()
+        }
     }
 
     mod properties;
 
     use super::*;
-    use quillmark_content::lines::import::from_markdown;
+    use quillmark_content::markdown::from_markdown;
     use typst::syntax::SyntaxKind;
 
     fn emit(md: &str) -> Emission {
@@ -1621,9 +1591,9 @@ mod tests {
     fn inline_emits_no_block_terminator() {
         let rt = from_markdown("A **bold** subject").expect("import").content;
         assert!(rt.is_inline());
-        let inline = emit_content_inline(&lift(&rt)).expect("emit").markup;
+        let inline = emit_content_inline(&rt).expect("emit").markup;
         assert!(!inline.contains("\n\n"), "no parbreak in {inline:?}");
-        let block = emit_content(&lift(&rt)).expect("emit").markup;
+        let block = emit_content(&rt).expect("emit").markup;
         assert!(block.ends_with("\n\n"), "block path keeps its terminator");
     }
 
@@ -1633,8 +1603,8 @@ mod tests {
             let rt = from_markdown(md).expect("import").content;
             assert!(!rt.is_inline(), "{md:?} is not inline");
             assert_eq!(
-                emit_content_inline(&lift(&rt)).expect("emit").markup,
-                emit_content(&lift(&rt)).expect("emit").markup,
+                emit_content_inline(&rt).expect("emit").markup,
+                emit_content(&rt).expect("emit").markup,
                 "non-inline {md:?} must fall back to block lowering"
             );
         }
@@ -1714,17 +1684,18 @@ mod tests {
     /// from the clip.
     #[test]
     fn clipping_two_marks_together_nests_them_in_their_stored_order() {
-        use quillmark_content::lines::model::Line;
-        let rt = Content::new("abcdefghij".to_string(), vec![Line::new(LineKind::Para)])
-            .with_marks(vec![
+        let rt = paras(
+            "abcdefghij",
+            vec![
                 Mark::new(0, 3, MarkKind::Code),
                 Mark::new(1, 10, MarkKind::Link { url: "z".into() }),
                 Mark::new(3, 10, MarkKind::Strike),
-            ])
-            .into_lines();
+            ],
+            Vec::new(),
+        );
         assert_eq!(rt.validate(), Ok(()));
         assert_eq!(
-            emit_content(&lift(&rt)).unwrap().markup,
+            emit_content(&rt).unwrap().markup,
             "#raw(\"abc\")#link(\"z\")[#strike[defghij]]\n\n"
         );
     }
@@ -1904,17 +1875,19 @@ mod tests {
     /// U+2028 is the content's own hard break, and lowers as one.
     #[test]
     fn a_stray_newline_lowers_to_a_space_and_opens_no_block() {
-        use quillmark_content::lines::model::Line;
         let stray = |c: &char| *c != '\n' && *c != quillmark_content::model::HARD_BREAK;
         for c in ('\0'..=char::MAX).filter(|c| stray(c) && reads_as_newline(*c)) {
             let text = format!("{c}- item{c}{c}tail{c}= not a heading");
-            let rt = Content::new(text, vec![Line::new(LineKind::Para)]).into_lines();
+            let rt = Content {
+                text,
+                ..Content::empty()
+            };
             assert!(
                 rt.validate().is_err(),
                 "{c:?} passes the content invariants"
             );
 
-            let markup = emit_content(&lift(&rt)).unwrap().markup;
+            let markup = emit_content(&rt).unwrap().markup;
             assert_eq!(markup, "~- item  tail = not a heading\n\n", "for {c:?}");
             for k in resolve(&markup).1 {
                 assert!(ALLOWED_LEAVES.contains(&k), "{c:?} lowered to a {k:?} leaf");
@@ -1975,8 +1948,6 @@ mod tests {
     /// whatever the marks and islands.
     #[test]
     fn no_emission_forms_a_shorthand_or_a_comment() {
-        use quillmark_content::lines::model::{Island, Line};
-
         let mut cases: Vec<String> = sample_inputs().iter().map(|md| emit(md).markup).collect();
 
         let all = |t: &str, k| vec![Mark::new(0, t.chars().count(), k)];
@@ -1997,11 +1968,11 @@ mod tests {
         for ty in [IslandType::Image, IslandType::Ext("x-chart".into())] {
             for text in ["a/{}/b", "a-{}-b", "a-{}?b", "a-{}5b", "a.{}..b", "a..{}.b"] {
                 let text = text.replace("{}", &ISLAND_SLOT.to_string());
-                let rt = Content::new(text.clone(), vec![Line::new(LineKind::Para)])
-                    .with_islands(vec![Island::new("isl-0".into(), ty.clone())])
-                    .into_lines();
+                let island = Island::new("isl-0", ty.clone())
+                    .with_props(serde_json::json!({ "url": "u.png", "alt": "" }));
+                let rt = paras(&text, Vec::new(), vec![island]);
                 assert_eq!(rt.validate(), Ok(()), "content invariants for {text:?}");
-                let markup = emit_content(&lift(&rt)).unwrap().markup;
+                let markup = emit_content(&rt).unwrap().markup;
                 assert!(
                     !markup.contains(ISLAND_SLOT),
                     "the slot char reached the markup: {markup:?}"
@@ -2121,7 +2092,7 @@ mod tests {
     fn runs_map_content_to_generated_bytes() {
         for md in sample_inputs() {
             let rt = from_markdown(md).unwrap().content;
-            let ec = emit_content(&lift(&rt)).unwrap();
+            let ec = emit_content(&rt).unwrap();
             let chars: Vec<char> = rt.text.chars().collect();
             for seg in &ec.segments {
                 // Segment window is within the markup and non-decreasing.
@@ -2150,15 +2121,16 @@ mod tests {
     /// Free-overlapping marks are never produced by import, only by an editor.
     #[test]
     fn overlapping_marks_close_and_reopen() {
-        use quillmark_content::lines::model::{Line, Mark};
-        let rt =
-            Content::new("abcdef".to_string(), vec![Line::new(LineKind::Para)]).with_marks(vec![
+        let rt = paras(
+            "abcdef",
+            vec![
                 Mark::new(0, 4, MarkKind::Strong),
                 Mark::new(2, 6, MarkKind::Emph),
-            ]);
-        let rt = rt.into_lines();
+            ],
+            Vec::new(),
+        );
         assert_eq!(rt.validate(), Ok(()));
-        let out = emit_content(&lift(&rt)).unwrap().markup;
+        let out = emit_content(&rt).unwrap().markup;
         assert_eq!(out, "#strong[ab#emph[cd]]#emph[ef]\n\n");
         // Bracket-balanced regardless.
         assert_eq!(out.matches('[').count(), out.matches(']').count());
@@ -2166,11 +2138,9 @@ mod tests {
 
     /// Hand-placed `marks` reach the free-overlap shapes import never produces.
     fn emit_marked(text: &str, marks: Vec<Mark>) -> String {
-        use quillmark_content::lines::model::Line;
-        let rt = Content::new(text.to_string(), vec![Line::new(LineKind::Para)]).with_marks(marks);
-        let rt = rt.into_lines();
+        let rt = paras(text, marks, Vec::new());
         assert_eq!(rt.validate(), Ok(()), "content invariants");
-        emit_content(&lift(&rt)).unwrap().markup
+        emit_content(&rt).unwrap().markup
     }
 
     fn balanced(out: &str) -> bool {
@@ -2330,29 +2300,15 @@ mod tests {
     /// `columns: 0` fails to compile.
     #[test]
     fn table_columns_span_widest_row() {
-        let cell = |t: &str| serde_json::json!({ "text": t, "marks": [] });
-        let props = serde_json::json!({
-            "header": [ cell("H") ],
-            "rows": [ [ cell("a"), cell("b"), cell("c") ] ],
-        });
-        let out = table_of(&props);
+        let out = table_of("| H | | |\n|---|---|---|\n| a | b | c |");
         assert!(out.contains("columns: 3,"), "got {out:?}");
 
-        // Empty header, populated rows: still counts the rows.
-        let props = serde_json::json!({
-            "header": [],
-            "rows": [ [ cell("a"), cell("b") ] ],
-        });
-        let out = table_of(&props);
+        // No header row: still counts the rows.
+        let out = table_of("<table><tr><td>a</td><td>b</td></tr></table>");
         assert!(out.contains("columns: 2,"), "got {out:?}");
 
-        // `align` names every column, so a short `aligns` does not cycle.
-        let props = serde_json::json!({
-            "header": [ cell("H") ],
-            "aligns": [ "right" ],
-            "rows": [ [ cell("a"), cell("b"), cell("c") ] ],
-        });
-        let out = table_of(&props);
+        // `align` names every column, so one aligned column does not cycle.
+        let out = table_of("| H | | |\n|--:|---|---|\n| a | b | c |");
         assert!(out.contains("align: (right, auto, auto),"), "got {out:?}");
     }
 
@@ -2505,10 +2461,8 @@ mod tests {
 
         // Source-map integrity: every run's generated slice equals the escape of
         // its content, and the leading `\` is not inside any run.
-        use quillmark_content::lines::model::Line;
-        let rt = Content::new("= x".to_string(), vec![Line::new(LineKind::Para)]);
-        let rt = rt.into_lines();
-        let ec = emit_content(&lift(&rt)).unwrap();
+        let rt = paras("= x", Vec::new(), Vec::new());
+        let ec = emit_content(&rt).unwrap();
         let chars: Vec<char> = rt.text.chars().collect();
         for seg in &ec.segments {
             for (content, generated, ctx) in &seg.runs {

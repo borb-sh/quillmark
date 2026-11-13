@@ -5,12 +5,18 @@
 //! [`Codec::Plain`]) and exports with [`to_plaintext`]. [`to_text`] and
 //! [`to_text_annotated`] export under the value's own codec.
 
+pub mod admit;
+pub mod carrier;
+pub(crate) mod html;
+pub(crate) mod html_table;
+pub(crate) mod import;
+pub mod normalize;
+
 use crate::ids::prefix;
-use crate::lines;
-pub use crate::lines::import::{DroppedConstruct, ImportError, ImportWarning};
-use crate::migrate::from_lines;
 use crate::model::Scalar;
 use crate::model::{Block, BlockKind, Codec, Content, HARD_BREAK, ISLAND_SLOT, MarkKind};
+pub use admit::{Admit, admitting};
+pub use import::{DroppedConstruct, ImportError, ImportWarning};
 
 /// A markdown import: the content and what the markdown spelled that it
 /// could not carry.
@@ -90,22 +96,22 @@ pub enum Loss {
 /// holds reports nothing of its own. A `qm-island` token, which only a revise
 /// reads, drops reported under `qm-island`.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
-    let (walked, warnings) = lines::import::walk(markdown, false)?;
-    Ok(Imported {
-        content: from_lines(&walked),
-        warnings,
-    })
+    let (content, warnings) = import::walk(markdown, false)?;
+    Ok(Imported { content, warnings })
+}
+
+/// [`from_markdown`] of a value that admits `admit`: the syntax of a block it
+/// does not admit reads as its characters ([`admitting`]).
+pub fn from_markdown_admitting(markdown: &str, admit: Admit) -> Result<Imported, ImportError> {
+    from_markdown(&admitting(markdown, admit))
 }
 
 /// [`from_markdown`] with each `qm-island` token dropped silently: the read
 /// of a markdown whose tokens a revise of the same markdown resolves once the
 /// stored value it revises is known.
 pub fn from_markdown_unresolved(markdown: &str) -> Result<Imported, ImportError> {
-    let (walked, warnings) = lines::import::walk(markdown, true)?;
-    Ok(Imported {
-        content: from_lines(&walked),
-        warnings,
-    })
+    let (content, warnings) = import::walk(markdown, true)?;
+    Ok(Imported { content, warnings })
 }
 
 /// The literal codec: each blank line a paragraph break and each other `\n`
@@ -128,7 +134,7 @@ pub fn from_plaintext(s: &str) -> Content {
     for c in s
         .chars()
         .filter(|&c| c != ISLAND_SLOT)
-        .filter_map(lines::normalize::admit_char)
+        .filter_map(crate::model::admit_char)
     {
         match c {
             '\n' => breaks += 1,

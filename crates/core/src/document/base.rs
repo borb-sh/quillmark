@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_content::lines::export::Annotated;
+use quillmark_content::markdown::Annotated;
 use quillmark_content::model::Content;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};

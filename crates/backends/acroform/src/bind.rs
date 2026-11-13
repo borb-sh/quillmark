@@ -351,7 +351,8 @@ fn blank_first(values: &[String]) -> Vec<String> {
 fn is_multiline(field: &FieldSchema) -> bool {
     matches!(
         field.r#type,
-        SchemaType::Text { multiline: true } | SchemaType::RichText { multiline: true }
+        SchemaType::Text { shape } | SchemaType::RichText { shape }
+            if shape != quillmark_core::quill::Shape::Line
     )
 }
 
@@ -414,7 +415,7 @@ main:
       type: datetime
     bio:
       type: richtext
-      multiline: true
+      shape: blocks
     address:
       type: object
       properties:

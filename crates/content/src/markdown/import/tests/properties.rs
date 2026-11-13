@@ -9,9 +9,8 @@
 use proptest::prelude::*;
 
 use super::generate::{Piece, contained, counted, prefixed, table, tally, word};
-use crate::lines::export::to_markdown;
-use crate::lines::import::from_markdown;
-use crate::lines::model::Lines;
+use crate::markdown::{from_markdown, to_markdown};
+use crate::model::Content;
 
 fn inline() -> impl Strategy<Value = Piece> {
     let tagged = (
@@ -187,22 +186,12 @@ fn document() -> impl Strategy<Value = Piece> {
     prop::collection::vec(placed(), 1..4).prop_map(|items| Piece::join(items, "\n\n"))
 }
 
-/// The content's text and every table cell's, where a word can land.
-fn imported_text(rt: &Lines) -> String {
+/// The content's text and every cell's, where a word can land.
+fn imported_text(rt: &Content) -> String {
     let mut all = rt.text.clone();
-    for island in &rt.islands {
-        let cells = ["header", "rows"]
-            .iter()
-            .filter_map(|k| island.props.get(*k))
-            .flat_map(|v| v.as_array().into_iter().flatten())
-            .flat_map(|v| match v.as_array() {
-                Some(row) => row.clone(),
-                None => vec![v.clone()],
-            });
-        for cell in cells {
-            all.push('\n');
-            all.push_str(&crate::lines::serial::parse_cell(&cell).0);
-        }
+    for cell in rt.islands.iter().flat_map(crate::view::cells) {
+        all.push('\n');
+        all.push_str(&cell.text);
     }
     all
 }

@@ -152,6 +152,30 @@ pub fn change(c: &Content, op: &BlockOp) -> Result<Change, ApplyError> {
     }
 }
 
+/// The change that lands `with` after `c`'s last block, outside every
+/// container `c` holds, all of it new and each record it opens under a
+/// placeholder. `with`'s anchors stay behind.
+pub fn append(c: &Content, with: &Content) -> Change {
+    let (with, _) = placeheld(with, 0);
+    let (blocks, containers) = rebase(&with, 0, &[]);
+    let mut steps: Vec<Step> = containers
+        .into_iter()
+        .map(|k| Step::Container(ContainerStep::Set(k)))
+        .collect();
+    let marks = with
+        .marks
+        .iter()
+        .map(|m| Mark::new(m.start + 1, m.end + 1, m.kind.clone()))
+        .collect();
+    steps.push(Step::Splice(Splice {
+        marks,
+        blocks,
+        islands: with.islands.clone(),
+        ..Splice::new(c.len_scalars(), "", format!("\n{}", with.text))
+    }));
+    Change::new(steps)
+}
+
 /// What [`batch`] did beyond its change.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Batched {

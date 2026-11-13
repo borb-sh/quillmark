@@ -13,9 +13,17 @@
 //!    normalized contents project to one markdown, so the model holds a
 //!    distinction it cannot write down.
 
-use quillmark_content::lines::export::to_markdown;
-use quillmark_content::lines::import::from_markdown;
 use quillmark_content::lines::model::{Container, Content, Line, LineKind, Lines};
+use quillmark_content::markdown;
+use quillmark_content::migrate::{from_lines, to_lines};
+
+fn to_markdown(rt: &Lines) -> String {
+    markdown::to_markdown(&from_lines(rt))
+}
+
+fn from_markdown(md: &str) -> Lines {
+    to_lines(&markdown::from_markdown(md).expect("re-imports").content)
+}
 
 /// Containers a hand-built path can hold: lists, quotes and elements.
 fn alphabet() -> Vec<Container> {
@@ -85,7 +93,7 @@ fn every_normalized_pair_is_idempotent_and_a_markdown_fixed_point() {
             let again = rt.clone().into_content().into_lines();
             assert_eq!(again, rt, "normalize not idempotent for {a:?} then {b:?}");
             let md = to_markdown(&rt);
-            if from_markdown(&md).expect("re-imports").content != rt {
+            if from_markdown(&md) != rt {
                 broken.push(format!("{a:?} then {b:?} -> {md:?}"));
             }
         }
@@ -110,7 +118,7 @@ fn triples_over_the_container_alphabet_are_fixed_points() {
                 let rt = build(&[a, b, c]);
                 let again = rt.clone().into_content().into_lines();
                 assert_eq!(again, rt, "not idempotent: {a:?} {b:?} {c:?}");
-                if from_markdown(&to_markdown(&rt)).unwrap().content != rt {
+                if from_markdown(&to_markdown(&rt)) != rt {
                     broken += 1;
                 }
             }
@@ -148,12 +156,7 @@ fn a_start_only_difference_separates_the_runs_and_still_costs_a_discriminator() 
 
     let rt = build(&[&vec![one], &vec![three]]);
     assert_eq!(rt.lines[1].containers[0].instance(), 1);
-    assert_eq!(
-        from_markdown(&to_markdown(&rt))
-            .expect("re-imports")
-            .content,
-        rt
-    );
+    assert_eq!(from_markdown(&to_markdown(&rt)), rt);
 }
 
 /// The projection rule is coarser than the identity rule, never finer: two runs
