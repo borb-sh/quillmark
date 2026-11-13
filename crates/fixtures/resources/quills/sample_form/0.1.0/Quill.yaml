@@ -36,12 +36,11 @@ main:
 
     headline:
       type: richtext
-      multiline: false
       default: ""
       description: "One-paragraph richtext bound to the single-line Headline text field; lowered to plain text."
 
     bio:
       type: richtext
-      multiline: true
+      shape: blocks
       default: ""
       description: "Multiline richtext bound to the multiline Bio field; lowered to plain text (markup dropped, islands stripped)."

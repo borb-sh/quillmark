@@ -169,12 +169,12 @@ pub enum EditError {
         declared: String,
     },
 
-    /// A content field written under a one-line schema (no `multiline: true`)
+    /// A content field written under a one-line schema (`shape: line`)
     /// decoded to a multi-line content. Both text codecs carry the constraint,
     /// so one code covers both and `codec` says which codec raised it.
     #[error(
         "{codec} field '{field}' is not a single line: {codec} requires a single line with \
-         no container or island; declare multiline: true to admit more"
+         no container or island; declare shape: lines to admit more"
     )]
     FieldNotSingleLine {
         field: String,
@@ -1507,7 +1507,14 @@ impl Card {
             });
         }
         let before = self.richtext_value(name)?;
-        let revised = self.revision(&before, &body.into())?;
+        let body = body.into();
+        let body = match schema.r#type {
+            FieldType::RichText { shape } => {
+                quillmark_content::markdown::admitting(&body, shape.admit())
+            }
+            _ => std::borrow::Cow::Borrowed(body.as_str()),
+        };
+        let revised = self.revision(&before, &body)?;
         super::write::keeps_ext_islands(&before, &revised.content)?;
         let (stored, _) = resolve_field_write(
             name,

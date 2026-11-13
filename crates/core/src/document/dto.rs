@@ -1030,7 +1030,9 @@ This body and the metadata above are an indorsement card.
         let json = content.to_value();
         let schema = crate::quill::FieldSchema::new(
             "intro".to_string(),
-            crate::quill::FieldType::RichText { multiline: true },
+            crate::quill::FieldType::RichText {
+                shape: crate::quill::Shape::Blocks,
+            },
             None,
         );
         doc.main_mut()

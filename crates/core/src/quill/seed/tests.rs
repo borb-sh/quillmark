@@ -270,7 +270,7 @@ card_kinds:
         default: ""
         variants:
           CUI:
-            note: { type: richtext, multiline: true }
+            note: { type: richtext, shape: blocks }
 "#;
     let quill = quill_from_yaml(VARIANT_QUILL);
     let doc = doc_with_seed(
@@ -317,7 +317,7 @@ card_kinds:
         default: CUI
         variants:
           CUI:
-            note: { type: richtext, multiline: true }
+            note: { type: richtext, shape: blocks }
       other: { type: text }
 "#,
     );
@@ -545,7 +545,7 @@ card_kinds:
         values: [U, CUI]
         default: U
         variants:
-          CUI: { note: { type: richtext, multiline: true } }
+          CUI: { note: { type: richtext, shape: blocks } }
       urgent: { type: boolean, default: true }
 "#,
     );
@@ -596,7 +596,7 @@ card_kinds:
       office:
         type: object
         properties: {{ symbol: {{ type: text, default: 49 FW }}, room: {{ type: text }} }}
-      note: {{ type: richtext, multiline: true, default: "*Handle* with care." }}
+      note: {{ type: richtext, shape: blocks, default: "*Handle* with care." }}
       due: {{ type: date, default: today }}
 "#
         )

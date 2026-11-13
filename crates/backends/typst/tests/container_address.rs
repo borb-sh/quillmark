@@ -64,7 +64,7 @@ main:
             type: text
           note:
             type: richtext
-            multiline: true
+            shape: blocks
           reply_by:
             type: date
 "#;

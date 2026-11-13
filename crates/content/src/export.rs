@@ -688,8 +688,8 @@ fn emit_code(ctx: &Ctx, range: std::ops::Range<usize>, lang: Option<&str>, out: 
 }
 
 /// Emit one leaf block: the lines `range.start` (a block start) plus any
-/// continuation lines. A paragraph block joins its lines with a markdown hard
-/// break (`\` + newline); a code block renders one fence; a heading is a single
+/// continuation lines. A paragraph block joins its lines with a newline, the
+/// line break the import reads; a code block renders one fence; a heading is a single
 /// line. A block island's line is a `Para` whose slot's markup *is* the block,
 /// so the island writes the whole line and `normalize` leaves it no
 /// continuation to join to it.
@@ -715,14 +715,23 @@ fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
             // heading to a space), so only the first line contributes.
             out.push_str(&render_inline(ctx, range.start, true, dollar));
         }
-        // An empty line between hard breaks writes nothing, which a trailing
-        // `\` would spell as text.
+        // An empty line between hard breaks writes nothing, which a second
+        // newline would spell as a paragraph break.
         LineKind::Para => {
             let parts: Vec<String> = range
                 .map(|i| render_inline(ctx, i, false, dollar))
                 .filter(|part| !part.is_empty())
                 .collect();
-            out.push_str(&parts.join("\\\n"));
+            for (n, part) in parts.iter().enumerate() {
+                if n > 0 {
+                    out.push('\n');
+                    // Under the line above it, a delimiter row opens a table.
+                    if is_delimiter_row(part) {
+                        out.push('\\');
+                    }
+                }
+                out.push_str(part);
+            }
         }
         // `***`, not `---`: all three break spellings import alike, but `---` is
         // also a setext underline, a front-matter fence, and — with the spaces a
@@ -731,6 +740,15 @@ fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
         // prefix.
         LineKind::Rule => out.push_str("***"),
     }
+}
+
+/// Whether `line` reads as a pipe table's delimiter row.
+fn is_delimiter_row(line: &str) -> bool {
+    line.contains('-')
+        && line.contains('|')
+        && line
+            .chars()
+            .all(|c| matches!(c, '-' | '|' | ':' | ' ' | '\t'))
 }
 
 /// Whether the block in `range` writes each `$` of its text as `\$`: one
@@ -1293,7 +1311,7 @@ fn render_marked_core(
     clip_asterisk_overlap(&mut fmt);
 
     // The slice's edge whitespace runs, found on the content chars: the heading,
-    // quote, or list prefix and the hard break's `\` land around them later. An
+    // quote, or list prefix and the line break land around them later. An
     // all-whitespace slice is one leading run.
     let lead_edge = chars
         .iter()

@@ -490,7 +490,8 @@ fn a_qm_span_pair_sets_its_runs_family() {
 #[test]
 fn a_tag_line_inside_an_open_qm_span_pair_is_text() {
     let imported = imp_fixed("<qm-span family=\"A\">a\n<qm-keep>\nb</qm-span>");
-    assert_eq!(imported.content.lines.len(), 1);
+    assert_eq!(imported.content.lines.len(), 2);
+    assert!(imported.content.lines[1].continues);
     assert!(
         imported
             .content
@@ -865,7 +866,7 @@ fn a_reference_to_a_definition_nested_in_another_reads_as_its_text() {
 #[test]
 fn a_definition_list_reads_as_a_paragraph() {
     let rt = imp_fixed("T\n: a\n\nU").content;
-    assert_eq!(rt.text, "T : a\nU");
+    assert_eq!(rt.text, "T\n: a\nU");
     assert!(
         rt.lines
             .iter()
@@ -1192,8 +1193,8 @@ fn a_line_of_carrier_tags_reads_as_tag_lines_wherever_it_stands() {
         ),
         (
             "<qm-keep>\n**Signed**\nJ. Doe\n</qm-keep>",
-            "Signed J. Doe",
-            &[&[]],
+            "Signed\nJ. Doe",
+            &[&[], &[]],
         ),
         ("<qm-keep>\n\nA\n</qm-keep>\nB", "A\nB", &[&[], &[]]),
         ("A\n<qm-keep>\nB\n</qm-keep>", "A\nB", &[&[], &[]]),
@@ -1262,8 +1263,8 @@ fn the_text_under_a_tag_line_keeps_its_paragraph_reading() {
     let cases: &[(&str, &str, &[&[&str]])] = &[
         (
             "A\n<qm-keep>\n[x]: /url\nB\n</qm-keep>",
-            "A\n[x]: /url B",
-            &[&[], &[]],
+            "A\n[x]: /url\nB",
+            &[&[], &[], &[]],
         ),
         ("A\n<qm-sig></qm-sig>\n    code", "A\ncode", &[&[], &[]]),
         ("A\n<qm-sig></qm-sig>\n2. b", "A\n2. b", &[&[], &[]]),
@@ -1310,8 +1311,9 @@ fn a_line_holding_other_tags_stays_inline() {
     ];
     for (md, warned) in cases {
         let imported = imp_fixed(md);
-        assert_eq!(imported.content.lines.len(), 1, "{md:?}");
-        assert!(imported.content.lines[0].containers.is_empty(), "{md:?}");
+        let lines = &imported.content.lines;
+        assert!(lines.iter().skip(1).all(|l| l.continues), "{md:?}");
+        assert!(lines.iter().all(|l| l.containers.is_empty()), "{md:?}");
         assert_eq!(dropped(&imported), *warned, "{md:?}");
     }
 }
@@ -1938,7 +1940,7 @@ fn text_after_a_comment_imports() {
         ),
         ("<!-- a -->Title\n===", "Title\n==="),
         ("<!-- a --><div>\nnext", "next"),
-        ("<!-- a --><!-- b\nmore\n-->", "more -->"),
+        ("<!-- a --><!-- b\nmore\n-->", "more\n-->"),
     ];
     for (md, text) in cases {
         assert_eq!(imp_fixed(md).content.text, *text, "{md:?}");

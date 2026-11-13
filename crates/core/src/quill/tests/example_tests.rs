@@ -179,7 +179,7 @@ fn an_example_is_checked_at_load_as_a_default_is() {
             "quill::example_on_namespace",
         ),
         (
-            "    r: { type: richtext, multiline: false, example: \"# Heading\" }\n",
+            "    r: { type: richtext, example: \"one\\n\\ntwo\" }\n",
             "validation::not_single_line",
         ),
     ] {

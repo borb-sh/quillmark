@@ -70,6 +70,12 @@ The table of codes and keys lives in [Diagnostic Codes § Args](../docs/referenc
 
 **Content fields are stored per codec, and the schema decides the codec.** Every content field is stored as a canonical content object, and a `text` field's spells `codec: "plain"`, so a schema-free path keeps the literal codec. `Quill::conform` derives the stored form from the current schema and value alone, holding no record of the type a value was written under.
 
+**A text field has a type and a shape, and neither bends the other.** `type` says how characters are read, `text` literally and `richtext` as marks. `shape` says how much the value holds: `line`, `lines` or `blocks`, each holding all the one before it does. A newline and a blank line mean the same in every shape that holds them, and the body is a `richtext` of `blocks`. Syntax a shape does not hold is text, so a recipient numbered `1.` in a `lines` field is never a list. The schema-bound readers escape it in the source before the one parser runs, and a schema-free read takes a value as blocks. Rejected:
+
+- A boolean `multiline`: formatted lines had no spelling, so a quill declared blocks and its plate split paragraphs back into lines.
+- A line count such as `lines: 1`: it caps length and says nothing of structure.
+- A newline rule per field: one keystroke meant two things across the fields of a form.
+
 **A declared type change is a new quill version.** The next bound load rewrites every stored value in a retyped field, and scalar to content is lossy: markup in the string is consumed as structure. Nothing enforces the version bump, because an in-place schema edit at the same version matches every check.
 
 **`$quill` is a pairing assertion, not a resolver.** Quillmark loads exactly one quill and enforces the reference against it: the name first, then the selector. It never picks among versions; resolution belongs to a higher layer. A selector names a compatible series, so there is no `@latest` and no lone major.
@@ -114,6 +120,8 @@ The table of codes and keys lives in [Diagnostic Codes § Args](../docs/referenc
 **A split keeps the left half's id; a join keeps the left block's.** Neither rewrites a record a concurrent `setBlock` could be aimed at, and collab's Y form keeps the same boundary.
 
 **Markdown is a projection, not storage.** A round trip loses anchors, ids, constructs markdown cannot spell and the author's exact spelling. A write that must keep them goes through `apply`, or through the annotated read, whose tags a revise reads back. A revise or replace that would remove an `x-` island refuses, since markdown cannot spell one and its writer may never have seen it.
+
+**A newline is a line break, in Markdown as in the plain codec.** A newline inside a paragraph imports as a hard break and a blank line as a paragraph break, and export writes a hard break as a newline, so the two codecs read one keystroke one way. CommonMark's soft break is not kept: a field's YAML block and a form's text box hold the lines their writer typed, and folding them printed an address as one line. A heading, a table cell and a footnote's note are one line each and read a newline as a space. Rejected: the rule for fields alone, which left the body the one place Enter meant a space.
 
 **No silent drop.** For every construct, quill and backend, the outcome is honored, declined with a signal, or refused at the write. A surface that cannot spell a construct carries it opaquely or refuses; it never re-encodes without it. The parity corpus (`crates/fixtures/resources/parity/`) pins every construct on every surface.
 

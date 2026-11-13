@@ -252,7 +252,9 @@ fn every_field_revise_names_the_anchor_it_drops() {
     let next = crate::document::import_body("Keep this line.").unwrap();
     let schema = FieldSchema::new(
         "f".to_string(),
-        FieldType::RichText { multiline: true },
+        FieldType::RichText {
+            shape: crate::quill::Shape::Blocks,
+        },
         None,
     );
     let fresh = || {

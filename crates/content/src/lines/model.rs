@@ -751,7 +751,7 @@ impl Content {
     }
 
     /// Whether this content is one line, as a `text` or `richtext` field
-    /// without `multiline: true` requires: exactly one `Para` line, sitting in
+    /// of one line requires: exactly one `Para` line, sitting in
     /// no container, with no islands. [`Content::empty`] is one line, so a
     /// blank one-line field passes.
     pub fn is_inline(&self) -> bool {

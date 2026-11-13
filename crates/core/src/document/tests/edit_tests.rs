@@ -33,7 +33,13 @@ fn commit_richtext(
     use crate::quill::{FieldSchema, FieldType};
     let schema = FieldSchema::new(
         name.to_string(),
-        FieldType::RichText { multiline: !inline },
+        FieldType::RichText {
+            shape: if inline {
+                crate::quill::Shape::Line
+            } else {
+                crate::quill::Shape::Blocks
+            },
+        },
         None,
     );
     card.commit_field(name, QuillValue::from_json(value.clone()), &schema)
@@ -286,7 +292,9 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
 
     let inline = FieldSchema::new(
         "subject".to_string(),
-        FieldType::RichText { multiline: false },
+        FieldType::RichText {
+            shape: crate::quill::Shape::Line,
+        },
         None,
     );
 
@@ -332,7 +340,9 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
 
     let block = FieldSchema::new(
         "body".to_string(),
-        FieldType::RichText { multiline: true },
+        FieldType::RichText {
+            shape: crate::quill::Shape::Blocks,
+        },
         None,
     );
     let d = card
@@ -452,7 +462,9 @@ fn test_commit_field_array_of_single_line_richtext_reports_not_single_line() {
     let mut schema = FieldSchema::new("refs".to_string(), FieldType::Array, None);
     schema.items = Some(Box::new(FieldSchema::new(
         "refs".to_string(),
-        FieldType::RichText { multiline: false },
+        FieldType::RichText {
+            shape: crate::quill::Shape::Line,
+        },
         None,
     )));
 
@@ -969,7 +981,9 @@ fn no_verb_on_a_placed_card_moves_it_between_roles() {
     fn richtext() -> FieldSchema {
         FieldSchema::new(
             "f".to_string(),
-            FieldType::RichText { multiline: true },
+            FieldType::RichText {
+                shape: crate::quill::Shape::Blocks,
+            },
             None,
         )
     }

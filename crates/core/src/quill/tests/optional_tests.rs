@@ -23,7 +23,7 @@ main:
     attendees: { type: array?, items: { type: text } }
     result: { type: enum?, values: [carried, failed] }
     adjourned: { type: date? }
-    minutes: { type: richtext?, multiline: true }
+    minutes: { type: richtext?, shape: blocks }
     tally:
       type: object
       properties:

@@ -4,7 +4,7 @@
 
 use indexmap::IndexMap;
 
-use super::{CardSchema, FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY};
+use super::{CardSchema, FieldSchema, FieldType, QuillConfig, Shape, VARIANT_DISCRIMINANT_KEY};
 use crate::value::QuillValue;
 
 /// The `contentMediaType` marking a richtext field in the transform schema. The
@@ -13,9 +13,14 @@ use crate::value::QuillValue;
 /// content rather than a scalar.
 pub const CONTENT_MEDIA_TYPE: &str = "application/quillmark-content+json";
 
+/// Transform-schema keyword carrying a `text` or `richtext` field's `shape:`
+/// where it is `lines` or `blocks`; absent, the field is one line. The body
+/// carries `blocks`.
+pub const QUILLMARK_SHAPE_KEY: &str = "quillmark:shape";
+
 /// Transform-schema keyword marking a `text` or `richtext` field that admits
-/// more than one line (`multiline: true` in Quill.yaml); absent, the field is
-/// one line (`text`) or one paragraph (`richtext`).
+/// more than one line, beside every [`QUILLMARK_SHAPE_KEY`]: the legacy
+/// spelling a consumer that predates the shape reads.
 pub const QUILLMARK_MULTILINE_KEY: &str = "quillmark:multiline";
 
 /// Transform-schema keywords carrying a field's `max:` in the unit its type
@@ -251,6 +256,10 @@ fn authoring_card_properties(card: &CardSchema) -> serde_json::Map<String, serde
         );
         body.insert("type".to_string(), serde_json::json!(["string", "null"]));
         body.insert("contentMediaType".to_string(), MARKDOWN_MEDIA_TYPE.into());
+        body.insert(
+            QUILLMARK_SHAPE_KEY.to_string(),
+            Shape::Blocks.as_str().into(),
+        );
         body.insert(QUILLMARK_MULTILINE_KEY.to_string(), true.into());
         if let Some(example) = declared.and_then(|b| b.example.as_deref()) {
             body.insert("examples".to_string(), serde_json::json!([example]));
@@ -419,7 +428,7 @@ fn declared_schema(field: &FieldSchema, codec: SchemaCodec) -> serde_json::Value
     }
     match field.r#type {
         FieldType::Enum { .. } => return discriminant_schema(field),
-        FieldType::RichText { multiline } | FieldType::Text { multiline } => {
+        FieldType::RichText { shape } | FieldType::Text { shape } => {
             let plain = matches!(field.r#type, FieldType::Text { .. });
             match codec {
                 // The content crosses the seam as a JSON object (canonical
@@ -442,7 +451,8 @@ fn declared_schema(field: &FieldSchema, codec: SchemaCodec) -> serde_json::Value
                     }
                 }
             }
-            if multiline {
+            if shape != Shape::Line {
+                schema.insert(QUILLMARK_SHAPE_KEY.to_string(), shape.as_str().into());
                 schema.insert(QUILLMARK_MULTILINE_KEY.to_string(), true.into());
             }
             if let Some(max) = field.max {
@@ -618,7 +628,7 @@ quill:
   description: x
 main:
   fields:
-    citation: { type: richtext, multiline: true, max: 1350 }
+    citation: { type: richtext, shape: blocks, max: 1350 }
     ssn: { type: text, max: 9 }
     statements:
       type: array
@@ -721,7 +731,7 @@ main:
       items: { type: integer }
     sections:
       type: array
-      items: { type: richtext, multiline: true }
+      items: { type: richtext, shape: blocks }
     address:
       type: object
       properties:
@@ -729,12 +739,10 @@ main:
         city: { type: text }
     subject:
       type: richtext
-      multiline: false
     lines:
       type: array
       items:
         type: richtext
-        multiline: false
     label:
       type: text
 "#;
@@ -743,6 +751,7 @@ main:
         let multiline = serde_json::json!({
             "type": "object",
             "contentMediaType": CONTENT_MEDIA_TYPE,
+            QUILLMARK_SHAPE_KEY: "blocks",
             QUILLMARK_MULTILINE_KEY: true,
         });
         let text = serde_json::json!({

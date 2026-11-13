@@ -65,7 +65,7 @@ main:
         bravo: { type: integer }
     mike:
       type: richtext
-      multiline: false
+      shape: lines
       ui: { compact: true }
 card_kinds:
   zulu:
@@ -95,7 +95,7 @@ card_kinds:
                 "values"
             ]
         );
-        assert_eq!(keys(&fields["mike"]), ["type", "ui", "multiline"]);
+        assert_eq!(keys(&fields["mike"]), ["type", "ui", "shape", "multiline"]);
     }
 
     #[test]

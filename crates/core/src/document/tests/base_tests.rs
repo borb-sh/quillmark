@@ -15,10 +15,9 @@ main:
   fields:
     subject:
       type: richtext
-      multiline: false
     note:
       type: text
-      multiline: true
+      shape: lines
     on:
       type: date
 ";

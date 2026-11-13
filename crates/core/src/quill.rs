@@ -32,13 +32,13 @@ pub(crate) use resolved::resolve_document;
 pub use resolved::{FieldSource, Resolved, ResolvedCard, ResolvedField, ResolvedMain};
 pub use schema::{
     AUTHORING_KIND_KEY, CONTENT_MEDIA_TYPE, MARKDOWN_MEDIA_TYPE, QUILLMARK_MAX_ITEMS_KEY,
-    QUILLMARK_MAX_LENGTH_KEY, QUILLMARK_MULTILINE_KEY, QUILLMARK_ROSTER_KEY, SchemaCodec,
-    build_transform_schema,
+    QUILLMARK_MAX_LENGTH_KEY, QUILLMARK_MULTILINE_KEY, QUILLMARK_ROSTER_KEY, QUILLMARK_SHAPE_KEY,
+    SchemaCodec, build_transform_schema,
 };
 pub use tree::FileTreeNode;
 pub use types::{
     BlockConstruct, BodyCardSchema, CardSchema, FieldLayout, FieldSchema, FieldType, GroupRegistry,
-    GroupSchema, MATRIX_HELD_KEY, MATRIX_RESERVED_COLUMNS, MATRIX_TITLE_KEY, UiCardSchema,
+    GroupSchema, MATRIX_HELD_KEY, MATRIX_RESERVED_COLUMNS, MATRIX_TITLE_KEY, Shape, UiCardSchema,
     UiFieldSchema, VARIANT_DISCRIMINANT_KEY, VariantFields,
 };
 pub use validation::ValidationError;

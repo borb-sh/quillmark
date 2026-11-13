@@ -9,11 +9,11 @@ use quillmark_typst::TypstBackend;
 mod common;
 use common::{content, quill_with_plate as quill, yaml};
 
-const SCHEMA: &str = "main:\n  fields:\n    intro: { type: richtext, multiline: true }\n    prose: { type: richtext, multiline: true }\n";
+const SCHEMA: &str = "main:\n  fields:\n    intro: { type: richtext, shape: blocks }\n    prose: { type: richtext, shape: blocks }\n";
 
 /// A fill-in widget above a paragraph.
 const WIDGET_SCHEMA: &str =
-    "main:\n  fields:\n    blank: { type: text }\n    prose: { type: richtext, multiline: true }\n";
+    "main:\n  fields:\n    blank: { type: text }\n    prose: { type: richtext, shape: blocks }\n";
 
 const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.2.0" as qm

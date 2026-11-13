@@ -273,7 +273,7 @@ main:
       type: text
     intro:
       type: richtext
-      multiline: true
+      shape: blocks
       default: "**hi**"
     recipients:
       type: array

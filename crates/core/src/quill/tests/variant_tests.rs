@@ -140,7 +140,7 @@ fn a_malformed_variant_declaration_is_refused_by_code() {
 #[test]
 fn a_variant_cell_carries_any_field_type() {
     for (decl, ty) in [
-        ("richtext, multiline: true", "richtext"),
+        ("richtext, shape: blocks", "richtext"),
         ("text", "text"),
         ("date", "date"),
         ("datetime", "datetime"),
@@ -190,7 +190,7 @@ main:
       default: ""
       variants:
         CUI:
-          note: { type: richtext, multiline: true }
+          note: { type: richtext, shape: blocks }
           reply_by: { type: date }
 "#;
     let config = QuillConfig::from_yaml(YAML).expect("loads");
@@ -609,7 +609,7 @@ fn a_container_shaped_schema_literal_is_a_load_error() {
         "      default: { value: CUI, note: \"A **bold** note\" }\n",
         "      variants:\n",
         "        CUI:\n",
-        "          note: { type: richtext, multiline: true }\n",
+        "          note: { type: richtext, shape: blocks }\n",
     );
     let err = QuillConfig::from_yaml_with_warnings(yaml).unwrap_err();
     let diag = err
@@ -762,7 +762,7 @@ main:
       type: enum
       values: [A, B]
       variants:
-        A: { y: { type: richtext, multiline: true } }
+        A: { y: { type: richtext, shape: blocks } }
     box:
       type: object
       properties:
@@ -770,7 +770,7 @@ main:
           type: enum
           values: [A, B]
           variants:
-            A: { y: { type: richtext, multiline: true } }
+            A: { y: { type: richtext, shape: blocks } }
 "#,
     );
     let md = "~~~\n$quill: variant_drops@0.1.0\nc:\n  value: B\n  y: a <span>b</span>\n\

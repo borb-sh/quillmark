@@ -16,12 +16,13 @@
 //! - A line of carrier tags in a paragraph or a list item's text is a tag
 //!   line: the break above it ends the text, and the text under it opens a
 //!   paragraph.
-//! - A soft break is a space and a hard break a `continues` line, distinct from
-//!   a paragraph boundary. Inside a heading a hard break is a space, a heading
-//!   being one line; a setext heading spans two source lines and can carry one.
-//!   Inside a table cell a hard break is a `\n` in the cell's text. An inline
-//!   `<br>` is a hard break, dropped at its block's start or right after
-//!   another break, and a soft break beside a hard break is nothing.
+//! - A newline inside a paragraph is a line break, a `continues` line distinct
+//!   from a paragraph boundary, and CommonMark's two hard break spellings and
+//!   an inline `<br>` are the same break. Inside a heading a break is a space,
+//!   a heading being one line; a setext heading spans two source lines and can
+//!   carry one. Inside a table cell a `<br>` is a `\n` in the cell's text, and
+//!   in a cell or a footnote's note a newline is a space. A break at its
+//!   block's start or right after another break is nothing.
 //! - Two adjacent sibling containers keep their boundary, told apart by
 //!   `Container::instance`, minted here and canonicalized by `normalize`.
 //! - An empty heading, code block or container keeps its line. An empty
@@ -860,9 +861,7 @@ struct Builder {
     /// The text position after the boundary of the line a mark or `<u>` opened
     /// [early](Self::open_early), while nothing has landed in it.
     early: Option<usize>,
-    /// The text position after a soft break's space, and after a hard break:
-    /// a soft break beside a hard break folds into it.
-    soft_at: Option<usize>,
+    /// The text position after a line break: a second break there is nothing.
     broke_at: Option<usize>,
     islands: Vec<Island>,
     containers: Vec<Level>,
@@ -1146,7 +1145,6 @@ impl Builder {
         if self.cur.is_some() {
             self.inline.unpush();
         }
-        self.soft_at = None;
         self.broke_at = None;
     }
 
@@ -1320,19 +1318,12 @@ impl Builder {
                 // having dropped, is nothing, and so is one beside a hard break.
                 Event::SoftBreak if self.line_empty() || self.broke_at == Some(self.inline.pos) => {
                 }
-                Event::SoftBreak => {
-                    self.push_inline(" ");
-                    self.soft_at = Some(self.inline.pos);
-                }
                 Event::TaskListMarker(done) => {
                     if let Some(Level::ListItem { checked, .. }) = self.containers.last_mut() {
                         *checked = Some(done);
                     }
                 }
-                Event::HardBreak => {
-                    if self.soft_at.take() == Some(self.inline.pos) {
-                        self.inline.unpush();
-                    }
+                Event::SoftBreak | Event::HardBreak => {
                     self.broke_at = Some(self.inline.pos);
                     // A break with no text before it on its line is dropped:
                     // pulldown never emits one there, an inline `<br>` can, and

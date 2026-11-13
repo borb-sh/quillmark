@@ -183,7 +183,7 @@ fn a_claim_around_a_content_field_moves_none_of_its_regions() {
     let open_body = |print: &str, body: &serde_json::Value| {
         let source = common::quill_with_plate(
             &common::yaml(
-                "main:\n  fields:\n    subject: { type: text }\n    prose: { type: richtext, multiline: true }\n",
+                "main:\n  fields:\n    subject: { type: text }\n    prose: { type: richtext, shape: blocks }\n",
             ),
             &format!(
                 "#import \"@local/quillmark-helper:0.2.0\" as qm\n\

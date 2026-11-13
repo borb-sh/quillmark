@@ -1,12 +1,12 @@
 # Markdown Syntax
 
-Quillmark Markdown is a **strict superset of [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)** with a small set of [GitHub Flavored Markdown](https://github.github.com/gfm/) extensions and **two declared deviations**: [raw HTML](#raw-html-is-not-rendered-except-u-and-br) and [`~~~` fences](#a-column-zero-always-opens-a-card-yaml-block). If you already know CommonMark, you only need to learn what is on this page.
+Quillmark Markdown is a **superset of [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)** with a small set of [GitHub Flavored Markdown](https://github.github.com/gfm/) extensions and **three declared deviations**: [raw HTML](#raw-html-is-not-rendered-except-u-and-br), [a newline](#a-newline-is-a-line-break) and [`~~~` fences](#a-column-zero-always-opens-a-card-yaml-block). If you already know CommonMark, you only need to learn what is on this page.
 
 For the authoritative grammar, block-detection rules, normalization, and limits, see the formal [Markdown specification](../reference/markdown-spec.md).
 
 ## Foundation
 
-Body content (the prose after each [card-yaml block](card-yaml.md), including any [card](card-yaml.md#card-blocks)) is parsed as CommonMark 0.31.2. Headings, emphasis, links, images, lists, code blocks, blockquotes, thematic breaks, and inline code all behave exactly as the [CommonMark spec](https://spec.commonmark.org/0.31.2/) defines them. (An image parses, stores and round-trips, but **no backend typesets one**: the Typst backend drops it and warns under `backend::declined_construct`, because no backend resolves a content image's `src`.)
+Body content (the prose after each [card-yaml block](card-yaml.md), including any [card](card-yaml.md#card-blocks)) is parsed as CommonMark 0.31.2. Headings, emphasis, links, images, lists, code blocks, blockquotes, thematic breaks, and inline code all behave as the [CommonMark spec](https://spec.commonmark.org/0.31.2/) defines them, but for the deviations below. (An image parses, stores and round-trips, but **no backend typesets one**: the Typst backend drops it and warns under `backend::declined_construct`, because no backend resolves a content image's `src`.)
 
 For the conventional syntax of these elements, refer to:
 
@@ -165,12 +165,29 @@ Why: Typst (the rendering backend) has no HTML renderer, and arbitrary HTML pass
 
 Consequences:
 
-- `<br>`, `<br/>`, `<br />` (any case) are a line break, in a paragraph or a table cell: `| line one<br>line two |`. Outside a table, a CommonMark hard break does the same: two trailing spaces before a newline, or a trailing `\` before a newline. In a paragraph, a `<br>` at the paragraph's start or right after another line break produces nothing, and a newline beside a line break adds no space: `line one<br>` on one line and `line two` on the next are two lines, the second unindented. A `<br>` alone on a line opens an HTML block, below.
+- `<br>`, `<br/>`, `<br />` (any case) are a line break, in a paragraph or a table cell: `| line one<br>line two |`. Outside a table, a newline does the same. In a paragraph, a `<br>` at the paragraph's start or right after another line break produces nothing, and a newline beside a line break adds no second one: `line one<br>` on one line and `line two` on the next are two lines, the second unindented. A `<br>` alone on a line opens an HTML block, below.
 - HTML entities decode as CommonMark specifies: `Fish &amp; chips, &#65;BC` reads `Fish & chips, ABC`.
 - An HTML block drops as CommonMark reads it, unless it opens `<table>`. A line starting with a tag such as `<div>`, `<center>` or `<details>` opens a block that runs to the next blank line, so markdown on the lines under it drops with it; a blank line after the tag line keeps what follows. Embedded SVG draws nothing.
 - A `<pre>`, `<script>`, `<style>` or `<textarea>` block drops whole, content included, through the end of its closing tag's line.
 - HTML comments do not appear in output. Text after a comment's `-->` on the same line still does.
 - Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included. Comments are not reported, and neither are closing tags and `<qm-anchor>` tags, except where the block they open drops markdown. A `<qm-island>` token, which only a revise of an annotated read resolves, is reported where it drops. A tag in a `richtext` field's value in the card-yaml block drops the same way, reported at the field.
+
+### A newline is a line break
+
+CommonMark reads a newline inside a paragraph as a space. Quillmark reads it as a line break, and a blank line as a paragraph break:
+
+```markdown
+1st Lt Jane Doe
+Flight Commander
+
+A second paragraph.
+```
+
+prints two lines and then a paragraph. CommonMark's two spellings of a line break, two trailing spaces or a trailing `\`, read the same, so a document that uses them is unchanged. A heading is one line, so a newline inside one is a space, and so is one in a table cell or a footnote's text.
+
+Why: a writer who presses Enter means a new line, and text that folded its lines printed an address or a signature block as one line.
+
+A [`richtext` field](../quills/quill-yaml-reference.md#the-shape-of-a-text-field) reads its value by the same rule, within the shape its quill declares: a one-line field reads a newline as a space, and a field of lines reads `1.` or `-` opening a line as text, not a list.
 
 ### A column-zero `~~~` always opens a card-yaml block
 

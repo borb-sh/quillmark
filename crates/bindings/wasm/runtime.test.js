@@ -106,7 +106,6 @@ main:
   fields:
     subject:
       type: richtext
-      multiline: false
     qty:
       type: integer
     memo:
@@ -117,7 +116,7 @@ card_kinds:
     fields:
       prose:
         type: richtext
-        multiline: true
+        shape: blocks
 `
   const buildQuill = () =>
     Quill.fromTree(makeQuill({ name: 'editor_test', plate: TEST_PLATE, quillYaml: EDITOR_QUILL_YAML }))
@@ -383,22 +382,21 @@ main:
   fields:
     subject:
       type: richtext
-      multiline: false
     note:
       type: text
-      multiline: true
+      shape: lines
     qty:
       type: integer
     recipients:
       type: array
       items:
         type: text
-        multiline: true
+        shape: lines
     paragraphs:
       type: array
       items:
         type: richtext
-        multiline: true
+        shape: blocks
     tags:
       type: array
       items:
@@ -408,7 +406,7 @@ main:
       properties:
         motto:
           type: richtext
-          multiline: true
+          shape: blocks
         code:
           type: text
     rows:
@@ -418,19 +416,19 @@ main:
         properties:
           notes:
             type: richtext
-            multiline: true
+            shape: blocks
 
 card_kinds:
   note:
     fields:
       prose:
         type: richtext
-        multiline: true
+        shape: blocks
       lines:
         type: array
         items:
           type: text
-          multiline: true
+          shape: lines
 `
   const buildQuill = () =>
     Quill.fromTree(makeQuill({ name: 'view_test', plate: TEST_PLATE, quillYaml: VIEW_QUILL_YAML }))

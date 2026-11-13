@@ -194,7 +194,7 @@ A container has no widget shape of its own; the value positions inside it do, an
 
 A text widget bound to a `text` or `richtext` field declaring `max:` carries it as `/MaxLen`, so a viewer stops input at the cap. A value already past the cap stamps without `/MaxLen`, since a viewer would otherwise cut the value the document holds. The widget counts as a viewer does, in UTF-16 units of the drawn text, so a value under the cap that holds a character outside the Basic Multilingual Plane, such as an emoji, can also stamp without it. `validate` warns `validation::over_length` on a value past the cap either way. A scalar array's `max:` counts elements, so the joined widget carries none.
 
-`multiline` on a text widget comes from the schema field's own `multiline: true` (a scalar array is always multiline), and a value holding a newline (a richtext of two paragraphs, a block scalar) widens it to multiline whatever the schema said, so the file shows every line the preview does.
+`multiline` on a text widget comes from the schema field's `shape`, `lines` or `blocks` (a scalar array is always multiline), and a value holding a newline (a richtext of two paragraphs, a block scalar) widens it to multiline whatever the schema said, so the file shows every line the preview does.
 
 A text widget takes a richtext value's plain text: the backend draws paragraphs and nothing else. A heading, rule, code block, list, quote, definition, table, image, footnote or equation in a content field warns `backend::declined_construct` at `validate` and at render, once per field and construct. The text of a heading, code block, list, quote or definition still lands as lines; a rule, table, image, footnote or equation lands as nothing.
 

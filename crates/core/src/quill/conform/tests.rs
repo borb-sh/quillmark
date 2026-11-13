@@ -21,26 +21,25 @@ main:
   fields:
     subject:
       type: richtext
-      multiline: false
     note:
       type: text
-      multiline: true
+      shape: lines
     qty:
       type: integer
     tags:
       type: array
       items:
         type: richtext
-        multiline: true
+        shape: blocks
     meta:
       type: object
       properties:
         label:
           type: text
-          multiline: true
+          shape: lines
         blurb:
           type: richtext
-          multiline: true
+          shape: blocks
     rows:
       type: array
       items:
@@ -48,16 +47,16 @@ main:
         properties:
           cell:
             type: richtext
-            multiline: true
+            shape: blocks
 card_kinds:
   entry:
     fields:
       prose:
         type: richtext
-        multiline: true
+        shape: blocks
       caption:
         type: text
-        multiline: true
+        shape: lines
 "#;
 
 fn quill() -> Quill {
@@ -326,7 +325,7 @@ card_kinds:
         default: ""
         variants:
           CUI:
-            note: { type: richtext, multiline: true }
+            note: { type: richtext, shape: blocks }
 "#;
     let quill = quill_from_yaml(YAML);
     let overlay = SeedOverlay::from_json(&json!({
