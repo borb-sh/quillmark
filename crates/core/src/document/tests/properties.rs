@@ -209,16 +209,17 @@ fn arb_boolean_word() -> impl Strategy<Value = String> {
 }
 
 proptest! {
-    /// A plain scalar is a boolean exactly when it spells `true` or `false`,
-    /// in any letter case, and any other word is the string written, as a
-    /// field, a sequence element and a nested value alike, across an emission.
+    /// A plain scalar is a boolean exactly when it spells `true` or `false`
+    /// all lowercase, capitalized or all uppercase, and any other word is the
+    /// string written, as a field, a sequence element and a nested value
+    /// alike, across an emission.
     #[test]
     fn only_true_and_false_read_as_booleans(word in arb_boolean_word()) {
         let src = format!("~~~\n$quill: q\nv: {word}\nlist: [{word}]\nmap:\n  k: {word}\n~~~\n");
         let doc = Document::parse(&src).expect("a well-formed block").document;
-        let want = match word.to_ascii_lowercase().as_str() {
-            "true" => json!(true),
-            "false" => json!(false),
+        let want = match word.as_str() {
+            "true" | "True" | "TRUE" => json!(true),
+            "false" | "False" | "FALSE" => json!(false),
             _ => json!(word),
         };
         let payload = doc.main().payload();

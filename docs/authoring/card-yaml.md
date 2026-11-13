@@ -152,14 +152,15 @@ YAML reads an unquoted value by its shape before the schema sees it, so a
 | `phone: +15551234567`, a leading `+` | `15551234567` | `phone: "+15551234567"` |
 | `id: 18446744073709551616`, an integer past 18446744073709551615 | `1.8446744073709552e+19` | `id: "18446744073709551616"` |
 | `ratio: .5` or `5.`, a `.` with no digit on one side | `0.5`, `5.0` | `ratio: ".5"` |
-| `ext: .inf` or `.nan`, in any letter case | nothing: the parse fails | `ext: ".inf"` |
+| `ext: .inf` or `.nan`, all lowercase, capitalized or all uppercase | nothing: the parse fails | `ext: ".inf"` |
 | `id: 1e999`, a number too large to hold | nothing: the parse fails | `id: "1e999"` |
 | `text: Approve Item #12`, a space or tab then `#` | `Approve Item`: the rest is a comment | `text: "Approve Item #12"` |
 
 `quillmark check` reports only the rows that fail the parse; the rest are
 well-formed YAML, read as a number or cut at a comment. A word needs no quotes
-unless it is `true`, `false` or `null`, in any letter case, or `~`: `yes`,
-`no`, `on`, `off`, `y` and `n` stay text.
+unless it is `true`, `false` or `null` all lowercase, capitalized or all
+uppercase, or `~`: `tRue`, `nUlL`, `yes`, `no`, `on`, `off`, `y` and `n` stay
+text.
 
 **Strings:**
 ```yaml

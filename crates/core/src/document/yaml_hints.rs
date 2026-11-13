@@ -144,7 +144,7 @@ fn derive_hint(message: &str, content: &str) -> Option<String> {
     // A `!!bool` tag on a word other than `true` or `false`.
     if m.contains("invalid boolean") {
         return Some(
-            "Only `true` and `false`, in any letter case, are booleans, so a `!!bool` \
+            "Only `true` and `false`, lowercase, capitalized or uppercase, are booleans, so a `!!bool` \
              tag takes no other word. Drop the tag to keep the word as text, or write \
              `true` or `false`."
                 .to_string(),

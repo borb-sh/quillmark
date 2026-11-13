@@ -238,8 +238,9 @@ data payload.
 - **Whitespace-only payload.** A block whose payload (after metadata
   extraction) is only whitespace yields an empty field set.
 - **Booleans.** A plain scalar is a boolean only when it spells `true` or
-  `false`, in any letter case. YAML 1.1's `y`, `n`, `yes`, `no`, `on` and
-  `off`, in any case, are strings.
+  `false` all lowercase, capitalized or all uppercase. Any other casing, such
+  as `tRue`, and YAML 1.1's `y`, `n`, `yes`, `no`, `on` and `off`, in any
+  case, are strings.
 - **YAML comments.** Both own-line comments (`# …` on their own line) and
   inline comments (`field: value  # note`) are supported on data fields and
   round-trip through `toMarkdown`. Comments inside nested YAML values
