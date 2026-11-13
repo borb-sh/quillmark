@@ -923,7 +923,7 @@ describe('Document apply: the write primitive', () => {
     expect(() => doc.replace({}, content)).toThrow(/not in canonical form/)
     doc.replace({}, normalize(content))
     expect(doc.read({}).marks).toEqual(normalize(content).marks)
-    expect(exportMarkdown(doc.read({}))).toBe('a\\\n**bold**')
+    expect(exportMarkdown(doc.read({}))).toBe('a\n**bold**')
 
     const table = importMarkdown('| H |\n| --- |\n| a |').content
     const shared = { ...table, text: 'a￼bold' }
@@ -944,7 +944,7 @@ describe('Document apply: the write primitive', () => {
     doc.revise({}, 'one two')
     doc.apply({}, { steps: [{ splice: { at: 3, delete: ' ', insert: ' ' } }] })
     expect(doc.read({}).blocks).toHaveLength(1)
-    expect(exportMarkdown(doc.read({}))).toBe('one\\\ntwo')
+    expect(exportMarkdown(doc.read({}))).toBe('one\ntwo')
 
     doc.apply({}, { steps: [{ splice: { at: 3, delete: ' ', insert: '\n', blocks: [{ id: 'b9', kind: 'para' }] } }] })
     expect(doc.read({}).blocks.map((b) => b.id)).toEqual([doc.read({}).blocks[0].id, 'b9'])
