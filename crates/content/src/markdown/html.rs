@@ -107,7 +107,7 @@ const VERBATIM: [(&str, &str); 4] = [
     ("textarea", "</textarea>"),
 ];
 
-fn is_block_name(name: &str) -> bool {
+pub(crate) fn is_block_name(name: &str) -> bool {
     BLOCK_NAMES.iter().any(|n| n.eq_ignore_ascii_case(name))
 }
 

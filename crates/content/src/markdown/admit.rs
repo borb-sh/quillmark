@@ -8,6 +8,8 @@
 
 use std::borrow::Cow;
 
+use super::{carrier, html};
+
 /// What a value admits beyond marked text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Admit {
@@ -26,6 +28,7 @@ pub fn admitting(markdown: &str, admit: Admit) -> Cow<'_, str> {
     }
     let mut out = String::with_capacity(markdown.len() + 8);
     let mut joins = false;
+    let mut continues = false;
     for (n, line) in markdown.split('\n').enumerate() {
         let line = line.strip_suffix('\r').unwrap_or(line);
         let text = line.trim_start_matches([' ', '\t']);
@@ -33,15 +36,16 @@ pub fn admitting(markdown: &str, admit: Admit) -> Cow<'_, str> {
             let folds = admit == Admit::Line && joins && !text.is_empty();
             out.push(if folds { ' ' } else { '\n' });
         }
-        literal(text, &mut out);
+        literal(text, continues, &mut out);
+        continues = !text.is_empty();
         joins = !text.is_empty() && !text.ends_with('\\') && !text.ends_with("  ");
     }
     Cow::Owned(out)
 }
 
 /// `line`, its indent gone, with the character that would open a block
-/// escaped.
-fn literal(line: &str, out: &mut String) {
+/// escaped. `continues` is whether the line before it holds text.
+fn literal(line: &str, continues: bool, out: &mut String) {
     let digits = line.bytes().take_while(u8::is_ascii_digit).count();
     let rest = &line[digits..];
     if (1..=9).contains(&digits) && rest.starts_with(['.', ')']) && ends_marker(&rest[1..]) {
@@ -50,7 +54,7 @@ fn literal(line: &str, out: &mut String) {
         out.push_str(rest);
         return;
     }
-    if opens_block(line) {
+    if opens_block(line) || opens_html(line, continues) {
         out.push('\\');
     }
     out.push_str(line);
@@ -79,8 +83,24 @@ fn opens_block(line: &str) -> bool {
         || (line.starts_with('[') && line.contains("]:"))
 }
 
+/// Whether `line` opens an HTML block: a table, or markup the import drops
+/// with the text after it read as blocks. A carrier tag alone on its line
+/// passes, and so does any other tag alone on a line that continues a
+/// paragraph, which it cannot interrupt.
+fn opens_html(line: &str, continues: bool) -> bool {
+    match (html::block_start(line), html::tag_at(line, 0)) {
+        (None, _) => false,
+        (Some(html::BlockKind::Open), Some(tag)) if !html::is_block_name(tag.name) => {
+            !continues && carrier::element(tag.name).is_none()
+        }
+        (Some(_), _) => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    mod properties;
+
     use super::*;
     use crate::markdown::{from_markdown, from_markdown_admitting};
     use crate::view::plaintext;
@@ -108,6 +128,8 @@ mod tests {
             "~~~",
             "    indented",
             "[OPR]: 123 CS/SCX",
+            "<!-- c --> # one",
+            "<div>",
         ] {
             let content = lines(typed);
             assert!(content.is_lines(), "{typed:?}");
