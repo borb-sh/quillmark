@@ -2,6 +2,17 @@
 
 ## v0.138.0 - 2026-11-13
 
+Upgrade path: [0.137 → 0.138](docs/migrations/0.137-to-0.138.md). A newline
+inside a Markdown paragraph is a line break, where it was a space, so a body
+hard-wrapped in its source prints its wraps. A `text` or `richtext` field
+declares `shape: line | lines | blocks` where it declared `multiline`, which
+loads one more release with a `quill::deprecated_multiline` warning; `shape:
+lines` on a `richtext` is new, formatted lines where block syntax prints as
+typed. YAML reads only the 1.2 Core casings as booleans and nulls, so `tRue`
+is text. `isLines` and `importMarkdown(markdown, shape)` judge and read a
+value as a field of that shape does, and `quillmark_content::view::layout`
+and the line form's Markdown adapters are removed.
+
 - chore(deps): hayro 0.8 (#2484)
 - chore(deps)!: serde-saphyr 2.1, where only YAML 1.2 Core casings read as booleans and nulls (#2482)
 - fix(wasm): importMarkdown's shape is optional in its TypeScript signature
@@ -23,7 +34,6 @@
 - refactor(content): the export probes read a model import
 - fix(content): an escaped `<p>` in an HTML table cell reads as text
 - refactor(content)!: quillmark_content::view::layout is removed
-- refactor(content)!: view::layout is removed
 - refactor(content): renderers read a table's layout off the island
 - refactor(content): marks and tables normalize on the model
 - refactor(content): the bidi and admit character rules stay crate-private
