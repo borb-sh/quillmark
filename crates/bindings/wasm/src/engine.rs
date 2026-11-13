@@ -1991,17 +1991,40 @@ impl Addr {
 /// canonical `content` and a `parse::dropped_construct` warning per construct
 /// the import dropped, with no `path`. `replace(addr, importMarkdown(md).content)`
 /// spells the cold write; prefer `revise` for edit semantics.
+/// With `shape`, the read of a `richtext` field of that shape: under `"line"`
+/// and `"lines"` the syntax of a block is its characters, and under `"line"`
+/// a newline is a space. Absent, the value holds every block.
 /// Throws on an over-nested input, and `edit::input_too_large` on one past
 /// 10 MiB.
 #[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Imported")]
-pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
-    let imported = quillmark_content::markdown::from_markdown(markdown).map_err(|e| match e {
-        quillmark_content::markdown::ImportError::TooLarge { .. } => WasmError {
-            diagnostics: vec![quillmark_core::document::EditError::import(e).to_diagnostic(None)],
+pub fn import_markdown(
+    markdown: &str,
+    #[wasm_bindgen(unchecked_param_type = "\"line\" | \"lines\" | \"blocks\" | undefined")]
+    shape: Option<String>,
+) -> Result<JsValue, JsValue> {
+    use quillmark_content::markdown::Admit;
+    let admit = match shape.as_deref() {
+        None | Some("blocks") => Admit::Blocks,
+        Some("lines") => Admit::Lines,
+        Some("line") => Admit::Line,
+        Some(other) => {
+            return Err(WasmError::from(format!(
+                "importMarkdown: unknown shape '{other}': expected line, lines or blocks"
+            ))
+            .to_js_value());
         }
-        .to_js_value(),
-        e => WasmError::from(format!("importMarkdown: {e}")).to_js_value(),
-    })?;
+    };
+    let imported = quillmark_content::markdown::from_markdown_admitting(markdown, admit).map_err(
+        |e| match e {
+            quillmark_content::markdown::ImportError::TooLarge { .. } => WasmError {
+                diagnostics: vec![
+                    quillmark_core::document::EditError::import(e).to_diagnostic(None),
+                ],
+            }
+            .to_js_value(),
+            e => WasmError::from(format!("importMarkdown: {e}")).to_js_value(),
+        },
+    )?;
     let out = ImportedJs {
         content: imported
             .content
@@ -2209,6 +2232,17 @@ pub fn is_inline(
     #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
 ) -> Result<bool, JsValue> {
     Ok(content::content_in(content, "isInline")?.is_inline())
+}
+
+/// Whether `content` is what a field of `shape: lines` holds: every block a
+/// paragraph in no container, with no islands. Judged on the normalized
+/// content, which is what a write stores. Throws if `content` is not canonical
+/// content.
+#[wasm_bindgen(js_name = isLines)]
+pub fn is_lines(
+    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
+) -> Result<bool, JsValue> {
+    Ok(content::content_in(content, "isLines")?.is_lines())
 }
 
 /// Whether `content` satisfies the `text` constraint: no marks, no

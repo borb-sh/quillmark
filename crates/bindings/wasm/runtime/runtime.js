@@ -21,7 +21,7 @@ import initCore, { Quill, Document } from '../core/wasm.js';
 import { toModuleSource } from '#quillmark-env';
 import { importMarkdown, exportMarkdown, normalize, invert, diff, diffRange } from '../core/wasm.js';
 import { inheritedMarks, mapPos, repair } from '../core/wasm.js';
-import { isInline, isPlain } from '../core/wasm.js';
+import { isInline, isLines, isPlain } from '../core/wasm.js';
 import { parseDocPath, formatDocPath, formatDiagnostic } from '../core/wasm.js';
 
 // A `--target web` build exports its classes synchronously but carries no wasm
@@ -57,6 +57,7 @@ const CORE_SURFACE = Object.freeze({
 	mapPos,
 	repair,
 	isInline,
+	isLines,
 	isPlain,
 	parseDocPath,
 	formatDocPath,

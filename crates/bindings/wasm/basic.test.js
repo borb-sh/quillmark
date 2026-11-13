@@ -19,6 +19,7 @@ import {
   mapPos,
   repair,
   isInline,
+  isLines,
   isPlain,
   parseDocPath,
   formatDocPath,
@@ -598,11 +599,23 @@ describe('Content model: importMarkdown / exportMarkdown', () => {
   })
 })
 
-describe('Content predicates: isInline / isPlain', () => {
+describe('importMarkdown under a shape', () => {
+  it('reads block syntax as text where the shape holds no block, and a newline as a space on one line', () => {
+    const lines = importMarkdown('1. 123 OG/CC\n- *123* MXG/CC', 'lines').content
+    expect(isLines(lines)).toBe(true)
+    expect(exportMarkdown(importMarkdown('A long\nsubject', 'line').content)).toBe('A long subject')
+    expect(isLines(importMarkdown('- item', 'blocks').content)).toBe(false)
+    expect(() => importMarkdown('one', 'paragraph')).toThrow(/unknown shape/)
+  })
+})
+
+describe('Content predicates: isInline / isLines / isPlain', () => {
   it('judge the single-line and plain constraints on a Content, throwing on a non-content', () => {
     expect(isInline(importMarkdown('One **bold** line.').content)).toBe(true)
     expect(isInline(importMarkdown('One.\n\nTwo.').content)).toBe(false)
     expect(isInline(importMarkdown('- item').content)).toBe(false)
+    expect(isLines(importMarkdown('One **bold**\nline.\n\nTwo.').content)).toBe(true)
+    expect(isLines(importMarkdown('- item').content)).toBe(false)
     expect(isPlain(importMarkdown('One.\n\nTwo.').content)).toBe(true)
     expect(isPlain(importMarkdown('One **bold** line.').content)).toBe(false)
     expect(() => isInline('One.')).toThrow()

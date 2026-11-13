@@ -26,6 +26,7 @@ import type {
 	mapPos,
 	repair,
 	isInline,
+	isLines,
 	isPlain,
 	parseDocPath,
 	formatDocPath,
@@ -52,6 +53,7 @@ export interface CoreSurface {
 	mapPos: typeof mapPos;
 	repair: typeof repair;
 	isInline: typeof isInline;
+	isLines: typeof isLines;
 	isPlain: typeof isPlain;
 	parseDocPath: typeof parseDocPath;
 	formatDocPath: typeof formatDocPath;
