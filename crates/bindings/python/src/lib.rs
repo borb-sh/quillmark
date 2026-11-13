@@ -35,6 +35,7 @@ fn _quillmark(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(content::export_markdown, m)?)?;
     m.add_function(wrap_pyfunction!(content::normalize, m)?)?;
     m.add_function(wrap_pyfunction!(content::is_inline, m)?)?;
+    m.add_function(wrap_pyfunction!(content::is_lines, m)?)?;
     m.add_function(wrap_pyfunction!(content::is_plain, m)?)?;
 
     m.add("QuillmarkError", m.py().get_type::<QuillmarkError>())?;

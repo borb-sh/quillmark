@@ -3,7 +3,7 @@ its producers `revise` and `replace`, the reads, and the pure helpers over
 changes. Offsets count code points."""
 
 import pytest
-from quillmark import Document, diff, export_markdown, import_markdown, invert, is_inline, is_plain, normalize, repair
+from quillmark import Document, diff, export_markdown, import_markdown, invert, is_inline, is_lines, is_plain, normalize, repair
 
 from conftest import raises_edit_code
 
@@ -182,6 +182,9 @@ def test_the_markdown_import_and_export_and_the_predicates_hold_no_document():
     assert export_markdown(content) == "Hello *world*.\n\n- one"
     assert not is_inline(content) and not is_plain(content)
     assert is_inline(import_markdown("Hello.")["content"])
+    lines = import_markdown("1. 123 OG/CC\n- *123* MXG/CC", shape="lines")["content"]
+    assert is_lines(lines) and not is_lines(content)
+    assert export_markdown(import_markdown("A long\nsubject", shape="line")["content"]) == "A long subject"
     assert normalize(content) == content
     doc = Document.parse(MD)
     doc.apply({"steps": [{"anchor": {"id": "a", "start": 0, "end": 5}}]})

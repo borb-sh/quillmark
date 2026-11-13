@@ -207,11 +207,30 @@ pub(crate) fn exported<'py>(
 /// Import markdown: the canonical `content` and a `parse::dropped_construct`
 /// warning per construct the import dropped, `{"content", "warnings"}`.
 /// `replace(import_markdown(md)["content"], ...)` is the cold write; prefer
-/// `revise`. Raises `QuillmarkError` on an over-nested input or one past
-/// 10 MiB.
+/// `revise`. With `shape`, the read of a `richtext` field of that shape:
+/// under `"line"` and `"lines"` the syntax of a block is its characters, and
+/// under `"line"` a newline is a space. Raises `QuillmarkError` on an
+/// over-nested input or one past 10 MiB, and `ValueError` on an unknown
+/// shape.
 #[pyfunction]
-pub fn import_markdown<'py>(py: Python<'py>, markdown: &str) -> PyResult<Bound<'py, PyDict>> {
-    let imported = quillmark_content::markdown::from_markdown(markdown)
+#[pyo3(signature = (markdown, *, shape=None))]
+pub fn import_markdown<'py>(
+    py: Python<'py>,
+    markdown: &str,
+    shape: Option<&str>,
+) -> PyResult<Bound<'py, PyDict>> {
+    use quillmark_content::markdown::Admit;
+    let admit = match shape {
+        None | Some("blocks") => Admit::Blocks,
+        Some("lines") => Admit::Lines,
+        Some("line") => Admit::Line,
+        Some(other) => {
+            return Err(PyValueError::new_err(format!(
+                "import_markdown: unknown shape '{other}': expected line, lines or blocks"
+            )));
+        }
+    };
+    let imported = quillmark_content::markdown::from_markdown_admitting(markdown, admit)
         .map_err(|e| convert_edit_error(EditError::import(e), &DocPath::new()))?;
     let out = PyDict::new(py);
     out.set_item("content", content_to_py(py, &imported.content)?)?;
@@ -263,6 +282,13 @@ pub fn normalize<'py>(py: Python<'py>, content: &Bound<'_, PyAny>) -> PyResult<B
 #[pyfunction]
 pub fn is_inline(content: &Bound<'_, PyAny>) -> PyResult<bool> {
     Ok(content_from_py(content, "is_inline")?.is_inline())
+}
+
+/// Whether `content` is what a field of `shape: lines` holds: every block a
+/// paragraph in no container, with no islands.
+#[pyfunction]
+pub fn is_lines(content: &Bound<'_, PyAny>) -> PyResult<bool> {
+    Ok(content_from_py(content, "is_lines")?.is_lines())
 }
 
 /// Whether `content` holds to the `text` constraint: no marks, no islands,
