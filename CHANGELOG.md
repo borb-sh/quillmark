@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.138.0 - 2026-11-13
+
+Upgrade path: [0.137 → 0.138](docs/migrations/0.137-to-0.138.md). A newline
+inside a Markdown paragraph is a line break, where it was a space, so a body
+hard-wrapped in its source prints its wraps. A `text` or `richtext` field
+declares `shape: line | lines | blocks` where it declared `multiline`, which
+loads one more release with a `quill::deprecated_multiline` warning; `shape:
+lines` on a `richtext` is new, formatted lines where block syntax prints as
+typed. YAML reads only the 1.2 Core casings as booleans and nulls, so `tRue`
+is text. `isLines` and `importMarkdown(markdown, shape)` judge and read a
+value as a field of that shape does, and `quillmark_content::view::layout`
+and the line form's Markdown adapters are removed.
+
+- chore(deps): hayro 0.8 (#2484)
+- chore(deps)!: serde-saphyr 2.1, where only YAML 1.2 Core casings read as booleans and nulls (#2482)
+- fix(wasm): importMarkdown's shape is optional in its TypeScript signature
+- feat(bindings): isLines, and importMarkdown reads a string as a shape does
+- docs(migrations): the 0.137 → 0.138 guide names the removed view::layout
+- fix(content): a line opening an HTML block in a field of lines reads as text
+- chore(deps): Bump 6 of the cargo group with wasm-bindgen-cli 0.2.130 (#2479)
+- chore(deps-dev): Bump vitest in /crates/bindings/wasm in the npm group (#2453)
+- chore(deps): Bump the actions group across 1 directory with 2 updates (#2407)
+- test(wasm): a line break exports as a newline
+- feat(core)!: a text field declares a shape, and a newline is a line break
+- refactor(content)!: the line form's markdown adapters are gone
+- test(content): the export's tests read the model
+- test(content): the import walk's tests read the model
+- refactor(typst): the backend's tests build the model
+- refactor(core): cards and their tests hold the model, not the line form
+- refactor(content): the markdown import walk builds the model
+- refactor(content): the markdown import walk lives under markdown
+- refactor(content): the export probes read a model import
+- fix(content): an escaped `<p>` in an HTML table cell reads as text
+- refactor(content)!: quillmark_content::view::layout is removed
+- refactor(content): renderers read a table's layout off the island
+- refactor(content): marks and tables normalize on the model
+- refactor(content): the bidi and admit character rules stay crate-private
+- refactor(content): the markdown codec's own modules live under markdown
+- refactor(content): anchors and the revise carry stand on the model alone
+- refactor(content): IslandType lives in model and the table layout readers in table
+- refactor(core): resolve schema addresses through one QuillConfig::field_at
+- feat(typst): form-field widgets carry a /TU tooltip
+
 ## v0.137.0 - 2026-11-09
 
 Upgrade path: [0.136 → 0.137](docs/migrations/0.136-to-0.137.md). Acroform
