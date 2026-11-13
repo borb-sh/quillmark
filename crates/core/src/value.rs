@@ -54,9 +54,10 @@ pub(crate) fn depth_check_meta_map<E>(
     Ok(map)
 }
 
-/// The one YAML reading every Quillmark parse shares: only `true` and `false`,
-/// in any letter case, are booleans, and YAML 1.1's words (`y`, `no`, `On`,
-/// `OFF`) stay strings. Comments reach no value, so none is buffered, and a run
+/// The one YAML reading every Quillmark parse shares: only YAML 1.2 Core's
+/// `true`, `True`, `TRUE`, `false`, `False` and `FALSE` are booleans, and any
+/// other casing (`tRue`) and YAML 1.1's words (`y`, `no`, `On`, `OFF`) stay
+/// strings. Comments reach no value, so none is buffered, and a run
 /// of them meets no count limit. With aliases expanded, scalar and tag bytes
 /// stay under twice the input's bytes plus [`EXPANSION_SLACK`], and nodes under
 /// its bytes plus [`EXPANSION_SLACK`], so a block's value is linear in its

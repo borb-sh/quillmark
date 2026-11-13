@@ -822,8 +822,8 @@ fn a_comment_under_an_empty_meta_block_round_trips() {
     }
 }
 
-/// The field grammar admits `null` in any letter case, a key YAML reads as no
-/// key unless quoted.
+/// The field grammar admits `null` in any letter case, and `null`, `Null` and
+/// `NULL` are keys YAML reads as no key unless quoted.
 #[test]
 fn a_field_named_null_round_trips() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n\"null\": x\n\"NULL\": y\n~~~\n";
