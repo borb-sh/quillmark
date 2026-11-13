@@ -5,6 +5,7 @@
 //! [`Codec::Plain`]) and exports with [`to_plaintext`]. [`to_text`] and
 //! [`to_text_annotated`] export under the value's own codec.
 
+pub mod admit;
 pub mod carrier;
 pub(crate) mod html;
 pub(crate) mod html_table;
@@ -14,6 +15,7 @@ pub mod normalize;
 use crate::ids::prefix;
 use crate::model::Scalar;
 use crate::model::{Block, BlockKind, Codec, Content, HARD_BREAK, ISLAND_SLOT, MarkKind};
+pub use admit::{Admit, admitting};
 pub use import::{DroppedConstruct, ImportError, ImportWarning};
 
 /// A markdown import: the content and what the markdown spelled that it
@@ -96,6 +98,12 @@ pub enum Loss {
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let (content, warnings) = import::walk(markdown, false)?;
     Ok(Imported { content, warnings })
+}
+
+/// [`from_markdown`] of a value that admits `admit`: the syntax of a block it
+/// does not admit reads as its characters ([`admitting`]).
+pub fn from_markdown_admitting(markdown: &str, admit: Admit) -> Result<Imported, ImportError> {
+    from_markdown(&admitting(markdown, admit))
 }
 
 /// [`from_markdown`] with each `qm-island` token dropped silently: the read

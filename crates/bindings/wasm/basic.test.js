@@ -182,7 +182,7 @@ main:
       type: array
       items:
         type: richtext
-        multiline: true
+        shape: blocks
 `
     const NOTES_PLATE = `#import "@local/quillmark-helper:0.2.0" as qm
 

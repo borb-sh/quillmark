@@ -4,7 +4,7 @@
 > **Base**: [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)
 > **Implementation**: `crates/core/src/document/`
 
-Quillmark Markdown is a **strict superset of CommonMark** with two declared
+Quillmark Markdown is a **superset of CommonMark** with three declared
 deviations (§6.2). It layers a structured-data system (the **card-yaml**
 format) on top of ordinary markdown, and selects a small, stable set of GFM
 extensions.
@@ -13,8 +13,9 @@ This document is the authoritative syntax standard.
 ## 1. Superset Statement
 
 Every valid CommonMark 0.31.2 document parses to the same block / inline
-structure under this spec, *except* for the two deviations declared in §6.2:
-raw HTML, and a column-zero `~~~` block with a blank line above it, which is a
+structure under this spec, *except* for the three deviations declared in §6.2:
+raw HTML, a newline inside a paragraph, which is a line break, and a
+column-zero `~~~` block with a blank line above it, which is a
 card-yaml block rather than a fenced code block whatever its info string (§3.2;
 an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
 
@@ -27,7 +28,7 @@ an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
   spelled as custom HTML elements (§6.4).
 
 A document containing no card-yaml blocks is ordinary CommonMark, parsed as
-such.
+such under those deviations.
 
 ## 2. The card-yaml Format
 
@@ -453,6 +454,17 @@ fence is the one fence for code. Rationale: the card-yaml format claims the
 tilde fence outright, so whether a block is data never depends on its info
 string.
 
+**A newline inside a paragraph is a line break.** CommonMark reads it as a
+soft break, which renders as a space. Here it is the break CommonMark spells
+with two trailing spaces or a trailing `\`, and those spellings and an inline
+`<br>` read the same. A blank line is still a paragraph break. A heading is
+one line, so a break in one is a space, and so is a newline in a table cell or
+a footnote's note. Export writes a line break as a newline. Rationale: a
+writer who presses Enter means a new line, in a field's YAML block as in a
+body, and a value that folded its lines printed an address or a signature
+block as one line. The rule is the one GitHub comments and issue forms read
+by.
+
 No other syntax deviates from CommonMark. Delimiter-run semantics for `*`,
 `_`, `**`, `__`, and `~~` follow CommonMark and GFM exactly: in particular,
 `__text__` renders as strong emphasis, identical to `**text**`.
@@ -472,12 +484,11 @@ handles them, but produce limited or no Quillmark-specific output:
 - HTML comments: accepted syntactically, not rendered (see §6.2).
 - `<br>` (any case, with attributes or a closing `/`) inside a paragraph or a
   table cell: a hard break. In a paragraph, one at its block's start or right
-  after another break is dropped; in a heading it is a space. A soft break
-  beside a hard break, a `<br>` or CommonMark's own, is nothing, so `a<br>` on
+  after another break is dropped; in a heading it is a space. A newline
+  beside a `<br>` or a CommonMark hard break is the same break, so `a<br>` on
   one line and `b` on the next read as `a`, a break, `b`. One alone on its
   line, a blank line above it, opens an HTML block (§6.2) and drops. Outside a
-  table, export writes the CommonMark-native hard break (trailing `\\` plus
-  newline); inside a cell it writes `<br>`.
+  table, export writes a newline; inside a cell it writes `<br>`.
 
 ### 6.4 The `qm-*` Carrier
 
@@ -667,8 +678,8 @@ one: `$ $` around a Unicode space reads empty.
 ### 6.7 Definition Lists
 
 A definition list is not read. A paragraph and a line opening `: ` under it
-are one paragraph, as CommonMark reads them, and export writes a line opening
-`:` as it stands.
+are one paragraph of two lines, and export writes a line opening `:` as it
+stands.
 
 ### 6.8 Tables
 

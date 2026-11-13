@@ -347,12 +347,12 @@ main:
       type: array
       items:
         type: text
-        multiline: true
+        shape: lines
     paragraphs:
       type: array
       items:
         type: richtext
-        multiline: true
+        shape: blocks
     tags:
       type: array
       items:
@@ -365,7 +365,7 @@ main:
         properties:
           notes:
             type: richtext
-            multiline: true
+            shape: blocks
 
 card_kinds:
   note:
@@ -374,7 +374,7 @@ card_kinds:
         type: array
         items:
           type: text
-          multiline: true
+          shape: lines
 """
 
 

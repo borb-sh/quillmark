@@ -32,13 +32,13 @@ main:
   fields:
     subject:
       type: text
-      multiline: true
+      shape: lines
       default: ""
     tags:
       type: array
       items:
         type: text
-        multiline: true
+        shape: lines
       description: text elements
 "#,
         ),
@@ -170,7 +170,7 @@ main:
     enabled: false
   fields:
     one: { type: text }
-    many: { type: text, multiline: true }
+    many: { type: text, shape: lines }
     blank: { type: text }
     absent: { type: text? }
 "#;
@@ -213,9 +213,9 @@ main:
   body:
     enabled: false
   fields:
-    two: { type: text, multiline: true }
-    three: { type: text, multiline: true }
-    lines: { type: text, multiline: true }
+    two: { type: text, shape: lines }
+    three: { type: text, shape: lines }
+    lines: { type: text, shape: lines }
 "#;
     let plate = "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
          #assert.eq(qm.str(qm.data.two), \"  trail\")\n\

@@ -916,6 +916,16 @@ impl Content {
             && self.blocks[0].path.is_empty()
     }
 
+    /// Paragraphs in no container, with no island: what a field of lines
+    /// holds.
+    pub fn is_lines(&self) -> bool {
+        self.islands.is_empty()
+            && self
+                .blocks
+                .iter()
+                .all(|b| b.kind == BlockKind::Para && b.path.is_empty())
+    }
+
     /// Paragraphs in no container, with no mark and no island: the shape a
     /// `text` field holds.
     pub fn is_plain(&self) -> bool {

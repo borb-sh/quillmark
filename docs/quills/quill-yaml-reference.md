@@ -139,7 +139,8 @@ main:
 | `ui`          | object            | no       | UI rendering hints (see [UI Properties](#ui-properties)) |
 | `items`       | object            | for `array` | Element schema for an `array` field (a nested field schema). Required on every array. |
 | `properties`  | object            | for `object` | Nested field schemas for an `object` typed dictionary (or an array's `object`-typed `items`). Required on every `object` field. |
-| `multiline`   | boolean           | for `richtext` | For `text` and `richtext` only: `true` admits more than one line (`text`) or block structure (`richtext`). Absent or `false`, the field is one line or one paragraph. A `text` value's trailing whitespace drops before the check, the newline a YAML `|` block keeps included. A write refuses a line break inside a `text` value. A stored one renders as a space and warns `validation::line_break_folded`. A `richtext` declares it either way. |
+| `shape`       | string            | no       | For `text` and `richtext` only, how much the value holds: `line` (the default), `lines` or `blocks`. See [The shape of a text field](#the-shape-of-a-text-field). A `text` value's trailing whitespace drops before the check, the newline a YAML `|` block keeps included. A write refuses a line break inside a one-line `text` value. A stored one renders as a space and warns `validation::line_break_folded`. |
+| `multiline`   | boolean           | no       | The legacy spelling of `shape`, read for one more release and warned as `quill::deprecated_multiline`: `false` is `line`, and `true` is `lines` on a `text` and `blocks` on a `richtext`. Beside a `shape:` that disagrees it is a load error. |
 
 ### `title`
 
@@ -229,14 +230,14 @@ signer:
 | Type       | Notes |
 |------------|-------|
 | `enum`     | A closed set of string values; requires a `values:` list. Also accepts its [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one) (`""`), which is not a declared member. The [schema](#reading-the-schema-programmatically) emits `values:` as declared, with no `""` |
-| `text`     | Open, **unformatted** text over the canonical content: the same nav/regions as `richtext`, but a literal codec (delimiters stay literal, no markup). One line; add `multiline: true` to admit line breaks. Optional `max:`, a character cap (see [`max`](#max-what-the-page-holds)). A plate that computes with the value reads it as a `str` through [`qm.str`](typst-backend.md#text-as-a-str) |
+| `text`     | Open, **unformatted** text over the canonical content: the same nav/regions as `richtext`, but a literal codec (delimiters stay literal, no markup). One line; `shape: lines` admits line breaks. Optional `max:`, a character cap (see [`max`](#max-what-the-page-holds)). A plate that computes with the value reads it as a `str` through [`qm.str`](typst-backend.md#text-as-a-str) |
 | `number`   | Numeric scalar (integers and decimals) |
 | `integer`  | Integer-only numeric scalar, sized as an `i64`; a literal past that range takes `number` |
 | `boolean`  | `true` or `false` |
 | `array`    | Ordered list; requires an `items:` element schema. Optional `max:`, the element count the page holds (see [`max`](#max-what-the-page-holds)) |
 | `date`     | A strict calendar date `YYYY-MM-DD`, or `today` (see [Dated by the render](#dated-by-the-render-today)); rejects any time component |
 | `datetime` | A strict offset-less wall-clock datetime `YYYY-MM-DDThh:mm[:ss]`; rejects offsets, the space separator, fractional seconds, and bare dates |
-| `richtext` | Rich, **formatted** prose over a canonical content; backends lower it to the target format. Markdown is its import/export projection. One paragraph; `multiline: true` admits paragraphs, lists and other blocks. Declare `multiline:` either way, `true` or `false`: leaving it out is a load error. Optional `max:`, a character cap |
+| `richtext` | Rich, **formatted** prose over a canonical content; backends lower it to the target format. Markdown is its import/export projection. One line; `shape: lines` admits line breaks and `shape: blocks` paragraphs, lists and other blocks. Optional `max:`, a character cap |
 | `object`   | Structured map; requires a `properties:` map |
 | `matrix`   | A vocabulary the author ticks; requires a `members:` roster, and `open: true` lets a document add items. Its value is the set of held members, each an object of the field's `properties:` (see [Matrix](#matrix-a-vocabulary-the-author-ticks)) |
 
@@ -283,14 +284,29 @@ Two questions resolve it:
 1. Is the set of allowed values closed? Then it is an `enum`, a stored id the plate branches on.
 2. Otherwise the field is open text: should markdown delimiters format it (`richtext`: `*text*` becomes emphasis) or stay literal (`text`: `*text*` stays four characters)?
 
-Then decide the shape: `text` is one line and `richtext` one paragraph, and `multiline: true` admits more.
+Then decide the shape, how much the value holds.
+
+#### The shape of a text field
+
+`type` says how the characters are read, and `shape` says how much the value holds. Each shape holds everything the one before it does.
+
+| `shape` | Holds | A newline | A blank line |
+|---|---|---|---|
+| `line` (the default) | one line | a space in a `richtext`, refused in a `text` | refused |
+| `lines` | lines and paragraphs of lines | a line break | a paragraph break |
+| `blocks` | lines, and headings, lists, quotes, code and tables | a line break | a paragraph break |
 
 | Declaration | Holds |
 |---|---|
 | `{ type: text }` | one line, literal |
-| `{ type: text, multiline: true }` | lines, literal |
-| `{ type: richtext, multiline: false }` | one formatted paragraph |
-| `{ type: richtext, multiline: true }` | formatted paragraphs, lists and other blocks |
+| `{ type: text, shape: lines }` | lines, literal |
+| `{ type: richtext }` | one formatted line |
+| `{ type: richtext, shape: lines }` | formatted lines: an address, a signature block, a list of recipients |
+| `{ type: richtext, shape: blocks }` | formatted paragraphs, lists and other blocks |
+
+Inline formatting reads in every `richtext` shape. Syntax a shape does not hold prints as typed: in a `line` or a `lines` field, `1. Alpha` is the text `1. Alpha` and `- Bravo` is the text `- Bravo`, never a list, and a `#` or a `>` opening a line is that character. A `text` field holds no blocks, so `shape: blocks` on one is a load error. The document body is a `richtext` of `blocks`.
+
+A value written through the content model that holds a block its shape does not, a heading in a `lines` field, is refused: `validation::not_single_line` for a `line` and `validation::not_lines` for `lines`.
 
 A name, a URL or a reference key is `text` too: the plate prints it as content, and where it computes with it (`set document(author: ..)`, `upper`, a comparison) it reads `qm.str(..)`, the value's string ([Text as a str](typst-backend.md#text-as-a-str)).
 
@@ -493,7 +509,7 @@ main:
       type: array
       items:
         type: richtext   # each element's content is lowered to backend markup
-        multiline: true
+        shape: blocks
 ```
 
 For a **typed table** (a list of structured rows) give `items` an `object` type with its own `properties:`. Coercion recurses into each element and converts property values to their declared types:
@@ -584,7 +600,7 @@ limit, or a box printed for a fixed number of them.
 ```yaml
 citation:
   type: richtext
-  multiline: true
+  shape: blocks
   max: 1350               # the record system's limit
 statements:
   type: array
@@ -800,7 +816,7 @@ The `ui` property on fields controls how form builders and wizards render the fi
 `ui` keys never reach the authoring schema, so a fact a writer needs belongs in
 `description` or `title`. A field's label is its [`title`](#title);
 `ui` holds none, and `ui: { title: … }` is a load error whose hint names it.
-Nor does `ui` carry a field's line shape: that is the field's own `multiline:`,
+Nor does `ui` carry a field's shape: that is the field's own `shape:`,
 which validation, the editor and a PDF form all read, and `ui: { multiline: … }`
 is a load error.
 
@@ -852,7 +868,7 @@ main:
 
 It is a request: an editor grants it only where a neighbour packs too, so a packing field alone between full-row fields still takes its row.
 
-- An `array`, an `object`, an `enum` with `variants:` and a `multiline: true` `text` or `richtext` never pack, whatever the key says, since their height grows with the document.
+- An `array`, an `object`, an `enum` with `variants:` and a `text` or `richtext` whose `shape` is `lines` or `blocks` never pack, whatever the key says, since their height grows with the document.
 - On a `matrix`, `compact: true` sets the roster's members side by side instead.
 - The properties of a card-level `object`, and of an `object` nested in it, follow the same rule, so a field moved into a group keeps its row.
 - The value positions of an array's records, a variant, a matrix member and a typed table are laid out by their container and read no `compact`.
@@ -885,7 +901,7 @@ Declaring it says two things.
 **A contract: every column is a leaf.** A column holding an `array`, an `object`
 or a `matrix` addresses below itself and is not one value position, so it is a load
 error naming the column — `quill::table_column_not_leaf` on
-`appendices[].entries`. Text is a column whatever its `multiline`: how tall a cell
+`appendices[].entries`. Text is a column whatever its `shape`: how tall a cell
 renders is the editor's call, what it contains is not. On any field that is not a
 typed table at all, the key is `quill::invalid_ui`.
 

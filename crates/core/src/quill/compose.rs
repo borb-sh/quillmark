@@ -1462,7 +1462,7 @@ pub(crate) fn line_break_folded_warning(path: &DocPath) -> Diagnostic {
     .with_code(LINE_BREAK_FOLDED.to_string())
     .with_path(path)
     .with_hint(
-        "Rewrite the value on one line, or declare `multiline: true` in the schema to keep its \
+        "Rewrite the value on one line, or declare `shape: lines` in the schema to keep its \
          breaks."
             .to_string(),
     )
@@ -1538,17 +1538,17 @@ properties:
 quill: { name: dc, version: 1.0.0, backend: typst, description: x }
 main:
   fields:
-    intro: { type: richtext, multiline: true }
-    banner: { type: richtext, multiline: true, default: "![logo](l.png)" }
+    intro: { type: richtext, shape: blocks }
+    banner: { type: richtext, shape: blocks, default: "![logo](l.png)" }
 card_kinds:
   note:
     fields:
       items:
         type: array
-        items: { type: richtext, multiline: true }
+        items: { type: richtext, shape: blocks }
       more:
         type: array
-        items: { type: richtext, multiline: true }
+        items: { type: richtext, shape: blocks }
 "#,
         );
         let md = "~~~\n$quill: dc@1.0.0\n$kind: main\nintro: see ![a](a.png)\n~~~\n\n\

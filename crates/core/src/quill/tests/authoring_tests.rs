@@ -15,7 +15,6 @@ main:
   fields:
     subject:
       type: richtext
-      multiline: false
       title: Subject
       description: The memo's subject line.
       example: Budget *review*
@@ -33,7 +32,7 @@ main:
       default: PUBLIC
       variants:
         CUI:
-          poc: { type: richtext, multiline: false }
+          poc: { type: richtext }
 card_kinds:
   indorsement:
     title: Indorsement
@@ -360,7 +359,7 @@ fn a_leaf_that_does_not_decode_exports_as_stored() {
     let imported = quill.from_authoring(&value).expect("imports").document;
     assert_eq!(quill.to_authoring(&imported)["fields"], value["fields"]);
 
-    let one_line = json!({ "fields": { "subject": "- a\n- b" } });
+    let one_line = json!({ "fields": { "subject": "a\\\nb" } });
     let imported = quill.from_authoring(&one_line).expect("imports").document;
     let exported = quill.to_authoring(&imported);
     assert_eq!(exported["fields"], one_line["fields"]);

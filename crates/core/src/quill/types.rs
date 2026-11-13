@@ -337,8 +337,8 @@ impl CardSchema {
 ///
 /// Serializes as its type token ([`as_str`](Self::as_str)) and deserializes by
 /// parsing one ([`from_str`](Self::from_str)), so the token is the whole `type:`
-/// value: the text types' line shape rides the sibling `multiline:` key,
-/// folded into the variant payload here.
+/// value: the text types' [`Shape`] rides the sibling `shape:` key, folded
+/// into the variant payload here.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldType {
     Number,
@@ -351,10 +351,9 @@ pub enum FieldType {
     /// Formatted prose over the canonical content model,
     /// [`Content`](quillmark_content::model::Content); markdown is a projection of it.
     RichText {
-        /// Lifts the one-paragraph constraint (exactly one `Para` line, no
-        /// container, no islands) to admit block structure. The constraint is
-        /// enforced at coercion, validation, and load-time literal import.
-        multiline: bool,
+        /// What the value admits, enforced at coercion, validation, and
+        /// load-time literal import.
+        shape: Shape,
     },
     /// The same [`Content`](quillmark_content::model::Content) through a *literal*
     /// codec ([`from_plaintext`](quillmark_content::markdown::from_plaintext) /
@@ -362,9 +361,10 @@ pub enum FieldType {
     /// characters, never emphasis, a blank line a paragraph break and any other
     /// line break a hard break.
     Text {
-        /// Lifts the one-line constraint, enforced where
-        /// [`RichText`](Self::RichText)'s is, to admit line breaks.
-        multiline: bool,
+        /// [`Shape::Line`] or [`Shape::Lines`], enforced where
+        /// [`RichText`](Self::RichText)'s is. A literal value has no syntax
+        /// for a block, so [`Shape::Blocks`] is refused at load.
+        shape: Shape,
     },
     /// A closed string domain, `values` in declaration order. The blank (`""`)
     /// is accepted beside them and is never one of them.
@@ -379,6 +379,52 @@ pub enum FieldType {
         roster: IndexMap<String, String>,
         open: bool,
     },
+}
+
+/// How much a `text` or `richtext` value holds, each rung admitting what the
+/// one before it does and more. The reading is the same on every rung: a
+/// newline is a line break and a blank line a paragraph break.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Shape {
+    /// One paragraph of one line, in no container, with no island.
+    #[default]
+    Line,
+    /// Paragraphs and the line breaks inside them, in no container, with no
+    /// island.
+    Lines,
+    /// Every block: lists, headings, quotes, code, rules and tables too.
+    Blocks,
+}
+
+impl Shape {
+    pub const NAMES: [&'static str; 3] = ["line", "lines", "blocks"];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Shape::Line => "line",
+            Shape::Lines => "lines",
+            Shape::Blocks => "blocks",
+        }
+    }
+
+    /// Whether `content` holds nothing this shape does not admit.
+    pub fn admits(self, content: &quillmark_content::model::Content) -> bool {
+        match self {
+            Shape::Line => content.is_inline(),
+            Shape::Lines => content.is_lines(),
+            Shape::Blocks => true,
+        }
+    }
+
+    /// What a markdown import of a value of this shape reads as structure.
+    pub fn admit(self) -> quillmark_content::markdown::Admit {
+        match self {
+            Shape::Line => quillmark_content::markdown::Admit::Line,
+            Shape::Lines => quillmark_content::markdown::Admit::Lines,
+            Shape::Blocks => quillmark_content::markdown::Admit::Blocks,
+        }
+    }
 }
 
 /// The key a matrix member's mapping may not store: presence is the tick, so a
@@ -412,7 +458,7 @@ impl FieldType {
     ];
 
     /// The `type:` token alone. An `enum`'s domain and a text type's
-    /// `multiline` ride sibling keys that the loader's parse folds in, so both
+    /// `shape` ride sibling keys that the loader's parse folds in, so both
     /// payloads rest at their default here.
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
@@ -424,8 +470,8 @@ impl FieldType {
             "object" => Some(FieldType::Object),
             "date" => Some(FieldType::Date),
             "datetime" => Some(FieldType::DateTime),
-            "text" => Some(FieldType::Text { multiline: false }),
-            "richtext" => Some(FieldType::RichText { multiline: false }),
+            "text" => Some(FieldType::Text { shape: Shape::Line }),
+            "richtext" => Some(FieldType::RichText { shape: Shape::Line }),
             "enum" => Some(FieldType::Enum { values: Vec::new() }),
             "matrix" => Some(FieldType::Matrix {
                 roster: IndexMap::new(),
@@ -453,7 +499,7 @@ impl FieldType {
 
     /// Whether a value of this type rests in one cell: it carries no nested
     /// schema, so nothing addresses below it. Text is a leaf whatever its
-    /// `multiline` — how tall a cell renders is the consumer's judgement, what
+    /// `shape` — how tall a cell renders is the consumer's judgement, what
     /// it contains is not.
     ///
     /// The type alone answers: an `enum` is a leaf here even on a field whose
@@ -502,10 +548,10 @@ fn unknown_type<E: serde::de::Error>(token: &str) -> E {
     let retired = match token.trim().trim_end_matches('?') {
         "plaintext" => Some(
             "type: plaintext is now type: text, one line by default; \
-             add multiline: true where the field takes more than one line",
+             add shape: lines where the field takes more than one line",
         ),
         "string" => Some(
-            "type: string is retired: declare type: text (multiline: true where the \
+            "type: string is retired: declare type: text (shape: lines where the \
              field takes more than one line), and read it in the plate as a str \
              with qm.str(..)",
         ),
@@ -652,8 +698,11 @@ struct FieldSchemaDef {
     pub properties: Option<serde_json::Map<String, serde_json::Value>>,
     // Element schema for arrays.
     pub items: Option<serde_json::Value>,
-    /// Whether a `text` or `richtext` field admits more than one line. Lands
-    /// in the [`FieldType::Text`] / [`FieldType::RichText`] payload.
+    /// A `text` or `richtext` field's [`Shape`]. Lands in the
+    /// [`FieldType::Text`] / [`FieldType::RichText`] payload.
+    pub shape: Option<String>,
+    /// The legacy spelling of [`shape`](Self::shape): `false` is `line`, and
+    /// `true` is `lines` on a `text` and `blocks` on a `richtext`.
     pub multiline: Option<bool>,
     /// An `array`'s element cap or a text field's character cap. Lands in
     /// [`FieldSchema::max`].
@@ -751,10 +800,10 @@ impl FieldSchema {
         Self::reject_retired_keys(value.as_json())?;
         let def: FieldSchemaDef = serde_json::from_value(value.clone().into_json())
             .map_err(|e| format!("Failed to parse field schema: {}", e))?;
-        // The sole sync point for `multiline:` and `values:`: past here the type
+        // The sole sync point for `shape:` and `values:`: past here the type
         // payload is each key's one carrier.
         let optional = def.r#type.optional;
-        let r#type = Self::resolve_text_multiline(def.r#type.r#type, def.multiline)?;
+        let r#type = Self::resolve_text_shape(def.r#type.r#type, def.shape, def.multiline)?;
         let r#type = Self::resolve_enum_domain(r#type, def.values)?;
         let r#type = Self::resolve_matrix_roster(r#type, def.members, def.open)?;
         let max = Self::resolve_max(&r#type, def.max)?;
@@ -839,7 +888,7 @@ impl FieldSchema {
             if title {
                 let title = FieldSchema::new(
                     MATRIX_TITLE_KEY.to_string(),
-                    FieldType::Text { multiline: false },
+                    FieldType::Text { shape: Shape::Line },
                     None,
                 );
                 cells.insert(MATRIX_TITLE_KEY.to_string(), Box::new(title));
@@ -999,7 +1048,7 @@ impl FieldSchema {
 
     /// Refuse the keys the text types' line shape retired, each naming its
     /// replacement: `inline:` (one line is the default) and `ui.multiline`
-    /// (the shape is the field's `multiline:`).
+    /// (the shape is the field's `shape:`).
     fn reject_retired_keys(value: &serde_json::Value) -> Result<(), String> {
         let Some(def) = value.as_object() else {
             return Ok(());
@@ -1007,8 +1056,8 @@ impl FieldSchema {
         if def.contains_key("inline") {
             return Err(
                 "inline: is retired: text and richtext are one line by default; \
-                        write inline: true as multiline: false on a richtext (a text \
-                        drops it), and inline: false as multiline: true"
+                        drop inline: true, and write inline: false as shape: lines \
+                        or shape: blocks"
                     .to_string(),
             );
         }
@@ -1018,7 +1067,7 @@ impl FieldSchema {
             .is_some_and(|ui| ui.contains_key("multiline"));
         if ui_multiline {
             return Err(
-                "ui.multiline is retired: declare multiline: true on the field \
+                "ui.multiline is retired: declare shape: lines on the field \
                         itself (type: text or type: richtext), or delete it on any other type"
                     .to_string(),
             );
@@ -1026,31 +1075,72 @@ impl FieldSchema {
         Ok(())
     }
 
-    /// Fold the sibling `multiline:` key into a text type's payload. Every
-    /// other type rejects `multiline:`, here and nowhere else.
-    ///
-    /// A `richtext` must spell `multiline:` either way: the key's absence once
-    /// meant a block field, so an unmigrated one would load as one paragraph
-    /// and refuse its stored documents.
-    fn resolve_text_multiline(
+    /// Fold the sibling `shape:` key into a text type's payload, or its
+    /// legacy spelling `multiline:`. Every other type rejects both, here and
+    /// nowhere else.
+    fn resolve_text_shape(
         r#type: FieldType,
+        shape: Option<String>,
         multiline: Option<bool>,
     ) -> Result<FieldType, String> {
-        match (r#type, multiline) {
-            (FieldType::RichText { .. }, Some(multiline)) => Ok(FieldType::RichText { multiline }),
-            (FieldType::RichText { .. }, None) => Err(
-                "type: richtext requires multiline: true (paragraphs, lists and other \
-                 blocks) or multiline: false (one paragraph), spelled out"
+        let rich = match r#type {
+            FieldType::RichText { .. } => true,
+            FieldType::Text { .. } => false,
+            other => {
+                return match (shape, multiline) {
+                    (None, None) => Ok(other),
+                    (Some(_), _) => Err(format!(
+                        "shape: is only valid on type: text or type: richtext, not on type: {}",
+                        other.as_str()
+                    )),
+                    (None, Some(_)) => Err(format!(
+                        "multiline: is only valid on type: text or type: richtext, not on type: {}",
+                        other.as_str()
+                    )),
+                };
+            }
+        };
+        let legacy = multiline.map(|multiline| match (multiline, rich) {
+            (false, _) => Shape::Line,
+            (true, false) => Shape::Lines,
+            (true, true) => Shape::Blocks,
+        });
+        let shape = match shape.as_deref() {
+            None => legacy.unwrap_or_default(),
+            Some(name) => {
+                let shape = match name {
+                    "line" => Shape::Line,
+                    "lines" => Shape::Lines,
+                    "blocks" => Shape::Blocks,
+                    other => {
+                        return Err(format!(
+                            "unknown shape '{other}': a text or richtext field's shape is \
+                             line, lines or blocks"
+                        ));
+                    }
+                };
+                // `schema()` emits both keys, so a pair that agrees on one
+                // line or more than one loads back.
+                if multiline.is_some_and(|multiline| multiline != (shape != Shape::Line)) {
+                    return Err(format!(
+                        "shape: {name} and multiline: {} disagree: drop multiline:, which \
+                         shape: replaces",
+                        multiline.unwrap_or_default()
+                    ));
+                }
+                shape
+            }
+        };
+        if rich {
+            Ok(FieldType::RichText { shape })
+        } else if shape == Shape::Blocks {
+            Err(
+                "shape: blocks is only valid on type: richtext: a text value is literal, \
+                 with no syntax for a list or a heading; declare shape: lines, or type: richtext"
                     .to_string(),
-            ),
-            (FieldType::Text { .. }, multiline) => Ok(FieldType::Text {
-                multiline: multiline.unwrap_or(false),
-            }),
-            (other, Some(_)) => Err(format!(
-                "multiline: is only valid on type: text or type: richtext, not on type: {}",
-                other.as_str()
-            )),
-            (other, None) => Ok(other),
+            )
+        } else {
+            Ok(FieldType::Text { shape })
         }
     }
 
@@ -1141,7 +1231,7 @@ impl FieldSchema {
         let content = codec.decode_field(value).ok()?;
         let text = quillmark_content::view::plaintext(&content);
         let text = match self.r#type {
-            FieldType::Text { multiline: false } => text.trim_end(),
+            FieldType::Text { shape: Shape::Line } => text.trim_end(),
             _ => text.as_str(),
         };
         Some(text.trim_end_matches(['\n', '\r']).chars().count())
@@ -1151,13 +1241,15 @@ impl FieldSchema {
 impl Serialize for FieldSchema {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
-        // A `richtext` spells its shape either way (`resolve_text_multiline`),
-        // so the emitted declaration loads back.
-        let multiline = match self.r#type {
-            FieldType::RichText { multiline } => Some(multiline),
-            FieldType::Text { multiline: true } => Some(true),
+        // `line` is the default and is not spelled. `multiline` is the
+        // legacy key a consumer that predates `shape` reads.
+        let shape = match self.r#type {
+            FieldType::RichText { shape } | FieldType::Text { shape } if shape != Shape::Line => {
+                Some(shape)
+            }
             _ => None,
         };
+        let multiline = shape.map(|_| true);
         let values = match &self.r#type {
             FieldType::Enum { values } => Some(values),
             _ => None,
@@ -1168,6 +1260,7 @@ impl Serialize for FieldSchema {
         };
         let open = self.r#type.is_open_matrix().then_some(true);
         let len = 1
+            + shape.is_some() as usize
             + multiline.is_some() as usize
             + self.title.is_some() as usize
             + self.description.is_some() as usize
@@ -1182,8 +1275,8 @@ impl Serialize for FieldSchema {
             + self.items.is_some() as usize
             + self.max.is_some() as usize;
         // Key order is part of `QuillConfig::schema`'s ordering contract:
-        // `values` between `ui` and `variants`, `multiline` trailing the
-        // block, both read off the type payload.
+        // `values` between `ui` and `variants`, `shape` and `multiline`
+        // trailing the block, both read off the type payload.
         let mut map = serializer.serialize_map(Some(len))?;
         if self.optional {
             map.serialize_entry("type", &format!("{}?", self.r#type.as_str()))?;
@@ -1225,6 +1318,9 @@ impl Serialize for FieldSchema {
         }
         if let Some(v) = &self.max {
             map.serialize_entry("max", v)?;
+        }
+        if let Some(v) = shape {
+            map.serialize_entry("shape", &v)?;
         }
         if let Some(v) = multiline {
             map.serialize_entry("multiline", &v)?;

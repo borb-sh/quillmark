@@ -273,7 +273,9 @@ mod tests {
         let json = content.to_value();
         let schema = crate::quill::FieldSchema::new(
             "intro".to_string(),
-            crate::quill::FieldType::RichText { multiline: true },
+            crate::quill::FieldType::RichText {
+                shape: crate::quill::Shape::Blocks,
+            },
             None,
         );
         card.commit_field("intro", crate::value::QuillValue::from_json(json), &schema)

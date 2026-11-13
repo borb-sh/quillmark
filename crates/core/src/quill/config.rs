@@ -9,7 +9,7 @@ use crate::error::{Diagnostic, Severity, diag_args};
 use crate::path::DocPath;
 use crate::value::QuillValue;
 
-use super::types::{BODY_CARD_SCHEMA_KEYS, UI_CARD_SCHEMA_KEYS, VARIANT_DISCRIMINANT_KEY};
+use super::types::{BODY_CARD_SCHEMA_KEYS, Shape, UI_CARD_SCHEMA_KEYS, VARIANT_DISCRIMINANT_KEY};
 use super::{
     BodyCardSchema, CardSchema, FieldLayout, FieldSchema, FieldType, GroupRegistry, UiCardSchema,
 };
@@ -274,6 +274,14 @@ pub(crate) const TEXT_SINGLE_LINE_TARGET: &str = "text(single_line)";
 
 /// [`TEXT_SINGLE_LINE_TARGET`]'s `richtext` counterpart.
 pub(crate) const RICHTEXT_SINGLE_LINE_TARGET: &str = "richtext(single_line)";
+
+/// The coercion target of a `richtext` of `shape: lines` holding a block or
+/// an island.
+pub(crate) const RICHTEXT_LINES_TARGET: &str = "richtext(lines)";
+
+/// Why a `richtext` of `shape: lines` refuses a value.
+pub(crate) const RICHTEXT_LINES_REASON: &str = "a richtext of shape: lines holds paragraphs and line breaks, with no list, heading, \
+     quote, code block, table or other island; declare shape: blocks to admit them";
 
 /// The leniency [`QuillConfig::conform_value`] coerces under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -644,7 +652,8 @@ impl QuillConfig {
                     )),
                 }
             }
-            FieldType::Text { multiline } => {
+            FieldType::Text { shape } => {
+                let multiline = shape != Shape::Line;
                 let mut plain_check = |rt: quillmark_content::model::Content| -> Result<
                     quillmark_content::model::Content,
                     CoercionError,
@@ -671,7 +680,7 @@ impl QuillConfig {
                             path,
                             "<text>",
                             TEXT_SINGLE_LINE_TARGET,
-                            "text requires a single line; declare multiline: true to admit more",
+                            "text requires a single line; declare shape: lines to admit more",
                         ));
                     }
                     Ok(rt)
@@ -711,7 +720,7 @@ impl QuillConfig {
                 let rt = quillmark_content::markdown::plain(&text);
                 Ok(commit(None, &plain_check(rt)?))
             }
-            FieldType::RichText { multiline } => {
+            FieldType::RichText { shape } => {
                 // The deliberately-lenient sibling of the strict decoders
                 // (`document::canonical_richtext_value` at the write and literal
                 // sites, `Codec::Richtext.decode_value` at the wire and
@@ -724,21 +733,31 @@ impl QuillConfig {
                         "<richtext>",
                         RICHTEXT_SINGLE_LINE_TARGET,
                         "richtext requires a single paragraph line with no list/quote \
-                             container and no islands; declare multiline: true to admit blocks",
+                             container and no islands; declare shape: lines or shape: blocks \
+                             to admit more",
+                    )
+                };
+                let lines_err = || {
+                    CoercionError::uncoercible(
+                        path,
+                        "<richtext>",
+                        RICHTEXT_LINES_TARGET,
+                        RICHTEXT_LINES_REASON,
                     )
                 };
                 let inline_check =
                     |rt: &quillmark_content::model::Content| -> Result<(), CoercionError> {
-                        if !multiline && !rt.is_inline() {
-                            return Err(inline_err());
+                        match shape {
+                            _ if shape.admits(rt) => Ok(()),
+                            Shape::Line => Err(inline_err()),
+                            _ => Err(lines_err()),
                         }
-                        Ok(())
                     };
                 // The messages mirror `Card::commit_field`'s richtext error
                 // variants, which the bindings key on.
                 if mode == Leniency::Write {
                     use crate::document::RichtextValueError as E;
-                    return crate::document::canonical_richtext_value(json_value, !multiline)
+                    return crate::document::canonical_richtext_value(json_value, shape)
                         .map(|(content, dropped)| {
                             drops.extend(crate::document::dropped_constructs(dropped, Some(path)));
                             QuillValue::from_json(content)
@@ -757,6 +776,7 @@ impl QuillConfig {
                                 crate::document::Codec::Richtext.unshaped_message(json_value),
                             ),
                             E::NotSingleLine => inline_err(),
+                            E::NotLines => lines_err(),
                         });
                 }
                 if json_value.is_object() {
@@ -779,14 +799,15 @@ impl QuillConfig {
                     return Ok(value.clone());
                 };
                 let imported =
-                    quillmark_content::markdown::from_markdown(&markdown).map_err(|e| {
-                        CoercionError::uncoercible(
-                            path,
-                            &markdown,
-                            "richtext",
-                            format!("markdown import failed: {e}"),
-                        )
-                    })?;
+                    quillmark_content::markdown::from_markdown_admitting(&markdown, shape.admit())
+                        .map_err(|e| {
+                            CoercionError::uncoercible(
+                                path,
+                                &markdown,
+                                "richtext",
+                                format!("markdown import failed: {e}"),
+                            )
+                        })?;
                 drops.extend(crate::document::dropped_constructs(
                     imported.warnings,
                     Some(path),
@@ -1905,9 +1926,11 @@ impl QuillConfig {
                 .with_hint(format!(
                     "Remove the key; leave the member out of the {slot} to untick it."
                 )),
-                // NotSingleLine and NotPlain can arise on a literal, and
-                // `literal_content` reports them at load.
-                ValidationError::NotSingleLine { .. } | ValidationError::NotPlain { .. } => {
+                // NotSingleLine, NotLines and NotPlain can arise on a literal,
+                // and `literal_content` reports them at load.
+                ValidationError::NotSingleLine { .. }
+                | ValidationError::NotLines { .. }
+                | ValidationError::NotPlain { .. } => {
                     continue;
                 }
             };
@@ -2216,6 +2239,23 @@ impl QuillConfig {
         }
 
         fields
+    }
+
+    fn deprecated_multiline(fields: usize) -> Diagnostic {
+        Diagnostic::new(
+            Severity::Warning,
+            format!(
+                "{fields} text or richtext field(s) spell their shape with `multiline:`; \
+                 declare `shape:`."
+            ),
+        )
+        .with_code("quill::deprecated_multiline".to_string())
+        .with_hint(
+            "Drop `multiline: false`. Write `multiline: true` as `shape: lines` on a \
+             `text`, and as `shape: blocks` on a `richtext`, or as `shape: lines` where the \
+             field holds lines and no list, heading or table."
+                .to_string(),
+        )
     }
 
     fn deprecated_groups(label: &str) -> Diagnostic {
@@ -2919,6 +2959,10 @@ impl QuillConfig {
         for card in &mut card_kinds {
             order_groups(card);
         }
+        let legacy = spelled_multiline(&quill_yaml_val);
+        if legacy > 0 {
+            warnings.push(Self::deprecated_multiline(legacy));
+        }
         warnings.extend(Self::field_after_object("main", &main));
         for card in &card_kinds {
             let label = format!("card_kinds.{}", card.name);
@@ -2940,6 +2984,19 @@ impl QuillConfig {
             },
             warnings,
         ))
+    }
+}
+
+/// How many field declarations under `value` spell the legacy `multiline:`.
+fn spelled_multiline(value: &serde_json::Value) -> usize {
+    match value {
+        serde_json::Value::Object(map) => {
+            let here = map.get("type").is_some_and(|t| t.is_string())
+                && map.get("multiline").is_some_and(|m| m.is_boolean());
+            here as usize + map.values().map(spelled_multiline).sum::<usize>()
+        }
+        serde_json::Value::Array(items) => items.iter().map(spelled_multiline).sum(),
+        _ => 0,
     }
 }
 
@@ -3219,9 +3276,9 @@ fn literal_content(
         return Ok(None);
     }
     match &field.r#type {
-        FieldType::RichText { multiline } => {
+        FieldType::RichText { shape } => {
             use crate::document::{ContentDecodeError as D, RichtextValueError as E};
-            crate::document::canonical_richtext_value(json, !*multiline)
+            crate::document::canonical_richtext_value(json, *shape)
                 .map(|(content, _)| Some(QuillValue::from_json(content)))
                 .map_err(|e| match e {
                     E::Decode(D::BadMarkdown(m)) => {
@@ -3235,9 +3292,11 @@ fn literal_content(
                         "expected a markdown string (richtext literals are authored as markdown)",
                     ),
                     E::NotSingleLine => single_line_error(label, "richtext"),
+                    E::NotLines => richtext_literal_error(label, RICHTEXT_LINES_REASON),
                 })
         }
-        FieldType::Text { multiline } => {
+        FieldType::Text { shape } => {
+            let multiline = &(*shape != Shape::Line);
             // Shares the one object-vs-string dispatch with the validation
             // shape check.
             let rt = match crate::document::Codec::Text.decode_value(json) {
@@ -3370,7 +3429,7 @@ fn single_line_error(label: &str, r#type: &str) -> Diagnostic {
     )
     .with_code("validation::not_single_line".to_string())
     .with_hint(format!(
-        "Reduce the value to one line, or declare `multiline: true` on the `{type}` field."
+        "Reduce the value to one line, or declare `shape: lines` on the `{type}` field."
     ))
 }
 

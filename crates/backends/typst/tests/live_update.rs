@@ -80,11 +80,11 @@ main:
   fields:
     prose:
       type: richtext
-      multiline: true
+      shape: blocks
       description: a markdown body
     note:
       type: richtext
-      multiline: true
+      shape: blocks
       description: a markdown note
 "#;
     const PLATE: &str = r#"#import "@local/quillmark-helper:0.2.0" as qm

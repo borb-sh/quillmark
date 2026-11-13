@@ -22,7 +22,7 @@ Bump by what the change costs a document already stored against the quill:
 
 | Bump | A stored document | Changes |
 |---|---|---|
-| **PATCH** | needs no change | Fixes, presentation changes, a new optional field, a new enum member, a `values:` reorder, a `text` or `richtext` field's `multiline` from `false` to `true` |
+| **PATCH** | needs no change | Fixes, presentation changes, a new optional field, a new enum member, a `values:` reorder, a `text` or `richtext` field's `shape` widened, `line` to `lines` or `lines` to `blocks` |
 | **MINOR** | migrates mechanically | A field renamed, a type changed with a lossless mapping (`date` → `datetime`), an enum member renamed |
 | **MAJOR** | migrates with loss of data or function | A field or enum member removed with no counterpart, a field's meaning changed |
 
@@ -34,10 +34,11 @@ Reordering a field's `values:` is PATCH: a field's blank is `""` rather than
 `values[0]`, so no document's rendered output changes. It still moves picker
 order, the schemas' `enum` lists, and acroform dropdown order.
 
-Turning a field's `multiline` from `true` to `false` is MAJOR unless every
-stored value is first reduced to one line: a `richtext` holding a second block
-stops validating (`validation::not_single_line`), and a `text` holding a second
-line renders it as a space (`validation::line_break_folded`).
+Narrowing a field's `shape` is MAJOR unless every stored value already fits
+the narrower one: a `richtext` holding what its shape does not stops validating
+(`validation::not_single_line` for `line`, `validation::not_lines` for
+`lines`), and a `text` holding a second line renders it as a space
+(`validation::line_break_folded`).
 
 ## How Authors Select Versions
 

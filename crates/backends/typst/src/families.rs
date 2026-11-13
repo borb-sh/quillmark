@@ -142,7 +142,7 @@ mod tests {
 
     use crate::{FontLibrary, SchemaMeta, compile, read_plate, world};
 
-    const YAML: &str = "quill:\n  name: fonts\n  version: 0.1.0\n  backend: typst\n  description: font runs\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    prose:\n      type: richtext\n      multiline: true\n      description: body\n";
+    const YAML: &str = "quill:\n  name: fonts\n  version: 0.1.0\n  backend: typst\n  description: font runs\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    prose:\n      type: richtext\n      shape: blocks\n      description: body\n";
 
     fn figtree() -> Vec<u8> {
         std::fs::read(

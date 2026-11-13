@@ -1065,7 +1065,7 @@ main:
   fields:
     intro:
       type: richtext
-      multiline: true
+      shape: blocks
       description: a probe field
 "#;
         const PLATE: &str = r#"
@@ -1133,7 +1133,7 @@ main:
   fields:
     prose:
       type: richtext
-      multiline: true
+      shape: blocks
       description: one paragraph with one decorated run
 "#;
         const PLATE: &str = r#"
@@ -1220,7 +1220,7 @@ main:
   fields:
     prose:
       type: richtext
-      multiline: true
+      shape: blocks
       description: a two-item list
 "#;
         const PLATE: &str = r#"
@@ -1298,7 +1298,7 @@ main:
   fields:
     prose:
       type: richtext
-      multiline: true
+      shape: blocks
       description: the body
     classification:
       type: enum

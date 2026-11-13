@@ -80,10 +80,10 @@ main:
       type: date
     prose:
       type: richtext
-      multiline: true
+      shape: blocks
     literal:
       type: text
-      multiline: true
+      shape: lines
 "#;
 
 fn lenient_doc(fields: &str) -> Document {

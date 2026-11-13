@@ -730,8 +730,8 @@ fn leading_ordered_marker_escaped() {
 
 /// Markdown spells an empty paragraph, and an empty line between hard
 /// breaks, with nothing: beside other content each writes nothing, where a
-/// list item's would push what follows out of the list and a trailing
-/// break's `\` would read as text. A container's only line keeps it.
+/// list item's would push what follows out of the list and a doubled
+/// break would read as a paragraph's. A container's only line keeps it.
 #[test]
 fn an_empty_line_beside_other_content_writes_nothing() {
     let item = |checked| Container::ListItem {
@@ -744,7 +744,7 @@ fn an_empty_line_beside_other_content_writes_nothing() {
     let quote = Container::Quote { instance: 0 };
     for (rt, md) in [
         (hard_break_block("a\n"), "a"),
-        (hard_break_block("a\n\nb"), "a\\\nb"),
+        (hard_break_block("a\n\nb"), "a\nb"),
         (stored("\nb", vec![vec![], vec![]]), "b"),
         (stored("\nb", vec![vec![item(None)]; 2]), "- b"),
         (stored("\nb", vec![vec![item(Some(true))]; 2]), "- [x] b"),

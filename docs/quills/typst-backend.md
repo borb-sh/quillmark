@@ -401,7 +401,7 @@ Inside `#box`, `#table`, `#figure`, `#footnote`, `#move`, `#pad`: a widget track
 
 ```typst
 #qm.form-field("full_name", type: "text", value: qm.str(qm.data.name))
-#qm.form-field("bio", type: "text", value: qm.str(qm.data.bio), multiline: true, height: 80pt)  // bio: { type: text, multiline: true }
+#qm.form-field("bio", type: "text", value: qm.str(qm.data.bio), multiline: true, height: 80pt)  // bio: { type: text, shape: lines }
 ```
 
 **Signature**: `value` is ignored. PDF output gains a clickable SigField widget at the call site, which Acrobat — or any reader that supports form signing — presents as a "Sign Here" affordance.

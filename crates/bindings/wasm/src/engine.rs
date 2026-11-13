@@ -111,11 +111,14 @@ export interface QuillFieldSchema {
      *  document over the cap warns `validation::cardinality` or
      *  `validation::over_length` and renders. */
     max?: number;
-    /** The line shape of a `text` or `richtext` field, valid nowhere else.
-     *  Absent or `false`, the field is one line (`text`) or one paragraph with
-     *  no container or island (`richtext`); `true` admits line breaks
-     *  (`text`) or block structure (`richtext`). A `richtext` always carries
-     *  it. */
+    /** How much a `text` or `richtext` value holds, valid nowhere else.
+     *  Absent, the field is one line, with no break, container or island.
+     *  `"lines"` admits line breaks and paragraphs. `"blocks"`, on a
+     *  `richtext` only, admits lists, headings, quotes, code, rules and
+     *  tables too. */
+    shape?: "lines" | "blocks";
+    /** `true` beside every `shape`: the legacy spelling of "more than one
+     *  line". Read `shape`. */
     multiline?: boolean;
 }
 

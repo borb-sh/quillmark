@@ -424,6 +424,15 @@ impl Codec {
         self,
         value: &serde_json::Value,
     ) -> Option<Result<quillmark_content::markdown::Imported, ContentDecodeError>> {
+        self.decode_value_admitting(value, quillmark_content::markdown::Admit::Blocks)
+    }
+
+    /// [`decode_value`](Self::decode_value) of a value that admits `admit`.
+    pub(crate) fn decode_value_admitting(
+        self,
+        value: &serde_json::Value,
+        admit: quillmark_content::markdown::Admit,
+    ) -> Option<Result<quillmark_content::markdown::Imported, ContentDecodeError>> {
         let whole = |content| quillmark_content::markdown::Imported {
             content,
             warnings: Vec::new(),
@@ -435,7 +444,7 @@ impl Codec {
                     .map_err(|e| ContentDecodeError::NotContent(e.to_string())),
             ),
             serde_json::Value::String(s) => Some(match self {
-                Codec::Richtext => quillmark_content::markdown::from_markdown(s)
+                Codec::Richtext => quillmark_content::markdown::from_markdown_admitting(s, admit)
                     .map_err(|e| ContentDecodeError::BadMarkdown(e.to_string())),
                 Codec::Text => Ok(whole(quillmark_content::markdown::plain(s))),
             }),
@@ -529,15 +538,17 @@ pub(crate) enum RichtextValueError {
     Unshaped,
     /// The field is one line and the content spans more than one paragraph.
     NotSingleLine,
+    /// The field holds lines and the content holds a block or an island.
+    NotLines,
 }
 
 /// The contract for a richtext value that must *become* stored content: decode
-/// either accepted encoding, enforce one line unless multiline, canonicalize, and hand back what
-/// the import dropped. The strict typed write and the schema-literal companion
+/// either accepted encoding, a markdown string read as `shape` admits, enforce the shape,
+/// canonicalize, and hand back what the import dropped. The strict typed write and the schema-literal companion
 /// cache share it and differ only in the diagnostic they render from the error.
 pub(crate) fn canonical_richtext_value(
     value: &serde_json::Value,
-    inline: bool,
+    shape: crate::quill::Shape,
 ) -> Result<(serde_json::Value, Vec<ImportWarning>), RichtextValueError> {
     let (mut content, warnings) = match value {
         serde_json::Value::Object(_) => (
@@ -547,15 +558,19 @@ pub(crate) fn canonical_richtext_value(
             Vec::new(),
         ),
         serde_json::Value::String(s) => {
-            let imported = quillmark_content::markdown::from_markdown(s).map_err(|e| {
+            let imported = quillmark_content::markdown::from_markdown_admitting(s, shape.admit())
+                .map_err(|e| {
                 RichtextValueError::Decode(ContentDecodeError::BadMarkdown(e.to_string()))
             })?;
             (imported.content, imported.warnings)
         }
         _ => return Err(RichtextValueError::Unshaped),
     };
-    if inline && !content.is_inline() {
-        return Err(RichtextValueError::NotSingleLine);
+    if !shape.admits(&content) {
+        return Err(match shape {
+            crate::quill::Shape::Line => RichtextValueError::NotSingleLine,
+            _ => RichtextValueError::NotLines,
+        });
     }
     content.codec = quillmark_content::model::Codec::Rich;
     Ok((content.to_value(), warnings))

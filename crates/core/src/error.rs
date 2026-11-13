@@ -762,6 +762,9 @@ mod args_reference {
             ValidationError::NotSingleLine {
                 path: "main.title".into(),
             },
+            ValidationError::NotLines {
+                path: "main.title".into(),
+            },
             ValidationError::NotPlain {
                 path: "main.title".into(),
             },
@@ -783,9 +786,10 @@ mod args_reference {
             EditError::UnknownCardId("gone".into()),
             EditError::TooManyCards { max: 1 },
             EditError::ValueTooDeep { max: 8 },
-            EditError::Import(
-                quillmark_content::markdown::ImportError::NestingTooDeep { depth: 9, max: 8 },
-            ),
+            EditError::Import(quillmark_content::markdown::ImportError::NestingTooDeep {
+                depth: 9,
+                max: 8,
+            }),
             EditError::FieldDecode {
                 field: "body".into(),
                 at: Vec::new(),
@@ -1042,7 +1046,10 @@ card_kinds:
                 "duplicate reference row: {row}"
             );
         }
-        assert!(!out.is_empty(), "args table not found in diagnostic-codes.md");
+        assert!(
+            !out.is_empty(),
+            "args table not found in diagnostic-codes.md"
+        );
         out
     }
 

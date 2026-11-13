@@ -188,7 +188,7 @@ impl<'a> TypedWriter<'a> {
     fn revise_parsed(&mut self, revising: Revising) -> Result<DocumentRevised, BoundParseError> {
         self.config
             .check_quill_reference(&revising.parsed.document)?;
-        let mut revised = self.doc.revise_parsed(revising);
+        let mut revised = self.doc.revise_parsed(revising.admitting(self.config));
         revised.warnings.extend(
             self.config
                 .conform(self.doc)
@@ -483,7 +483,6 @@ main:
   fields:
     subject:
       type: richtext
-      multiline: false
     qty:
       type: integer
 card_kinds:
@@ -491,10 +490,10 @@ card_kinds:
     fields:
       prose:
         type: richtext
-        multiline: true
+        shape: blocks
       blurb:
         type: richtext
-        multiline: true
+        shape: blocks
 ";
 
     fn config() -> QuillConfig {
@@ -579,7 +578,13 @@ card_kinds:
                 let name = format!("f{i}");
                 (
                     name.clone(),
-                    FieldSchema::new(name, FieldType::Text { multiline: false }, None),
+                    FieldSchema::new(
+                        name,
+                        FieldType::Text {
+                            shape: crate::quill::Shape::Line,
+                        },
+                        None,
+                    ),
                 )
             })
             .collect();
@@ -746,6 +751,110 @@ card_kinds:
                 .unwrap(),
             "Hello"
         );
+    }
+
+    /// A `richtext` of lines keeps each newline as a line and reads the
+    /// syntax of a block as its characters, at a set, a field revise and a
+    /// whole-document revise alike.
+    #[test]
+    fn a_field_of_lines_keeps_its_lines_and_reads_block_syntax_as_text() {
+        let config = QuillConfig::from_yaml(&QUILL_YAML.replace(
+            "    qty:\n",
+            "    memo_for:\n      type: richtext\n      shape: lines\n    qty:\n",
+        ))
+        .unwrap();
+        let memo_for = |doc: &Document| {
+            let content = doc
+                .main()
+                .field_content("memo_for", Codec::Richtext)
+                .unwrap()
+                .unwrap();
+            assert!(content.is_lines());
+            quillmark_content::view::plaintext(&content)
+        };
+        let typed = "1. 123 OG/CC\n- *123* MXG/CC\n\n# 123 MSG/CC";
+        let read = "1. 123 OG/CC\n- 123 MXG/CC\n# 123 MSG/CC";
+
+        let mut doc = blank_doc();
+        TypedWriter::new(&config, &mut doc)
+            .set("memo_for", typed)
+            .unwrap();
+        assert_eq!(memo_for(&doc), read);
+
+        let mut doc = blank_doc();
+        TypedWriter::new(&config, &mut doc)
+            .set("memo_for", "123 WG/CC")
+            .unwrap();
+        let _ = TypedWriter::new(&config, &mut doc)
+            .revise(crate::document::Target::from("memo_for"), typed, None)
+            .unwrap();
+        assert_eq!(memo_for(&doc), read);
+
+        let mut doc = blank_doc();
+        TypedWriter::new(&config, &mut doc)
+            .set("memo_for", "123 WG/CC")
+            .unwrap();
+        let _ = TypedWriter::new(&config, &mut doc)
+            .revise_document(
+                "~~~\n$quill: memo@1.0.0\nmemo_for: |-\n  1. 123 OG/CC\n  - *123* MXG/CC\n\n  \
+                 # 123 MSG/CC\n~~~\n",
+            )
+            .unwrap();
+        assert_eq!(memo_for(&doc), read);
+
+        let markdown = doc.to_markdown();
+        let mut back = Document::parse(&markdown).unwrap().document;
+        config.conform(&mut back).unwrap();
+        assert_eq!(memo_for(&back), read, "{markdown}");
+    }
+
+    /// A one-line `richtext` reads block syntax as its characters and a
+    /// newline as a space; a break its markdown spells out is still refused.
+    #[test]
+    fn a_one_line_field_reads_block_syntax_as_text() {
+        let config = config();
+        let mut doc = blank_doc();
+        let mut ed = TypedWriter::new(&config, &mut doc);
+        ed.set("subject", "1. Annual\nReview").unwrap();
+        assert_eq!(
+            doc.main()
+                .field_text("subject", Codec::Richtext)
+                .unwrap()
+                .unwrap(),
+            "1\\. Annual Review"
+        );
+        let mut ed = TypedWriter::new(&config, &mut doc);
+        let err = ed.set("subject", "one\\\ntwo").unwrap_err();
+        assert_eq!(err.code(), "edit::field_not_single_line");
+    }
+
+    /// A content value holding a list is refused where the field holds lines.
+    #[test]
+    fn a_field_of_lines_refuses_a_stored_block() {
+        let config = QuillConfig::from_yaml(&QUILL_YAML.replace(
+            "    qty:\n",
+            "    memo_for:\n      type: richtext\n      shape: lines\n    qty:\n",
+        ))
+        .unwrap();
+        let list = quillmark_content::markdown::from_markdown("- one\n- two")
+            .unwrap()
+            .content;
+        let mut doc = blank_doc();
+        let mut ed = TypedWriter::new(&config, &mut doc);
+        let err = ed
+            .set("memo_for", QuillValue::from_json(list.to_value()))
+            .unwrap_err();
+        assert_eq!(err.code(), "edit::field_coercion_failed");
+        doc.unchecked()
+            .store_field(None, "memo_for", QuillValue::from_json(list.to_value()))
+            .unwrap();
+        let codes: Vec<_> = config
+            .validate_document(&doc)
+            .unwrap_err()
+            .iter()
+            .map(|e| e.code())
+            .collect();
+        assert_eq!(codes, ["validation::not_lines"]);
     }
 
     #[test]

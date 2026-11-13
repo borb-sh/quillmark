@@ -357,8 +357,16 @@
           "$ref": "#/definitions/field",
           "description": "An array's element schema."
         },
+        "shape": {
+          "description": "How much a `text` or `richtext` value holds: one `line` (the default), `lines`, or `blocks` (`richtext` only).",
+          "enum": [
+            "line",
+            "lines",
+            "blocks"
+          ]
+        },
         "multiline": {
-          "description": "Admits more than one line (`text`) or block structure (`richtext`).",
+          "description": "Legacy spelling of `shape`: `true` is `lines` on a `text` and `blocks` on a `richtext`.",
           "type": "boolean"
         },
         "max": {
@@ -468,8 +476,8 @@
             "properties": {
               "type": {
                 "enum": [
-                  "richtext",
-                  "richtext?"
+                  "text",
+                  "text?"
                 ]
               }
             },
@@ -478,9 +486,14 @@
             ]
           },
           "then": {
-            "required": [
-              "multiline"
-            ]
+            "properties": {
+              "shape": {
+                "enum": [
+                  "line",
+                  "lines"
+                ]
+              }
+            }
           }
         },
         {
@@ -589,6 +602,7 @@
           },
           "then": {
             "properties": {
+              "shape": false,
               "multiline": false
             }
           }

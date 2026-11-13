@@ -121,7 +121,7 @@ pub fn body_session(body: serde_json::Value) -> LiveSession {
     TypstBackend::default()
         .open(
             &quill_with_plate(
-                &yaml("main:\n  fields:\n    prose: { type: richtext, multiline: true }\n"),
+                &yaml("main:\n  fields:\n    prose: { type: richtext, shape: blocks }\n"),
                 r#"
 #import "@local/quillmark-helper:0.2.0" as qm
 #set page(width: 612pt, height: 792pt, margin: 72pt)

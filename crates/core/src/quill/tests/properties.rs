@@ -18,13 +18,17 @@ const PROP_NAME_RE: &str = "[a-z]{1,4}";
 
 fn arb_leaf_field_type() -> impl Strategy<Value = FieldType> {
     prop_oneof![
-        Just(FieldType::Text { multiline: false }),
+        Just(FieldType::Text {
+            shape: crate::quill::Shape::Line
+        }),
         Just(FieldType::Number),
         Just(FieldType::Integer),
         Just(FieldType::Boolean),
         Just(FieldType::Date),
         Just(FieldType::DateTime),
-        Just(FieldType::RichText { multiline: true }),
+        Just(FieldType::RichText {
+            shape: crate::quill::Shape::Blocks
+        }),
     ]
 }
 
@@ -261,7 +265,9 @@ fn an_uncoercible_array_item_is_addressed_by_its_index() {
 fn a_singleton_array_collapses_to_its_text_and_rests_there() {
     let schema = FieldSchema::new(
         ROOT_FIELD.to_string(),
-        FieldType::Text { multiline: false },
+        FieldType::Text {
+            shape: crate::quill::Shape::Line,
+        },
         None,
     );
     let config = config_with_one_field(schema);
