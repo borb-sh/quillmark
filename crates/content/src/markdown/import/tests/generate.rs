@@ -4,7 +4,7 @@
 
 use proptest::prelude::*;
 
-use crate::lines::import::ImportWarning;
+use crate::markdown::ImportWarning;
 
 /// Generated markdown, the words it must import and the construct each
 /// opening tag in it reports.
