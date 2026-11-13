@@ -24,11 +24,14 @@ use quillmark_core::{
 };
 use quillmark_pdf::{AppearanceStates, FieldSpec, FieldType, StampOptions, regions_of, stamp};
 
+use hayro::hayro_interpret::util::TransformExt;
 use hayro::hayro_interpret::{InterpreterSettings, font::FontQuery};
 use hayro::hayro_syntax::Pdf as HayroPdf;
-use hayro::vello_cpu::Pixmap;
+use hayro::kurbo::Affine;
 use hayro::vello_cpu::color::palette::css::WHITE;
-use hayro::{RenderCache, RenderSettings, render};
+use hayro::vello_cpu::peniko::ImageAlphaType;
+use hayro::vello_cpu::{Pixmap, RasterizerSettings, RenderContext, Resources, TargetInit};
+use hayro::{RenderCache, RenderSettings, render_into};
 use std::sync::Arc;
 
 const FORM_PDF: &str = "form.pdf";
@@ -330,11 +333,7 @@ impl SessionHandle for AcroformSession {
         };
         let w = pixmap.width() as u32;
         let h = pixmap.height() as u32;
-        let bytes = pixmap
-            .take_unpremultiplied()
-            .into_iter()
-            .flat_map(|p| [p.r, p.g, p.b, p.a])
-            .collect();
+        let bytes = pixmap.take_rgba8(ImageAlphaType::Alpha);
         Ok(Some((w, h, bytes)))
     }
 
@@ -396,17 +395,24 @@ impl AcroformSession {
         // to 0 px under one pixel, where `check_raster` counts a rounded side
         // of at least one; `check_raster` bounds each side within `u16`.
         let (width, height) = quillmark_core::backend::raster_size(scale, width_pt, height_pt);
-        let (width, height) = (width as u16, height as u16);
-        let pixmap = render(
+        let mut ctx = RenderContext::new(width as u16, height as u16);
+        let transform = Affine::scale(scale as f64) * p.initial_transform(true).to_kurbo();
+        render_into(
             p,
             &RenderCache::new(),
             &standard_font_settings(),
-            &RenderSettings {
-                x_scale: scale,
-                y_scale: scale,
-                width: Some(width),
-                height: Some(height),
-                bg_color: WHITE,
+            &RenderSettings::default(),
+            &mut ctx,
+            transform,
+        );
+        ctx.flush();
+        let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
+        ctx.render_with(
+            &mut pixmap,
+            &mut Resources::default(),
+            RasterizerSettings {
+                target_init: TargetInit::Clear(WHITE),
+                ..Default::default()
             },
         );
         Ok(Some(pixmap))
