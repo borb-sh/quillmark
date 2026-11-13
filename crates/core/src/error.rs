@@ -784,7 +784,7 @@ mod args_reference {
             EditError::TooManyCards { max: 1 },
             EditError::ValueTooDeep { max: 8 },
             EditError::Import(
-                quillmark_content::lines::import::ImportError::NestingTooDeep { depth: 9, max: 8 },
+                quillmark_content::markdown::ImportError::NestingTooDeep { depth: 9, max: 8 },
             ),
             EditError::FieldDecode {
                 field: "body".into(),

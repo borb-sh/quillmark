@@ -595,7 +595,7 @@ pub(crate) fn reject_unreadable_mark(v: &Value) -> Result<(), ParseError> {
     Ok(())
 }
 
-/// A link `url` [`crate::lines::export::url_is_writable`] refuses is a shape error: the
+/// A link `url` `export::url_is_writable` refuses is a shape error: the
 /// emitter writes it into the destination slot of `[…](…)`, which admits no line
 /// ending, so the export's percent-encoding of it is a rewrite the host did not
 /// ask for.
@@ -632,7 +632,7 @@ fn reject_unwritable_image_url(v: &Value) -> Result<(), ParseError> {
 }
 
 /// A `math` island whose `tex` the markdown projection cannot write between
-/// its delimiters ([`crate::lines::export::tex_is_writable`]), read as it rests once
+/// its delimiters (`export::tex_is_writable`), read as it rests once
 /// settled. A `tex` that is no string is the props carrier's to hold.
 fn reject_unwritable_tex(v: &Value) -> Result<(), ParseError> {
     if v.get("type").and_then(Value::as_str) != Some(crate::model::IslandType::Math.as_str()) {
@@ -641,9 +641,7 @@ fn reject_unwritable_tex(v: &Value) -> Result<(), ParseError> {
     let props = v.get("props");
     let display = props.and_then(|p| p.get("display")) == Some(&Value::Bool(true));
     match props.and_then(|p| p.get("tex")).and_then(Value::as_str) {
-        Some(tex)
-            if !crate::lines::export::tex_is_writable(&crate::model::settle_tex(tex), display) =>
-        {
+        Some(tex) if !crate::export::tex_is_writable(&crate::model::settle_tex(tex), display) => {
             Err(ParseError::Shape("math tex"))
         }
         _ => Ok(()),
@@ -652,7 +650,7 @@ fn reject_unwritable_tex(v: &Value) -> Result<(), ParseError> {
 
 fn reject_unwritable_url(url: Option<&str>, err: &'static str) -> Result<(), ParseError> {
     match url {
-        Some(u) if !crate::lines::export::url_is_writable(u) => Err(ParseError::Shape(err)),
+        Some(u) if !crate::export::url_is_writable(u) => Err(ParseError::Shape(err)),
         _ => Ok(()),
     }
 }
@@ -1758,7 +1756,7 @@ mod tests {
     /// The same split on a link or image `url`: CommonMark admits no line
     /// ending in a destination, so the whole-content authored door refuses one
     /// as deep as the values the projection writes, while storage keeps what it
-    /// holds and [`crate::lines::export::emit_url`] percent-encodes it.
+    /// holds and the export percent-encodes it.
     #[test]
     fn an_unwritable_url_decodes_on_storage_and_is_refused_when_authored() {
         for (json, refusal) in [
@@ -1834,7 +1832,7 @@ mod tests {
             "the reader moves the row's bytes and nothing else"
         );
         assert_eq!(
-            crate::lines::export::to_markdown(&rt),
+            crate::markdown::to_markdown(&crate::migrate::from_lines(&rt)),
             "| h |\n| --- |\n| c |",
             "the table still projects as a block"
         );
@@ -1992,7 +1990,7 @@ mod tests {
         });
         let loaded = from_canonical_value(&stored).unwrap();
         assert_eq!(
-            crate::lines::export::to_markdown(&loaded),
+            crate::markdown::to_markdown(&crate::migrate::from_lines(&loaded)),
             "- [x] a\n\n+ [x] b\n\n- [ ] c"
         );
         assert_eq!(respell_retired(&stored), to_canonical_value(&loaded));

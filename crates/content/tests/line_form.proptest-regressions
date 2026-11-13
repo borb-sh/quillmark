@@ -1,0 +1,23 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1bb70c0781b6fe555a4e9d4bb7dad510ab48f623a67c4fd010bc5545f91035dd # shrinks to chars = ['*', 'a', 'a', 'a', 'a', 'a', 'a', 'a'], specs = [(11, 46, 0)]
+cc 0e2e102d7078c736feac5a4fcc9874dfa10016c59997643dd47c1e568aeba706 # shrinks to chars = ['a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', ' ', 'a'], specs = [(9, 12, 0), (11, 1, 2)]
+cc 4d70741529d8bc55999e32baee1408f43fe4c56d89049d5507ce3e4fd45e4c70 # shrinks to chars = ['a', 'a', 'a', 'a', 'a', 'a', 'a', '*'], specs = [(8, 9, 1), (0, 0, 0), (34, 9, 3)]
+cc 8847c015b9ea58761a4f5f8f293f74729e23a30e08ee1dbce6ae83139dde6b00 # shrinks to md = "- 0*你 a*~# a~"
+cc ff90f800ae8fe6d16e7adb6f38ebcf558488cade231db13d3705afc542faa985 # shrinks to chars = ['a', 'a', 'a', 'a', ' ', '.', 'a', 'a'], specs = [(28, 25, 0), (59, 45, 3)]
+cc 5e333ee554d5dea4ec07af36bca02d4e0494549dee880518d7fc5448d81a06d9 # shrinks to md = "# 0. **a**"
+cc 2982cbd9e43f39a2e5cd52a6c20fa4f7f521a65d08764f324d12f768952482a3 # shrinks to md = "| 0 | a |\n| --- | --- |\n| 1 | 2 |\n\n```\na\n```", ins = "a", pos_seed = 616, del_seed = 0, is_delete = false
+cc 2f2838066b598c521a9479d14f0330b1e2cc8988eca221f661b86a6292116257 # shrinks to md = "| a | a |\n| --- | --- |\n| 1 | 2 |", a_seed = 0, b_seed = 0, ins = "a", pos_seed = 0, del_seed = 0, is_delete = false
+cc 200bd7de24162bf4a4b55e632874ab73de96542bb5a763db8fa55dc7317ad079 # shrinks to md = "- ***\n\n  ~~a~~ **00aaa** **a**\n\na0 a\\\na0a0a", a_seed = 0, b_seed = 0, ins = "", pos_seed = 2950, del_seed = 1509, is_delete = true
+cc 4ad60b5a038ffad5e71d6e6d7130158889929223283b33104a4dfeb7012030d3 # shrinks to md = "- a\n- 0\n- 0\n\n```\na\na\n```\n\n- # 0\n\n  0", pos_seed = 0, line_seed = 51, which = 1
+cc e8e7f7b4f04d8b3a756ab61531f0168e49bd8a3fc3d48c1fb1400691706e42a7 # shrinks to md = "1. [a0a0](<ex.com/aa>) **0** a>_你0 `a0aa0`\n2. <u>aa00a</u>\n\n```\n0a00\n```\n\na\\\naa0a 0aa0 a\\\n00aa\n\n**00aaa** ![a](<ex.com/a&>) ![a](<ex.com/aa>)", ins = "", pos_seed = 1598, del_seed = 241, is_delete = true
+cc 7dfc4f569c2e8c9d9f4f8bdb3237d44d9b5815543b9a038b1774d77e55f2d0fa # shrinks to chars = ['a', 'a', 'a', 'a', ' ', '\n', ' ', 'a'], specs = [(18, 43, 0)]
+cc 7fb4532e35adfaa9bd669f71cac41f358a076029f302b81b2f8a3ce0d961c0da # shrinks to chars = ['a', ' ', '\n', 'a', 'a', 'a', 'a', 'a', 'a'], specs = [(31, 44, 0), (52, 5, 1)]
+cc 06f447ba0a901bcd1f8203e886541e33f54bf747a909f2a3fc5a078b2b78b733 # shrinks to chars = ['a', '\n', '\n', ' ', 'a', 'a', 'a'], specs = [(6, 4, 2), (30, 41, 0)]
+cc 56b7e1795e8fcf3b5bb2dc23ed2de3278c437f8e1d417383f5bd17e0c06cf01a # shrinks to md = "a\n: [^B]\n  : a\n\n[^a]: 0\n\n[^b]: `a`\n    - `0`"
+cc 4cd4a5bb23f92b593a2eca6f74ad080d112ac5bbc1ba1d1ff9a8c03d4c613f2e # shrinks to island_type = "table", props = Object {"columns": Array [], "rows": Array []}, slots = []
+cc 6f2337ce2c25cfe589e2ec6933ad1d13b76a0ead18b07bece71087f29ca9fd45 # shrinks to md = "*~~**~~*౸**", spans = [(0, 0, false)]

@@ -1986,7 +1986,7 @@ impl Builder {
         let cell = self.table.as_mut().and_then(|acc| acc.cell.as_mut());
         if self.image_depth > 0
             || cell.is_some()
-            || !crate::lines::export::tex_is_writable(&crate::model::settle_tex(tex), display)
+            || !crate::export::tex_is_writable(&crate::model::settle_tex(tex), display)
         {
             match cell {
                 Some(cell) => cell.push_text(source),

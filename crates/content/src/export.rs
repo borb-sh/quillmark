@@ -2082,3 +2082,6 @@ fn longest_backtick_run(s: &str) -> usize {
     }
     max
 }
+
+#[cfg(test)]
+mod tests;

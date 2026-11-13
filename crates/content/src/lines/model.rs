@@ -333,7 +333,7 @@ impl Container {
 ///
 /// A projection taking a token may therefore assume only what the mint
 /// establishes, and must be **total over any token**:
-/// [`to_markdown`](crate::lines::export::to_markdown) walks containers on an explicit stack
+/// [`to_markdown`](crate::markdown::to_markdown) walks containers on an explicit stack
 /// rather than a frame per level, and `emit_content` checks the depth and
 /// returns an error. An unguarded recursion aborts the process, which no
 /// `Result` can catch.
@@ -407,7 +407,7 @@ pub enum MarkKind {
     /// edits like any position. The id is caller-supplied, unique per `Content`,
     /// and invariant while the mark lives; moved-and-rewritten text drops the
     /// mark whole. No markdown projection: it is omitted on export, spelled
-    /// read-only by [`to_markdown_annotated`](crate::lines::export::to_markdown_annotated),
+    /// read-only by [`to_markdown_annotated`](crate::markdown::to_markdown_annotated),
     /// and survives a revise through the diff that carries it.
     Anchor {
         id: String,
@@ -712,7 +712,7 @@ impl Content {
     /// Constructing neither normalizes nor checks: the canonical form is the
     /// caller's until [`into_lines`](Self::into_lines) runs, and
     /// [`validate`](Self::validate) reports what that cannot repair. The codecs
-    /// ([`crate::lines::import`], [`Content::from_canonical_json`]) do both.
+    /// ([`crate::migrate::to_lines`], [`Content::from_canonical_json`]) do both.
     pub fn new(text: String, lines: Vec<Line>) -> Self {
         Content {
             text,
@@ -767,7 +767,7 @@ impl Content {
     /// `continues` is unconstrained. [`Content::empty`] is plain.
     ///
     /// The distinguishing property of `text` over a mark-free `richtext` is
-    /// the *literal* codec ([`crate::lines::import::from_plaintext`]), not this
+    /// the *literal* codec ([`crate::markdown::from_plaintext`]), not this
     /// predicate.
     pub fn is_plain(&self) -> bool {
         self.marks
@@ -1235,6 +1235,10 @@ fn from_model(marks: Vec<crate::model::Mark>) -> impl Iterator<Item = Mark> {
 mod tests {
     use super::*;
 
+    fn lines_of(md: &str) -> Lines {
+        crate::migrate::to_lines(&crate::markdown::from_markdown(md).unwrap().content)
+    }
+
     fn f(start: Scalar, end: Scalar, kind: MarkKind) -> Mark {
         Mark { start, end, kind }
     }
@@ -1387,14 +1391,8 @@ mod tests {
                 .into_lines();
             assert_eq!(rt.validate(), Ok(()), "{what}");
             assert_eq!(rt.lines[0].kind, LineKind::Para, "{what}");
-            let md = crate::lines::export::to_markdown(&rt);
-            assert_eq!(
-                crate::lines::import::from_markdown(&md)
-                    .expect("re-imports")
-                    .content,
-                rt,
-                "{what} is not a fixed point: {md:?}"
-            );
+            let md = crate::markdown::to_markdown(&crate::migrate::from_lines(&rt));
+            assert_eq!(lines_of(&md), rt, "{what} is not a fixed point: {md:?}");
         }
     }
 
@@ -1478,7 +1476,7 @@ mod tests {
             ("# heading", false),
             ("- item", false),
         ] {
-            let content = crate::lines::import::from_markdown(md).unwrap().content;
+            let content = lines_of(md);
             assert_eq!(content.is_inline(), inline, "{md:?}");
         }
         assert!(Content::empty().is_inline());
@@ -1602,7 +1600,7 @@ mod tests {
             assert!(!rt.lines[1].continues, "normalize clears it after {kind:?}");
             assert_eq!(rt.validate(), Ok(()));
             assert_eq!(
-                crate::lines::export::to_markdown(&rt.into_lines()),
+                crate::markdown::to_markdown(&crate::migrate::from_lines(&rt.into_lines())),
                 markdown,
                 "the continuation projects as the paragraph it is"
             );
@@ -1640,10 +1638,8 @@ mod tests {
         .into_lines();
         assert!(!rt.lines[1].continues);
         assert_eq!(rt.validate(), Ok(()));
-        let markdown = crate::lines::export::to_markdown(&rt);
-        let back = crate::lines::import::from_markdown(&markdown)
-            .unwrap()
-            .content;
+        let markdown = crate::markdown::to_markdown(&crate::migrate::from_lines(&rt));
+        let back = lines_of(&markdown);
         assert_eq!(back, rt, "the markdown is a fixed point: {markdown:?}");
     }
 
