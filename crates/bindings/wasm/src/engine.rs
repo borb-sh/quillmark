@@ -1999,7 +1999,7 @@ impl Addr {
 #[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Imported")]
 pub fn import_markdown(
     markdown: &str,
-    #[wasm_bindgen(unchecked_param_type = "\"line\" | \"lines\" | \"blocks\" | undefined")]
+    #[wasm_bindgen(unchecked_optional_param_type = "\"line\" | \"lines\" | \"blocks\"")]
     shape: Option<String>,
 ) -> Result<JsValue, JsValue> {
     use quillmark_content::markdown::Admit;

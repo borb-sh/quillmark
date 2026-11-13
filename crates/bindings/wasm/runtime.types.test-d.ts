@@ -301,3 +301,8 @@ const quotedBody: CardInput = {
 	}
 };
 void quotedBody;
+
+// `importMarkdown` reads without a shape: a caller that predates the parameter compiles.
+import type { importMarkdown } from '../../../pkg/core/wasm';
+const _importWithoutShape: Parameters<typeof importMarkdown> = ['One line.'];
+void _importWithoutShape;
