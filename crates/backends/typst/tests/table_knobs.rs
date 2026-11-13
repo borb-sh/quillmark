@@ -204,10 +204,11 @@ fn every_head_row_repeats_with_the_header() {
 fn a_table_sharing_its_line_draws_as_the_broken_line_does() {
     let quill = quill();
     let draw = |text: &str, lines: serde_json::Value| {
-        let rt =
-            quillmark_content::lines::import::from_markdown(&format!("before\n\n{PLAIN}\n\nafter"))
+        let rt = quillmark_content::migrate::to_lines(
+            &quillmark_content::markdown::from_markdown(&format!("before\n\n{PLAIN}\n\nafter"))
                 .expect("import")
-                .content;
+                .content,
+        );
         let mut value = quillmark_content::lines::serial::to_canonical_value(&rt);
         value["text"] = text.into();
         value["lines"] = lines;

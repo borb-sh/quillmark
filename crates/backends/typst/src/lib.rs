@@ -910,8 +910,9 @@ mod tests {
             );
             Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
         };
-        let counts = |rt: &quillmark_content::lines::model::Lines| {
-            let json = serde_json::json!({ "prose": quillmark_content::migrate::from_lines(rt).to_value() });
+        use quillmark_content::model::{Block, BlockKind, Container, ContainerKind, Content};
+        let counts = |rt: &Content| {
+            let json = serde_json::json!({ "prose": rt.to_value() });
             let q = quill();
             let plate_content = read_plate(&q).expect("plate");
             let transform_schema =
@@ -937,30 +938,36 @@ mod tests {
         // The second half is the same five markers with nothing after them, which
         // Typst reads off the line's end: the bare `/` is a term list missing its
         // colon, so an unescaped one fails the compile rather than the count.
-        use quillmark_content::lines::model::{Container, Content, Line, LineKind};
-        let para = |_: usize| Line::new(LineKind::Para);
-        let rt = Content::new(
-            "= Heading\n- bullet\n+ numbered\n1. dotted\n/ term: desc\n=\n-\n+\n1.\n/".to_string(),
-            (0..10).map(para).collect(),
-        );
-        let rt = rt.into_lines();
+        let para = |n: usize| Block::new(format!("b{n}"), BlockKind::Para);
+        let rt = Content {
+            text: "= Heading\n- bullet\n+ numbered\n1. dotted\n/ term: desc\n=\n-\n+\n1.\n/"
+                .to_string(),
+            blocks: (0..10).map(para).collect(),
+            ..Content::empty()
+        };
         assert_eq!(rt.validate(), Ok(()), "content invariants");
         assert_eq!(counts(&rt), [0, 0, 0, 0], "paragraph text stays literal");
 
         // A list item's body head is a line start of Typst's own, the marker
         // sitting where indentation would: the same five, one item each, and the
         // one bullet list they make is the only block the compile may produce.
-        let item = |ordinal: u64| {
-            Line::new(LineKind::Para).with_containers(vec![Container::ListItem {
+        let list = Container::new(
+            "l0",
+            ContainerKind::List {
                 ordered: false,
                 start: 1,
-                ordinal,
-                checked: None,
-                instance: 0,
-            }])
+            },
+        );
+        let item =
+            |n: usize| Container::new(format!("i{n}"), ContainerKind::Item { checked: None });
+        let rt = Content {
+            text: "=\n-\n+\n1.\n/".to_string(),
+            blocks: (0..5)
+                .map(|n| para(n).with_path(vec!["l0".into(), format!("i{n}")]))
+                .collect(),
+            containers: std::iter::once(list).chain((0..5).map(item)).collect(),
+            ..Content::empty()
         };
-        let rt = Content::new("=\n-\n+\n1.\n/".to_string(), (0..5).map(item).collect());
-        let rt = rt.into_lines();
         assert_eq!(rt.validate(), Ok(()), "content invariants");
         assert_eq!(counts(&rt), [0, 1, 0, 0], "item text stays literal");
     }

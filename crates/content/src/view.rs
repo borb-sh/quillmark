@@ -12,6 +12,8 @@ use crate::model::{
 use crate::table::Table;
 use std::collections::HashMap;
 
+pub use crate::export::clip_range_to_atomic;
+
 /// One cell of an island as its renderers read it: the slot's text, each
 /// paragraph break a blank line and each hard break a `\n`, its marks but
 /// its `x-` ones, and each anchor's id and start.

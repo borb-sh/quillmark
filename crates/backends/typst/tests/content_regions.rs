@@ -521,7 +521,7 @@ fn adversarial_codegen_inputs_still_compile() {
     //   - `strong[0,4)` partially overlapping `code[2,6)`, a content an editor
     //     can build but markdown import never produces;
     //   - `i64::MIN` cannot be a Typst int literal (its magnitude overflows).
-    use quillmark_content::lines::model::{Content, Line, LineKind, Mark, MarkKind};
+    use quillmark_content::model::{Content, Mark, MarkKind};
     // The plate's assert proves the int round-tripped.
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.2.0" as qm
@@ -530,11 +530,14 @@ fn adversarial_codegen_inputs_still_compile() {
 #qm.data.prose
 #qm.data.overlap
 "#;
-    let overlap =
-        Content::new("abcdef".to_string(), vec![Line::new(LineKind::Para)]).with_marks(vec![
+    let overlap = Content {
+        text: "abcdef".to_string(),
+        marks: vec![
             Mark::new(0, 4, MarkKind::Strong),
             Mark::new(2, 6, MarkKind::Code),
-        ]);
+        ],
+        ..Content::empty()
+    };
     TypstBackend::default()
         .open(
             &quill(
@@ -543,7 +546,7 @@ fn adversarial_codegen_inputs_still_compile() {
             ),
             &serde_json::json!({
                 "prose": content("Please <u>sign here"),
-                "overlap": quillmark_content::migrate::from_lines(&overlap.into_lines()).to_value(),
+                "overlap": overlap.to_value(),
                 "n": i64::MIN,
             }),
             common::test_date(),
@@ -742,17 +745,13 @@ fn locate_past_a_trailing_hard_break_holds_the_preceding_run() {
     // Shift+enter at the end of a paragraph: the segment's last content
     // character is the hard break, which lowers to `#linebreak()` and closes no
     // run, so the caret past it has only a preceding run to hold.
-    use quillmark_content::lines::model::{Content, Line, LineKind};
-    let rt = Content::new(
-        "Alpha beta\n".to_string(),
-        vec![
-            Line::new(LineKind::Para),
-            Line::new(LineKind::Para).with_continues(true),
-        ],
-    )
-    .into_lines();
+    use quillmark_content::model::{Content, HARD_BREAK};
+    let rt = Content {
+        text: format!("Alpha beta{HARD_BREAK}"),
+        ..Content::empty()
+    };
     assert_eq!(rt.validate(), Ok(()));
-    let session = body_session(quillmark_content::migrate::from_lines(&rt).to_value());
+    let session = body_session(rt.to_value());
 
     let first = session.locate("prose", 0).expect("first-glyph caret");
     let last = session.locate("prose", 10).expect("last-glyph caret");
