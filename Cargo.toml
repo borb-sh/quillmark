@@ -34,11 +34,11 @@ homepage = "https://quillmark.dev/"
 
 [workspace.dependencies]
 serde = { version = "~1.0", features = ["derive"] }
-serde-saphyr = "~2.0"
+serde-saphyr = "~2.1"
 serde_json = { version = "~1.0", features = ["preserve_order"] }
 jsonschema = { version = "~0.60", default-features = false }
 thiserror = "~2.0"
-toml = "~1.1"
+toml = "~1.2"
 glob = "0.3.3"
 unicode-normalization = "0.1"
 
