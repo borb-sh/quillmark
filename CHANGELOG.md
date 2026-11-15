@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.139.0 - 2026-11-15
+
+- fix(writer)!: the typed writer refuses a member its group or variant leaves undeclared (#2487)
+
 ## v0.138.0 - 2026-11-13
 
 Upgrade path: [0.137 → 0.138](docs/migrations/0.137-to-0.138.md). A newline
