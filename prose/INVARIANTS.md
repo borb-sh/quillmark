@@ -90,7 +90,7 @@ The table of codes and keys lives in [Diagnostic Codes § Args](../docs/referenc
 
 **A verb that needs a schema lives on the writer or reader; `Document` is quill-free.** The typed writer (`quill.writer(doc)`) and reader own every schema-shaped verb. `Document` holds the opaque store and the content writes, which navigate by address and never consult a schema. The verb names the write path: **store** is verbatim, **set** is typed, **apply**, **revise** and **replace** are the content write.
 
-**Every write holds every invariant but the schema.** An unchecked write still holds names, bounds, card ids and canonical content. On the typed path an undeclared name is a typo, refused at the write, never a fallback to the opaque store.
+**Every write holds every invariant but the schema.** An unchecked write still holds names, bounds, card ids and canonical content. On the typed path an undeclared name is a typo, refused at the write, never a fallback to the opaque store, and so is a member a typed dictionary or every world of a variant-bearing enum leaves undeclared, since an editor draws only what the schema declares. A member the stored value already carries, equal, passes, so a read-modify-write of a container holding unclaimed input lands and the input stays for a later schema.
 
 **No revision counter.** Equality answers whether this is the content last compiled; a hash answers whether the value a writer read is still the value stored. A counter answers only whether something was written, so it re-applies on a reload that changed nothing and invalidates every base a hash would keep.
 
