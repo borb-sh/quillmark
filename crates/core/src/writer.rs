@@ -4,7 +4,9 @@
 //! [`Quill::writer`](crate::quill::Quill::writer) binds the schema once
 //! instead, so callers issue one verb (`set`) and never pass a type token or a
 //! `multiline` flag. An undeclared name is [`EditError::UnknownField`]: on the
-//! typed path it is a typo, not a fallback. Opaque storage stays available
+//! typed path it is a typo, not a fallback. So is a member a typed dictionary
+//! or a variant's worlds leave undeclared, unless the stored value already
+//! carries it, equal. Opaque storage stays available
 //! through the raw [`Unchecked::store_field`](crate::document::Unchecked::store_field)
 //! verb.
 //!
@@ -33,8 +35,10 @@ use crate::document::{
 };
 use crate::error::Diagnostic;
 use crate::path::DocPath;
-use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
-use crate::value::QuillValue;
+use crate::quill::{
+    BoundParseError, FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY,
+};
+use crate::value::{PathSegment, QuillValue};
 
 /// What [`TypedWriter::add_card`] answers: the placed card's `$id` and the
 /// warnings its fields and body raised.
@@ -370,7 +374,92 @@ fn commit_impl(
     let Some(schema) = fields_schema.and_then(|m| m.get(name)) else {
         return Err(EditError::unknown_field(name));
     };
-    card.commit_field_at(name, &value.into(), schema, base)
+    let value = value.into();
+    check_members(card, name, &value, schema)?;
+    card.commit_field_at(name, &value, schema, base)
+}
+
+/// [`EditError::UnknownField`] at the first member of `value` that its typed
+/// dictionary, or its variant-bearing enum's worlds, does not declare. A member
+/// the stored value already carries, equal, is unclaimed input carried forward
+/// and passes, so a read-modify-write of a container holding one still lands.
+fn check_members(
+    card: &Card,
+    name: &str,
+    value: &QuillValue,
+    schema: &FieldSchema,
+) -> Result<(), EditError> {
+    let stored: Vec<&serde_json::Value> = card
+        .payload()
+        .get(name)
+        .map(QuillValue::as_json)
+        .into_iter()
+        .collect();
+    let mut at = Vec::new();
+    if undeclared_member(value.as_json(), schema, &stored, &mut at) {
+        return Err(EditError::UnknownField {
+            field: name.to_string(),
+            at,
+        });
+    }
+    Ok(())
+}
+
+/// Whether `value` holds a member `schema` does not declare, leaving `at` at
+/// it. `stored` holds the values the document carries at this address.
+fn undeclared_member(
+    value: &serde_json::Value,
+    schema: &FieldSchema,
+    stored: &[&serde_json::Value],
+    at: &mut Vec<PathSegment>,
+) -> bool {
+    if let (FieldType::Array, Some(items)) = (&schema.r#type, schema.items.as_deref()) {
+        let stored: Vec<&serde_json::Value> = stored
+            .iter()
+            .flat_map(|s| s.as_array().into_iter().flatten())
+            .collect();
+        let elements = match value.as_array() {
+            Some(elements) => elements.iter().collect(),
+            None => vec![value],
+        };
+        for (index, element) in elements.into_iter().enumerate() {
+            at.push(PathSegment::Index(index));
+            if undeclared_member(element, items, &stored, at) {
+                return true;
+            }
+            at.pop();
+        }
+        return false;
+    }
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    let declared = |key: &str| -> Option<&FieldSchema> {
+        if schema.is_variant_bearing() {
+            schema.variant_field(key)
+        } else {
+            schema.namespace_props()?.get(key).map(Box::as_ref)
+        }
+    };
+    if !schema.is_variant_bearing() && schema.namespace_props().is_none() {
+        return false;
+    }
+    for (key, member) in object {
+        if member.is_null() || (schema.is_variant_bearing() && key == VARIANT_DISCRIMINANT_KEY) {
+            continue;
+        }
+        at.push(PathSegment::Key(key.clone()));
+        let below: Vec<&serde_json::Value> = stored.iter().filter_map(|s| s.get(key)).collect();
+        let undeclared = match declared(key) {
+            Some(child) => undeclared_member(member, child, &below, at),
+            None => !below.contains(&member),
+        };
+        if undeclared {
+            return true;
+        }
+        at.pop();
+    }
+    false
 }
 
 /// The anchor-preserving twin of [`commit_impl`], shared by the writers'
@@ -439,7 +528,9 @@ where
     let mut warnings = Vec::new();
     for (name, value) in fields {
         match fields_schema.and_then(|m| m.get(&name)) {
-            Some(schema) => match resolve_field_write(&name, &value, schema, base) {
+            Some(schema) => match check_members(card, &name, &value, schema)
+                .and_then(|()| resolve_field_write(&name, &value, schema, base))
+            {
                 Ok((stored, drops)) => {
                     warnings.extend(drops);
                     resolved.push((name, stored));
@@ -1033,6 +1124,154 @@ card_kinds:
                 ),
                 ("conform::field_decode", Some("cards.note[0].blurb"), None),
             ]
+        );
+    }
+
+    const MEMBERS_YAML: &str = "\
+quill:
+  name: memo
+  backend: typst
+  version: 1.0.0
+  description: Member test quill
+main:
+  fields:
+    signer:
+      type: object
+      properties:
+        name:
+          type: text
+        rank:
+          type: text
+    classification:
+      type: enum
+      values: [UNCLASSIFIED, CUI]
+      variants:
+        CUI:
+          controlled_by:
+            type: text
+    signers:
+      type: array
+      items:
+        type: object
+        properties:
+          name:
+            type: text
+";
+
+    fn members() -> QuillConfig {
+        QuillConfig::from_yaml(MEMBERS_YAML).expect("valid quill")
+    }
+
+    fn json(v: serde_json::Value) -> QuillValue {
+        QuillValue::from_json(v)
+    }
+
+    fn unknown_at(err: &EditError) -> (&str, &[PathSegment]) {
+        match err {
+            EditError::UnknownField { field, at } => (field, at),
+            other => panic!("expected edit::unknown_field, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn set_refuses_a_member_its_group_does_not_declare() {
+        let config = members();
+        let mut doc = blank_doc();
+        let mut w = TypedWriter::new(&config, &mut doc);
+        let err = w
+            .set(
+                "signer",
+                json(serde_json::json!({"name": "J. Doe", "grade": "O-3"})),
+            )
+            .unwrap_err();
+        assert_eq!(
+            unknown_at(&err),
+            ("signer", &[PathSegment::Key("grade".into())][..])
+        );
+        let err = w
+            .set(
+                "signers",
+                json(serde_json::json!([{"name": "A"}, {"name": "B", "rank": "x"}])),
+            )
+            .unwrap_err();
+        assert_eq!(
+            unknown_at(&err),
+            (
+                "signers",
+                &[PathSegment::Index(1), PathSegment::Key("rank".into())][..]
+            )
+        );
+        assert!(doc.main().payload().get("signer").is_none());
+        assert!(doc.main().payload().get("signers").is_none());
+    }
+
+    #[test]
+    fn set_refuses_a_member_no_world_declares() {
+        let config = members();
+        let mut doc = blank_doc();
+        let mut w = TypedWriter::new(&config, &mut doc);
+        let err = w
+            .set(
+                "classification",
+                json(serde_json::json!({"level": "CUI", "controlled_by": "123 CS"})),
+            )
+            .unwrap_err();
+        assert_eq!(
+            unknown_at(&err),
+            ("classification", &[PathSegment::Key("level".into())][..])
+        );
+        w.set(
+            "classification",
+            json(serde_json::json!({"value": "UNCLASSIFIED", "controlled_by": "123 CS"})),
+        )
+        .expect("a dormant world's member is declared");
+    }
+
+    #[test]
+    fn set_all_refuses_an_undeclared_member_with_the_batch() {
+        let config = members();
+        let mut doc = blank_doc();
+        let mut w = TypedWriter::new(&config, &mut doc);
+        let errs = w
+            .set_all([
+                ("signer", json(serde_json::json!({"name": "A"}))),
+                (
+                    "classification",
+                    json(serde_json::json!({"value": "CUI", "poc": "x"})),
+                ),
+            ])
+            .unwrap_err();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].0, "classification");
+        assert!(doc.main().payload().get("signer").is_none());
+    }
+
+    #[test]
+    fn set_carries_a_stored_unclaimed_member_forward_unchanged() {
+        let config = members();
+        let mut doc = blank_doc();
+        doc.unchecked()
+            .store_field(
+                None,
+                "signer",
+                json(serde_json::json!({"name": "A", "grade": "O-3"})),
+            )
+            .unwrap();
+        let mut w = TypedWriter::new(&config, &mut doc);
+        w.set(
+            "signer",
+            json(serde_json::json!({"name": "B", "grade": "O-3"})),
+        )
+        .expect("the unclaimed member rides unchanged");
+        let err = w
+            .set(
+                "signer",
+                json(serde_json::json!({"name": "B", "grade": "O-4"})),
+            )
+            .unwrap_err();
+        assert_eq!(
+            unknown_at(&err),
+            ("signer", &[PathSegment::Key("grade".into())][..])
         );
     }
 }
