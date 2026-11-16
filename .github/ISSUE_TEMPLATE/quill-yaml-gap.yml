@@ -1,0 +1,31 @@
+name: Quill.yaml can't say it
+description: Your quill needed something Quill.yaml has no way to declare.
+labels: ["enhancement"]
+body:
+  - type: input
+    id: quill
+    attributes:
+      label: Quill
+      description: "The quill's `name@version`, with a link if it is public."
+  - type: textarea
+    id: needed
+    attributes:
+      label: What the quill needed
+      description: The field, constraint, default or behavior you wanted the form or the document to have.
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried in Quill.yaml
+      description: The declarations you wrote, and the diagnostic or behavior you got from each.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Your workaround
+      description: What you do instead today (in the plate, in the document, or outside Quillmark), or that there is none.
+    validations:
+      required: true
