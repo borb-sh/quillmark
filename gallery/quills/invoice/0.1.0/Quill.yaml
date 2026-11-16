@@ -1,0 +1,133 @@
+# yaml-language-server: $schema=https://quillmark.dev/schemas/quill.schema.json
+quill:
+  name: invoice
+  version: 0.1.0
+  backend: typst
+  description: A one-page invoice with line items, tax and payment details
+  license: CC0-1.0
+
+main:
+  title: Invoice
+  description: A bill for work done or goods sold, with what is owed and how to pay it.
+  body:
+    description: Notes for the client, printed under the totals. Leave blank for none.
+    example: |
+      Thank you for your business. Payment by bank transfer is preferred; please quote the invoice number as the reference.
+  fields:
+    number:
+      type: text
+      title: Invoice number
+      max: 24
+      example: INV-2026-0147
+      description: Your reference for this invoice, printed in the header and quoted back on payment.
+    issued:
+      type: date
+      title: Date issued
+      default: today
+      example: 2026-11-02
+    terms:
+      type: enum
+      title: Payment terms
+      values: [due_on_receipt, net_15, net_30, net_60, due_on_date]
+      default: net_30
+      example: net_30
+      description: When payment is due. Net 30 means thirty days after the date issued.
+      variants:
+        due_on_date:
+          due:
+            type: date
+            title: Due date
+    currency:
+      type: enum
+      values: [USD, EUR, GBP, CAD, AUD, JPY]
+      default: USD
+      example: USD
+      description: Every amount on the invoice is in this currency.
+    items:
+      type: array
+      title: Line items
+      max: 20
+      ui:
+        layout: table
+      example:
+        - { description: Translation of Menabrea's paper, quantity: 12, unit_price: 85 }
+        - { description: Notes A to G, quantity: 30.5, unit_price: 85 }
+        - { description: Fair copy and postage, quantity: 1, unit_price: 14.6 }
+      items:
+        type: object
+        properties:
+          description:
+            type: text
+            description: A row with no unit price prints its description alone.
+            example: Translation of Menabrea's paper
+          quantity:
+            type: number
+            default: 1
+            example: 12
+          unit_price:
+            type: number?
+            title: Unit price
+            example: 85
+    tax_rate:
+      type: number?
+      title: Tax rate (%)
+      example: 20
+      description: A percentage, so 20 for 20%. Leave blank for no tax line; 0 prints a 0% line.
+    client:
+      type: object
+      title: Bill to
+      properties:
+        name:
+          type: text
+          example: Analytical Engines Ltd
+        address:
+          type: text
+          shape: lines
+          example: |
+            1 Dorset Street
+            London W1U 4EG
+        reference:
+          type: text
+          title: PO number
+          example: PO-88213
+          description: The client's purchase order number, if they gave you one.
+    seller:
+      type: object
+      title: From
+      description: You, as the client should see you.
+      properties:
+        name:
+          type: text
+          example: Ada Lovelace Consulting
+        address:
+          type: text
+          shape: lines
+          example: |
+            12 St James's Square
+            London SW1Y 4JH
+        email:
+          type: text
+          example: billing@lovelace.example
+        tax_id:
+          type: text
+          title: Tax ID
+          example: GB 123 4567 89
+          description: VAT, EIN or ABN, as your jurisdiction requires. Leave blank for none.
+    payment:
+      type: object
+      title: How to pay
+      properties:
+        account_name:
+          type: text
+          example: Ada Lovelace Consulting
+        bank:
+          type: text
+          example: Coutts & Co
+        account:
+          type: text
+          title: Account number / IBAN
+          example: GB33 BUKB 2020 1555 5555 55
+        routing:
+          type: text
+          title: Sort code / routing / SWIFT
+          example: 18-00-02

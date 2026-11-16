@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=https://quillmark.dev/schemas/quill.schema.json
+quill:
+  name: certificate
+  version: 0.1.0
+  backend: typst
+  description: A landscape certificate of completion or achievement, one page per recipient
+  license: CC0-1.0 AND OFL-1.1
+
+main:
+  title: Certificate
+  description: A certificate awarded to one or more people, each on a page of their own.
+  body:
+    enabled: false
+  fields:
+    heading:
+      type: text
+      max: 40
+      example: Certificate of Completion
+      description: The line across the top, such as Certificate of Completion. Leave blank for Certificate alone.
+    recipients:
+      type: array
+      max: 200
+      items:
+        type: text
+        max: 60
+      example: [Grace Hopper, Katherine Johnson]
+      description: Each name prints on its own page, as it should read on the certificate.
+    citation:
+      type: richtext
+      shape: lines
+      max: 240
+      example: for completing *Numerical Methods for Navigation*, forty hours of instruction and a final examination, with distinction.
+      description: The line under the name, saying what it is for. It reads after the name, so start in lower case with for.
+    issued:
+      type: date
+      title: Date
+      default: today
+      example: 2026-06-12
+    issuer:
+      type: text
+      title: Awarded by
+      example: The Analytical Society
+      description: The organization awarding it, printed under the citation.
+    certificate_id:
+      type: text
+      title: Certificate number
+      example: AS-2026-0412
+      description: Printed small in the corner. Each recipient's page adds its position, as AS-2026-0412-1. Leave blank for none.
+    signatories:
+      type: array
+      max: 3
+      title: Signed by
+      description: Each gets a signature line with their name and role under it.
+      ui:
+        layout: table
+      items:
+        type: object
+        properties:
+          name:
+            type: text
+            example: Ada Lovelace
+          role:
+            type: text
+            example: President
+    seal:
+      type: enum
+      values: [gold, navy, crimson]
+      example: gold
+      description: A seal printed beside the signatures. Leave unset for none.
+    paper:
+      type: enum
+      values: [us-letter, a4]
+      default: us-letter
