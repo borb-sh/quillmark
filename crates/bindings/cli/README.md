@@ -4,6 +4,8 @@
 
 Maintained by [borb-sh](https://github.com/borb-sh).
 
+Quillmark is pre-1.0. Its [stability statement](https://github.com/borb-sh/quillmark#status) says what any release can change and what every release keeps.
+
 ## Installation
 
 Prebuilt binaries are on each [GitHub Release](https://github.com/borb-sh/quillmark/releases), and `cargo install quillmark-cli --locked` builds from source. The [CLI reference](https://quillmark.dev/cli/reference/#installation) has the other routes and what `quillmark --version` prints.
