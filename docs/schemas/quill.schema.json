@@ -694,8 +694,7 @@
         "layout": {
           "description": "The control the field asks for.",
           "enum": [
-            "table",
-            "flat"
+            "table"
           ]
         },
         "blank_title": {

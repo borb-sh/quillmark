@@ -70,31 +70,6 @@ fn json_content_under_form_yaml_reads_as_the_fixture_does() {
 }
 
 #[test]
-fn a_legacy_spec_is_refused_with_or_without_a_form_yaml() {
-    for (file, spec, code) in [
-        ("form.json", fixture_as_json(), "acroform::legacy_form_json"),
-        (
-            "form.yaml",
-            fixture_form_yaml(),
-            "acroform::legacy_form_yaml",
-        ),
-    ] {
-        let alone = open_err(sample_form_with(&[(file, &spec)]));
-        assert_eq!(alone.code.as_deref(), Some(code));
-        let hint = alone.hint.expect("names the fix");
-        assert!(
-            hint.contains(&format!("Rename `{file}` to `Form.yaml`")),
-            "{hint}"
-        );
-
-        let both = open_err(sample_form_with(&[("Form.yaml", &spec), (file, &spec)]));
-        assert_eq!(both.code.as_deref(), Some(code));
-        let hint = both.hint.expect("names the fix");
-        assert!(hint.starts_with("Keep one"), "{hint}");
-    }
-}
-
-#[test]
 fn a_quill_without_form_yaml_is_missing_its_spec() {
     let diag = open_err(sample_form_with(&[]));
     assert_eq!(diag.code.as_deref(), Some("acroform::missing_form_spec"));

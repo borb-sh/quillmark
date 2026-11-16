@@ -148,8 +148,6 @@ A YAML error, one of those three, or a key missing from an entry fails the load 
 !!! warning "Quote text holding ` #` or `: `"
     An unquoted ` #` starts a comment, so `tooltip: Box 14b #2` reads as `Box 14b` with no error, and an unquoted `: ` fails the load. Quote such a value: `tooltip: "Box 14b #2"`.
 
-A quill holding `form.json` or a lowercase `form.yaml`, beside `Form.yaml` or in its place, fails to load as `acroform::legacy_form_json` or `acroform::legacy_form_yaml`; rename the file to `Form.yaml`, contents unchanged.
-
 Note what is **absent** from the bound fields: no `type`, `options`, or `multiline`. `FullName` is a text box because `full_name` is a `text`; `Agree` is a checkbox because `agree` is a `boolean`; `FavoriteColor` is a dropdown whose options are the schema field's `enum` values; `Comments` is a multi-line text box because `comments` is a scalar array, one element per line. The two files cannot drift, because there is only one source of truth.
 
 ### Bound-field keys (`fields`)

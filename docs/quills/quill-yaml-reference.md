@@ -912,12 +912,6 @@ all; the contract decided that at load. Nothing else reads the key: the plate,
 document validation and the authoring schema are all deliberately inert on it, and `schema()`
 echoes it verbatim for the editor to find.
 
-`flat` is deprecated and warns `quill::deprecated_flat`, naming the field: an
-editor no longer honors it. A card's top-level `object` is already a panel whose
-properties stand flat inside it, and a nested one draws as a subform. It still
-loads where it loaded, an `object` other than an array's element, and is
-`quill::invalid_ui` anywhere else.
-
 ### A row's label
 
 A consumer labels a collapsed row from its own values, the first property

@@ -17,9 +17,6 @@ pub enum FieldLayout {
     /// (`quill::invalid_ui`), and a contract that every column is a
     /// [`FieldType::is_leaf`] type (`quill::table_column_not_leaf`).
     Table,
-    /// Deprecated (`quill::deprecated_flat`): an editor honors it nowhere. Valid
-    /// only on an `object` that is not an array's element (`quill::invalid_ui`).
-    Flat,
 }
 
 /// A field's `ui:` block.
@@ -545,25 +542,10 @@ impl Serialize for FieldType {
 }
 
 fn unknown_type<E: serde::de::Error>(token: &str) -> E {
-    let retired = match token.trim().trim_end_matches('?') {
-        "plaintext" => Some(
-            "type: plaintext is now type: text, one line by default; \
-             add shape: lines where the field takes more than one line",
-        ),
-        "string" => Some(
-            "type: string is retired: declare type: text (shape: lines where the \
-             field takes more than one line), and read it in the plate as a str \
-             with qm.str(..)",
-        ),
-        _ => None,
-    };
-    match retired {
-        Some(message) => E::custom(message),
-        None => E::custom(format!(
-            "unknown field type: {token:?}; expected one of {}",
-            FieldType::NAMES.join(", ")
-        )),
-    }
+    E::custom(format!(
+        "unknown field type: {token:?}; expected one of {}",
+        FieldType::NAMES.join(", ")
+    ))
 }
 
 impl<'de> Deserialize<'de> for FieldType {
@@ -797,7 +779,6 @@ impl FieldSchema {
     /// returns, and only the pair produces a schema of the shape the rest of
     /// this module reads.
     pub(crate) fn from_quill_value(key: String, value: &QuillValue) -> Result<Self, String> {
-        Self::reject_retired_keys(value.as_json())?;
         let def: FieldSchemaDef = serde_json::from_value(value.clone().into_json())
             .map_err(|e| format!("Failed to parse field schema: {}", e))?;
         // The sole sync point for `shape:` and `values:`: past here the type
@@ -1044,35 +1025,6 @@ impl FieldSchema {
                 .unwrap_or_else(|| EMPTY.get_or_init(IndexMap::new)),
             _ => EMPTY.get_or_init(IndexMap::new),
         }
-    }
-
-    /// Refuse the keys the text types' line shape retired, each naming its
-    /// replacement: `inline:` (one line is the default) and `ui.multiline`
-    /// (the shape is the field's `shape:`).
-    fn reject_retired_keys(value: &serde_json::Value) -> Result<(), String> {
-        let Some(def) = value.as_object() else {
-            return Ok(());
-        };
-        if def.contains_key("inline") {
-            return Err(
-                "inline: is retired: text and richtext are one line by default; \
-                        drop inline: true, and write inline: false as shape: lines \
-                        or shape: blocks"
-                    .to_string(),
-            );
-        }
-        let ui_multiline = def
-            .get("ui")
-            .and_then(|ui| ui.as_object())
-            .is_some_and(|ui| ui.contains_key("multiline"));
-        if ui_multiline {
-            return Err(
-                "ui.multiline is retired: declare shape: lines on the field \
-                        itself (type: text or type: richtext), or delete it on any other type"
-                    .to_string(),
-            );
-        }
-        Ok(())
     }
 
     /// Fold the sibling `shape:` key into a text type's payload, or its

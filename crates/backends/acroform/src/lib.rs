@@ -35,11 +35,6 @@ use hayro::{RenderCache, RenderSettings, render_into};
 use std::sync::Arc;
 
 const FORM_PDF: &str = "form.pdf";
-/// The names a field spec once had, each refused under its own code, never read.
-const LEGACY_SPECS: [(&str, &str); 2] = [
-    ("form.json", "acroform::legacy_form_json"),
-    ("form.yaml", "acroform::legacy_form_yaml"),
-];
 
 const SUPPORTED_FORMATS: &[OutputFormat] = &[OutputFormat::Pdf];
 
@@ -127,32 +122,9 @@ fn read_form(source: &Quill) -> Result<Form, RenderError> {
     })
 }
 
-/// `Form.yaml`'s bytes. A quill holding a spec under a name it once had, alone
-/// or beside `Form.yaml`, is refused: no file is ever chosen silently.
+/// `Form.yaml`'s bytes.
 fn form_spec_bytes(files: &FileTreeNode) -> Result<&[u8], RenderError> {
-    let spec = files.get_file(FORM_YAML);
-    if let Some(&(legacy, code)) = LEGACY_SPECS
-        .iter()
-        .find(|(name, _)| files.get_file(name).is_some())
-    {
-        return Err(match spec {
-            None => RenderError::coded_hint(
-                code,
-                format!(
-                    "acroform quill ships its field spec as `{legacy}`; the backend reads `{FORM_YAML}`"
-                ),
-                format!("Rename `{legacy}` to `{FORM_YAML}`; the contents are valid as-is."),
-            ),
-            Some(_) => RenderError::coded_hint(
-                code,
-                format!(
-                    "acroform quill ships both `{FORM_YAML}` and `{legacy}`; the backend reads `{FORM_YAML}` alone"
-                ),
-                format!("Keep one: delete `{legacy}`, or rename it over `{FORM_YAML}`."),
-            ),
-        });
-    }
-    spec.ok_or_else(|| {
+    files.get_file(FORM_YAML).ok_or_else(|| {
         RenderError::coded_hint(
             "acroform::missing_form_spec",
             format!("acroform quill is missing its `{FORM_YAML}` field spec"),
