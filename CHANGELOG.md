@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.139.0 - 2026-11-15
+
+Upgrade path: [0.138 → 0.139](docs/migrations/0.138-to-0.139.md). The typed
+writer refuses a member a typed dictionary's `properties`, or every world of a
+variant-bearing enum, leaves undeclared, as `edit::unknown_field` at the
+member, where it stored a value nothing drew or rendered. A member the stored
+value already carries, equal, still lands.
+
+- fix(writer)!: the typed writer refuses a member its group or variant leaves undeclared (#2487)
+
 ## v0.138.0 - 2026-11-13
 
 Upgrade path: [0.137 → 0.138](docs/migrations/0.137-to-0.138.md). A newline
