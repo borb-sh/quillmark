@@ -1143,18 +1143,6 @@ impl QuillConfig {
         // A table draws one row per element and one column per property. The key
         // is a request to draw a grid and a contract that every column is a leaf:
         // the shape is refused here, so a consumer declines on capability alone.
-        if schema.ui.as_ref().and_then(|u| u.layout) == Some(FieldLayout::Flat)
-            && schema.r#type != FieldType::Object
-        {
-            return err(
-                "quill::invalid_ui",
-                format!(
-                    "Field '{owner}' sets ui.layout: flat but is not type: object. Flat \
-                     hands a typed dictionary's properties to the field list around it, \
-                     so declare type: object with properties: …, or drop the key."
-                ),
-            );
-        }
         if schema.ui.as_ref().and_then(|u| u.layout) == Some(FieldLayout::Table) {
             let row = matches!(schema.r#type, FieldType::Array)
                 .then(|| schema.items.as_deref())
@@ -1356,16 +1344,6 @@ impl QuillConfig {
                             "Field '{owner}[]' declares a title. An element takes none: \
                              the array's own title names the list, and a consumer labels \
                              each element from its own values."
-                        ),
-                    );
-                }
-                if items.ui.as_ref().and_then(|u| u.layout) == Some(FieldLayout::Flat) {
-                    return err(
-                        "quill::invalid_ui",
-                        format!(
-                            "Field '{owner}[]' sets ui.layout: flat on an array's element. \
-                             An element is a row of its own, with no field list around it \
-                             for its properties to join: drop the key."
                         ),
                     );
                 }
@@ -2277,22 +2255,6 @@ impl QuillConfig {
         )
     }
 
-    fn deprecated_flat(label: &str, owner: &str) -> Diagnostic {
-        Diagnostic::new(
-            Severity::Warning,
-            format!(
-                "Field '{owner}' on '{label}' sets `ui.layout: flat`, which an editor no \
-                 longer honors."
-            ),
-        )
-        .with_code("quill::deprecated_flat".to_string())
-        .with_hint(
-            "Drop the key. A card's top-level `object` is its own panel, the panel being \
-             its frame; a nested one draws as a subform."
-                .to_string(),
-        )
-    }
-
     /// The first card-level field standing after a panel, a panel being a
     /// top-level `object` or a `ui.group`, where the field is neither. An
     /// editor draws such a field above every panel, so declaration order and
@@ -2922,11 +2884,6 @@ impl QuillConfig {
         }
 
         for (label, card) in &labeled {
-            let mut flat = Vec::new();
-            for (name, field) in &card.fields {
-                flat_paths(field, name, &mut flat);
-            }
-            warnings.extend(flat.iter().map(|owner| Self::deprecated_flat(label, owner)));
             if !uses_groups(card) {
                 continue;
             }
@@ -3062,27 +3019,6 @@ fn spells_ui_title(field: &serde_json::Value) -> bool {
             .filter_map(|world| world.as_object())
             .flat_map(|world| world.values())
             .any(spells_ui_title)
-}
-
-/// The field-name path (`letterhead.seal`) of every field in `field`'s type
-/// tree setting `ui.layout: flat`, `owner` naming `field` itself.
-fn flat_paths(field: &FieldSchema, owner: &str, out: &mut Vec<String>) {
-    if field.ui.as_ref().and_then(|ui| ui.layout) == Some(FieldLayout::Flat) {
-        out.push(owner.to_string());
-    }
-    let cells = field.properties.iter().flatten().chain(
-        field
-            .variants
-            .iter()
-            .flat_map(|variants| variants.values())
-            .flatten(),
-    );
-    for (name, child) in cells {
-        flat_paths(child, &format!("{owner}.{name}"), out);
-    }
-    if let Some(items) = &field.items {
-        flat_paths(items, &format!("{owner}[]"), out);
-    }
 }
 
 /// The field-name path (`rows[].quals`) of the first open matrix in `field`'s

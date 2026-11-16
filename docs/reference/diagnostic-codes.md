@@ -70,7 +70,6 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::default_over_length`
 - `quill::default_over_max`
 - `quill::default_type_mismatch`
-- `quill::deprecated_flat`
 - `quill::deprecated_groups`
 - `quill::deprecated_multiline`
 - `quill::deprecated_license`
@@ -237,8 +236,6 @@ Opening an `acroform` quill and binding `Form.yaml`.
 - `acroform::invalid_field_rect`
 - `acroform::invalid_form_spec`
 - `acroform::invalid_option`
-- `acroform::legacy_form_json`
-- `acroform::legacy_form_yaml`
 - `acroform::missing_form_pdf`
 - `acroform::missing_form_spec`
 - `acroform::stamped_parse_failed`

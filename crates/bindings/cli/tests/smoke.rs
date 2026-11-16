@@ -277,7 +277,7 @@ fn validate_without_rendering_refuses_a_plate_a_render_refuses() {
 }
 
 /// `validate --no-render` reads an acroform quill's `Form.yaml` as `open`
-/// does: one held as `form.json`, absent, or unparseable fails it.
+/// does: one absent or unparseable fails it.
 #[test]
 fn validate_without_rendering_refuses_a_form_spec_a_render_refuses() {
     let form = quillmark_fixtures::quills_path("sample_form");
@@ -299,7 +299,6 @@ fn validate_without_rendering_refuses_a_form_spec_a_render_refuses() {
         "--no-render",
     ]);
     for (spec, code) in [
-        (Some(("form.json", &spec[..])), "acroform::legacy_form_json"),
         (None, "acroform::missing_form_spec"),
         (
             Some(("Form.yaml", &b"fields: [\n"[..])),

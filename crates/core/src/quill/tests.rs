@@ -1355,21 +1355,15 @@ fn enum_blank_ignores_a_declared_blank_member() {
 }
 
 /// A declaration the field grammar does not admit, including the retired keys
-/// `must_fill`, `enum` and `ui.order`, which `deny_unknown_fields` refuses
-/// rather than a named arm, the retired `string` and `plaintext` types and
-/// `inline` and `ui.multiline` keys, a shape outside the three, a `text` of
-/// blocks, a shape on a type that takes none, and a shape its legacy
+/// `must_fill`, `enum` and `ui.order` and the layout `flat`, which `deny_unknown_fields` refuses
+/// rather than a named arm, an unknown type, a shape outside the three, a
+/// `text` of blocks, a shape on a type that takes none, and a shape its legacy
 /// `multiline` contradicts.
 #[test]
 fn a_declaration_outside_the_field_grammar_is_a_field_parse_error() {
     for field in [
         "    f:\n      description: no type\n",
-        "    f:\n      type: markdown\n",
-        "    f:\n      type: richtext(inline)\n",
-        "    f:\n      type: string\n",
-        "    f:\n      type: plaintext\n",
-        "    f:\n      type: text\n      inline: true\n",
-        "    f:\n      type: text\n      ui: { multiline: true }\n",
+        "    f:\n      type: colour\n",
         "    f:\n      type: richtext\n      shape: paragraphs\n",
         "    f:\n      type: text\n      shape: blocks\n",
         "    f:\n      type: number\n      shape: lines\n",
@@ -1379,6 +1373,7 @@ fn a_declaration_outside_the_field_grammar_is_a_field_parse_error() {
         "    f:\n      type: text\n      must_fill: true\n",
         "    f:\n      type: text\n      enum: [a, b]\n",
         "    f:\n      type: text\n      ui: { order: 3 }\n",
+        "    f:\n      type: object\n      ui: { layout: flat }\n      properties:\n        g: { type: text }\n",
     ] {
         let err = quill_with_field(field).expect_err(field);
         assert!(
@@ -1388,32 +1383,15 @@ fn a_declaration_outside_the_field_grammar_is_a_field_parse_error() {
     }
 }
 
-/// Each retired line-shape or type spelling names what to write instead.
+/// A `text` of blocks names the type that holds them.
 #[test]
-fn a_retired_spelling_names_its_replacement() {
-    for (field, replacement) in [
-        ("    f:\n      type: string\n", "type: text"),
-        ("    f:\n      type: plaintext\n", "type: text"),
-        ("    f:\n      type: string?\n", "type: text"),
-        (
-            "    f:\n      type: text\n      inline: true\n",
-            "drop inline: true",
-        ),
-        (
-            "    f:\n      type: text\n      ui: { multiline: true }\n",
-            "shape: lines",
-        ),
-        (
-            "    f:\n      type: text\n      shape: blocks\n",
-            "type: richtext",
-        ),
-    ] {
-        let err = quill_with_field(field).expect_err(field);
-        assert!(
-            err.iter().any(|d| d.message.contains(replacement)),
-            "{field} should name `{replacement}`: {err:?}"
-        );
-    }
+fn a_text_of_blocks_names_richtext() {
+    let field = "    f:\n      type: text\n      shape: blocks\n";
+    let err = quill_with_field(field).expect_err(field);
+    assert!(
+        err.iter().any(|d| d.message.contains("type: richtext")),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -1910,56 +1888,6 @@ fn ui_layout_table_loads_on_a_typed_table_and_is_refused_elsewhere() {
         assert!(
             has_code(&err, "quill::invalid_ui"),
             "{label}: expected quill::invalid_ui, got {err:?}"
-        );
-    }
-}
-
-/// Flat loads, warning, on an `object` wherever one stands in a field list, and
-/// is refused on an array's element, whose row has none around it.
-#[test]
-fn ui_layout_flat_loads_on_a_typed_dictionary_and_is_refused_elsewhere() {
-    let (config, warnings) = QuillConfig::from_yaml_with_warnings(&with_header(
-        "main:\n  fields:\n    quals:\n      type: object\n      ui:\n        layout: flat\n      \
-         properties:\n        home:\n          type: object\n          ui: { layout: flat }\n          \
-         properties:\n            city: { type: text }\n",
-    ))
-    .expect("a card field and a property may each go flat");
-    let deprecated: Vec<_> = warnings
-        .iter()
-        .filter(|d| d.code.as_deref() == Some("quill::deprecated_flat"))
-        .map(|d| d.message.as_str())
-        .collect();
-    assert!(
-        deprecated.len() == 2 && deprecated[1].contains("'quals.home'"),
-        "each flat field warns by its path: {deprecated:?}"
-    );
-    assert_eq!(
-        config.schema()["main"]["fields"]["quals"]["ui"]["layout"],
-        serde_json::json!("flat")
-    );
-
-    for (label, field) in [
-        (
-            "an array's element",
-            "    rows:\n      type: array\n      items:\n        type: object\n        \
-             ui: { layout: flat }\n        properties:\n          city: { type: text }\n",
-        ),
-        (
-            "an array",
-            "    rows:\n      type: array\n      ui:\n        layout: flat\n      \
-             items: { type: text }\n",
-        ),
-        (
-            "a scalar",
-            "    title:\n      type: text\n      ui:\n        layout: flat\n",
-        ),
-    ] {
-        let err = quill_with_field(field).expect_err(label);
-        assert!(
-            err.iter()
-                .any(|d| d.code.as_deref() == Some("quill::invalid_ui")
-                    && d.message.contains("ui.layout: flat")),
-            "{label}: expected the flat refusal, got {err:?}"
         );
     }
 }

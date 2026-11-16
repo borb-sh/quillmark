@@ -154,8 +154,8 @@ here, which is the contract every plate is bound by. A Typst
 quill's plate is found as a render finds it, under `--no-render` too, so a
 quill holding no plate fails as `typst::plate_missing`. An acroform quill's
 `Form.yaml` is read and bound against the schema and `form.pdf`'s pages as a
-render reads it, under `--no-render` too, so a quill holding `form.json`, no
-spec, or a spec that does not parse fails as it would at `open`.
+render reads it, under `--no-render` too, so a quill holding no `Form.yaml`,
+or a spec that does not parse, fails as it would at `open`.
 
 A quill declaring examples has its [example document](../quills/quill-yaml-reference.md#example-document) derived, validated, and rendered too. Any diagnostic on it fails the quill, a warning included (`cli::example_not_clean`): the example's values are the author's own, so a warning there is a mistake to fix. `--no-render` still derives and validates it. `--verbose` says whether the quill declares an example.
 
