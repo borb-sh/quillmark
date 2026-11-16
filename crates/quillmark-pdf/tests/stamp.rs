@@ -5,6 +5,8 @@
 
 use std::collections::HashMap;
 
+use lopdf::dictionary;
+
 use quillmark_pdf::testkit::BasePdf;
 use quillmark_pdf::{
     AppearanceStates, CHECKBOX_ON_STATE, FieldSpec, FieldType, StampOptions, regions_of, stamp,
@@ -1074,5 +1076,129 @@ fn on_a_tagged_base_every_widget_kids_included_is_a_form_element_under_the_top_e
 fn an_untagged_base_stays_untagged() {
     let (doc, _, widgets) = stamped(&all_four_fields());
     assert!(doc.catalog().unwrap().get(b"StructTreeRoot").is_err());
+    assert!(widgets.values().all(|w| w.get(b"StructParent").is_err()));
+}
+
+/// A tagged base whose `Document` element holds two `P` kids, reshaped by
+/// `edit(doc, root, document, [p1, p2])` and saved with a classic xref.
+fn reshaped_tagged_base(
+    edit: impl FnOnce(&mut lopdf::Document, lopdf::ObjectId, lopdf::ObjectId, [lopdf::ObjectId; 2]),
+) -> Vec<u8> {
+    use lopdf::Object;
+    let mut doc = lopdf::Document::load_mem(&BasePdf::letter(1).tagged().build()).unwrap();
+    let root = doc
+        .catalog()
+        .unwrap()
+        .get(b"StructTreeRoot")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let top = doc
+        .get_dictionary(root)
+        .unwrap()
+        .get(b"K")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let (_, page) = doc.get_pages().into_iter().next().unwrap();
+    let ps = [0, 1].map(|mcid| {
+        doc.add_object(dictionary! {
+            "Type" => "StructElem", "S" => "P", "P" => top, "Pg" => page, "K" => mcid,
+        })
+    });
+    doc.get_dictionary_mut(top)
+        .unwrap()
+        .set("K", ps.map(Object::Reference).to_vec());
+    doc.get_dictionary_mut(root).unwrap().set(
+        "ParentTree",
+        dictionary! { "Nums" => vec![0.into(), ps.map(Object::Reference).to_vec().into()] },
+    );
+    doc.get_dictionary_mut(root)
+        .unwrap()
+        .set("ParentTreeNextKey", 1);
+    edit(&mut doc, root, top, ps);
+    let mut out = Vec::new();
+    doc.save_to(&mut out).unwrap();
+    out
+}
+
+fn kids_of(doc: &lopdf::Document, id: lopdf::ObjectId) -> Vec<lopdf::Object> {
+    doc.get_dictionary(id)
+        .unwrap()
+        .get(b"K")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
+#[test]
+fn a_root_of_several_elements_takes_the_form_elements_itself() {
+    let mut root_id = (0, 0);
+    let base = reshaped_tagged_base(|doc, root, _, ps| {
+        root_id = root;
+        doc.get_dictionary_mut(root)
+            .unwrap()
+            .set("K", ps.map(lopdf::Object::Reference).to_vec());
+    });
+    let fields = all_four_fields();
+    let doc = lopdf::Document::load_mem(&stamp(base, &fields, &StampOptions::default()).unwrap())
+        .unwrap();
+    let forms = form_elements_by_widget(&doc);
+    assert_eq!(forms.len(), fields.len());
+    for (_, form) in &forms {
+        assert_eq!(form.get(b"P").unwrap().as_reference().unwrap(), root_id);
+    }
+    assert_eq!(kids_of(&doc, root_id).len(), 2 + fields.len());
+}
+
+#[test]
+fn a_top_element_of_one_kid_keeps_it_first_among_the_form_elements() {
+    let (mut top_id, mut first) = ((0, 0), (0, 0));
+    let base = reshaped_tagged_base(|doc, _, top, [p1, _]| {
+        (top_id, first) = (top, p1);
+        doc.get_dictionary_mut(top).unwrap().set("K", p1);
+    });
+    let fields = all_four_fields();
+    let doc = lopdf::Document::load_mem(&stamp(base, &fields, &StampOptions::default()).unwrap())
+        .unwrap();
+    let forms = form_elements_by_widget(&doc);
+    assert_eq!(forms.len(), fields.len());
+    let kids = kids_of(&doc, top_id);
+    assert_eq!(kids.len(), 1 + fields.len());
+    assert_eq!(kids[0].as_reference().unwrap(), first);
+    for (_, form) in &forms {
+        assert_eq!(form.get(b"P").unwrap().as_reference().unwrap(), top_id);
+    }
+}
+
+#[test]
+fn a_parent_tree_of_kids_is_left_as_written_and_its_widgets_untagged() {
+    let mut root_id = (0, 0);
+    let base = reshaped_tagged_base(|doc, root, _, _| {
+        root_id = root;
+        let nums = doc
+            .get_dictionary(root)
+            .unwrap()
+            .get(b"ParentTree")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"Nums")
+            .unwrap()
+            .clone();
+        let leaf = doc.add_object(dictionary! {
+            "Limits" => vec![0.into(), 0.into()], "Nums" => nums,
+        });
+        doc.get_dictionary_mut(root)
+            .unwrap()
+            .set("ParentTree", dictionary! { "Kids" => vec![leaf.into()] });
+    });
+    let before = lopdf::Document::load_mem(&base).unwrap();
+    let (doc, _, widgets) = stamped_on(base, &all_four_fields());
+    assert_eq!(
+        doc.get_dictionary(root_id).unwrap(),
+        before.get_dictionary(root_id).unwrap()
+    );
     assert!(widgets.values().all(|w| w.get(b"StructParent").is_err()));
 }

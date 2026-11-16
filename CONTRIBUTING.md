@@ -4,6 +4,7 @@
 
 - A question, or an idea not yet a proposal: a blank issue.
 - A bug: an issue from the bug form, with the smallest document that reproduces it.
+- Something your quill needed that `Quill.yaml` cannot declare: an issue from the Quill.yaml form, with what you tried and your workaround.
 - A change larger than a fix: open an issue before the pull request. Before 1.0 most releases change the API, so agree on the shape before building it.
 
 ## Setup

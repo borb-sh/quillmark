@@ -6,7 +6,7 @@ use crate::error::PdfError;
 use crate::reader::{
     ObjectIndex, UpdatedObject, array_elements, parse_indirect_ref, set_dict_value,
 };
-use crate::writer::{alloc_id, append_refs_to_array_key, dict_object};
+use crate::writer::{alloc_id, dict_object};
 
 const CODE_TAG: &str = "pdf::struct_tree";
 
@@ -37,26 +37,35 @@ pub(crate) fn tag_widgets(
     idx.assert_overwrite_gen_zero(root_id, "/StructTreeRoot")?;
     let root = idx.dict(root_id, CODE_TAG, "/StructTreeRoot")?;
 
-    let top_value = idx
-        .value(root, "K")
-        .ok_or_else(|| err("/StructTreeRoot has no /K"))?;
-    let top_ref = match idx.resolve(top_value) {
-        Some(v) if v.trim_ascii().starts_with(b"[") => {
-            let mut kids = array_elements(v);
-            let first = kids
-                .next()
-                .ok_or_else(|| err("/StructTreeRoot /K is empty"))?;
-            if kids.next().is_some() {
-                return Err(err("/StructTreeRoot /K holds more than one element"));
+    // Forms join the root's one element, or the root itself when it holds
+    // none or several.
+    let top_id = match idx.value(root, "K") {
+        None => None,
+        Some(v) => match idx.resolve(v) {
+            Some(r) if r.trim_ascii().starts_with(b"[") => {
+                let mut kids = array_elements(r.trim_ascii());
+                match (kids.next(), kids.next()) {
+                    (Some(only), None) => Some(only),
+                    _ => None,
+                }
             }
-            first
-        }
-        _ => top_value,
+            _ => Some(v),
+        },
+    }
+    .map(|top_ref| {
+        let (top_id, _) = parse_indirect_ref(top_ref)
+            .ok_or_else(|| err("the top structure element is not an indirect reference"))?;
+        idx.assert_overwrite_gen_zero(top_id, "top structure element")?;
+        Ok::<_, PdfError>(top_id)
+    })
+    .transpose()?;
+    let (parent_id, parent) = match top_id {
+        Some(id) => (id, idx.dict(id, CODE_TAG, "top structure element")?),
+        None => (root_id, root),
     };
-    let (top_id, _) = parse_indirect_ref(top_ref)
-        .ok_or_else(|| err("the top structure element is not an indirect reference"))?;
-    idx.assert_overwrite_gen_zero(top_id, "top structure element")?;
-    let top = idx.dict(top_id, CODE_TAG, "top structure element")?;
+    if !takes_kids(idx, parent) {
+        return Ok(None);
+    }
 
     let (nums, inline_tree, tree_id) = match idx.value(root, "ParentTree") {
         None => (Vec::new(), true, None),
@@ -72,8 +81,9 @@ pub(crate) fn tag_widgets(
                     (inner, true, None)
                 }
             };
+            // A tree of `/Kids` is left as written, and its widgets untagged.
             if idx.value(dict, "Kids").is_some() {
-                return Err(err("/ParentTree with /Kids is not supported"));
+                return Ok(None);
             }
             let nums = idx
                 .value(dict, "Nums")
@@ -108,7 +118,7 @@ pub(crate) fn tag_widgets(
         let form_id = alloc_id(next_id)?;
         let key = first_key + at as i64;
         let mut elem = format!(
-            "/Type /StructElem /S /Form /P {top_id} 0 R /Pg {page_id} 0 R \
+            "/Type /StructElem /S /Form /P {parent_id} 0 R /Pg {page_id} 0 R \
              /K << /Type /OBJR /Obj {wid} 0 R /Pg {page_id} 0 R >>"
         )
         .into_bytes();
@@ -125,15 +135,15 @@ pub(crate) fn tag_widgets(
         struct_parents.push(key);
     }
 
-    objects.push(dict_object(
-        top_id,
-        &append_refs_to_array_key(idx, top, "K", &form_ids, CODE_TAG, |_| {
-            err("the top structure element's /K is not an inline array")
-        })?,
-    ));
+    let parent = with_kids(idx, parent, &form_ids);
+    let mut new_root = if top_id.is_some() {
+        objects.push(dict_object(parent_id, &parent));
+        root.to_vec()
+    } else {
+        parent
+    };
 
     let tree = format!("<< /Nums [{}] >>", String::from_utf8_lossy(&new_nums));
-    let mut new_root = root.to_vec();
     match (inline_tree, tree_id) {
         (false, Some(id)) => objects.push(dict_object(id, &tree.as_bytes()[2..tree.len() - 2])),
         _ => new_root = set_dict_value(&new_root, "ParentTree", tree.as_bytes()),
@@ -147,4 +157,45 @@ pub(crate) fn tag_widgets(
     objects.push(dict_object(root_id, &new_root));
 
     Ok(Some(Tagged { struct_parents }))
+}
+
+/// Whether `/K` can take more kids in place: absent, an inline array, or one
+/// kid. An array held in an object of its own is left as written.
+fn takes_kids(idx: &ObjectIndex, elem: &[u8]) -> bool {
+    match idx.value(elem, "K") {
+        None => true,
+        Some(v) if v.trim_ascii().starts_with(b"[") => true,
+        Some(v) => !idx
+            .resolve(v)
+            .is_some_and(|r| r.trim_ascii().starts_with(b"[")),
+    }
+}
+
+/// `elem` with `refs` appended to its `/K`, a lone kid becoming the array's
+/// first.
+fn with_kids(idx: &ObjectIndex, elem: &[u8], refs: &[u32]) -> Vec<u8> {
+    let mut kids = vec![b'['];
+    if let Some(existing) = idx.value(elem, "K") {
+        let t = existing.trim_ascii();
+        let inner = match t.strip_prefix(b"[") {
+            Some(rest) => {
+                rest[..rest.iter().rposition(|&b| b == b']').unwrap_or(rest.len())].trim_ascii()
+            }
+            None => t,
+        };
+        if !inner.is_empty() {
+            kids.extend_from_slice(inner);
+            // A `%` comment runs to the end of its line, so only a newline
+            // keeps the refs out of one.
+            kids.push(if inner.contains(&b'%') { b'\n' } else { b' ' });
+        }
+    }
+    let refs = refs
+        .iter()
+        .map(|r| format!("{r} 0 R"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    kids.extend_from_slice(refs.as_bytes());
+    kids.push(b']');
+    set_dict_value(elem, "K", &kids)
 }
