@@ -262,8 +262,9 @@ entrypoint = "lib.typ"
 | `version` | yes | `major.minor.patch` |
 | `entrypoint` | yes | The file the import evaluates, relative to the package directory |
 | `namespace` | no | Defaults to `local` |
+| `compiler` | no | The oldest Typst the package compiles under. An `#import` of a package declaring a newer Typst than the [embedded one](#typst-version) fails as `typst::compile`, naming both versions |
 
-No other key is read, `compiler` included: a package needing a newer Typst than the [embedded one](#typst-version) loads, then fails at the first feature that Typst lacks.
+No other key is read.
 
 A package's own `#import`s resolve the same way, so every package it depends on
 is vendored beside it. A package copied from Typst Universe ships a manifest
