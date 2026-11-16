@@ -4,6 +4,8 @@ WebAssembly bindings for Quillmark.
 
 Maintained by [borb-sh](https://github.com/borb-sh).
 
+Quillmark is pre-1.0. Its [stability statement](https://github.com/borb-sh/quillmark#status) says what any release can change and what every release keeps.
+
 ## Overview
 
 Quillmark in browsers and Node, over explicit in-memory trees

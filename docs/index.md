@@ -25,8 +25,9 @@ Quillmark is a schema-driven document framework. You define a document format on
 
 [Try it in the browser](https://borb-sh.github.io/quillmark-js/playground): edit a document and watch the page re-render.
 
-!!! warning "Pre-1.0"
-    The API changes between minor releases, and each breaking release ships a guide under [Migration](migrations/index.md). A document saved as [versioned JSON](integration/persistence.md) carries a version tag, and later releases migrate supported past versions forward on read.
+## Status
+
+--8<-- "README.md:status"
 
 ## Choose your path
 

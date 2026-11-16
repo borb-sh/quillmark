@@ -4,6 +4,8 @@ Python bindings for Quillmark, a schema-driven document framework.
 
 Maintained by [borb-sh](https://github.com/borb-sh).
 
+Quillmark is pre-1.0. Its [stability statement](https://github.com/borb-sh/quillmark#status) says what any release can change and what every release keeps.
+
 ## Installation
 
 ```bash

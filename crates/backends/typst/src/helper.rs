@@ -772,6 +772,7 @@ name = "{name}"
 version = "{version}"
 namespace = "{namespace}"
 entrypoint = "lib.typ"
+compiler = "0.15.0"
 "#,
         name = HELPER_NAME,
         version = HELPER_VERSION,
