@@ -36,7 +36,7 @@ The Records Portal replaces the shared drive for official records on 1 April 202
 - **Two backends**: Typst typesets new pages; `acroform` fills the fields of an existing PDF form.
 - **Written by people or by LLMs**: the schema emits a JSON Schema for the document an LLM writes as JSON, and validation reports diagnostics with machine-readable codes at document paths.
 
-[Try it in the browser](https://borb-sh.github.io/quillmark-js/playground): edit a document and watch the page re-render.
+[Try it in the browser](https://play.quillmark.dev/playground): edit a document and watch the page re-render.
 
 To write a quill of your own, start a quiver with [quillkit](https://github.com/borb-sh/quillmark-js/tree/main/packages/quillkit) and open it in studio, a form beside the live page. [Creating Quills](https://quillmark.dev/quills/creating-quills/) walks through it:
 

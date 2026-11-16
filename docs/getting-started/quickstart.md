@@ -3,7 +3,7 @@
 From nothing to a PDF. Every path below renders the same two-file quill: a
 document format that declares one field, `title`, and prints it above the
 document body. To try Quillmark without installing anything, open the
-[playground](https://borb-sh.github.io/quillmark-js/playground).
+[playground](https://play.quillmark.dev/playground).
 
 ## 1. Write a quill
 
