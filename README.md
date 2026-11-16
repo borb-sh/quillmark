@@ -51,7 +51,14 @@ Maintained by [borb-sh](https://github.com/borb-sh).
 
 ## Status
 
-Quillmark is pre-1.0, and its API changes between minor releases. Each breaking release ships a [migration guide](https://quillmark.dev/migrations/). A document saved as [versioned JSON](https://quillmark.dev/integration/persistence/) carries a version tag, and later releases migrate supported past versions forward on read.
+<!-- --8<-- [start:status] -->
+Quillmark is pre-1.0. It promises process, not formats:
+
+- **Anything can change.** `Quill.yaml`, the document Markdown and every API can change in any release.
+- **Every breaking release ships a migration guide.** Each [guide](https://quillmark.dev/migrations/) covers one version step, and a crossing of several works through them in order.
+- **A stored document migrates forward on read.** A document saved as [versioned JSON](https://quillmark.dev/integration/persistence/) carries a version tag, and later releases migrate every supported past tag forward on read. A release that stops reading a tag says so in its guide, with how to rewrite the row before upgrading.
+- **A released quill version keeps meaning what it meant.** A change to a quill ships as a new version, bumped by what it costs a document already stored against it ([Quill Versioning](https://quillmark.dev/quills/versioning/)), so every patch in a `MAJOR.MINOR` series reads the documents an earlier patch stored, unchanged.
+<!-- --8<-- [end:status] -->
 
 ## Documentation
 
