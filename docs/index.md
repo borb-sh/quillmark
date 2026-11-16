@@ -23,7 +23,7 @@ Quillmark is a schema-driven document framework. You define a document format on
 
 <small>Quillmark is not affiliated with or endorsed by the Department of Defense, the Department of the Air Force, or any Military Service.</small>
 
-[Try it in the browser](https://borb-sh.github.io/quillmark-js/playground): edit a document and watch the page re-render.
+[Try it in the browser](https://play.quillmark.dev/playground): edit a document and watch the page re-render.
 
 !!! warning "Pre-1.0"
     The API changes between minor releases, and each breaking release ships a guide under [Migration](migrations/index.md). A document saved as [versioned JSON](integration/persistence.md) carries a version tag, and later releases migrate supported past versions forward on read.
