@@ -239,14 +239,13 @@ pub(super) fn build_block(
         let mut parsed = match crate::value::parse_yaml::<serde_json::Value>(&content) {
             Ok(parsed) => parsed,
             Err(e) => {
-                let enriched = super::yaml_hints::enrich_yaml_error(&e.to_string(), &content);
-                let (line, column) = document_position(
-                    markdown,
-                    content_start,
-                    &yaml,
-                    e.location()
-                        .map(|l| (l.line() as usize, l.column() as usize)),
-                );
+                let parser = e
+                    .location()
+                    .map(|l| (l.line() as usize, l.column() as usize));
+                let (line, column) = document_position(markdown, content_start, &yaml, parser);
+                let line_offset = parser.map_or(0, |(rel_line, _)| line.saturating_sub(rel_line));
+                let enriched =
+                    super::yaml_hints::enrich_embedded_yaml_error(&e, &content, line_offset);
                 return Err(ParseError::YamlErrorWithLocation {
                     message: enriched.message,
                     line,
