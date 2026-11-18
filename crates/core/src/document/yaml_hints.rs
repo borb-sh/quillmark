@@ -26,9 +26,26 @@ pub(crate) struct EnrichedYamlError {
 /// non-UTF8 byte offsets: all inspection is over `&str` / `chars()`.
 pub(crate) fn enrich_yaml_error(raw: &str, content: &str) -> EnrichedYamlError {
     let sanitized = sanitize_message(raw);
-    let hint = derive_hint(&sanitized, content);
+    let hint = derive_hint(&sanitized, content, 0);
     EnrichedYamlError {
         message: sanitized,
+        hint,
+    }
+}
+
+/// [`enrich_yaml_error`] for `content` that sits `line_offset` lines into a
+/// larger document: the message and hint number lines as that document does.
+pub(crate) fn enrich_embedded_yaml_error(
+    err: &serde_saphyr::Error,
+    content: &str,
+    line_offset: usize,
+) -> EnrichedYamlError {
+    let hint = derive_hint(&sanitize_message(&err.to_string()), content, line_offset);
+    let rendered = err.render_with_options(serde_saphyr::render_options! {
+        line_offset: line_offset as u64,
+    });
+    EnrichedYamlError {
+        message: sanitize_message(&rendered),
         hint,
     }
 }
@@ -59,8 +76,9 @@ fn sanitize_message(raw: &str) -> String {
 
 /// Derive an actionable hint for `message`, given the YAML `content`. Only the
 /// message's first line is read: the snippet below it quotes `content`, whose
-/// words would otherwise pick the hint.
-fn derive_hint(message: &str, content: &str) -> Option<String> {
+/// words would otherwise pick the hint. `message` numbers lines from the top of
+/// `content`; a hint numbers them `line_offset` further on.
+fn derive_hint(message: &str, content: &str, line_offset: usize) -> Option<String> {
     let message = message.lines().next().unwrap_or_default();
     if let Some(value) = non_finite_value(message) {
         let advice = format!(
@@ -97,7 +115,7 @@ fn derive_hint(message: &str, content: &str) -> Option<String> {
 
     // An unquoted value containing `:` reads as a nested mapping key.
     if m.contains("mapping values are not allowed") {
-        if let Some(hint) = indented_top_level_key_hint(message, content) {
+        if let Some(hint) = indented_top_level_key_hint(message, content, line_offset) {
             return Some(hint);
         }
         if let Some((field, value)) = first_field_with_unquoted_colon(content) {
@@ -170,7 +188,7 @@ fn derive_hint(message: &str, content: &str) -> Option<String> {
             return Some(format!(
                 "Line {} (\"{}\") has no `key:` and reads as prose. Body text belongs \
                  after the closing `~~~`, not inside the block: close the block before it.",
-                flagged.number,
+                flagged.number + line_offset,
                 truncate_for_message(flagged.text)
             ));
         }
@@ -393,7 +411,7 @@ fn mapping_key(line: &str) -> Option<&str> {
 /// The hint for a top-level key indented by a stray leading space: YAML folds
 /// such a line into the preceding plain scalar and reports the same "mapping
 /// values are not allowed" as an unquoted colon does, with no colon in sight.
-fn indented_top_level_key_hint(message: &str, content: &str) -> Option<String> {
+fn indented_top_level_key_hint(message: &str, content: &str, line_offset: usize) -> Option<String> {
     let number = flagged_line_number(message)?;
     let lines: Vec<&str> = content.lines().collect();
     let flagged = lines.get(number.checked_sub(1)?)?;
@@ -410,8 +428,9 @@ fn indented_top_level_key_hint(message: &str, content: &str) -> Option<String> {
     }
     mapping_key(previous)?;
     Some(format!(
-        "Line {number} starts with a space. Top-level fields must begin at \
-         column 0; remove the leading space before `{key}:`."
+        "Line {} starts with a space. Top-level fields must begin at \
+         column 0; remove the leading space before `{key}:`.",
+        number + line_offset
     ))
 }
 

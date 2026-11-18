@@ -768,6 +768,31 @@ fn test_yaml_error_location_is_document_absolute() {
     assert_eq!(loc.file, "input.md");
     assert_eq!(loc.line, line_of(markdown, "88th Communications"));
     assert_eq!(loc.column, 35);
+    for position in [
+        format!("line {} column {}", loc.line, loc.column),
+        format!(":{}:{}", loc.line, loc.column),
+    ] {
+        assert!(
+            diag.message.contains(&position),
+            "the message numbers lines as `location` does, `{position}`: {}",
+            diag.message
+        );
+    }
+}
+
+#[test]
+fn test_yaml_error_hint_numbers_lines_as_the_document_does() {
+    let markdown = "# Heading\n\n~~~\n$quill: usaf_memo\n$kind: main\n title: Briefing\n~~~\n";
+    let hint = decompose(markdown)
+        .unwrap_err()
+        .to_diagnostic()
+        .hint
+        .expect("an indented key carries a hint");
+    let line = line_of(markdown, " title:");
+    assert!(
+        hint.starts_with(&format!("Line {line} starts with a space")),
+        "{hint}"
+    );
 }
 
 #[test]
