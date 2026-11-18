@@ -501,6 +501,7 @@ Every quill on this backend exports to Word with no change to the quill: ask for
 
 - **What a Word file carries as the PDF has it:** where each element sits, the space between elements, each paragraph's indents and alignment, forced line and page breaks, keeps, page size and margins, and the title.
 - **What Word decides:** which word ends a line and which line ends a page, as in any document typed in Word. A page that is full in the PDF can spill onto another in Word.
+- **Fonts:** a face with a metric-compatible Word face is named as that face (TeX Gyre Termes and Liberation Serif as Times New Roman, Liberation Sans and TeX Gyre Heros as Arial, Liberation Mono as Courier New, Carlito as Calibri, Caladea as Cambria). Any other face is named as it is, without being embedded.
 - **What reaches Word only as frozen text, a picture, or not at all** raises a warning, so a render's warnings say where the Word file carries less than the PDF shows.
 
 ## Iterating on a Plate

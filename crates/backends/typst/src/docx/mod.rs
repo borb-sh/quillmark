@@ -10,10 +10,6 @@ pub(crate) mod probes;
 pub(crate) mod read;
 
 use quillmark_core::error::{Diagnostic, Severity};
-use quillmark_docx::model::{
-    Blocks, Document, Info, ParProps, Paragraph, RunProps, Section, SectionProps,
-};
-use typst::layout::{Frame, FrameItem, Transform};
 use typst_layout::PagedDocument;
 
 use crate::world::QuillWorld;
@@ -48,60 +44,15 @@ pub(crate) fn export(
     world: &QuillWorld,
     title: Option<String>,
 ) -> (Vec<u8>, Vec<Diagnostic>) {
-    match probed(live, world) {
-        Ok(doc) => (plain_text(&doc, title), Vec::new()),
-        Err(warning) => (plain_text(live, title), vec![warning]),
-    }
-}
-
-/// `document`'s text, one paragraph per line, each page starting a new one.
-fn plain_text(document: &PagedDocument, title: Option<String>) -> Vec<u8> {
-    let mut paragraphs = Vec::new();
-    for page in document.pages() {
-        let mut lines: Vec<(f64, String)> = Vec::new();
-        collect_lines(&page.frame, Transform::identity(), &mut lines);
-        for (i, (_, text)) in lines.into_iter().enumerate() {
-            let props = ParProps {
-                page_break_before: i == 0 && !paragraphs.is_empty(),
-                ..ParProps::default()
-            };
-            paragraphs.push(Paragraph::text(props, RunProps::default(), text));
-        }
-    }
-    let doc = Document {
-        sections: vec![Section {
-            body: Blocks::from_paragraphs(paragraphs),
-            props: SectionProps::default(),
-        }],
-        info: Info {
-            title,
-            language: None,
-        },
-        ..Document::default()
+    let (doc, mut warnings) = match probed(live, world) {
+        Ok(doc) => (read::read(&doc, title), Vec::new()),
+        Err(warning) => (read::read(live, title), vec![warning]),
     };
-    quillmark_docx::write_docx(&doc)
-}
-
-/// Text items in paint order, joined into one line while their baselines agree.
-fn collect_lines(frame: &Frame, ts: Transform, lines: &mut Vec<(f64, String)>) {
-    for (pos, item) in frame.items() {
-        match item {
-            FrameItem::Group(group) => {
-                let ts = ts
-                    .pre_concat(Transform::translate(pos.x, pos.y))
-                    .pre_concat(group.transform);
-                collect_lines(&group.frame, ts, lines);
-            }
-            FrameItem::Text(text) => {
-                let y = pos.transform(ts).y.to_pt();
-                match lines.last_mut() {
-                    Some((baseline, line)) if (*baseline - y).abs() < 0.5 => {
-                        line.push_str(text.text.as_str());
-                    }
-                    _ => lines.push((y, text.text.to_string())),
-                }
-            }
-            _ => {}
-        }
-    }
+    let (word, notices) = quillmark_docx::lower::lower(&doc);
+    warnings.extend(
+        notices
+            .into_iter()
+            .map(|n| Diagnostic::new(Severity::Warning, n.message).with_code(n.code)),
+    );
+    (quillmark_docx::write_docx(&word), warnings)
 }

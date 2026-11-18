@@ -8,9 +8,14 @@
 //! zip carries fixed timestamps and a fixed part order, and every id is
 //! counted in writing order.
 //!
+//! [`layout::LayoutDoc`] is the engine-free laid-out document a backend's
+//! reader fills, and [`lower::lower`] turns it into the model, with notices
+//! for what the Word file carries less of.
+//!
 //! This crate depends on neither Typst nor `quillmark-core`.
 
 pub mod layout;
+pub mod lower;
 pub mod model;
 mod write;
 

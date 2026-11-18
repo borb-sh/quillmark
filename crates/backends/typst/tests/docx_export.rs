@@ -45,3 +45,150 @@ fn a_docx_render_carries_the_documents_text() {
     );
     assert!(document_text(&parts).contains("Hello there & welcome."));
 }
+
+fn part(parts: &[(String, Vec<u8>)], name: &str) -> String {
+    let (_, xml) = parts
+        .iter()
+        .find(|(n, _)| n == name)
+        .unwrap_or_else(|| panic!("{name}"));
+    String::from_utf8(xml.clone()).unwrap()
+}
+
+fn render(plate: &str) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
+    let plate = format!("#import \"@local/quillmark-helper:0.2.0\" as qm\n{plate}");
+    let quill = common::quill_with_plate(&common::yaml(""), &plate);
+    let session = TypstBackend::default()
+        .open(&quill, &json!({}), common::test_date())
+        .expect("open");
+    let result = session
+        .render(&RenderOptions::default().with_output_format(OutputFormat::Docx))
+        .expect("render");
+    let codes = result
+        .warnings
+        .iter()
+        .filter_map(|w| w.code.clone())
+        .collect();
+    (
+        quillmark_docx::unzip(&result.artifacts[0].bytes).unwrap(),
+        codes,
+    )
+}
+
+/// The `w:p` elements of `xml` with the text each holds.
+fn paragraphs(xml: &str) -> Vec<(String, roxmltree::NodeId)> {
+    let doc = roxmltree::Document::parse(xml).expect("well-formed");
+    doc.descendants()
+        .filter(|n| {
+            n.tag_name().name() == "p" && n.ancestors().skip(1).all(|a| a.tag_name().name() != "p")
+        })
+        .map(|p| {
+            let text: String = p
+                .descendants()
+                .filter(|n| n.tag_name().name() == "t")
+                .filter_map(|n| n.text())
+                .collect();
+            (text, p.id())
+        })
+        .collect()
+}
+
+const PAGE: &str =
+    "#set page(width: 300pt, height: 300pt, margin: 30pt, numbering: \"1\", header: [Head])\n";
+
+#[test]
+fn a_wrapped_paragraph_is_one_word_paragraph_and_a_heading_takes_its_style() {
+    let (parts, codes) = render(&format!(
+        "{PAGE}= Title\nA paragraph with words enough that it wraps onto a second line of text \
+         and then a third line here.\n\nLine one \\\nline two\n"
+    ));
+    let xml = part(&parts, "word/document.xml");
+    let texts: Vec<String> = paragraphs(&xml).into_iter().map(|p| p.0).collect();
+    assert!(texts.contains(&"Title".to_string()), "{texts:?}");
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.starts_with("A paragraph with") && t.ends_with("third line here.")),
+        "{texts:?}"
+    );
+    assert!(texts.contains(&"Line oneline two".to_string()), "{texts:?}");
+    assert!(xml.contains("<w:pStyle w:val=\"Heading1\"/>"));
+    assert_eq!(xml.matches("<w:br/>").count(), 1);
+    assert!(part(&parts, "word/styles.xml").contains("w:styleId=\"Heading1\""));
+    assert!(part(&parts, "word/fontTable.xml").contains("<w:font w:name="));
+    assert!(!codes.iter().any(|c| c == "docx::ink_dropped"), "{codes:?}");
+}
+
+#[test]
+fn lists_tables_and_footnotes_lower_to_their_word_structures() {
+    let (parts, codes) = render(&format!(
+        "{PAGE}- one\n- two\n\n+ first\n+ second\n\n\
+         #table(columns: 2, table.header[H1][H2], [a], [b])\nNoted#footnote[The note.].\n"
+    ));
+    let xml = part(&parts, "word/document.xml");
+    assert_eq!(xml.matches("<w:numPr>").count(), 4);
+    let numbering = part(&parts, "word/numbering.xml");
+    assert!(numbering.contains("w:val=\"bullet\""));
+    assert!(numbering.contains("w:val=\"decimal\"") && numbering.contains("w:val=\"%1.\""));
+    assert_eq!(xml.matches("<w:tc>").count(), 4);
+    assert_eq!(xml.matches("<w:tblHeader/>").count(), 1);
+    assert_eq!(xml.matches("<w:footnoteReference").count(), 1);
+    let notes = part(&parts, "word/footnotes.xml");
+    assert!(notes.contains("The note."));
+    assert!(!codes.iter().any(|c| c == "docx::ink_dropped"), "{codes:?}");
+}
+
+#[test]
+fn page_setup_chrome_and_numbers_become_section_properties_and_fields() {
+    let (parts, codes) = render(&format!("{PAGE}one\n#pagebreak()\ntwo\n"));
+    let xml = part(&parts, "word/document.xml");
+    assert!(xml.contains("w:w=\"6000\" w:h=\"6000\""), "page size");
+    assert!(xml.contains("w:top=\"600\""), "margins");
+    assert!(xml.contains("<w:pageBreakBefore/>"));
+    assert!(xml.contains("<w:pgNumType w:fmt=\"decimal\"/>"));
+    let header = part(&parts, "word/header1.xml");
+    assert!(header.contains("Head"));
+    let footer = part(&parts, "word/footer1.xml");
+    assert!(footer.contains("PAGE"), "{footer}");
+    assert!(!codes.iter().any(|c| c == "docx::ink_dropped"), "{codes:?}");
+}
+
+#[test]
+fn every_fixture_exports_with_all_its_text_placed() {
+    for name in quillmark_fixtures::quill_names() {
+        let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path(&name))
+            .unwrap_or_else(|e| panic!("{name} loads: {e:?}"));
+        if quill.backend_id() != "typst" {
+            continue;
+        }
+        for doc in std::iter::once(quill.seed_document()).chain(quill.example_document()) {
+            let data = quill
+                .compile_checked(&doc, common::test_date())
+                .expect("data");
+            let session = TypstBackend::default()
+                .open(&quill, &data, common::test_date())
+                .expect("open");
+            let result = session
+                .render(&RenderOptions::default().with_output_format(OutputFormat::Docx))
+                .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+            let codes: Vec<_> = result
+                .warnings
+                .iter()
+                .filter_map(|w| w.code.clone())
+                .collect();
+            assert!(
+                !codes
+                    .iter()
+                    .any(|c| c == "docx::ink_dropped" || c == "docx::probes_disabled"),
+                "{name}: {:?}",
+                result.warnings
+            );
+            let parts = quillmark_docx::unzip(&result.artifacts[0].bytes).expect("zip");
+            for (n, bytes) in &parts {
+                if n.ends_with(".xml") || n.ends_with(".rels") {
+                    let s = String::from_utf8(bytes.clone()).unwrap();
+                    roxmltree::Document::parse(&s).unwrap_or_else(|e| panic!("{name} {n}: {e}"));
+                }
+            }
+        }
+    }
+}

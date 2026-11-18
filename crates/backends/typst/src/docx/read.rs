@@ -904,7 +904,9 @@ fn item_rect(doc: &LayoutDoc, r: ItemRef) -> Option<Rect> {
 }
 
 fn measure_frames(doc: &mut LayoutDoc) {
-    for id in (0..doc.nodes.len()).rev() {
+    let mut order = doc.subtree(0);
+    order.reverse();
+    for id in order {
         let mut frames: Vec<(u32, Rect)> = Vec::new();
         let mut add = |page: u32, rect: Rect| match frames.iter_mut().find(|(p, _)| *p == page) {
             Some((_, f)) => *f = f.union(&rect),
