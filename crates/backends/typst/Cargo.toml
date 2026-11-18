@@ -9,7 +9,7 @@ license.workspace = true
 documentation = "https://docs.rs/quillmark-typst"
 homepage.workspace = true
 repository = "https://github.com/borb-sh/quillmark"
-keywords = ["typst", "pdf", "svg", "png", "document"]
+keywords = ["typst", "pdf", "svg", "docx", "document"]
 categories = ["rendering", "text-processing"]
 publish = true
 
@@ -22,6 +22,7 @@ quillmark-core = { workspace = true }
 # markdown: the content crosses the seam already imported.
 quillmark-content = { workspace = true }
 quillmark-pdf = { workspace = true }
+quillmark-docx = { workspace = true }
 getrandom = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

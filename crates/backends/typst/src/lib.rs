@@ -1,4 +1,5 @@
-//! Typst backend for Quillmark: markdown + card-YAML data → PDF, SVG, PNG.
+//! Typst backend for Quillmark: markdown + card-YAML data → PDF, SVG, PNG,
+//! DOCX.
 //!
 //! Richtext fields cross the seam as canonical content JSON and are lowered to
 //! Typst markup by `emit` at codegen time; no code re-parses markdown at
@@ -7,6 +8,7 @@
 //! only; SVG and PNG render an invisible placeholder.
 
 mod compile;
+mod docx;
 /// Content → Typst-markup lowering plus its per-segment source map.
 mod emit;
 mod error_mapping;
@@ -47,8 +49,12 @@ impl TypstBackend {
     }
 }
 
-const SUPPORTED_FORMATS: &[OutputFormat] =
-    &[OutputFormat::Pdf, OutputFormat::Svg, OutputFormat::Png];
+const SUPPORTED_FORMATS: &[OutputFormat] = &[
+    OutputFormat::Pdf,
+    OutputFormat::Svg,
+    OutputFormat::Png,
+    OutputFormat::Docx,
+];
 
 /// Persisting the world keeps fonts, packages, and assets parsed once per
 /// session rather than once per compile: the substrate for incremental

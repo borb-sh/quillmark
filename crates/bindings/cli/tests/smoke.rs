@@ -762,7 +762,7 @@ fn a_missing_quill_path_exits_one_naming_the_path_on_every_command() {
 #[test]
 fn unknown_format_fails_loudly() {
     let quill = taro();
-    let out = run(&["render", quill.to_str().unwrap(), "-f", "docx", "--stdout"]);
+    let out = run(&["render", quill.to_str().unwrap(), "-f", "odt", "--stdout"]);
     assert!(!out.status.success(), "unknown format exited 0");
     assert!(
         !out.stderr.is_empty(),

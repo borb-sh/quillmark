@@ -46,7 +46,7 @@ The file must open with a `~~~` block containing a `$quill:` key identifying the
 **Options:**
 
 - `-o <PATH>` / `--output <PATH>`: Output file path (default: input filename with format extension, e.g. `input.pdf`; `example.<format>` when no Markdown file is given)
-- `-f <FORMAT>` / `--format <FORMAT>`: Output format: `pdf`, `svg`, `png` (default: the `-o` extension when it names one of these, else `pdf`). A `-f` that disagrees with such an extension is refused (`-f png -o out.pdf`); an `-o` extension naming no format is written as given.
+- `-f <FORMAT>` / `--format <FORMAT>`: Output format: `pdf`, `svg`, `png`, `docx` (default: the `-o` extension when it names one of these, else `pdf`). A `-f` that disagrees with such an extension is refused (`-f png -o out.pdf`); an `-o` extension naming no format is written as given.
 - `--ppi <PPI>`: Pixels per inch for `png` output (default: `144`); `pdf` and `svg` ignore it
 - `--output-data <DATA_FILE>`: Write the compiled, blank-filled JSON data to a file. This is the data before the backend lowers it: a `richtext` value appears as a content object (`{text, blocks, containers, marks, islands}`) and a date as its string, where a Typst plate receives content and a `datetime`.
 - `--today <YYYY-MM-DD>`: The render date: what a `today` date field and a plate's `datetime.today()` render as (default: the local date)
@@ -298,5 +298,5 @@ quillmark render my_quill@1.0.0.quill input.md
 ## Exit Codes
 
 - `0`: success, `--help`, and `--version`
-- `1`: the command ran and refused — an invalid quill, a file not found, a parse error, a compilation error, a failed `check` (any warning under `--strict`), or an argument value the command itself rejects (`-f docx`)
+- `1`: the command ran and refused — an invalid quill, a file not found, a parse error, a compilation error, a failed `check` (any warning under `--strict`), or an argument value the command itself rejects (`-f odt`)
 - `2`: usage error — an unknown flag, a missing argument, an unknown subcommand; argument parsing rejected the invocation before any command ran

@@ -395,7 +395,7 @@ const RENDER_BUILD = backendLoad(
 const DEFAULT_BACKENDS = {
 	typst: {
 		load: RENDER_BUILD,
-		formats: ['pdf', 'svg', 'png'] // crates/backends/typst/src/lib.rs SUPPORTED_FORMATS
+		formats: ['pdf', 'svg', 'png', 'docx'] // crates/backends/typst/src/lib.rs SUPPORTED_FORMATS
 	},
 	acroform: {
 		load: RENDER_BUILD,

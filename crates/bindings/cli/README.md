@@ -50,7 +50,7 @@ Each command and its options are in the [CLI reference](https://quillmark.dev/cl
 the invocation before any command ran — an unknown flag, a missing argument, an
 unknown subcommand. `1` where the command ran and refused — an invalid quill, a
 missing file, a failed render, a failed `check`, an argument value the command
-itself rejects (`-f docx`). Diagnostics go to stderr.
+itself rejects (`-f odt`). Diagnostics go to stderr.
 
 ## Links
 

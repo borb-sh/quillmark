@@ -10,7 +10,7 @@ The engine's own terms are below. The words a quill author meets (card, seed, au
 |---|---|
 | Quillmark | The framework. Also a release of it. |
 | engine | The runtime object that renders: a backend registry and render dispatcher, `Engine` in Rust, Python and JavaScript alike. |
-| backend | Typst or acroform: turns a quill plus document data into PDF, SVG or PNG. |
+| backend | Typst or acroform: turns a quill plus document data into PDF, SVG, PNG or, on Typst, Word. |
 | parser | serde-saphyr for YAML, pulldown-cmark for Markdown. |
 | core | The `quillmark-core` crate: parsing, schema validation, and the diagnostic printer. The *core build* is the Typst-free WASM build. |
 | quill | A document format: a schema for a document's fields, a layout for its pages, and the assets the layout uses. `Quill` is its class. |
@@ -64,7 +64,7 @@ A backend compiles a quill's backend-specific inputs plus injected JSON data int
 
 | Backend | Reads | Produces |
 |---|---|---|
-| Typst | a plate | PDF, SVG, and PNG; fields declared `type: richtext` are lowered to Typst markup during compilation |
+| Typst | a plate | PDF, SVG, PNG, and DOCX; fields declared `type: richtext` are lowered to Typst markup during compilation |
 | acroform | a stripped PDF background and field spec, instead of a plate | an existing PDF form with its fields filled directly |
 
 ### Required `$quill` Metadata
@@ -76,7 +76,7 @@ Each document names its quill in the root block's `$quill` system metadata line.
 Quillmark follows a three-stage pipeline:
 
 1. **Parse** - Read the card-yaml blocks and the Markdown under them, and check each value against the quill's schema, converting it to the field's type and filling in defaults. A field the document leaves out reaches the backend as its blank, so a half-written document still renders; the blank is never saved into the document.
-2. **Compile** - The backend takes the quill's layout and the document's data and produces the pages (PDF, SVG or PNG).
+2. **Compile** - The backend takes the quill's layout and the document's data and produces the pages (PDF, SVG, PNG or DOCX).
 3. **Output** - The render returns the pages, each as bytes.
 
 ```

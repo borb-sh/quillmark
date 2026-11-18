@@ -65,9 +65,11 @@ fn page_selection_narrows_svg_to_the_named_page() {
 }
 
 #[test]
-fn pdf_refuses_a_page_selection() {
-    assert_eq!(
-        refusal_code(OutputFormat::Pdf, vec![0]),
-        "backend::page_selection_not_supported"
-    );
+fn a_whole_document_format_refuses_a_page_selection() {
+    for format in [OutputFormat::Pdf, OutputFormat::Docx] {
+        assert_eq!(
+            refusal_code(format, vec![0]),
+            "backend::page_selection_not_supported"
+        );
+    }
 }

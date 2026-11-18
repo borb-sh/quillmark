@@ -50,6 +50,7 @@ class OutputFormat:
     PDF: OutputFormat
     SVG: OutputFormat
     PNG: OutputFormat
+    DOCX: OutputFormat
 
     @property
     def name(self) -> str: ...

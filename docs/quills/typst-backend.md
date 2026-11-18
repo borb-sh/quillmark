@@ -1,6 +1,6 @@
 # Typst Backend
 
-The Typst backend generates PDF, SVG, and PNG documents using the [Typst](https://typst.app/) typesetting system. It converts card-yaml payload fields to Typst markup, injects them into the plate via a generated helper package, and compiles to the requested format.
+The Typst backend generates PDF, SVG, PNG, and Word (DOCX) documents using the [Typst](https://typst.app/) typesetting system. It converts card-yaml payload fields to Typst markup, injects them into the plate via a generated helper package, and compiles to the requested format.
 
 The plate is `plate.typ` at the quill root, found by name. A quill keeping it elsewhere names its path as [`typst.plate_file`](quill-yaml-reference.md#typst-section), and a quill with neither fails to render as `typst::plate_missing`.
 
@@ -468,7 +468,7 @@ The label `<__qm_field__>` and metadata `kind: "__qm_field__"` are reserved for 
 
 ## Output Formats
 
-PDF renders as a single artifact. SVG and PNG render one artifact per page.
+PDF and DOCX render as a single artifact. SVG and PNG render one artifact per page. A page selection is refused for PDF and DOCX as `backend::page_selection_not_supported`.
 
 Python binding (rendering lives on the engine, not the quill):
 
@@ -494,6 +494,14 @@ PNG resolution is set via the `ppi` option (default **144**, 2× at 72pt/inch, s
 | 192 | High-DPI screen display |
 | 300 | Standard print quality |
 | 600 | High-quality print / archival |
+
+### Word
+
+Every quill on this backend exports to Word with no change to the quill: ask for `docx` (`OutputFormat.DOCX` in Python). The Word file is the PDF's document laid out by Word, for someone who keeps editing it there. Its text and structure are the PDF's.
+
+- **What a Word file carries as the PDF has it:** where each element sits, the space between elements, each paragraph's indents and alignment, forced line and page breaks, keeps, page size and margins, and the title.
+- **What Word decides:** which word ends a line and which line ends a page, as in any document typed in Word. A page that is full in the PDF can spill onto another in Word.
+- **What reaches Word only as frozen text, a picture, or not at all** raises a warning, so a render's warnings say where the Word file carries less than the PDF shows.
 
 ## Iterating on a Plate
 

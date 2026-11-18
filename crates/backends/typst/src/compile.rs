@@ -1,5 +1,5 @@
 //! Compiles a plate plus injected JSON data into a Typst paged document, then
-//! renders selected pages to output bytes (PDF, SVG, or PNG).
+//! renders selected pages to output bytes (PDF, SVG, PNG, or DOCX).
 
 use std::collections::HashMap;
 
@@ -182,8 +182,8 @@ fn export_pdf(
     Ok((pdf, warnings))
 }
 
-/// `field_specs` are stamped as AcroForm widgets, and the title written, by the
-/// PDF path only.
+/// `field_specs` are stamped as AcroForm widgets by the PDF path only, and the
+/// title is written by the PDF and DOCX paths.
 pub(crate) fn render_document_pages(
     document: &PagedDocument,
     opts: &quillmark_core::types::RenderOptions,
@@ -195,7 +195,7 @@ pub(crate) fn render_document_pages(
     let format = opts.output_format.unwrap_or(OutputFormat::Pdf);
     let ppi = opts.ppi_or_default();
     let title = opts.title.as_deref();
-    if format == OutputFormat::Pdf && pages.is_some() {
+    if matches!(format, OutputFormat::Pdf | OutputFormat::Docx) && pages.is_some() {
         return Err(page_selection_not_supported(format));
     }
 
@@ -235,6 +235,14 @@ pub(crate) fn render_document_pages(
                 artifacts.push(Artifact::new(png_data, OutputFormat::Png));
             }
             Ok(RenderResult::new(artifacts, OutputFormat::Png))
+        }
+        OutputFormat::Docx => {
+            let document = titled(document, title, fallback_title);
+            let bytes = crate::docx::export(&document);
+            Ok(RenderResult::new(
+                vec![Artifact::new(bytes, OutputFormat::Docx)],
+                OutputFormat::Docx,
+            ))
         }
         OutputFormat::Pdf => {
             let document = &titled(document, title, fallback_title);

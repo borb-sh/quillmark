@@ -2665,6 +2665,7 @@ dependencies = [
  "quillmark",
  "quillmark-content",
  "quillmark-core",
+ "quillmark-docx",
  "quillmark-fixtures",
  "quillmark-pdf",
  "roxmltree 0.21.2",

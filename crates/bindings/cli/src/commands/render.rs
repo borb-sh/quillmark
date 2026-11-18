@@ -22,7 +22,7 @@ pub struct RenderArgs {
     #[arg(short, long, value_name = "FILE")]
     output: Option<PathBuf>,
 
-    /// Output format: pdf, svg, png (default: the -o extension when it names one, else pdf)
+    /// Output format: pdf, svg, png, docx (default: the -o extension when it names one, else pdf)
     #[arg(short, long, value_name = "FORMAT")]
     format: Option<String>,
 
