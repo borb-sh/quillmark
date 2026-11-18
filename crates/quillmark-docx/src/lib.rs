@@ -10,6 +10,7 @@
 //!
 //! This crate depends on neither Typst nor `quillmark-core`.
 
+pub mod layout;
 pub mod model;
 mod write;
 

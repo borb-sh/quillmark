@@ -319,8 +319,13 @@ pub enum Inline {
     Field(Field),
     /// A rich-text content control.
     Control(Control),
-    BookmarkStart { name: String, id: u32 },
-    BookmarkEnd { id: u32 },
+    BookmarkStart {
+        name: String,
+        id: u32,
+    },
+    BookmarkEnd {
+        id: u32,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -491,7 +496,9 @@ pub enum ShapeGeometry {
     Rect,
     /// From the top-left to the bottom-right of the drawing's box, flipped
     /// vertically when `rising`.
-    Line { rising: bool },
+    Line {
+        rising: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -7,11 +7,12 @@
 //! `docx::probes_disabled`.
 
 pub(crate) mod probes;
+pub(crate) mod read;
 
-use quillmark_docx::model::{
-    Blocks, Document, Info, Paragraph, ParProps, RunProps, Section, SectionProps,
-};
 use quillmark_core::error::{Diagnostic, Severity};
+use quillmark_docx::model::{
+    Blocks, Document, Info, ParProps, Paragraph, RunProps, Section, SectionProps,
+};
 use typst::layout::{Frame, FrameItem, Transform};
 use typst_layout::PagedDocument;
 

@@ -64,7 +64,10 @@ pub fn write_docx(doc: &Document) -> Vec<u8> {
         let mut ctx = PartCtx::new(&mut ids);
         let xml = footnotes_xml(doc, &mut ctx);
         if !ctx.rels.is_empty() {
-            rels_parts.push(("word/_rels/footnotes.xml.rels".to_string(), ctx.rels.clone()));
+            rels_parts.push((
+                "word/_rels/footnotes.xml.rels".to_string(),
+                ctx.rels.clone(),
+            ));
         }
         xml
     });
@@ -112,12 +115,19 @@ impl Rels {
         let mut x = Xml::new();
         x.open(
             "Relationships",
-            &[("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships")],
+            &[(
+                "xmlns",
+                "http://schemas.openxmlformats.org/package/2006/relationships",
+            )],
         );
         let rel = |x: &mut Xml, id: &str, kind: &str, target: &str| {
             x.empty(
                 "Relationship",
-                &[("Id", id), ("Type", &format!("{REL}/{kind}")), ("Target", target)],
+                &[
+                    ("Id", id),
+                    ("Type", &format!("{REL}/{kind}")),
+                    ("Target", target),
+                ],
             );
         };
         if main {
@@ -129,15 +139,30 @@ impl Rels {
                 rel(&mut x, "rIdFootnotes", "footnotes", "footnotes.xml");
             }
             for i in 0..doc.headers.len() {
-                rel(&mut x, &format!("rIdHdr{}", i + 1), "header", &format!("header{}.xml", i + 1));
+                rel(
+                    &mut x,
+                    &format!("rIdHdr{}", i + 1),
+                    "header",
+                    &format!("header{}.xml", i + 1),
+                );
             }
             for i in 0..doc.footers.len() {
-                rel(&mut x, &format!("rIdFtr{}", i + 1), "footer", &format!("footer{}.xml", i + 1));
+                rel(
+                    &mut x,
+                    &format!("rIdFtr{}", i + 1),
+                    "footer",
+                    &format!("footer{}.xml", i + 1),
+                );
             }
         }
         for &i in &self.media {
             let target = media_name(i, doc.media[i].kind);
-            rel(&mut x, &format!("rIdImg{}", i + 1), "image", &target["word/".len()..]);
+            rel(
+                &mut x,
+                &format!("rIdImg{}", i + 1),
+                "image",
+                &target["word/".len()..],
+            );
         }
         for (i, url) in self.links.iter().enumerate() {
             x.empty(
@@ -232,7 +257,11 @@ fn write_toc(x: &mut Xml, toc: &Toc, ctx: &mut PartCtx) {
         x.empty("w:fldChar", if toc.locked { &lock[..] } else { &lock[..1] });
         x.close("w:r");
         x.open("w:r", &[]);
-        x.leaf("w:instrText", &[("xml:space", "preserve")], &format!(" {} ", toc.instruction));
+        x.leaf(
+            "w:instrText",
+            &[("xml:space", "preserve")],
+            &format!(" {} ", toc.instruction),
+        );
         x.close("w:r");
         x.open("w:r", &[]);
         x.empty("w:fldChar", &[("w:fldCharType", "separate")]);
@@ -358,7 +387,10 @@ fn write_tabs(x: &mut Xml, tabs: &[TabStop]) {
                     TabLeader::Hyphen => "hyphen",
                     _ => "underscore",
                 };
-                x.empty("w:tab", &[("w:val", kind), ("w:leader", leader), ("w:pos", &pos)]);
+                x.empty(
+                    "w:tab",
+                    &[("w:val", kind), ("w:leader", leader), ("w:pos", &pos)],
+                );
             }
         }
     }
@@ -458,7 +490,10 @@ fn write_run_props(x: &mut Xml, r: &RunProps, in_style: bool) {
         x.val("w:u", "single");
     }
     if let Some(fill) = &r.shade {
-        x.empty("w:shd", &[("w:val", "clear"), ("w:color", "auto"), ("w:fill", fill)]);
+        x.empty(
+            "w:shd",
+            &[("w:val", "clear"), ("w:color", "auto"), ("w:fill", fill)],
+        );
     }
     match r.vert {
         Some(VertAlign::Superscript) => x.val("w:vertAlign", "superscript"),
@@ -501,7 +536,11 @@ fn write_inline(x: &mut Xml, inline: &Inline, ctx: &mut PartCtx) {
             char_run(x, "begin", f.locked);
             x.open("w:r", &[]);
             write_run_props(x, &f.props, false);
-            x.leaf("w:instrText", &[("xml:space", "preserve")], &format!(" {} ", f.instruction));
+            x.leaf(
+                "w:instrText",
+                &[("xml:space", "preserve")],
+                &format!(" {} ", f.instruction),
+            );
             x.close("w:r");
             char_run(x, "separate", false);
             for r in &f.result {
@@ -537,7 +576,10 @@ fn write_inline(x: &mut Xml, inline: &Inline, ctx: &mut PartCtx) {
             x.close("w:sdt");
         }
         Inline::BookmarkStart { name, id } => {
-            x.empty("w:bookmarkStart", &[("w:id", &id.to_string()), ("w:name", name)]);
+            x.empty(
+                "w:bookmarkStart",
+                &[("w:id", &id.to_string()), ("w:name", name)],
+            );
         }
         Inline::BookmarkEnd { id } => x.empty("w:bookmarkEnd", &[("w:id", &id.to_string())]),
     }
@@ -578,7 +620,12 @@ fn write_drawing(x: &mut Xml, d: &Drawing, ctx: &mut PartCtx) {
     x.open("w:drawing", &[]);
     let id = ctx.next_id();
     let (cx, cy) = (d.width.max(0).to_string(), d.height.max(0).to_string());
-    let zero = [("distT", "0"), ("distB", "0"), ("distL", "0"), ("distR", "0")];
+    let zero = [
+        ("distT", "0"),
+        ("distB", "0"),
+        ("distL", "0"),
+        ("distR", "0"),
+    ];
     match d.placement {
         Placement::Inline => x.open("wp:inline", &zero),
         Placement::Anchor(a) => {
@@ -603,7 +650,10 @@ fn write_drawing(x: &mut Xml, d: &Drawing, ctx: &mut PartCtx) {
         }
     }
     x.empty("wp:extent", &[("cx", &cx), ("cy", &cy)]);
-    x.empty("wp:effectExtent", &[("l", "0"), ("t", "0"), ("r", "0"), ("b", "0")]);
+    x.empty(
+        "wp:effectExtent",
+        &[("l", "0"), ("t", "0"), ("r", "0"), ("b", "0")],
+    );
     if let Placement::Anchor(a) = d.placement {
         match a.wrap {
             Wrap::None => x.empty("wp:wrapNone", &[]),
@@ -614,7 +664,10 @@ fn write_drawing(x: &mut Xml, d: &Drawing, ctx: &mut PartCtx) {
     let id_s = id.to_string();
     let name = format!("Object {id}");
     match &d.descr {
-        Some(descr) => x.empty("wp:docPr", &[("id", &id_s), ("name", &name), ("descr", descr)]),
+        Some(descr) => x.empty(
+            "wp:docPr",
+            &[("id", &id_s), ("name", &name), ("descr", descr)],
+        ),
         None => x.empty("wp:docPr", &[("id", &id_s), ("name", &name)]),
     }
     x.empty("wp:cNvGraphicFramePr", &[]);
@@ -772,7 +825,12 @@ fn write_borders(x: &mut Xml, tag: &str, b: &Borders) {
 
 fn write_margins(x: &mut Xml, tag: &str, m: &CellMargins) {
     x.open(tag, &[]);
-    for (side, v) in [("w:top", m.top), ("w:left", m.left), ("w:bottom", m.bottom), ("w:right", m.right)] {
+    for (side, v) in [
+        ("w:top", m.top),
+        ("w:left", m.left),
+        ("w:bottom", m.bottom),
+        ("w:right", m.right),
+    ] {
         x.empty(side, &[("w:w", &v.max(0).to_string()), ("w:type", "dxa")]);
     }
     x.close(tag);
@@ -814,7 +872,10 @@ fn write_table(x: &mut Xml, t: &Table, ctx: &mut PartCtx) {
             x.open("w:trPr", &[]);
             on_off(x, "w:cantSplit", rp.cant_split);
             if let Some(h) = rp.min_height {
-                x.empty("w:trHeight", &[("w:val", &h.to_string()), ("w:hRule", "atLeast")]);
+                x.empty(
+                    "w:trHeight",
+                    &[("w:val", &h.to_string()), ("w:hRule", "atLeast")],
+                );
             }
             on_off(x, "w:tblHeader", rp.header);
             x.close("w:trPr");
@@ -839,7 +900,10 @@ fn write_table(x: &mut Xml, t: &Table, ctx: &mut PartCtx) {
                 write_borders(x, "w:tcBorders", b);
             }
             if let Some(fill) = &cp.fill {
-                x.empty("w:shd", &[("w:val", "clear"), ("w:color", "auto"), ("w:fill", fill)]);
+                x.empty(
+                    "w:shd",
+                    &[("w:val", "clear"), ("w:color", "auto"), ("w:fill", fill)],
+                );
             }
             on_off(x, "w:noWrap", cp.no_wrap);
             if let Some(m) = &cp.margins {
@@ -877,7 +941,10 @@ fn write_sect_pr(x: &mut Xml, s: &SectionProps) {
     let refs = |x: &mut Xml, tag: &str, prefix: &str, r: &HeaderRefs| {
         for (kind, idx) in [("default", r.default), ("first", r.first), ("even", r.even)] {
             if let Some(i) = idx {
-                x.empty(tag, &[("w:type", kind), ("r:id", &format!("{prefix}{}", i + 1))]);
+                x.empty(
+                    tag,
+                    &[("w:type", kind), ("r:id", &format!("{prefix}{}", i + 1))],
+                );
             }
         }
     };
@@ -892,7 +959,10 @@ fn write_sect_pr(x: &mut Xml, s: &SectionProps) {
     x.val("w:type", start);
     let (w, h) = (s.page_width.to_string(), s.page_height.to_string());
     if s.landscape {
-        x.empty("w:pgSz", &[("w:w", &w), ("w:h", &h), ("w:orient", "landscape")]);
+        x.empty(
+            "w:pgSz",
+            &[("w:w", &w), ("w:h", &h), ("w:orient", "landscape")],
+        );
     } else {
         x.empty("w:pgSz", &[("w:w", &w), ("w:h", &h)]);
     }
@@ -911,12 +981,21 @@ fn write_sect_pr(x: &mut Xml, s: &SectionProps) {
     );
     if let Some(pn) = &s.page_numbers {
         match pn.start {
-            Some(st) => x.empty("w:pgNumType", &[("w:fmt", num_fmt(pn.format)), ("w:start", &st.to_string())]),
+            Some(st) => x.empty(
+                "w:pgNumType",
+                &[("w:fmt", num_fmt(pn.format)), ("w:start", &st.to_string())],
+            ),
             None => x.empty("w:pgNumType", &[("w:fmt", num_fmt(pn.format))]),
         }
     }
     if let Some(c) = &s.columns {
-        x.empty("w:cols", &[("w:num", &c.count.to_string()), ("w:space", &c.space.to_string())]);
+        x.empty(
+            "w:cols",
+            &[
+                ("w:num", &c.count.to_string()),
+                ("w:space", &c.space.to_string()),
+            ],
+        );
     }
     on_off(x, "w:titlePg", s.title_page);
     x.close("w:sectPr");
@@ -1023,8 +1102,15 @@ fn numbering_xml(n: &Numbering) -> Vec<u8> {
 fn settings_xml(doc: &Document) -> Vec<u8> {
     let mut x = Xml::new();
     x.open("w:settings", &[("xmlns:w", NS_W)]);
-    x.val("w:defaultTabStop", &doc.settings.default_tab_stop.to_string());
-    on_off(&mut x, "w:evenAndOddHeaders", doc.settings.even_and_odd_headers);
+    x.val(
+        "w:defaultTabStop",
+        &doc.settings.default_tab_stop.to_string(),
+    );
+    on_off(
+        &mut x,
+        "w:evenAndOddHeaders",
+        doc.settings.even_and_odd_headers,
+    );
     x.val("w:characterSpacingControl", "doNotCompress");
     if !doc.footnotes.is_empty() {
         x.open("w:footnotePr", &[]);
@@ -1078,7 +1164,10 @@ fn footnotes_xml(doc: &Document, ctx: &mut PartCtx) -> Vec<u8> {
         x.open("w:footnote", &[("w:type", kind), ("w:id", id)]);
         x.open("w:p", &[]);
         x.open("w:pPr", &[]);
-        x.empty("w:spacing", &[("w:after", "0"), ("w:line", "240"), ("w:lineRule", "auto")]);
+        x.empty(
+            "w:spacing",
+            &[("w:after", "0"), ("w:line", "240"), ("w:lineRule", "auto")],
+        );
         x.close("w:pPr");
         x.open("w:r", &[]);
         x.empty(mark, &[]);
@@ -1099,14 +1188,24 @@ fn content_types(doc: &Document) -> Vec<u8> {
     let mut x = Xml::new();
     x.open(
         "Types",
-        &[("xmlns", "http://schemas.openxmlformats.org/package/2006/content-types")],
+        &[(
+            "xmlns",
+            "http://schemas.openxmlformats.org/package/2006/content-types",
+        )],
     );
     let default = |x: &mut Xml, ext: &str, ct: &str| {
         x.empty("Default", &[("Extension", ext), ("ContentType", ct)]);
     };
-    default(&mut x, "rels", "application/vnd.openxmlformats-package.relationships+xml");
+    default(
+        &mut x,
+        "rels",
+        "application/vnd.openxmlformats-package.relationships+xml",
+    );
     default(&mut x, "xml", "application/xml");
-    for (kind, ct) in [(MediaKind::Png, "image/png"), (MediaKind::Jpeg, "image/jpeg")] {
+    for (kind, ct) in [
+        (MediaKind::Png, "image/png"),
+        (MediaKind::Jpeg, "image/jpeg"),
+    ] {
         if doc.media.iter().any(|m| m.kind == kind) {
             default(&mut x, kind.extension(), ct);
         }
@@ -1114,21 +1213,53 @@ fn content_types(doc: &Document) -> Vec<u8> {
     let over = |x: &mut Xml, part: &str, ct: &str| {
         x.empty("Override", &[("PartName", part), ("ContentType", ct)]);
     };
-    over(&mut x, "/word/document.xml", &format!("{CT_MAIN}.document.main+xml"));
+    over(
+        &mut x,
+        "/word/document.xml",
+        &format!("{CT_MAIN}.document.main+xml"),
+    );
     over(&mut x, "/word/styles.xml", &format!("{CT_MAIN}.styles+xml"));
-    over(&mut x, "/word/numbering.xml", &format!("{CT_MAIN}.numbering+xml"));
-    over(&mut x, "/word/settings.xml", &format!("{CT_MAIN}.settings+xml"));
-    over(&mut x, "/word/fontTable.xml", &format!("{CT_MAIN}.fontTable+xml"));
+    over(
+        &mut x,
+        "/word/numbering.xml",
+        &format!("{CT_MAIN}.numbering+xml"),
+    );
+    over(
+        &mut x,
+        "/word/settings.xml",
+        &format!("{CT_MAIN}.settings+xml"),
+    );
+    over(
+        &mut x,
+        "/word/fontTable.xml",
+        &format!("{CT_MAIN}.fontTable+xml"),
+    );
     for i in 0..doc.headers.len() {
-        over(&mut x, &format!("/word/header{}.xml", i + 1), &format!("{CT_MAIN}.header+xml"));
+        over(
+            &mut x,
+            &format!("/word/header{}.xml", i + 1),
+            &format!("{CT_MAIN}.header+xml"),
+        );
     }
     for i in 0..doc.footers.len() {
-        over(&mut x, &format!("/word/footer{}.xml", i + 1), &format!("{CT_MAIN}.footer+xml"));
+        over(
+            &mut x,
+            &format!("/word/footer{}.xml", i + 1),
+            &format!("{CT_MAIN}.footer+xml"),
+        );
     }
     if !doc.footnotes.is_empty() {
-        over(&mut x, "/word/footnotes.xml", &format!("{CT_MAIN}.footnotes+xml"));
+        over(
+            &mut x,
+            "/word/footnotes.xml",
+            &format!("{CT_MAIN}.footnotes+xml"),
+        );
     }
-    over(&mut x, "/docProps/core.xml", "application/vnd.openxmlformats-package.core-properties+xml");
+    over(
+        &mut x,
+        "/docProps/core.xml",
+        "application/vnd.openxmlformats-package.core-properties+xml",
+    );
     over(
         &mut x,
         "/docProps/app.xml",
@@ -1142,11 +1273,18 @@ fn package_rels() -> Vec<u8> {
     let mut x = Xml::new();
     x.open(
         "Relationships",
-        &[("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships")],
+        &[(
+            "xmlns",
+            "http://schemas.openxmlformats.org/package/2006/relationships",
+        )],
     );
     x.empty(
         "Relationship",
-        &[("Id", "rId1"), ("Type", &format!("{REL}/officeDocument")), ("Target", "word/document.xml")],
+        &[
+            ("Id", "rId1"),
+            ("Type", &format!("{REL}/officeDocument")),
+            ("Target", "word/document.xml"),
+        ],
     );
     x.empty(
         "Relationship",
@@ -1161,7 +1299,11 @@ fn package_rels() -> Vec<u8> {
     );
     x.empty(
         "Relationship",
-        &[("Id", "rId3"), ("Type", &format!("{REL}/extended-properties")), ("Target", "docProps/app.xml")],
+        &[
+            ("Id", "rId3"),
+            ("Type", &format!("{REL}/extended-properties")),
+            ("Target", "docProps/app.xml"),
+        ],
     );
     x.close("Relationships");
     x.finish()
@@ -1172,7 +1314,10 @@ fn core_xml(info: &Info) -> Vec<u8> {
     x.open(
         "cp:coreProperties",
         &[
-            ("xmlns:cp", "http://schemas.openxmlformats.org/package/2006/metadata/core-properties"),
+            (
+                "xmlns:cp",
+                "http://schemas.openxmlformats.org/package/2006/metadata/core-properties",
+            ),
             ("xmlns:dc", "http://purl.org/dc/elements/1.1/"),
         ],
     );
@@ -1190,7 +1335,10 @@ fn app_xml() -> Vec<u8> {
     let mut x = Xml::new();
     x.open(
         "Properties",
-        &[("xmlns", "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties")],
+        &[(
+            "xmlns",
+            "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties",
+        )],
     );
     x.leaf("Application", &[], "Quillmark");
     x.close("Properties");

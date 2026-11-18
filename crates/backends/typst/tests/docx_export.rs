@@ -9,8 +9,13 @@ mod common;
 
 /// Each part of the one artifact `plate` renders to as DOCX.
 fn docx_parts(plate: &str, data: serde_json::Value) -> Vec<(String, Vec<u8>)> {
-    let quill = common::quill_with_plate(&common::yaml("main:\n  fields:\n    prose: { type: richtext, shape: blocks }\n"), plate);
-    let session = TypstBackend::default().open(&quill, &data, common::test_date()).expect("open");
+    let quill = common::quill_with_plate(
+        &common::yaml("main:\n  fields:\n    prose: { type: richtext, shape: blocks }\n"),
+        plate,
+    );
+    let session = TypstBackend::default()
+        .open(&quill, &data, common::test_date())
+        .expect("open");
     let result = session
         .render(&RenderOptions::default().with_output_format(OutputFormat::Docx))
         .expect("render");
@@ -20,7 +25,10 @@ fn docx_parts(plate: &str, data: serde_json::Value) -> Vec<(String, Vec<u8>)> {
 }
 
 fn document_text(parts: &[(String, Vec<u8>)]) -> String {
-    let (_, xml) = parts.iter().find(|(n, _)| n == "word/document.xml").expect("main part");
+    let (_, xml) = parts
+        .iter()
+        .find(|(n, _)| n == "word/document.xml")
+        .expect("main part");
     let xml = String::from_utf8(xml.clone()).unwrap();
     let doc = roxmltree::Document::parse(&xml).expect("well-formed");
     doc.descendants()

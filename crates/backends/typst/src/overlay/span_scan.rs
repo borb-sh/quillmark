@@ -18,18 +18,16 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use typst::foundations::{Content, Label, Value};
+use typst::foundations::{Content, Value};
 use typst::introspection::{Location, Tag};
-use typst::layout::{Frame, FrameItem, PlaceElem, Point, Transform};
-use typst::model::FootnoteElem;
-use typst::pdf::ArtifactElem;
+use typst::layout::{Frame, FrameItem, Point, Transform};
 use typst::syntax::{DiagSpan, DiagSpanKind, Source, Span};
-use typst::utils::PicoStr;
 use typst_layout::{PagedDocument, PagedIntrospector};
 
 use quillmark_core::region::{ContentHit, HitGranularity, RenderedRegion};
 
 use crate::emit::SegmentMap;
+use crate::tags::{artifact_edge, marker, relocated};
 
 /// A tracked byte window in the helper `lib.typ`: the schema field whose ink
 /// resolves into `range`. A content field points at its generated markup block,
@@ -287,24 +285,6 @@ impl Markers {
     }
 }
 
-/// A footnote entry or a float: content Typst lays out away from its anchor,
-/// in a group whose logical parent is the anchoring element. A table cell
-/// broken across pages is parented to the cell, and stays in flow.
-fn relocated(flow: &PagedIntrospector, parent: Location) -> bool {
-    flow.elements()
-        .get_by_loc(&parent)
-        .is_some_and(|e| e.is::<FootnoteElem>() || e.is::<PlaceElem>())
-}
-
-/// The location of an `ArtifactElem` start or end tag.
-fn artifact_edge(tag: &Tag) -> Option<(Location, bool)> {
-    match tag {
-        Tag::Start(elem, _) if elem.is::<ArtifactElem>() => Some((elem.location()?, false)),
-        Tag::End(loc, ..) => Some((*loc, true)),
-        _ => None,
-    }
-}
-
 /// The `(claim, field)` of every `region` call whose open marker reached a
 /// frame but whose close never did, over the whole document. A claim an
 /// enclosing close unwound past counts as closed: its extent was bounded, so
@@ -323,16 +303,7 @@ pub(crate) fn unclosed_claims(doc: &PagedDocument) -> Vec<(usize, String)> {
 
 /// `(field, is-close)` if `elem` is one of `region`'s markers.
 fn region_marker(elem: &Content) -> Option<(String, bool)> {
-    if elem.label()? != Label::new(PicoStr::intern(REGION_LABEL))? {
-        return None;
-    }
-    let Ok(Value::Dict(d)) = elem.get_by_name("value") else {
-        return None;
-    };
-    // A user attaching the reserved label to their own metadata is ignored.
-    if !matches!(d.get("kind"), Ok(Value::Str(k)) if k.as_str() == REGION_LABEL) {
-        return None;
-    }
+    let d = marker(elem, REGION_LABEL)?;
     let Ok(Value::Str(field)) = d.get("field") else {
         return None;
     };

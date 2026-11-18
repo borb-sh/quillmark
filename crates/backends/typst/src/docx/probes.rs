@@ -17,7 +17,6 @@ use typst::syntax::{Span, SyntaxMode};
 use typst::text::LinebreakElem;
 use typst::utils::LazyHash;
 
-
 /// One rule per key, and `page`, the foreground every page carries. Values
 /// pass typed, never as `repr` strings.
 const PRELUDE: &str = r#"{
@@ -30,7 +29,8 @@ const PRELUDE: &str = r#"{
     block: it => {
       context h(hint: "block", edge: "open", a: align.alignment, size: text.size,
         sticky: it.at("sticky", default: false), breakable: it.at("breakable", default: true),
-        above: it.at("above", default: auto), below: it.at("below", default: auto))
+        above: it.at("above", default: auto), below: it.at("below", default: auto),
+        leading: par.leading, spacing: par.spacing)
       it
       h(hint: "block", edge: "close")
     },
@@ -65,7 +65,10 @@ fn rules() -> [(&'static str, Element); 7] {
 
 /// `library` with the probes as its outermost styles, or `None` when the
 /// prelude fails to evaluate.
-pub(crate) fn with_probes(world: &dyn typst::World, library: &LazyHash<Library>) -> Option<Library> {
+pub(crate) fn with_probes(
+    world: &dyn typst::World,
+    library: &LazyHash<Library>,
+) -> Option<Library> {
     let mut sink = Sink::new();
     let dict = (library.routines.eval_string)(
         world.track(),

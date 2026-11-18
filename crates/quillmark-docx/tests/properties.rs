@@ -14,14 +14,24 @@ fn xml_text(s: &str) -> String {
 
 fn doc_with(text: &str, attr: &str) -> Document {
     let run = Run {
-        props: RunProps { style: Some(attr.into()), color: Some(attr.into()), ..RunProps::default() },
+        props: RunProps {
+            style: Some(attr.into()),
+            color: Some(attr.into()),
+            ..RunProps::default()
+        },
         content: vec![RunContent::Text(text.into())],
     };
     let par = Paragraph {
-        props: ParProps { style: Some(attr.into()), ..ParProps::default() },
+        props: ParProps {
+            style: Some(attr.into()),
+            ..ParProps::default()
+        },
         content: vec![
             Inline::Run(run.clone()),
-            Inline::Hyperlink(Hyperlink { target: LinkTarget::Url(attr.into()), runs: vec![run.clone()] }),
+            Inline::Hyperlink(Hyperlink {
+                target: LinkTarget::Url(attr.into()),
+                runs: vec![run.clone()],
+            }),
             Inline::Control(Control {
                 tag: attr.into(),
                 title: attr.into(),
@@ -32,9 +42,20 @@ fn doc_with(text: &str, attr: &str) -> Document {
         ],
     };
     Document {
-        sections: vec![Section { body: Blocks::from_paragraphs(vec![par]), props: SectionProps::default() }],
-        info: Info { title: Some(text.into()), language: None },
-        fonts: vec![FontDecl { name: attr.into(), alt_name: Some(text.into()), family: FontFamily::Auto, pitch_fixed: false }],
+        sections: vec![Section {
+            body: Blocks::from_paragraphs(vec![par]),
+            props: SectionProps::default(),
+        }],
+        info: Info {
+            title: Some(text.into()),
+            language: None,
+        },
+        fonts: vec![FontDecl {
+            name: attr.into(),
+            alt_name: Some(text.into()),
+            family: FontFamily::Auto,
+            pitch_fixed: false,
+        }],
         ..Document::default()
     }
 }

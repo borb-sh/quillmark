@@ -15,6 +15,7 @@ mod error_mapping;
 mod families;
 mod glyphs;
 mod library;
+mod tags;
 mod tex;
 
 mod helper;
@@ -230,7 +231,11 @@ pub(crate) fn ink_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
                 FrameItem::Tag(_) => {}
                 FrameItem::Group(g) => {
                     let inner = at.pre_concat(g.transform);
-                    let clipped = g.clip.as_ref().map(|c| clips.push((inner, c.clone()))).is_some();
+                    let clipped = g
+                        .clip
+                        .as_ref()
+                        .map(|c| clips.push((inner, c.clone())))
+                        .is_some();
                     walk(&g.frame, inner, clips, state);
                     if clipped {
                         clips.pop();
@@ -633,9 +638,9 @@ pub mod testing {
         let mut world = quill_world(source, &plate, &FontLibrary::default())?;
         world.set_today(today);
         world.inject_helper_package(json_data, &meta)?;
-        let probed_world = world
-            .probed()
-            .ok_or_else(|| RenderError::coded("docx::probes_disabled", "the probes did not evaluate"))?;
+        let probed_world = world.probed().ok_or_else(|| {
+            RenderError::coded("docx::probes_disabled", "the probes did not evaluate")
+        })?;
         let (plain, plain_warnings) = compile::compile_document(&world)?;
         let (probed, probed_warnings) = compile::compile_document(&probed_world)?;
         let pdf = |doc: &typst_layout::PagedDocument| {
@@ -653,6 +658,22 @@ pub mod testing {
         })
     }
 
+    /// The Word export's Layout IR of `source` rendered with `json_data`.
+    pub fn layout(
+        source: &Quill,
+        json_data: &serde_json::Value,
+        today: CalendarDate,
+    ) -> Result<quillmark_docx::layout::LayoutDoc, RenderError> {
+        let plate = read_plate(source)?;
+        let meta = SchemaMeta::from_config(source.config());
+        let mut world = quill_world(source, &plate, &FontLibrary::default())?;
+        world.set_today(today);
+        world.inject_helper_package(json_data, &meta)?;
+        let (live, _) = compile::compile_document(&world)?;
+        let doc = crate::docx::probed(&live, &world).map_err(RenderError::from_diag)?;
+        Ok(crate::docx::read::read(&doc, None))
+    }
+
     fn hints_in(doc: &typst_layout::PagedDocument) -> std::collections::BTreeSet<String> {
         use typst::foundations::Value;
         use typst::introspection::Tag;
@@ -663,7 +684,9 @@ pub mod testing {
                     FrameItem::Group(g) => walk(&g.frame, out),
                     FrameItem::Tag(Tag::Start(elem, _)) => {
                         if let Ok(Value::Dict(d)) = elem.get_by_name("value") {
-                            if let (Ok(Value::Str(k)), Ok(Value::Str(h))) = (d.get("kind"), d.get("hint")) {
+                            if let (Ok(Value::Str(k)), Ok(Value::Str(h))) =
+                                (d.get("kind"), d.get("hint"))
+                            {
                                 if k.as_str() == "__qm_hint__" {
                                     out.insert(h.to_string());
                                 }

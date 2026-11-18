@@ -4,9 +4,9 @@
 use std::collections::HashMap;
 
 use typst::diag::Warned;
-use typst::model::Document as _;
 use typst::layout::{Frame, FrameItem};
 use typst::model::Destination;
+use typst::model::Document as _;
 use typst::utils::Scalar;
 use typst::visualize::Paint;
 use typst_layout::{Page, PagedDocument};

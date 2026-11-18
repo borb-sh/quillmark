@@ -92,7 +92,10 @@ fn kitchen() -> Document {
         Block::Paragraph(Paragraph {
             props: every_par_prop(),
             content: vec![
-                Inline::BookmarkStart { name: "_top".into(), id: 0 },
+                Inline::BookmarkStart {
+                    name: "_top".into(),
+                    id: 0,
+                },
                 Inline::Run(Run {
                     props: every_run_prop(),
                     content: vec![
@@ -126,15 +129,27 @@ fn kitchen() -> Document {
                 width: Some(9360),
                 indent: Some(0),
                 borders: Some(Borders {
-                    top: Some(Border { size: 4, color: "808080".into() }),
+                    top: Some(Border {
+                        size: 4,
+                        color: "808080".into(),
+                    }),
                     ..Borders::default()
                 }),
                 fixed: true,
-                cell_margins: Some(CellMargins { top: 0, left: 108, bottom: 0, right: 108 }),
+                cell_margins: Some(CellMargins {
+                    top: 0,
+                    left: 108,
+                    bottom: 0,
+                    right: 108,
+                }),
             },
             grid: vec![4680, 4680],
             rows: vec![Row {
-                props: RowProps { cant_split: true, header: true, min_height: Some(300) },
+                props: RowProps {
+                    cant_split: true,
+                    header: true,
+                    min_height: Some(300),
+                },
                 cells: vec![
                     Cell {
                         props: CellProps {
@@ -150,7 +165,10 @@ fn kitchen() -> Document {
                         body: Blocks::from_paragraphs(vec![par("a")]),
                     },
                     Cell {
-                        props: CellProps { span: 1, ..CellProps::default() },
+                        props: CellProps {
+                            span: 1,
+                            ..CellProps::default()
+                        },
                         body: Blocks::from_paragraphs(vec![]),
                     },
                 ],
@@ -178,7 +196,10 @@ fn kitchen() -> Document {
                         ..anchored(DrawingContent::Shape(Shape {
                             geometry: ShapeGeometry::Line { rising: true },
                             fill: None,
-                            stroke: Some(Stroke { width: 6350, color: "000000".into() }),
+                            stroke: Some(Stroke {
+                                width: 6350,
+                                color: "000000".into(),
+                            }),
                         }))
                     }),
                 ],
@@ -194,10 +215,21 @@ fn kitchen() -> Document {
     let first = Section {
         body: Blocks::from_blocks(body),
         props: SectionProps {
-            header: HeaderRefs { default: Some(0), first: Some(1), even: None },
-            footer: HeaderRefs { default: Some(0), first: None, even: None },
+            header: HeaderRefs {
+                default: Some(0),
+                first: Some(1),
+                even: None,
+            },
+            footer: HeaderRefs {
+                default: Some(0),
+                first: None,
+                even: None,
+            },
             title_page: true,
-            page_numbers: Some(PageNumbers { format: NumFormat::LowerRoman, start: Some(1) }),
+            page_numbers: Some(PageNumbers {
+                format: NumFormat::LowerRoman,
+                start: Some(1),
+            }),
             ..SectionProps::default()
         },
     };
@@ -208,7 +240,10 @@ fn kitchen() -> Document {
             landscape: true,
             page_width: 15840,
             page_height: 12240,
-            columns: Some(Columns { count: 2, space: 360 }),
+            columns: Some(Columns {
+                count: 2,
+                space: 360,
+            }),
             ..SectionProps::default()
         },
     };
@@ -233,8 +268,14 @@ fn kitchen() -> Document {
             }]),
         }],
         styles: Styles {
-            default_run: RunProps { size: Some(24), ..RunProps::default() },
-            default_par: ParProps { widow_control: Some(true), ..ParProps::default() },
+            default_run: RunProps {
+                size: Some(24),
+                ..RunProps::default()
+            },
+            default_par: ParProps {
+                widow_control: Some(true),
+                ..ParProps::default()
+            },
             styles: vec![
                 Style::paragraph("Normal", "Normal", true),
                 Style {
@@ -258,12 +299,20 @@ fn kitchen() -> Document {
                     suffix: LevelSuffix::Nothing,
                     text: "%1.  ".into(),
                     align: Align::Start,
-                    indent: Indent { left: Some(0), right: None, first: Some(FirstLine::Indent(0)) },
+                    indent: Indent {
+                        left: Some(0),
+                        right: None,
+                        first: Some(FirstLine::Indent(0)),
+                    },
                     tabs: vec![],
                     run: RunProps::default(),
                 }],
             }],
-            nums: vec![Num { id: 1, abstract_id: 0, starts: vec![(0, 1)] }],
+            nums: vec![Num {
+                id: 1,
+                abstract_id: 0,
+                starts: vec![(0, 1)],
+            }],
         },
         fonts: vec![FontDecl {
             name: "Times New Roman".into(),
@@ -271,9 +320,15 @@ fn kitchen() -> Document {
             family: FontFamily::Roman,
             pitch_fixed: false,
         }],
-        media: vec![Media { kind: MediaKind::Png, bytes: vec![0x89, b'P', b'N', b'G'] }],
+        media: vec![Media {
+            kind: MediaKind::Png,
+            bytes: vec![0x89, b'P', b'N', b'G'],
+        }],
         settings: Settings::default(),
-        info: Info { title: Some("Kitchen & sink".into()), language: Some("en-US".into()) },
+        info: Info {
+            title: Some("Kitchen & sink".into()),
+            language: Some("en-US".into()),
+        },
     }
 }
 
@@ -289,7 +344,11 @@ impl Package {
     }
 
     fn xml(&self, name: &str) -> String {
-        let (_, bytes) = self.0.iter().find(|(n, _)| n == name).unwrap_or_else(|| panic!("{name}"));
+        let (_, bytes) = self
+            .0
+            .iter()
+            .find(|(n, _)| n == name)
+            .unwrap_or_else(|| panic!("{name}"));
         String::from_utf8(bytes.clone()).expect("utf-8")
     }
 }
@@ -300,40 +359,126 @@ fn local<'a>(n: roxmltree::Node<'a, 'a>) -> &'a str {
 
 /// `parent`'s element children, by local name, appear in `order`'s order.
 fn in_order(parent: roxmltree::Node, order: &[&str]) {
-    let names: Vec<&str> = parent.children().filter(|c| c.is_element()).map(local).collect();
+    let names: Vec<&str> = parent
+        .children()
+        .filter(|c| c.is_element())
+        .map(local)
+        .collect();
     let ranks: Vec<usize> = names
         .iter()
-        .map(|n| order.iter().position(|o| o == n).unwrap_or_else(|| panic!("<{n}> is not a child of <{}>", local(parent))))
+        .map(|n| {
+            order
+                .iter()
+                .position(|o| o == n)
+                .unwrap_or_else(|| panic!("<{n}> is not a child of <{}>", local(parent)))
+        })
         .collect();
-    assert!(ranks.is_sorted(), "<{}> children out of schema order: {names:?}", local(parent));
+    assert!(
+        ranks.is_sorted(),
+        "<{}> children out of schema order: {names:?}",
+        local(parent)
+    );
 }
 
 const PPR: &[&str] = &[
-    "pStyle", "keepNext", "keepLines", "pageBreakBefore", "widowControl", "numPr", "tabs", "spacing",
-    "ind", "jc", "outlineLvl", "rPr", "sectPr",
+    "pStyle",
+    "keepNext",
+    "keepLines",
+    "pageBreakBefore",
+    "widowControl",
+    "numPr",
+    "tabs",
+    "spacing",
+    "ind",
+    "jc",
+    "outlineLvl",
+    "rPr",
+    "sectPr",
 ];
 const RPR: &[&str] = &[
-    "rStyle", "rFonts", "b", "i", "strike", "noProof", "color", "spacing", "w", "position", "sz", "szCs",
-    "u", "shd", "vertAlign", "lang",
+    "rStyle",
+    "rFonts",
+    "b",
+    "i",
+    "strike",
+    "noProof",
+    "color",
+    "spacing",
+    "w",
+    "position",
+    "sz",
+    "szCs",
+    "u",
+    "shd",
+    "vertAlign",
+    "lang",
 ];
 const SECTPR: &[&str] = &[
-    "headerReference", "footerReference", "type", "pgSz", "pgMar", "pgNumType", "cols", "titlePg",
+    "headerReference",
+    "footerReference",
+    "type",
+    "pgSz",
+    "pgMar",
+    "pgNumType",
+    "cols",
+    "titlePg",
 ];
-const TBLPR: &[&str] = &["tblStyle", "tblW", "tblInd", "tblBorders", "tblLayout", "tblCellMar"];
-const TCPR: &[&str] = &["tcW", "gridSpan", "vMerge", "tcBorders", "shd", "noWrap", "tcMar", "vAlign"];
+const TBLPR: &[&str] = &[
+    "tblStyle",
+    "tblW",
+    "tblInd",
+    "tblBorders",
+    "tblLayout",
+    "tblCellMar",
+];
+const TCPR: &[&str] = &[
+    "tcW",
+    "gridSpan",
+    "vMerge",
+    "tcBorders",
+    "shd",
+    "noWrap",
+    "tcMar",
+    "vAlign",
+];
 const BORDERS: &[&str] = &["top", "left", "bottom", "right", "insideH", "insideV"];
-const LVL: &[&str] = &["start", "numFmt", "pStyle", "suff", "lvlText", "lvlJc", "pPr", "rPr"];
-const STYLE: &[&str] = &["name", "basedOn", "next", "uiPriority", "semiHidden", "qFormat", "pPr", "rPr"];
+const LVL: &[&str] = &[
+    "start", "numFmt", "pStyle", "suff", "lvlText", "lvlJc", "pPr", "rPr",
+];
+const STYLE: &[&str] = &[
+    "name",
+    "basedOn",
+    "next",
+    "uiPriority",
+    "semiHidden",
+    "qFormat",
+    "pPr",
+    "rPr",
+];
 const ANCHOR: &[&str] = &[
-    "simplePos", "positionH", "positionV", "extent", "effectExtent", "wrapNone", "wrapTopAndBottom",
-    "wrapSquare", "docPr", "cNvGraphicFramePr", "graphic",
+    "simplePos",
+    "positionH",
+    "positionV",
+    "extent",
+    "effectExtent",
+    "wrapNone",
+    "wrapTopAndBottom",
+    "wrapSquare",
+    "docPr",
+    "cNvGraphicFramePr",
+    "graphic",
 ];
 const SDTPR: &[&str] = &["alias", "tag", "id", "showingPlcHdr", "richText", "date"];
 
 #[test]
 fn every_property_struct_writes_its_children_in_schema_order() {
     let pkg = Package::of(&kitchen());
-    for part in ["word/document.xml", "word/styles.xml", "word/numbering.xml", "word/header2.xml"] {
+    for part in [
+        "word/document.xml",
+        "word/styles.xml",
+        "word/numbering.xml",
+        "word/header2.xml",
+    ] {
         let text = pkg.xml(part);
         let doc = roxmltree::Document::parse(&text).expect(part);
         for node in doc.descendants().filter(|n| n.is_element()) {
@@ -358,7 +503,10 @@ fn every_property_struct_writes_its_children_in_schema_order() {
 fn a_package_holds_every_part_its_relationships_and_content_types_name() {
     let pkg = Package::of(&kitchen());
     let names = pkg.names();
-    assert_eq!(names[0], "[Content_Types].xml", "Word reads the content types first");
+    assert_eq!(
+        names[0], "[Content_Types].xml",
+        "Word reads the content types first"
+    );
     for required in [
         "_rels/.rels",
         "word/document.xml",
@@ -397,7 +545,9 @@ fn a_package_holds_every_part_its_relationships_and_content_types_name() {
     }
 
     for (name, _) in &pkg.0 {
-        let Some(rest) = name.strip_suffix(".rels") else { continue };
+        let Some(rest) = name.strip_suffix(".rels") else {
+            continue;
+        };
         let source = rest.replace("_rels/", "");
         let base = source.rsplit_once('/').map_or("", |(d, _)| d);
         let rels = pkg.xml(name);
@@ -417,7 +567,11 @@ fn a_package_holds_every_part_its_relationships_and_content_types_name() {
             assert!(names.contains(&path.as_str()), "{name} names absent {path}");
         }
         let unique: std::collections::BTreeSet<_> = ids.iter().collect();
-        assert_eq!(unique.len(), ids.len(), "duplicate relationship id in {name}");
+        assert_eq!(
+            unique.len(),
+            ids.len(),
+            "duplicate relationship id in {name}"
+        );
 
         let part = source;
         if let Some((_, body)) = pkg.0.iter().find(|(n, _)| *n == part) {
@@ -425,8 +579,16 @@ fn a_package_holds_every_part_its_relationships_and_content_types_name() {
             let body = roxmltree::Document::parse(&body).unwrap();
             for n in body.descendants() {
                 for a in n.attributes() {
-                    if a.namespace() == Some("http://schemas.openxmlformats.org/officeDocument/2006/relationships") {
-                        assert!(ids.iter().any(|i| i == a.value()), "{part} names unknown {}", a.value());
+                    if a.namespace()
+                        == Some(
+                            "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+                        )
+                    {
+                        assert!(
+                            ids.iter().any(|i| i == a.value()),
+                            "{part} names unknown {}",
+                            a.value()
+                        );
                     }
                 }
             }
@@ -448,8 +610,15 @@ fn a_section_break_rides_its_last_paragraph_and_the_last_section_closes_the_body
         .collect();
     assert_eq!(in_par.len(), 1);
     let carrier = in_par[0].parent().unwrap().parent().unwrap();
-    let next = carrier.next_siblings().skip(1).find(|s| s.is_element()).unwrap();
-    assert!(next.descendants().any(|n| n.text() == Some("landscape")), "the break closes the first section");
+    let next = carrier
+        .next_siblings()
+        .skip(1)
+        .find(|s| s.is_element())
+        .unwrap();
+    assert!(
+        next.descendants().any(|n| n.text() == Some("landscape")),
+        "the break closes the first section"
+    );
 
     for tc in doc.descendants().filter(|n| local(*n) == "tc") {
         let last = tc.children().filter(|c| c.is_element()).last().unwrap();
@@ -474,13 +643,27 @@ fn a_spanning_field_opens_in_its_first_entry_and_closes_in_its_last() {
         .filter(|n| local(*n) == "fldChar")
         .map(|n| {
             let p = n.ancestors().find(|a| local(*a) == "p").unwrap();
-            let text: String = p.descendants().filter_map(|d| (local(d) == "t").then(|| d.text()).flatten()).collect();
-            (text, n.attributes().find(|a| a.name() == "fldCharType").unwrap().value())
+            let text: String = p
+                .descendants()
+                .filter_map(|d| (local(d) == "t").then(|| d.text()).flatten())
+                .collect();
+            (
+                text,
+                n.attributes()
+                    .find(|a| a.name() == "fldCharType")
+                    .unwrap()
+                    .value(),
+            )
         })
         .collect();
-    let toc: Vec<_> = chars.iter().filter(|(t, _)| t.starts_with("Intro") || t.starts_with("End")).collect();
+    let toc: Vec<_> = chars
+        .iter()
+        .filter(|(t, _)| t.starts_with("Intro") || t.starts_with("End"))
+        .collect();
     assert_eq!(
-        toc.iter().map(|(t, k)| (t.split('\t').next().unwrap(), *k)).collect::<Vec<_>>(),
+        toc.iter()
+            .map(|(t, k)| (t.split('\t').next().unwrap(), *k))
+            .collect::<Vec<_>>(),
         [("Intro", "begin"), ("Intro", "separate"), ("End", "end")]
     );
 }
@@ -496,6 +679,10 @@ fn an_empty_document_writes_one_paragraph_and_its_section() {
     let text = pkg.xml("word/document.xml");
     let doc = roxmltree::Document::parse(&text).unwrap();
     let body = doc.descendants().find(|n| local(*n) == "body").unwrap();
-    let kids: Vec<&str> = body.children().filter(|c| c.is_element()).map(local).collect();
+    let kids: Vec<&str> = body
+        .children()
+        .filter(|c| c.is_element())
+        .map(local)
+        .collect();
     assert_eq!(kids, ["p", "sectPr"]);
 }

@@ -22,10 +22,18 @@ fn the_probes_leave_every_fixture_pdf_byte_identical() {
                 .unwrap_or_else(|e| panic!("{name} compiles its data: {e:?}"));
             let check = probe_check(&quill, &data, common::test_date())
                 .unwrap_or_else(|e| panic!("{name} compiles: {e:?}"));
-            assert_eq!(check.plain_hashes, check.probed_hashes, "{name}: the probes moved ink");
-            assert!(check.plain_pdf == check.probed_pdf, "{name}: the probes changed the PDF");
+            assert_eq!(
+                check.plain_hashes, check.probed_hashes,
+                "{name}: the probes moved ink"
+            );
+            assert!(
+                check.plain_pdf == check.probed_pdf,
+                "{name}: the probes changed the PDF"
+            );
             let codes = |w: &[quillmark_core::error::Diagnostic]| {
-                w.iter().map(|d| (d.code.clone(), d.message.clone())).collect::<Vec<_>>()
+                w.iter()
+                    .map(|d| (d.code.clone(), d.message.clone()))
+                    .collect::<Vec<_>>()
             };
             assert_eq!(
                 codes(&check.plain_warnings),
@@ -55,6 +63,8 @@ last
     let hints: Vec<&str> = check.probed_hints.iter().map(String::as_str).collect();
     assert_eq!(
         hints,
-        ["align", "block", "box", "br", "break", "columns", "page", "par", "pnum"]
+        [
+            "align", "block", "box", "br", "break", "columns", "page", "par", "pnum"
+        ]
     );
 }

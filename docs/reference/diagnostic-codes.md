@@ -231,6 +231,8 @@ Opening a Typst quill and compiling its plate.
 
 A Word export. Each warns that the Word file carries less than the PDF shows; none says that Word lays the document out differently, which is expected.
 
+- `docx::image_dropped`: an image that is neither PNG nor JPEG is left out.
+- `docx::margins_assumed`: a page carries no page probe, so its margins are taken as 1 in.
 - `docx::probes_disabled`: the probed compile did not lay out the document's ink, so the Word file is read without its probes.
 
 ## `acroform::`
