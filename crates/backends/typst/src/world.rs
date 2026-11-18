@@ -177,6 +177,7 @@ pub(crate) fn sets_text(info: &FontInfo, font: &Font) -> bool {
 /// Typst `World` implementation for quill-based compilation, rooted at the
 /// quill: `.typ` sources load at their quill paths, packages from
 /// `{quill}/packages/` and assets from `{quill}/assets/`.
+#[derive(Clone)]
 pub(crate) struct QuillWorld {
     library: LazyHash<Library>,
     book: LazyHash<FontBook>,
@@ -258,6 +259,16 @@ impl QuillWorld {
             world.library = LazyHash::new(library);
         }
         Ok(world)
+    }
+
+    /// This world with the Word export's probes in its library, or `None`
+    /// when they fail to evaluate.
+    pub(crate) fn probed(&self) -> Option<Self> {
+        let library = crate::docx::probes::with_probes(self, &self.library)?;
+        Some(Self {
+            library: LazyHash::new(library),
+            ..self.clone()
+        })
     }
 
     pub(crate) fn set_today(&mut self, today: CalendarDate) {

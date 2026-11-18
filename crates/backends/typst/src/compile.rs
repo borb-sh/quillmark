@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use typst::diag::Warned;
+use typst::model::Document as _;
 use typst::layout::{Frame, FrameItem};
 use typst::model::Destination;
 use typst::utils::Scalar;
@@ -237,12 +238,18 @@ pub(crate) fn render_document_pages(
             Ok(RenderResult::new(artifacts, OutputFormat::Png))
         }
         OutputFormat::Docx => {
-            let document = titled(document, title, fallback_title);
-            let bytes = crate::docx::export(&document);
-            Ok(RenderResult::new(
+            let title = titled(document, title, fallback_title)
+                .info()
+                .title
+                .as_ref()
+                .map(|t| t.to_string());
+            let (bytes, warnings) = crate::docx::export(document, world, title);
+            let mut result = RenderResult::new(
                 vec![Artifact::new(bytes, OutputFormat::Docx)],
                 OutputFormat::Docx,
-            ))
+            );
+            result.warnings = warnings;
+            Ok(result)
         }
         OutputFormat::Pdf => {
             let document = &titled(document, title, fallback_title);

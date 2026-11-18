@@ -227,6 +227,12 @@ Opening a Typst quill and compiling its plate.
 - `typst::world_creation`
 - `typst::wrong_backend`
 
+## `docx::`
+
+A Word export. Each warns that the Word file carries less than the PDF shows; none says that Word lays the document out differently, which is expected.
+
+- `docx::probes_disabled`: the probed compile did not lay out the document's ink, so the Word file is read without its probes.
+
 ## `acroform::`
 
 Opening an `acroform` quill and binding `Form.yaml`.
