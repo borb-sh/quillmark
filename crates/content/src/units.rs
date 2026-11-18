@@ -28,6 +28,12 @@ pub trait Units: Copy {
     fn len(self, s: &str) -> usize {
         s.chars().map(|c| self.char_len(c)).sum()
     }
+
+    /// Whether every character of `s` is one unit, so offsets into it count
+    /// alike in these units and in scalar values.
+    fn narrow(self, s: &str) -> bool {
+        s.chars().all(|c| self.char_len(c) == 1)
+    }
 }
 
 /// Unicode scalar values, storage's own unit.
@@ -46,11 +52,19 @@ impl Units for Scalars {
     fn len(self, s: &str) -> usize {
         s.chars().count()
     }
+
+    fn narrow(self, _: &str) -> bool {
+        true
+    }
 }
 
 impl Units for Utf16 {
     fn char_len(self, c: char) -> usize {
         c.len_utf16()
+    }
+
+    fn narrow(self, s: &str) -> bool {
+        !s.bytes().any(|b| b >= 0xF0)
     }
 }
 
@@ -380,7 +394,42 @@ fn convert(
     u: impl Units,
     dir: Dir,
 ) -> Result<Change, ApplyError> {
+    if unchanged(change, before, u) {
+        return Ok(change.clone());
+    }
     steps(before.clone(), &change.steps, u, dir)
+}
+
+/// Whether `change` converts to itself on `before`: every text its steps read
+/// and write is narrow in `u`, and every offset is inside the text its step
+/// reads, so neither a split character nor a stale offset is there for the
+/// run [`steps`] makes to refuse. A keystroke's splice on a long value is
+/// answered without a copy of the value or a pass over it per step.
+fn unchanged(change: &Change, before: &Content, u: impl Units) -> bool {
+    if !u.narrow(&before.text) {
+        return false;
+    }
+    let mut len = before.text.chars().count();
+    let within = |a: Scalar, b: Scalar, len: Scalar| a <= b && b <= len;
+    change.steps.iter().all(|step| match step {
+        Step::Splice(s) => {
+            let (dn, m) = (s.delete.chars().count(), s.insert.chars().count());
+            let fits = s.islands.is_empty()
+                && s.removed.as_ref().is_none_or(|r| r.islands.is_empty())
+                && u.narrow(&s.delete)
+                && u.narrow(&s.insert)
+                && s.at.checked_add(dn).is_some_and(|end| end <= len);
+            len = len - dn.min(len) + m;
+            fits
+        }
+        Step::SetBlock(_) | Step::Container(_) | Step::Anchor(AnchorStep::Remove { .. }) => true,
+        Step::Mark(MarkStep::Add { mark: m, .. }) => within(m.start, m.end, len),
+        Step::Mark(MarkStep::Remove { start, end, .. }) => within(*start, *end, len),
+        Step::Anchor(AnchorStep::Place { anchor: a, .. } | AnchorStep::Move { anchor: a, .. }) => {
+            within(a.start, a.end, len)
+        }
+        Step::Island(_) | Step::Nested { .. } => false,
+    })
 }
 
 /// `steps` converted, each on the text the steps before it left, as one run
