@@ -2614,6 +2614,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "quillmark-docx"
+version = "0.139.0"
+dependencies = [
+ "crc32fast",
+ "miniz_oxide",
+ "proptest",
+ "roxmltree 0.21.2",
+ "serde",
+]
+
+[[package]]
 name = "quillmark-fixtures"
 version = "0.139.0"
 dependencies = [

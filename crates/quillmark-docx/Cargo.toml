@@ -1,0 +1,23 @@
+[package]
+name = "quillmark-docx"
+version.workspace = true
+edition.workspace = true
+include.workspace = true
+readme.workspace = true
+description = "Typst-free Word writer for Quillmark: a layout tree lowered to a typed Word document and written as .docx"
+license.workspace = true
+documentation = "https://docs.rs/quillmark-docx"
+homepage.workspace = true
+repository = "https://github.com/borb-sh/quillmark"
+keywords = ["docx", "word", "ooxml", "document"]
+categories = ["rendering"]
+publish = true
+
+[dependencies]
+miniz_oxide = { workspace = true }
+crc32fast = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+roxmltree = { workspace = true }

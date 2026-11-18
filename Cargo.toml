@@ -3,6 +3,7 @@ members = [
     "crates/core",
     "crates/quillmark",
     "crates/quillmark-pdf",
+    "crates/quillmark-docx",
     "crates/backends/typst",
     "crates/backends/acroform",
     "crates/content",
@@ -16,6 +17,7 @@ default-members = [
     "crates/core",
     "crates/quillmark",
     "crates/quillmark-pdf",
+    "crates/quillmark-docx",
     "crates/backends/typst",
     "crates/backends/acroform",
     "crates/bindings/cli",
@@ -82,6 +84,7 @@ typst-svg = "0.15.1"
 quillmark-core = { version = "0.139.0", path = "crates/core" }
 quillmark-content = { version = "0.139.0", path = "crates/content" }
 quillmark-pdf = { version = "0.139.0", path = "crates/quillmark-pdf" }
+quillmark-docx = { version = "0.139.0", path = "crates/quillmark-docx" }
 quillmark-typst = { version = "0.139.0", path = "crates/backends/typst" }
 quillmark-acroform = { version = "0.139.0", path = "crates/backends/acroform" }
 quillmark = { version = "0.139.0", path = "crates/quillmark" }
