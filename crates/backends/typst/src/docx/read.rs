@@ -46,6 +46,19 @@ pub(crate) const CODE_HINT_UNCLOSED: &str = "docx::hint_unclosed";
 pub(crate) const CODE_LIST_MARKER_REPLACED: &str = "docx::list_marker_replaced";
 const HINT: &str = "__qm_hint__";
 
+/// Typst's text size where nothing sets one.
+const DEFAULT_TEXT_SIZE: f64 = 11.0;
+
+/// The page probe's record in `frame`.
+fn page_probe(frame: &Frame) -> Option<Dict> {
+    frame.items().find_map(|(_, item)| match item {
+        FrameItem::Group(g) => page_probe(&g.frame),
+        FrameItem::Tag(Tag::Start(elem, _)) => marker(elem, HINT)
+            .filter(|d| matches!(d.get("hint"), Ok(Value::Str(h)) if h.as_str() == "page")),
+        _ => None,
+    })
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Key {
     Elem(Location),
@@ -84,6 +97,9 @@ struct Reader<'a> {
     /// The outline entry whose leader has closed, and the node holding the
     /// page number after it.
     toc_led: Option<(NodeId, Option<NodeId>)>,
+    /// The text size the page probe records for the page being read, which
+    /// it paints last.
+    page_text: f64,
 }
 
 /// The Layout IR of `document`.
@@ -111,12 +127,16 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
         sizings: HashMap::new(),
         in_raster: 0,
         toc_led: None,
+        page_text: DEFAULT_TEXT_SIZE,
     };
     let mut assumed = 0;
     for (i, page) in document.pages().iter().enumerate() {
         r.page = i as u32;
         r.probe = None;
         r.number_text = None;
+        r.page_text = page_probe(&page.frame)
+            .and_then(|d| length(&d.get("size").ok()?.clone(), 0.0))
+            .unwrap_or(DEFAULT_TEXT_SIZE);
         let size = [page.frame.width().to_pt(), page.frame.height().to_pt()];
         r.out.pages.push(Page {
             size,
@@ -666,7 +686,8 @@ impl Reader<'_> {
         self.push(Key::Elem(loc), Some(node), false);
     }
 
-    /// The text size the innermost block or paragraph probe recorded.
+    /// The text size the innermost block or paragraph probe recorded, else
+    /// the page's.
     fn text_size(&self) -> f64 {
         self.stack
             .iter()
@@ -677,7 +698,7 @@ impl Reader<'_> {
                 NodeKind::Par { style: Some(s), .. } => Some(s.size),
                 _ => None,
             })
-            .unwrap_or(0.0)
+            .unwrap_or(self.page_text)
     }
 
     /// The text edges of the open par and block nodes still waiting for a

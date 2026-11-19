@@ -361,3 +361,27 @@ fn the_footnote_rule_is_left_to_word_and_reaches_no_header() {
     assert_eq!(texts, ["A note.", "Another note."]);
     assert!(!w.has("docx::shape_dropped"), "{:?}", w.codes);
 }
+
+/// The `w:gridCol` widths of the document's first table, in twips.
+fn grid_columns(w: &word::Word) -> Vec<i64> {
+    let xml = w.xml("word/document.xml");
+    let grid = xml
+        .split("<w:tblGrid>")
+        .nth(1)
+        .and_then(|g| g.split("</w:tblGrid>").next())
+        .expect("a table grid");
+    grid.split("w:w=\"")
+        .skip(1)
+        .filter_map(|v| v.split('"').next()?.parse().ok())
+        .collect()
+}
+
+#[test]
+fn an_em_column_with_no_block_around_it_resolves_at_the_text_size() {
+    let w = render(&format!(
+        "{PAGE}#set text(size: 10pt)\n\
+         #table(columns: (1fr, 1em + 90pt), [a], [b])\n"
+    ));
+    let columns = grid_columns(&w);
+    assert_eq!(columns.last(), Some(&2000), "{columns:?}");
+}
