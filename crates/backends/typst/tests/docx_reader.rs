@@ -330,16 +330,35 @@ fn ink_the_tree_cannot_hold_is_a_picture_and_a_highlight_keeps_its_fill() {
          #line(length: 100%)\n#box(clip: true, width: 20pt, height: 8pt)[clipped text that is long]\n\
          #box(clip: true, width: 200pt)[fits]\n#text(weight: \"bold\")[Heavy]\n"
     ));
-    let items: Vec<&ItemKind> = doc.pages.iter().flat_map(|p| &p.items).map(|i| &i.kind).collect();
-    let rasters = items.iter().filter(|k| matches!(k, ItemKind::Raster { .. })).count();
-    assert_eq!(rasters, 4, "circle, rotation, gradient and the cutting clip");
-    assert!(items.iter().any(|k| matches!(k, ItemKind::Shape(_))), "the rule stays a line");
+    let items: Vec<&ItemKind> = doc
+        .pages
+        .iter()
+        .flat_map(|p| &p.items)
+        .map(|i| &i.kind)
+        .collect();
+    let rasters = items
+        .iter()
+        .filter(|k| matches!(k, ItemKind::Raster { .. }))
+        .count();
+    assert_eq!(
+        rasters, 4,
+        "circle, rotation, gradient and the cutting clip"
+    );
+    assert!(
+        items.iter().any(|k| matches!(k, ItemKind::Shape(_))),
+        "the rule stays a line"
+    );
     assert!(doc.notices.iter().any(|n| n.code == "docx::rasterized"));
     let fills: Vec<_> = find(&doc, |k| matches!(k, NodeKind::Highlight { .. }))
         .into_iter()
         .map(|n| doc.nodes[n].kind.clone())
         .collect();
-    assert_eq!(fills, [NodeKind::Highlight { fill: quillmark_docx::layout::Rgb(0, 116, 217) }]);
+    assert_eq!(
+        fills,
+        [NodeKind::Highlight {
+            fill: quillmark_docx::layout::Rgb(0, 116, 217)
+        }]
+    );
     let heavy = paragraphs(&doc)
         .into_iter()
         .flat_map(|p| doc.nodes[p].lines.clone())
@@ -359,10 +378,20 @@ fn a_tables_columns_close_at_their_own_size_and_cells_carry_their_fields() {
          stroke: 0.5pt + red, [a], [b], [c], [d])\n#table(columns: (auto, auto), [wide cell], [x])\n"
     ));
     let tables = find(&doc, |k| matches!(k, NodeKind::Table { .. }));
-    let NodeKind::Table { columns, content_sized, rows, .. } = &doc.nodes[tables[0]].kind else {
+    let NodeKind::Table {
+        columns,
+        content_sized,
+        rows,
+        ..
+    } = &doc.nodes[tables[0]].kind
+    else {
         unreachable!()
     };
-    assert_eq!(columns, &[30.0, 90.0, 270.0], "a fixed column and a fraction to the margin");
+    assert_eq!(
+        columns,
+        &[30.0, 90.0, 270.0],
+        "a fixed column and a fraction to the margin"
+    );
     assert_eq!(content_sized, &[false, false]);
     assert_eq!(rows.len(), 2);
     assert!(rows[0].1 < rows[1].1);
@@ -372,12 +401,28 @@ fn a_tables_columns_close_at_their_own_size_and_cells_carry_their_fields() {
         .filter(|&n| matches!(doc.nodes[n].kind, NodeKind::Cell { .. }))
         .map(|n| doc.nodes[n].kind.clone())
         .collect();
-    let NodeKind::Cell { fill, inset, borders, .. } = &cells[0] else { unreachable!() };
+    let NodeKind::Cell {
+        fill,
+        inset,
+        borders,
+        ..
+    } = &cells[0]
+    else {
+        unreachable!()
+    };
     assert_eq!(*fill, Some(quillmark_docx::layout::Rgb(170, 170, 170)));
     assert_eq!((inset.top, inset.left), (4.0, 4.0));
-    assert_eq!(borders[0], Some((0.5, quillmark_docx::layout::Rgb(255, 65, 54))));
+    assert_eq!(
+        borders[0],
+        Some((0.5, quillmark_docx::layout::Rgb(255, 65, 54)))
+    );
     assert!(matches!(&cells[2], NodeKind::Cell { fill: None, .. }));
-    let NodeKind::Table { columns, content_sized, .. } = &doc.nodes[tables[1]].kind else {
+    let NodeKind::Table {
+        columns,
+        content_sized,
+        ..
+    } = &doc.nodes[tables[1]].kind
+    else {
         unreachable!()
     };
     assert_eq!(content_sized, &[true, true]);

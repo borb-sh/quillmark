@@ -31,6 +31,10 @@ pub const HELPER_NAME: &str = "quillmark-helper";
 
 const LIB_TYP_TEMPLATE: &str = include_str!("lib.typ.template");
 
+/// The Word export's hint vocabulary, which the helper re-exports as
+/// `qm.hints` and a quill's own package may vendor unchanged.
+pub const HINTS_TYP: &str = include_str!("hints.typ");
+
 /// One generated content block's source map in the produced `lib.typ`: the
 /// bracketed `block` range (brackets included) plus the emitter's
 /// [`SegmentMap`]s, rebased so every `generated` range indexes `lib.typ`

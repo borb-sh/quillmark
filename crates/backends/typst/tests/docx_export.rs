@@ -201,14 +201,28 @@ fn a_highlight_rule_and_picture_keep_their_ink() {
          #line(length: 100%)\n"
     ));
     let xml = part(&parts, "word/document.xml");
-    assert!(xml.contains("w:fill=\"0074D9\""), "the highlight's own fill");
+    assert!(
+        xml.contains("w:fill=\"0074D9\""),
+        "the highlight's own fill"
+    );
     assert!(xml.contains("prst=\"line\""), "the rule is a shape");
     let texts: Vec<String> = paragraphs(&xml).into_iter().map(|p| p.0).collect();
-    assert!(texts.iter().any(|t| t == "Before blue and  after."), "{texts:?}");
-    assert!(xml.contains("<wp:inline"), "the circle is a picture in its paragraph");
+    assert!(
+        texts.iter().any(|t| t == "Before blue and  after."),
+        "{texts:?}"
+    );
+    assert!(
+        xml.contains("<wp:inline"),
+        "the circle is a picture in its paragraph"
+    );
     assert!(parts.iter().any(|(n, _)| n.starts_with("word/media/")));
     assert!(codes.iter().any(|c| c == "docx::rasterized"), "{codes:?}");
-    assert!(!codes.iter().any(|c| c == "docx::ink_dropped" || c == "docx::shape_dropped"), "{codes:?}");
+    assert!(
+        !codes
+            .iter()
+            .any(|c| c == "docx::ink_dropped" || c == "docx::shape_dropped"),
+        "{codes:?}"
+    );
 }
 
 #[test]
@@ -224,11 +238,33 @@ fn measured_pitch_distances_tables_and_a_first_page_float() {
     let doc = roxmltree::Document::parse(&xml).unwrap();
     let lines: std::collections::BTreeSet<&str> = doc
         .descendants()
-        .filter(|n| n.tag_name().name() == "spacing" && n.parent().unwrap().parent().unwrap().parent().unwrap().tag_name().name() == "body")
-        .filter_map(|n| n.attributes().find(|a| a.name() == "line").map(|a| a.value()))
+        .filter(|n| {
+            n.tag_name().name() == "spacing"
+                && n.parent()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .tag_name()
+                    .name()
+                    == "body"
+        })
+        .filter_map(|n| {
+            n.attributes()
+                .find(|a| a.name() == "line")
+                .map(|a| a.value())
+        })
         .collect();
-    assert_eq!(lines.len(), 1, "a one-line paragraph takes the stride of its face: {lines:?}");
-    assert!(xml.contains("w:header=\"400\""), "the header sits at the margin less its ascent");
+    assert_eq!(
+        lines.len(),
+        1,
+        "a one-line paragraph takes the stride of its face: {lines:?}"
+    );
+    assert!(
+        xml.contains("w:header=\"400\""),
+        "the header sits at the margin less its ascent"
+    );
     let before_table = paragraphs(&xml)
         .into_iter()
         .find(|p| p.0 == "One line.")
@@ -240,10 +276,21 @@ fn measured_pitch_distances_tables_and_a_first_page_float() {
         .descendants()
         .find(|n| n.tag_name().name() == "spacing")
         .unwrap();
-    assert!(spacing.attribute((NS_W, "after")).is_some_and(|v| v.parse::<i32>().unwrap() > 0));
+    assert!(
+        spacing
+            .attribute((NS_W, "after"))
+            .is_some_and(|v| v.parse::<i32>().unwrap() > 0)
+    );
     assert!(xml.contains("w:fill=\"AAAAAA\""), "the header row's fill");
-    assert!(xml.contains("<w:tcBorders><w:top w:val=\"single\" w:sz=\"4\""), "{xml}");
-    assert_eq!(xml.matches("<w:noWrap/>").count(), 1, "the auto column does not wrap");
+    assert!(
+        xml.contains("<w:tcBorders><w:top w:val=\"single\" w:sz=\"4\""),
+        "{xml}"
+    );
+    assert_eq!(
+        xml.matches("<w:noWrap/>").count(),
+        1,
+        "the auto column does not wrap"
+    );
     assert!(xml.contains("<w:cantSplit/>"));
     assert!(xml.contains("<w:titlePg/>"));
     let footers: String = parts
@@ -251,9 +298,188 @@ fn measured_pitch_distances_tables_and_a_first_page_float() {
         .filter(|(n, _)| n.starts_with("word/footer"))
         .map(|(_, b)| String::from_utf8_lossy(b).to_string())
         .collect();
-    assert!(footers.contains("Reserved band"), "the float sits in the first-page footer");
+    assert!(
+        footers.contains("Reserved band"),
+        "the float sits in the first-page footer"
+    );
     assert!(!xml.contains("Reserved band"));
-    assert!(!codes.iter().any(|c| c == "docx::ink_dropped" || c == "docx::shape_dropped"), "{codes:?}");
+    assert!(
+        !codes
+            .iter()
+            .any(|c| c == "docx::ink_dropped" || c == "docx::shape_dropped"),
+        "{codes:?}"
+    );
 }
 
 const NS_W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+fn fixture_parts(name: &str) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
+    let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path(name)).expect("loads");
+    let doc = quill.example_document().expect("an example");
+    let data = quill
+        .compile_checked(&doc, common::test_date())
+        .expect("data");
+    let result = TypstBackend::default()
+        .open(&quill, &data, common::test_date())
+        .expect("open")
+        .render(&RenderOptions::default().with_output_format(OutputFormat::Docx))
+        .expect("render");
+    let codes = result
+        .warnings
+        .iter()
+        .filter_map(|w| w.code.clone())
+        .collect();
+    (
+        quillmark_docx::unzip(&result.artifacts[0].bytes).unwrap(),
+        codes,
+    )
+}
+
+fn style_of(xml: &str, text: &str) -> Option<String> {
+    let doc = roxmltree::Document::parse(xml).unwrap();
+    let (_, id) = paragraphs(xml).into_iter().find(|p| p.0 == text)?;
+    doc.get_node(id)?
+        .descendants()
+        .find(|n| n.tag_name().name() == "pStyle")
+        .and_then(|n| n.attribute((NS_W, "val")))
+        .map(str::to_string)
+}
+
+#[test]
+fn hints_number_paragraphs_live_and_name_their_roles_tabs_chrome_keep_and_font() {
+    let (parts, codes) = fixture_parts("numbered_letter");
+    let xml = part(&parts, "word/document.xml");
+    let texts: Vec<String> = paragraphs(&xml).into_iter().map(|p| p.0).collect();
+    assert!(
+        texts.contains(&"The second paragraph is the last one.".to_string()),
+        "{texts:?}"
+    );
+    assert!(
+        !texts
+            .iter()
+            .any(|t| t.starts_with("2.") || t.starts_with("a.")),
+        "{texts:?}"
+    );
+    assert_eq!(
+        style_of(&xml, "The second paragraph is the last one.").as_deref(),
+        Some("LetterParagraph1")
+    );
+    assert_eq!(
+        style_of(&xml, "A sub-paragraph sits under its parent\u{2019}s text.").as_deref(),
+        Some("LetterParagraph2")
+    );
+    let numbering = part(&parts, "word/numbering.xml");
+    assert!(
+        numbering.contains("<w:lvlText w:val=\"%1.  \"/>"),
+        "{numbering}"
+    );
+    assert!(numbering.contains("<w:numFmt w:val=\"lowerLetter\"/><w:pStyle w:val=\"LetterParagraph2\"/><w:suff w:val=\"nothing\"/><w:lvlText w:val=\"%2.  \"/>"));
+    assert_eq!(
+        xml.matches("<w:numPr>").count(),
+        0,
+        "the number comes from the level style"
+    );
+
+    let from = paragraphs(&xml)
+        .into_iter()
+        .find(|p| p.0 == "FROM:123 Example Office");
+    assert!(from.is_some(), "the grid line is one paragraph: {texts:?}");
+    assert_eq!(
+        style_of(&xml, "FROM:123 Example Office").as_deref(),
+        Some("LetterHeading")
+    );
+    assert!(!xml.contains("<w:tbl>"), "a tabbed grid is not a table");
+    let styles = part(&parts, "word/styles.xml");
+    assert!(styles.contains("w:styleId=\"LetterHeading\"><w:name w:val=\"Letter Heading\"/><w:basedOn w:val=\"Normal\"/><w:next w:val=\"LetterBody\"/>"), "{styles}");
+    assert!(
+        styles.contains("<w:tab w:val=\"left\" w:pos=\"1440\"/>"),
+        "the label column's edge"
+    );
+    assert!(styles.contains("w:styleId=\"LetterBody\""));
+
+    let header = part(&parts, "word/header1.xml");
+    assert!(header.contains("NUMBERED LETTER"));
+    assert!(!xml.contains("NUMBERED LETTER"));
+    let keep = paragraphs(&xml)
+        .into_iter()
+        .find(|p| p.0 == "Respectfully,")
+        .unwrap()
+        .1;
+    let doc = roxmltree::Document::parse(&xml).unwrap();
+    assert!(
+        doc.get_node(keep)
+            .unwrap()
+            .descendants()
+            .any(|n| n.tag_name().name() == "keepNext")
+    );
+    let fonts = part(&parts, "word/fontTable.xml");
+    assert!(fonts.contains("<w:altName w:val=\"Arial\"/>"), "{fonts}");
+    assert!(
+        !codes.iter().any(|c| [
+            "docx::hint_unknown",
+            "docx::hint_unclosed",
+            "docx::hint_unchecked",
+            "docx::label_mismatch",
+            "docx::ink_dropped"
+        ]
+        .contains(&c.as_str())),
+        "{codes:?}"
+    );
+}
+
+const HINTS: &str = "#let hints = qm.hints\n#set page(width: 300pt, height: 300pt, margin: 30pt)\n";
+
+#[test]
+fn a_label_the_count_does_not_reach_stays_printed_and_is_reported() {
+    let (parts, codes) = render(&format!(
+        "{HINTS}#hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n\
+         #hints.hint(\"label\", level: 1, value: 3)[3.#h(4pt)]Third, but first.\n]\n"
+    ));
+    let xml = part(&parts, "word/document.xml");
+    let texts: Vec<String> = paragraphs(&xml).into_iter().map(|p| p.0).collect();
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.starts_with("3.") && t.ends_with("Third, but first.")),
+        "{texts:?}"
+    );
+    assert!(
+        codes.iter().any(|c| c == "docx::label_mismatch"),
+        "{codes:?}"
+    );
+}
+
+#[test]
+fn an_unknown_hint_and_one_left_open_are_reported_and_cost_only_their_paragraph() {
+    let (parts, codes) = render(&format!(
+        "{HINTS}#metadata((kind: \"__qm_hint__\", hint: \"mystery\"))<__qm_hint__>\
+         Open #metadata((kind: \"__qm_hint__\", hint: \"role\", edge: \"open\", name: \"Lost\"))<__qm_hint__> here.\n\n\
+         After it.\n"
+    ));
+    let xml = part(&parts, "word/document.xml");
+    let texts: Vec<String> = paragraphs(&xml).into_iter().map(|p| p.0).collect();
+    assert!(texts.contains(&"After it.".to_string()), "{texts:?}");
+    assert_eq!(style_of(&xml, "After it."), None);
+    assert!(codes.iter().any(|c| c == "docx::hint_unknown"), "{codes:?}");
+    assert!(
+        codes.iter().any(|c| c == "docx::hint_unclosed"),
+        "{codes:?}"
+    );
+}
+
+#[test]
+fn a_misspelt_hint_fails_the_compile_with_its_message() {
+    let plate = format!(
+        "#import \"@local/quillmark-helper:0.2.0\" as qm\n{HINTS}#qm.hints.hint(\"role\", nme: \"X\")[text]\n"
+    );
+    let quill = common::quill_with_plate(&common::yaml(""), &plate);
+    let err = TypstBackend::default()
+        .open(&quill, &json!({}), common::test_date())
+        .and_then(|s| s.render(&RenderOptions::default().with_output_format(OutputFormat::Pdf)))
+        .err()
+        .expect("a compile error");
+    assert!(
+        format!("{err:?}").contains("hint role: unknown field \\\"nme\\\""),
+        "{err:?}"
+    );
+}

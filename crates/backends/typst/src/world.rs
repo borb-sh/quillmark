@@ -236,6 +236,8 @@ impl QuillWorld {
             Self::helper_fid("typst.toml"),
             Bytes::new(helper::generate_typst_toml().into_bytes()),
         );
+        let hints = Self::helper_fid("hints.typ");
+        sources.insert(hints, Source::new(hints, helper::HINTS_TYP.to_string()));
 
         let main_id = file_id(None, plate.path.clone());
         Self::load_project_sources(source, main_id, &mut sources, &mut load_warnings);

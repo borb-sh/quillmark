@@ -249,6 +249,42 @@ pub enum PointHint {
     Break { weak: bool, to: Option<Parity> },
     /// The reference mark of a footnote.
     FootnoteRef { note: NodeId },
+    /// No page break between the block before and the block after.
+    Keep,
+    /// The name a reader without the face should use for `family`.
+    Font { family: String, alt: String },
+}
+
+/// One level of a numbering scheme, as the quill describes it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HintLevel {
+    pub format: NumberFormat,
+    pub prefix: String,
+    /// What follows the number, spacing included.
+    pub suffix: String,
+    pub underline: bool,
+    /// False for a level that counts and prints no number.
+    pub visible: bool,
+    /// The first line's indent from the column's edge.
+    pub indent: f64,
+}
+
+/// What a quill says about the content between a bracket's open and close.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BracketHint {
+    /// One instance of the numbering scheme `name`.
+    List {
+        name: String,
+        levels: Vec<HintLevel>,
+    },
+    /// The automatic number, at 1-based `level`, of the paragraph it sits in.
+    Label { level: u8, value: Option<u64> },
+    /// A named role for the paragraphs inside, and the role after them.
+    Role { name: String, next: Option<String> },
+    /// A grid that is a line of label, tab and text.
+    Tabbed,
+    /// A placed object that belongs to the page.
+    Chrome,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -461,6 +497,7 @@ pub enum NodeKind {
         kind: ArtifactKind,
     },
     Footnote,
+    Hint(BracketHint),
 }
 
 impl NodeKind {
@@ -490,6 +527,7 @@ impl NodeKind {
                 | NodeKind::Super
                 | NodeKind::Link { .. }
                 | NodeKind::NoBreak
+                | NodeKind::Hint(BracketHint::Label { .. })
         )
     }
 }

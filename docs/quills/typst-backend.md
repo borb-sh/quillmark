@@ -504,6 +504,32 @@ Every quill on this backend exports to Word with no change to the quill: ask for
 - **Fonts:** a face with a metric-compatible Word face is named as that face (TeX Gyre Termes and Liberation Serif as Times New Roman, Liberation Sans and TeX Gyre Heros as Arial, Liberation Mono as Courier New, Carlito as Calibri, Caladea as Cambria). Any other face is named as it is, without being embedded.
 - **What reaches Word only as frozen text, a picture, or not at all** raises a warning, so a render's warnings say where the Word file carries less than the PDF shows.
 
+#### Hints
+
+A quill states what its frames cannot show with `qm.hints`. A hint emits only labelled metadata, so the PDF is unchanged, and a misspelt kind or field fails the compile. A bracket closes under the element it opens in; one left open raises `docx::hint_unclosed` and costs that element only.
+
+```typst
+#let hints = qm.hints
+#hints.hint("list", v: 1, name: "Letter Paragraph", levels: (
+  (format: "decimal", suffix: ".  "),
+  (format: "lower-letter", suffix: ".  ", indent: 18pt),
+))[
+  #hints.hint("label", level: 1, value: 1)[1.#h(1em)]The first paragraph.
+]
+```
+
+| Hint | Form | Data | Word gets |
+|---|---|---|---|
+| `list` | bracket around one list | `v: 1`, `name`, `levels`: per level `format`, `prefix`, `suffix`, `underline`, `visible`, `indent` | a multilevel numbering and one paragraph style per level |
+| `label` | bracket around a printed number and the space after it | `level`, `value` | the paragraph numbered live; a `value` Word would not count stays printed text with `docx::label_mismatch` |
+| `role` | bracket around paragraphs | `name`, `next` | a paragraph style of that name |
+| `layout` | bracket around a grid | `form: "tabbed"` | each row as one paragraph of label, tab and text |
+| `chrome` | bracket around a `place` | none | the placed object in the page header |
+| `keep` | point; `keep-with-next(body)` emits it | none | no page break between the paragraph before and the one after |
+| `font` | point, once per face | `family`, `alt` | `alt` as the face Word names where `family` is missing |
+
+A quill package that must stay publishable without Quillmark vendors `crates/backends/typst/src/hints.typ` from the Quillmark repository unchanged.
+
 ## Iterating on a Plate
 
 The plate imports a helper Quillmark generates per render, so Typst's own tools cannot compile it from the quill alone. [`quillmark workspace`](../cli/reference.md#workspace) writes that helper for one document, beside the quill's packages and fonts, and prints the `typst watch` command that compiles the plate from them. Edits to the plate recompile on save.

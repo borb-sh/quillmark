@@ -15,9 +15,10 @@
 use std::collections::HashMap;
 
 use quillmark_docx::layout::{
-    ArtifactKind, Child, DocInfo, FontFace, FontId, Geometry, HAlign, ImageData, ImageFormat,
-    ImageId, Item, ItemKind, ItemRef, LayoutDoc, Line, LineEnd, Marker, Node, NodeId, NodeKind,
-    Notice, NumberFormat, VAlign, Page, PageSetup, ParStyle, Parity, PointHint, Rect, Rgb, Shape, Sides, TextRun,
+    ArtifactKind, BracketHint, Child, DocInfo, FontFace, FontId, Geometry, HAlign, HintLevel,
+    ImageData, ImageFormat, ImageId, Item, ItemKind, ItemRef, LayoutDoc, Line, LineEnd, Marker,
+    Node, NodeId, NodeKind, Notice, NumberFormat, Page, PageSetup, ParStyle, Parity, PointHint,
+    Rect, Rgb, Shape, Sides, TextRun, VAlign,
 };
 use typst::foundations::{Content, Dict, Smart, StyleChain, Value};
 use typst::introspection::{Location, Tag};
@@ -28,7 +29,8 @@ use typst::layout::{
 use typst::layout::{GridCell, GridElem, HideElem, PlaceElem, Sizing, VAlignment};
 use typst::model::{
     Destination, EmphElem, EnumElem, FigureCaption, FigureElem, FootnoteElem, HeadingElem,
-    LinkElem, LinkTarget, ListElem, ListMarker, Numbering, ParElem, StrongElem, TableCell, TableElem,
+    LinkElem, LinkTarget, ListElem, ListMarker, Numbering, ParElem, StrongElem, TableCell,
+    TableElem,
 };
 use typst::pdf::{ArtifactElem, PdfMarkerTag, PdfMarkerTagKind, TableCellKind};
 use typst::text::{HighlightElem, StandardAxes, StrikeElem, SubElem, SuperElem, UnderlineElem};
@@ -39,6 +41,8 @@ use crate::tags::{marker, relocated};
 
 pub(crate) const CODE_MARGINS_ASSUMED: &str = "docx::margins_assumed";
 pub(crate) const CODE_RASTERIZED: &str = "docx::rasterized";
+pub(crate) const CODE_HINT_UNKNOWN: &str = "docx::hint_unknown";
+pub(crate) const CODE_HINT_UNCLOSED: &str = "docx::hint_unclosed";
 pub(crate) const CODE_LIST_MARKER_REPLACED: &str = "docx::list_marker_replaced";
 const HINT: &str = "__qm_hint__";
 
@@ -209,7 +213,33 @@ impl Reader<'_> {
 
     fn close(&mut self, key: Key) {
         if let Some(i) = self.stack.iter().rposition(|o| o.key == key) {
+            let open = self.stack[i + 1..]
+                .iter()
+                .filter(|o| matches!(o.key, Key::Bracket(k) if QUILL_BRACKETS.contains(&k)))
+                .count();
+            for _ in 0..open {
+                self.notice(
+                    CODE_HINT_UNCLOSED,
+                    "a hint bracket is still open where its element ends, so it closes there"
+                        .into(),
+                );
+            }
             self.stack.truncate(i);
+        }
+    }
+
+    /// Closes the quill bracket `kind` opened under the innermost open
+    /// element; a close with no such open is dropped.
+    fn close_hint(&mut self, kind: &'static str) {
+        for i in (0..self.stack.len()).rev() {
+            match self.stack[i].key {
+                Key::Bracket(k) if k == kind => {
+                    self.stack.truncate(i);
+                    return;
+                }
+                Key::Elem(_) => return,
+                Key::Bracket(_) => {}
+            }
         }
     }
 
@@ -254,8 +284,7 @@ impl Reader<'_> {
         let mut inner = Frame::soft(Size::zero());
         inner.push(pos, item.clone());
         let mut group = GroupItem::new(inner);
-        group.transform =
-            Transform::translate(Abs::pt(-rect.x0), Abs::pt(-rect.y0)).pre_concat(ts);
+        group.transform = Transform::translate(Abs::pt(-rect.x0), Abs::pt(-rect.y0)).pre_concat(ts);
         let mut frame = Frame::hard(Size::new(Abs::pt(rect.width()), Abs::pt(rect.height())));
         frame.push(Point::zero(), FrameItem::Group(group));
         let page = typst_layout::Page {
@@ -333,8 +362,8 @@ impl Reader<'_> {
                             .find(|(t, _)| *t == tag)
                             .map(|(_, v)| v.0 as f64)
                     };
-                    let weight = axis(StandardAxes::WGHT)
-                        .unwrap_or(info.variant.weight.to_number() as f64);
+                    let weight =
+                        axis(StandardAxes::WGHT).unwrap_or(info.variant.weight.to_number() as f64);
                     let bold = weight >= 600.0;
                     let italic = axis(StandardAxes::ITAL).map_or_else(
                         || {
@@ -557,7 +586,34 @@ impl Reader<'_> {
             self.push(Key::Elem(loc), None, false);
             return;
         }
+        let label = match self.stack.last() {
+            Some(Open {
+                key: Key::Bracket("label"),
+                node: Some(n),
+                ..
+            }) if matches!(kind, NodeKind::Par { .. })
+                && self.out.nodes[*n].children.is_empty() =>
+            {
+                self.stack.pop()
+            }
+            _ => None,
+        };
         let node = self.add_node(kind);
+        if let Some(open) = label {
+            // Typst tags a paragraph after the inline tags it starts with, so a
+            // label that opens a paragraph moves inside it.
+            let n = open.node.expect("a label node");
+            let parent = self.out.nodes[n].parent.expect("a parent");
+            self.out.nodes[parent]
+                .children
+                .retain(|c| *c != Child::Node(n));
+            self.out.nodes[n].parent = Some(node);
+            self.out.nodes[node].children.push(Child::Node(n));
+            self.by_loc.insert(loc, node);
+            self.push(Key::Elem(loc), Some(node), false);
+            self.stack.push(open);
+            return;
+        }
         let sizing = elem
             .to_packed::<TableElem>()
             .map(|t| t.columns.get_ref(StyleChain::default()).0.to_vec())
@@ -674,14 +730,13 @@ impl Reader<'_> {
                     let (prefix, sys) = &p.pieces[k.min(p.pieces.len() - 1)];
                     Some((prefix.to_string(), format(&|| sys.shorthand())?))
                 };
-                let counters: Option<Vec<(String, NumberFormat)>> =
-                    if list.full.get(styles) {
-                        (0..=depth).map(piece).collect()
-                    } else {
-                        let (_, f) = piece(depth)?;
-                        let prefix = p.pieces.first().map(|(s, _)| s.to_string());
-                        Some(vec![(prefix.unwrap_or_default(), f)])
-                    };
+                let counters: Option<Vec<(String, NumberFormat)>> = if list.full.get(styles) {
+                    (0..=depth).map(piece).collect()
+                } else {
+                    let (_, f) = piece(depth)?;
+                    let prefix = p.pieces.first().map(|(s, _)| s.to_string());
+                    Some(vec![(prefix.unwrap_or_default(), f)])
+                };
                 match counters {
                     Some(counters) if !p.pieces.is_empty() => Marker::Numbered {
                         counters,
@@ -724,6 +779,65 @@ impl Reader<'_> {
                 }
             }
             "br" => self.ink(ItemKind::Mark(PointHint::Br)),
+            "keep" => self.ink(ItemKind::Mark(PointHint::Keep)),
+            "font" => {
+                if let (Value::Str(family), Value::Str(alt)) = (get("family"), get("alt")) {
+                    self.ink(ItemKind::Mark(PointHint::Font {
+                        family: family.to_string(),
+                        alt: alt.to_string(),
+                    }));
+                }
+            }
+            "list" | "label" | "role" | "layout" | "chrome" => {
+                let kind = QUILL_BRACKETS
+                    .iter()
+                    .copied()
+                    .find(|k| *k == hint.as_str())
+                    .expect("a quill bracket");
+                if close {
+                    self.close_hint(kind);
+                    return;
+                }
+                let size = self.text_size();
+                let text = |v: Value| match v {
+                    Value::Str(s) => Some(s.to_string()),
+                    _ => None,
+                };
+                let bracket = match kind {
+                    "list" => BracketHint::List {
+                        name: text(get("name")).unwrap_or_else(|| "List".into()),
+                        levels: match get("levels") {
+                            Value::Array(a) => {
+                                a.iter().filter_map(|l| hint_level(l, size)).collect()
+                            }
+                            _ => Vec::new(),
+                        },
+                    },
+                    "label" => BracketHint::Label {
+                        level: match get("level") {
+                            Value::Int(n) => n.clamp(1, 9) as u8,
+                            _ => 1,
+                        },
+                        value: match get("value") {
+                            Value::Int(n) if n >= 0 => Some(n as u64),
+                            _ => None,
+                        },
+                    },
+                    "role" => BracketHint::Role {
+                        name: text(get("name")).unwrap_or_default(),
+                        next: text(get("next")),
+                    },
+                    "layout" => BracketHint::Tabbed,
+                    _ => BracketHint::Chrome,
+                };
+                match self.top() {
+                    Some(_) => {
+                        let node = self.add_node(NodeKind::Hint(bracket));
+                        self.push(Key::Bracket(kind), Some(node), false);
+                    }
+                    None => self.push(Key::Bracket(kind), None, false),
+                }
+            }
             "break" => {
                 let to = match get("to") {
                     Value::Str(s) if s.as_str() == "odd" => Some(Parity::Odd),
@@ -809,9 +923,46 @@ impl Reader<'_> {
                     None => self.push(key, None, false),
                 }
             }
-            _ => {}
+            _ => self.notice(
+                CODE_HINT_UNKNOWN,
+                format!(
+                    "the hint {:?} is not one the Word export knows, so it is ignored",
+                    hint.as_str()
+                ),
+            ),
         }
     }
+}
+
+/// The brackets a quill emits, as against the probes'.
+const QUILL_BRACKETS: [&str; 5] = ["list", "label", "role", "layout", "chrome"];
+
+/// One level of a `list` hint; an `em` indent resolves at `size`.
+fn hint_level(v: &Value, size: f64) -> Option<HintLevel> {
+    let Value::Dict(d) = v else { return None };
+    let get = |k: &str| d.get(k).ok().cloned().unwrap_or(Value::None);
+    let text = |k: &str| match get(k) {
+        Value::Str(s) => s.to_string(),
+        _ => String::new(),
+    };
+    let format = match get("format") {
+        Value::Str(s) => match s.as_str() {
+            "lower-letter" => NumberFormat::LowerLetter,
+            "upper-letter" => NumberFormat::UpperLetter,
+            "lower-roman" => NumberFormat::LowerRoman,
+            "upper-roman" => NumberFormat::UpperRoman,
+            _ => NumberFormat::Decimal,
+        },
+        _ => NumberFormat::Decimal,
+    };
+    Some(HintLevel {
+        format,
+        prefix: text("prefix"),
+        suffix: text("suffix"),
+        underline: matches!(get("underline"), Value::Bool(true)),
+        visible: !matches!(get("visible"), Value::Bool(false)),
+        indent: length(&get("indent"), size).unwrap_or(0.0),
+    })
 }
 
 fn node_kind(elem: &Content) -> Option<NodeKind> {
@@ -880,7 +1031,11 @@ fn node_kind(elem: &Content) -> Option<NodeKind> {
         NodeKind::Strike
     } else if let Some(h) = elem.to_packed::<HighlightElem>() {
         NodeKind::Highlight {
-            fill: h.fill.get_ref(styles).as_ref().map_or(Rgb(255, 255, 0), rgb),
+            fill: h
+                .fill
+                .get_ref(styles)
+                .as_ref()
+                .map_or(Rgb(255, 255, 0), rgb),
         }
     } else if elem.is::<SubElem>() {
         NodeKind::Sub
@@ -1110,7 +1265,7 @@ fn page_setup(d: &Dict, size: [f64; 2]) -> Option<PageSetup> {
 fn transparent(doc: &LayoutDoc, id: NodeId) -> bool {
     matches!(
         doc.nodes[id].kind,
-        NodeKind::Block { .. } | NodeKind::Align { .. }
+        NodeKind::Block { .. } | NodeKind::Align { .. } | NodeKind::Hint(_)
     ) && doc.nodes[id].children.iter().all(|c| match c {
         Child::Item(r) => inline_item(doc, *r),
         Child::Node(n) => inline_node(doc, *n),
@@ -1260,7 +1415,9 @@ fn form_lines(doc: &mut LayoutDoc) {
                 }
                 ItemKind::Raster { rect, .. } => {
                     let on = lines.last_mut().filter(|l| {
-                        l.page == r.page && rect.y0 <= l.baseline + 1.0 && rect.y1 >= l.baseline - 1.0
+                        l.page == r.page
+                            && rect.y0 <= l.baseline + 1.0
+                            && rect.y1 >= l.baseline - 1.0
                     });
                     match on {
                         Some(l) => {
@@ -1422,9 +1579,9 @@ fn measure_tables(
                         colspan,
                         inset,
                         ..
-                    } if col + colspan == count => {
-                        Some(doc.nodes[c].frames.first().map_or(last_start, |f| f.1.x1) + inset.right)
-                    }
+                    } if col + colspan == count => Some(
+                        doc.nodes[c].frames.first().map_or(last_start, |f| f.1.x1) + inset.right,
+                    ),
                     _ => None,
                 })
                 .fold(last_start, f64::max),
@@ -1441,7 +1598,8 @@ fn measure_tables(
         let content_sized: Vec<bool> = (0..count as usize)
             .map(|c| matches!(sizing.get(c).or(sizing.last()), Some(Sizing::Auto) | None))
             .collect();
-        let mut rows: Vec<(u32, u32, f64)> = tops.into_iter().map(|(r, (p, y))| (r, p, y)).collect();
+        let mut rows: Vec<(u32, u32, f64)> =
+            tops.into_iter().map(|(r, (p, y))| (r, p, y)).collect();
         rows.sort_by_key(|r| r.0);
         if let NodeKind::Table {
             columns: c,
@@ -1475,9 +1633,10 @@ fn container(doc: &LayoutDoc, id: NodeId) -> (f64, f64) {
         {
             let table = doc.ancestor(cell, |k| matches!(k, NodeKind::Table { .. }));
             if let Some(NodeKind::Table { columns, .. }) = table.map(|t| &doc.nodes[t].kind) {
-                if let (Some(a), Some(b)) =
-                    (columns.get(col as usize), columns.get((col + colspan) as usize))
-                {
+                if let (Some(a), Some(b)) = (
+                    columns.get(col as usize),
+                    columns.get((col + colspan) as usize),
+                ) {
                     return (a + inset.left, b - inset.right);
                 }
             }
