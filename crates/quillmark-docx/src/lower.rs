@@ -675,6 +675,17 @@ impl Lower<'_> {
                 ),
             });
         }
+        let misused = self.misused_hints();
+        if misused > 0 {
+            out.push(Notice {
+                code: CODE_HINT_UNCHECKED.into(),
+                message: format!(
+                    "{misused} hint(s) mark what they cannot apply to: a label outside any list, \
+                     a layout around no grid, or chrome around no place, so the export ignores \
+                     them"
+                ),
+            });
+        }
         for family in &self.unmapped {
             out.push(Notice {
                 code: CODE_FONT_NOT_EMBEDDED.into(),
@@ -1685,18 +1696,50 @@ impl Lower<'_> {
             .find_map(|m| role(self.kind(m)))
     }
 
-    /// Whether a `layout(form: "tabbed")` hint holds the grid `n`, through
+    /// The `label` hints outside any `list`, and the `layout` and `chrome`
+    /// hints that hold no grid or no place.
+    fn misused_hints(&self) -> usize {
+        let hint =
+            |k: &NodeKind, of: fn(&BracketHint) -> bool| matches!(k, NodeKind::Hint(h) if of(h));
+        let tabbed: HashSet<NodeId> = (0..self.doc.nodes.len())
+            .filter(|&n| matches!(self.kind(n), NodeKind::Table { .. }))
+            .filter_map(|n| self.tabbed_hint(n))
+            .collect();
+        (0..self.doc.nodes.len())
+            .filter(|&n| match self.kind(n) {
+                NodeKind::Hint(BracketHint::Label { .. }) => self
+                    .doc
+                    .ancestor(n, |k| hint(k, |h| matches!(h, BracketHint::List { .. })))
+                    .is_none(),
+                NodeKind::Hint(BracketHint::Tabbed) => !tabbed.contains(&n),
+                NodeKind::Hint(BracketHint::Chrome) => !self
+                    .doc
+                    .subtree(n)
+                    .iter()
+                    .any(|&m| matches!(self.kind(m), NodeKind::Place { .. })),
+                _ => false,
+            })
+            .count()
+    }
+
+    /// The `layout(form: "tabbed")` hint that holds the grid `n`, through
     /// probe brackets only.
-    fn tabbed_grid(&self, n: NodeId) -> bool {
+    fn tabbed_hint(&self, n: NodeId) -> Option<NodeId> {
         let mut at = self.doc.nodes[n].parent;
         while let Some(m) = at {
             match self.kind(m) {
-                NodeKind::Hint(BracketHint::Tabbed) => return true,
+                NodeKind::Hint(BracketHint::Tabbed) => return Some(m),
                 NodeKind::Block { .. } | NodeKind::Align { .. } => at = self.doc.nodes[m].parent,
-                _ => return false,
+                _ => return None,
             }
         }
-        false
+        None
+    }
+
+    /// Whether a `layout(form: "tabbed")` hint holds the grid `n`, through
+    /// probe brackets only.
+    fn tabbed_grid(&self, n: NodeId) -> bool {
+        self.tabbed_hint(n).is_some()
     }
 
     /// The paragraph-forming nodes of `cell`, in reading order.

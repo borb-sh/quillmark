@@ -1017,3 +1017,26 @@ fn a_running_header_that_changes_mid_flow_breaks_the_section_on_the_same_page() 
         .collect();
     assert!(headers.iter().any(|h| h == "Running Beta"), "{headers:?}");
 }
+
+#[test]
+fn a_hint_on_what_it_cannot_apply_to_is_reported() {
+    let misused = |body: &str| {
+        let w = render(&format!("#let hints = qm.hints\n{PAGE}{body}\n"));
+        w.has("docx::hint_unchecked")
+    };
+    assert!(misused(
+        "#hints.hint(\"label\", level: 1, value: 1)[1.#h(4pt)]A label outside any list."
+    ));
+    assert!(misused(
+        "#hints.hint(\"layout\", form: \"tabbed\")[A paragraph, not a grid.]"
+    ));
+    assert!(misused(
+        "#hints.hint(\"chrome\")[A paragraph, not a place.]"
+    ));
+    assert!(!misused(
+        "#hints.hint(\"layout\", form: \"tabbed\")[#grid(columns: (auto, 1fr), [FROM:], [Here])]\n\
+         #hints.hint(\"chrome\")[#place(top + right)[Mark]]\n\
+         #hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n\
+         #hints.hint(\"label\", level: 1, value: 1)[1.#h(4pt)]In a list.\n]"
+    ));
+}

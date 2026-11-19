@@ -516,7 +516,7 @@ What is known to differ, with no warning:
 
 #### Hints
 
-A quill states what its frames cannot show with `qm.hints`. A hint emits only labelled metadata, so the PDF is unchanged, and a misspelt kind or field fails the compile. A bracket closes under the element it opens in; one left open raises `docx::hint_unclosed` and costs that element only.
+A quill states what its frames cannot show with `qm.hints`. A hint emits only labelled metadata, so the PDF is unchanged, and a misspelt kind or field fails the compile. A bracket closes under the element it opens in; one left open raises `docx::hint_unclosed` and costs that element only. A hint around what it cannot apply to (a `label` outside any `list`, a `layout` around no grid, `chrome` around no place) raises `docx::hint_unchecked` and is ignored.
 
 ```typst
 #let hints = qm.hints
