@@ -510,6 +510,12 @@ pub enum NodeKind {
     TocFill,
     /// An entry's page number as printed.
     TocPage,
+    /// A block quote: its body and its attribution.
+    Quote,
+    /// A raw block.
+    Raw,
+    /// One line of a raw block.
+    RawLine,
 }
 
 impl NodeKind {
@@ -523,6 +529,7 @@ impl NodeKind {
                 | NodeKind::InlineRun { .. }
                 | NodeKind::Caption
                 | NodeKind::Unstructured
+                | NodeKind::RawLine
         )
     }
 

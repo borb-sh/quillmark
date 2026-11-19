@@ -30,10 +30,12 @@ use typst::layout::{GridCell, GridElem, HideElem, PlaceElem, Sizing, VAlignment}
 use typst::model::{
     Destination, EmphElem, EnumElem, FigureCaption, FigureElem, FootnoteElem, HeadingElem,
     LinkElem, LinkTarget, ListElem, ListMarker, Numbering, OutlineElem, OutlineEntry, ParElem,
-    StrongElem, TableCell, TableElem,
+    QuoteElem, StrongElem, TableCell, TableElem,
 };
 use typst::pdf::{ArtifactElem, PdfMarkerTag, PdfMarkerTagKind, TableCellKind};
-use typst::text::{HighlightElem, StandardAxes, StrikeElem, SubElem, SuperElem, UnderlineElem};
+use typst::text::{
+    HighlightElem, RawElem, RawLine, StandardAxes, StrikeElem, SubElem, SuperElem, UnderlineElem,
+};
 use typst::visualize::{ExchangeFormat, ImageKind, Paint, RasterFormat};
 use typst_layout::{PagedDocument, PagedIntrospector};
 
@@ -1113,9 +1115,7 @@ fn node_kind(elem: &Content) -> Option<NodeKind> {
     }
     if let Some(m) = elem.to_packed::<PdfMarkerTag>() {
         return match m.kind {
-            PdfMarkerTagKind::ListItemLabel | PdfMarkerTagKind::TermsItemLabel => {
-                Some(NodeKind::ListLabel)
-            }
+            PdfMarkerTagKind::ListItemLabel => Some(NodeKind::ListLabel),
             PdfMarkerTagKind::ListItemBody | PdfMarkerTagKind::TermsItemBody => {
                 Some(NodeKind::ListBody)
             }
@@ -1181,6 +1181,18 @@ fn node_kind(elem: &Content) -> Option<NodeKind> {
         NodeKind::TocEntry {
             level: e.level.get().min(9) as u8,
         }
+    } else if elem
+        .to_packed::<QuoteElem>()
+        .is_some_and(|q| q.block.get(styles))
+    {
+        NodeKind::Quote
+    } else if elem
+        .to_packed::<RawElem>()
+        .is_some_and(|r| r.block.get(styles))
+    {
+        NodeKind::Raw
+    } else if elem.is::<RawLine>() {
+        NodeKind::RawLine
     } else if elem.is::<FigureElem>() {
         NodeKind::Figure
     } else if elem.is::<FigureCaption>() {
@@ -1425,7 +1437,8 @@ fn in_paragraph(doc: &LayoutDoc, id: NodeId) -> bool {
             | NodeKind::Caption
             | NodeKind::TocEntry { .. }
             | NodeKind::InlineRun { .. }
-            | NodeKind::Unstructured => return true,
+            | NodeKind::Unstructured
+            | NodeKind::RawLine => return true,
             NodeKind::Block { .. } | NodeKind::Align { .. } | NodeKind::Hint(_) => {}
             k if k.is_inline() => {}
             _ => return false,

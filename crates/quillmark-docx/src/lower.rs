@@ -80,6 +80,7 @@ pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
         placed: 0,
         headings: BTreeSet::new(),
         unlisted: BTreeSet::new(),
+        builtin: BTreeSet::new(),
         toc_levels: BTreeSet::new(),
         toc_prefixed: false,
         frozen: 0,
@@ -166,6 +167,8 @@ struct Lower<'a> {
     placed: usize,
     headings: BTreeSet<u8>,
     unlisted: BTreeSet<u8>,
+    /// Word's own paragraph styles in use, by id and name.
+    builtin: BTreeSet<(&'static str, &'static str)>,
     toc_levels: BTreeSet<u8>,
     /// An entry of the table of contents being lowered prints a page number
     /// that is no plain numeral.
@@ -674,6 +677,14 @@ impl Lower<'_> {
                 )
             });
         }
+        for &(id, name) in &self.builtin {
+            styles.push(Style {
+                based_on: Some("Normal".into()),
+                next: Some("Normal".into()),
+                quick: true,
+                ..Style::paragraph(id, name, true)
+            });
+        }
         for &level in &self.toc_levels {
             styles.push(Style {
                 based_on: Some("Normal".into()),
@@ -936,6 +947,16 @@ impl Lower<'_> {
                 Vec::new()
             }
             NodeKind::Toc { depth } => self.toc(n, depth, ctx),
+            NodeKind::Figure => {
+                let mut blocks = self.children(n, ctx);
+                let body = blocks.len().saturating_sub(1);
+                for b in &mut blocks[..body] {
+                    if let Block::Paragraph(p) = b {
+                        p.props.keep_next = true;
+                    }
+                }
+                blocks
+            }
             NodeKind::TocEntry { level } => {
                 let ctx = Ctx {
                     toc: Some(level),
@@ -1252,6 +1273,21 @@ impl Lower<'_> {
                 self.unlisted.insert(level);
                 format!("UnlistedHeading{level}")
             });
+        }
+        let builtin = if matches!(kind, NodeKind::Caption) {
+            Some(("Caption", "caption"))
+        } else if self
+            .doc
+            .ancestor(n, |k| matches!(k, NodeKind::Quote))
+            .is_some()
+        {
+            Some(("Quote", "Quote"))
+        } else {
+            None
+        };
+        if let (None, Some(style)) = (&props.style, builtin) {
+            self.builtin.insert(style);
+            props.style = Some(style.0.into());
         }
         if let Some(level) = ctx.toc {
             let level = level.clamp(1, 9);
@@ -1914,6 +1950,7 @@ impl Lower<'_> {
             } else {
                 None
             },
+            no_proof: has(|k| matches!(k, NodeKind::RawLine)),
             ..RunProps::default()
         }
     }

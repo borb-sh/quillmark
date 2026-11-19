@@ -580,3 +580,56 @@ fn a_link_that_runs_script_keeps_its_text_and_is_reported() {
     let rels = w.xml("word/_rels/document.xml.rels");
     assert!(!rels.to_ascii_lowercase().contains("javascript"), "{rels}");
 }
+
+#[test]
+fn a_term_and_its_description_are_one_paragraph_with_the_term_kept() {
+    let w = render(&format!(
+        "{PAGE}/ Alpha: The first description.\n/ Beta: The second description.\n"
+    ));
+    let items: Vec<_> = w
+        .body()
+        .into_iter()
+        .filter(|p| p.text.contains("description"))
+        .collect();
+    assert_eq!(items.len(), 2, "{:?}", w.texts());
+    for (item, term) in items.iter().zip(["Alpha", "Beta"]) {
+        assert!(item.text.starts_with(term), "{:?}", item.text);
+        assert!(
+            item.runs.iter().any(|r| r.text == term && r.bold),
+            "{:?}",
+            item.runs
+        );
+    }
+}
+
+#[test]
+fn a_raw_block_is_a_paragraph_per_line_with_proofing_off() {
+    let w = render(&format!(
+        "{PAGE}Before.\n\n```\nfirst line\nsecond line\n```\n"
+    ));
+    for text in ["first line", "second line"] {
+        let p = w.par(text);
+        assert!(p.runs.iter().all(|r| r.no_proof), "{:?}", p.runs);
+    }
+    assert!(w.par("Before.").runs.iter().all(|r| !r.no_proof));
+}
+
+#[test]
+fn a_block_quote_and_a_caption_take_words_own_styles() {
+    let w = render(&format!(
+        "{PAGE}#quote(block: true, attribution: [Someone])[Quoted words.]\n\n\
+         #figure(block[The body.], caption: [The caption.])\n\nAfter.\n"
+    ));
+    assert_eq!(w.par("Quoted words.").style.as_deref(), Some("Quote"));
+    assert_eq!(w.par("\u{2014} Someone").style.as_deref(), Some("Quote"));
+    let caption = w.par("Figure\u{a0}1: The caption.");
+    assert_eq!(caption.style.as_deref(), Some("Caption"));
+    assert!(w.par("The body.").keep_next);
+    assert_eq!(w.par("After.").style, None);
+    let styles = w.xml("word/styles.xml");
+    assert!(styles.contains("w:styleId=\"Quote\""), "{styles}");
+    assert!(
+        styles.contains("w:styleId=\"Caption\"><w:name w:val=\"caption\"/>"),
+        "{styles}"
+    );
+}

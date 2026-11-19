@@ -503,15 +503,15 @@ Every quill on this backend exports to Word with no change to the quill: ask for
 - **Pages:** a change of page size, margins, header, footer or page numbering starts a Word section. A page number the header or footer prints is a `PAGE` field in Word's format for it (arabic, roman or letter), with the text around it ("A-", "2-") kept as text, and it restarts where the PDF's count does. A page with no flowing text, such as a cover, holds its objects on a page of its own.
 - **Contents:** an `outline` is a table of contents Word can update, holding the PDF's entries until it does. Its page numbers can differ from Word's by a page until then. One whose page numbers carry a prefix ("A-1") is locked, since an update would print the bare number. A heading with `outlined: false` takes an "Unlisted Heading" style, so an update leaves it out.
 - **Links and footnotes:** a link to a URL is a hyperlink. A link to a place in the document, and a `javascript:` link, keep their text without the link. A footnote is a Word footnote under Word's own rule.
+- **Quotes, captions, terms and raw text:** a block quote's body and attribution are paragraphs in Word's Quote style, and a figure's caption is a paragraph in its Caption style, kept with the figure's body. A term and its description are one paragraph. A raw block is a paragraph per line, with spell-check off.
 - **What Word decides:** which word ends a line and which line ends a page, as in any document typed in Word. A page that is full in the PDF can spill onto another in Word.
 - **Fonts:** a face with a metric-compatible Word face is named as that face (TeX Gyre Termes and Liberation Serif as Times New Roman, Liberation Sans and TeX Gyre Heros as Arial, Liberation Mono as Courier New, Carlito as Calibri, Caladea as Cambria). Any other face is named as it is, without being embedded.
 - **What reaches Word only as frozen text, a picture, or not at all** raises a warning, so a render's warnings say where the Word file carries less than the PDF shows. The [`docx::` codes](../reference/diagnostic-codes.md#docx) list each.
 
 What is known to differ, with no warning:
 
-- **A heading's number meets its title** with nothing between them ("1.1Scope"): the gap Typst sets there is spacing, not text, and no tab takes its place.
+- **A heading's number meets its title, and a term its description,** with nothing between them ("1.1Scope"): the gap Typst sets there is spacing, not text, and no tab takes its place.
 - **A text box does not wrap.** Placed content is a text box exactly as wide as the PDF's ink, so a face Word sets wider than the PDF's runs past its edge or is cut off.
-- **Block quotes and raw blocks** are paragraphs with the PDF's indents and faces, under no style of their own. A term list keeps its descriptions and loses its terms.
 
 #### Hints
 

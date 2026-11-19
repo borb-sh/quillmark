@@ -41,6 +41,15 @@ pub struct Par {
     pub space_before: Option<i64>,
     pub space_after: Option<i64>,
     pub line: Option<i64>,
+    /// The runs that hold text, outside drawings.
+    pub runs: Vec<TextRun>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TextRun {
+    pub text: String,
+    pub bold: bool,
+    pub no_proof: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -247,6 +256,28 @@ pub fn paragraphs(xml: &str) -> Vec<Par> {
                 drawings.push(drawing(n));
             }
         }
+        let runs = p
+            .descendants()
+            .filter(|r| {
+                r.has_tag_name((W, "r")) && !r.ancestors().any(|a| a.has_tag_name((W, "drawing")))
+            })
+            .filter_map(|r| {
+                let text: String = r
+                    .children()
+                    .filter(|t| t.has_tag_name((W, "t")))
+                    .filter_map(|t| t.text())
+                    .collect();
+                let rpr = r.children().find(|c| c.has_tag_name((W, "rPr")));
+                let has = |name: &str| {
+                    rpr.is_some_and(|n| n.children().any(|c| c.has_tag_name((W, name))))
+                };
+                (!text.is_empty()).then(|| TextRun {
+                    text,
+                    bold: has("b"),
+                    no_proof: has("noProof"),
+                })
+            })
+            .collect();
         let ends_section = prop("sectPr").is_some();
         if ends_section {
             break_next = true;
@@ -266,6 +297,7 @@ pub fn paragraphs(xml: &str) -> Vec<Par> {
             space_before: int("spacing", "before"),
             space_after: int("spacing", "after"),
             line: int("spacing", "line"),
+            runs,
         });
     }
     out
