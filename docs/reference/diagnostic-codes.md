@@ -233,6 +233,7 @@ A Word export. Each warns that the Word file carries less than the PDF shows; no
 
 - `docx::font_not_embedded`: a font with no metric-compatible Word face is named without being embedded, so Word substitutes another where it is not installed.
 - `docx::label_mismatch`: a paragraph number a `label` hint marks is not the number Word would count, so it stays as printed text.
+- `docx::link_internal`: a link goes to a place in the document rather than to a URL, so its text is kept without the link.
 - `docx::list_marker_replaced`: a list's marker is not text, so its items carry a bullet, or its numbering is not a pattern Word can count, so its numbers are kept as printed.
 - `docx::margins_assumed`: a page carries no page probe, so its margins are taken as 1 in.
 - `docx::hint_unchecked`: a hint claims what the frames contradict, such as a tabbed grid whose cell before the last wraps, so the export does not take it.

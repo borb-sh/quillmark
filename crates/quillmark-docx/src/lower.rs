@@ -104,8 +104,14 @@ pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
     l.chrome_places = l.find_chrome_places();
     l.numbered = l.numbered_runs();
     let document = l.document();
-    let mut notices = doc.notices.clone();
-    notices.extend(l.notices());
+    let mut seen = HashSet::new();
+    let notices = doc
+        .notices
+        .iter()
+        .cloned()
+        .chain(l.notices())
+        .filter(|n| seen.insert((n.code.clone(), n.message.clone())))
+        .collect();
     (document, notices)
 }
 
@@ -1131,6 +1137,21 @@ impl Lower<'_> {
         self.paragraph_of(n, lines, ctx)
     }
 
+    /// The paragraph style a paragraph-forming node is set in: its own
+    /// probe's, else its block's.
+    fn par_style(&self, n: NodeId) -> Option<ParStyle> {
+        match self.kind(n) {
+            NodeKind::Par { style, .. } | NodeKind::InlineRun { style } => *style,
+            _ => self
+                .doc
+                .ancestor(n, |k| matches!(k, NodeKind::Block { .. }))
+                .and_then(|b| match self.doc.nodes[b].kind {
+                    NodeKind::Block { style, .. } => Some(style),
+                    _ => None,
+                }),
+        }
+    }
+
     /// One Word paragraph of some of `n`'s lines: all of them, or one line
     /// of text no element tags. The objects and number the node holds go
     /// with its first line.
@@ -1145,16 +1166,7 @@ impl Lower<'_> {
         let opens = node.lines.first().is_some_and(|l| l.items == first.items);
         let first_x = first.x0;
         let kind = node.kind.clone();
-        let style = match &kind {
-            NodeKind::Par { style, .. } | NodeKind::InlineRun { style } => *style,
-            _ => self
-                .doc
-                .ancestor(n, |k| matches!(k, NodeKind::Block { .. }))
-                .and_then(|b| match self.doc.nodes[b].kind {
-                    NodeKind::Block { style, .. } => Some(style),
-                    _ => None,
-                }),
-        };
+        let style = self.par_style(n);
         let pitch = self.pitch(n, &lines, style);
         let tall = lines.iter().flat_map(|l| &l.items).any(|r| {
             matches!(&self.doc.item(*r).kind, ItemKind::Raster { rect, .. } if rect.height() > pitch)
@@ -2192,6 +2204,33 @@ impl Lower<'_> {
             .collect()
     }
 
+    /// The paragraph whose first line is the highest of `row`'s cells on
+    /// `page`, with its cell's top inset: where Word's row starts from.
+    fn first_line_in_row(&self, cells: &[NodeId], row: u32, page: u32) -> Option<(NodeId, f64)> {
+        cells
+            .iter()
+            .filter_map(|&c| match self.kind(c) {
+                NodeKind::Cell { row: r, inset, .. } if *r == row => Some((c, inset.top)),
+                _ => None,
+            })
+            .flat_map(|(c, inset)| {
+                self.doc
+                    .subtree(c)
+                    .into_iter()
+                    .filter(|&m| {
+                        self.doc.nodes[m]
+                            .lines
+                            .first()
+                            .is_some_and(|l| l.page == page)
+                    })
+                    .map(move |m| (m, inset))
+            })
+            .min_by(|a, b| {
+                let y = |m: NodeId| self.doc.nodes[m].lines[0].baseline;
+                y(a.0).total_cmp(&y(b.0))
+            })
+    }
+
     fn table(&mut self, n: NodeId, ctx: &Ctx) -> Table {
         let NodeKind::Table {
             columns,
@@ -2252,7 +2291,14 @@ impl Lower<'_> {
         let top = tops.first().copied();
         if let (Some((page, y)), Some((p, bottom))) = (top, self.prev_bottom) {
             if p == page && !ctx.nested {
-                self.table_gap = Some(tw((y - bottom).max(0.0)));
+                let first = self
+                    .first_line_in_row(&cells, 0, page)
+                    .map_or(y, |(m, inset)| {
+                        let lines = self.doc.nodes[m].lines.clone();
+                        let pitch = self.pitch(m, &lines, self.par_style(m));
+                        lines[0].baseline - 0.8 * pitch - inset
+                    });
+                self.table_gap = Some(tw((first - bottom).max(0.0)));
             }
         }
         let forced = self.break_pending

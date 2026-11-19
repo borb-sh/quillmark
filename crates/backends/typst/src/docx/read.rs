@@ -42,6 +42,7 @@ use crate::tags::{marker, relocated};
 pub(crate) const CODE_MARGINS_ASSUMED: &str = "docx::margins_assumed";
 pub(crate) const CODE_RASTERIZED: &str = "docx::rasterized";
 pub(crate) const CODE_PICTURE_FAILED: &str = "docx::picture_failed";
+pub(crate) const CODE_LINK_INTERNAL: &str = "docx::link_internal";
 pub(crate) const CODE_HINT_UNKNOWN: &str = "docx::hint_unknown";
 pub(crate) const CODE_HINT_UNCLOSED: &str = "docx::hint_unclosed";
 pub(crate) const CODE_LIST_MARKER_REPLACED: &str = "docx::list_marker_replaced";
@@ -104,6 +105,8 @@ struct Reader<'a> {
     /// Groups that needed a picture and got none, whose ink is read as laid
     /// out.
     unpictured: usize,
+    /// Links to a place in the document, whose text is kept without the link.
+    internal_links: usize,
 }
 
 /// The Layout IR of `document`.
@@ -133,6 +136,7 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
         toc_led: None,
         page_text: DEFAULT_TEXT_SIZE,
         unpictured: 0,
+        internal_links: 0,
     };
     let mut assumed = 0;
     for (i, page) in document.pages().iter().enumerate() {
@@ -202,6 +206,13 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
                 "{n} rotated, clipped or drawn group(s) on the page could not be carried as \
                  pictures, so their ink is read as it is laid out, unrotated and unclipped"
             ),
+        );
+    }
+    if r.internal_links > 0 {
+        let n = r.internal_links;
+        r.notice(
+            CODE_LINK_INTERNAL,
+            format!("{n} link(s) to a place in the document are carried as plain text"),
         );
     }
     let mut out = r.out;
@@ -666,6 +677,16 @@ impl Reader<'_> {
                 self.push(Key::Elem(loc), Some(node), false);
                 return;
             }
+        }
+        if elem
+            .to_packed::<LinkElem>()
+            .is_some_and(|link| !matches!(link.dest, LinkTarget::Dest(Destination::Url(_))))
+            && self.top().is_some()
+            && self.in_raster == 0
+            && !self.hidden()
+            && self.toc_entry().is_none()
+        {
+            self.internal_links += 1;
         }
         let list = self.list_kind(elem);
         let Some(kind) = list.or_else(|| node_kind(elem)) else {
@@ -1176,6 +1197,8 @@ fn needs_raster(group: &GroupItem, ts: Transform) -> bool {
     let t = ts.pre_concat(group.transform);
     if t.kx.get().abs() > 1e-6
         || t.ky.get().abs() > 1e-6
+        || t.sx.get() < 0.0
+        || t.sy.get() < 0.0
         || (t.sx.get().abs() - t.sy.get().abs()).abs() > 1e-6
     {
         return true;

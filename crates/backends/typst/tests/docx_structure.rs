@@ -337,6 +337,7 @@ fn a_custom_outline_entry_leads_to_its_prefixed_number_and_is_locked() {
     let xml = w.xml("word/document.xml");
     assert!(xml.contains("w:fldLock=\"1\""));
     assert!(w.has("docx::toc_frozen"), "{:?}", w.codes);
+    assert!(!w.has("docx::link_internal"), "{:?}", w.codes);
 }
 
 #[test]
@@ -461,4 +462,108 @@ fn a_picture_of_ink_past_the_page_is_clipped_to_the_page() {
     assert!(picture.width <= 300 * 12700 && picture.height <= 300 * 12700);
     assert!(w.has("docx::rasterized"));
     assert!(!w.has("docx::picture_failed"), "{:?}", w.codes);
+}
+
+/// A cell margin side's twips, from the cell's own margins or the table's.
+fn cell_margin_top(xml: &str) -> i64 {
+    let tag = |name: &str| {
+        xml.split(&format!("<w:{name}>"))
+            .nth(1)
+            .and_then(|m| m.split(&format!("</w:{name}>")).next())
+            .and_then(|m| m.split("<w:top w:w=\"").nth(1))
+            .and_then(|v| v.split('"').next())
+            .and_then(|v| v.parse().ok())
+    };
+    tag("tcMar").or_else(|| tag("tblCellMar")).unwrap_or(0)
+}
+
+#[test]
+fn the_space_above_a_table_sets_its_first_line_on_typsts_baseline() {
+    let plate = format!("{PAGE}Above.\n#table(columns: 1, inset: 8pt, [Cell])\n");
+    let w = render(&plate);
+    let quill = common::quill_with_plate(
+        &common::yaml(""),
+        &format!("#import \"@local/quillmark-helper:0.2.0\" as qm\n{plate}"),
+    );
+    let doc = quillmark_typst::testing::layout(&quill, &serde_json::json!({}), common::test_date())
+        .expect("layout");
+    let baseline = |text: &str| {
+        doc.nodes
+            .iter()
+            .flat_map(|n| &n.lines)
+            .find(|l| {
+                l.items.iter().any(|r| {
+                    matches!(&doc.item(*r).kind,
+                        quillmark_docx::layout::ItemKind::Text(t) if t.text.trim() == text)
+                })
+            })
+            .map(|l| l.baseline)
+            .expect("a line")
+    };
+    let pars = w.body();
+    let above = w.par("Above.");
+    let cell = pars.iter().find(|p| p.text == "Cell").expect("the cell");
+    let pt = |tw: Option<i64>| tw.unwrap_or(0) as f64 / 20.0;
+    let above_baseline = pt(above.space_before) + 0.8 * pt(above.line);
+    let row_top = pt(above.space_before) + pt(above.line) + pt(above.space_after);
+    let margin = cell_margin_top(&w.xml("word/document.xml")) as f64 / 20.0;
+    let word = row_top + margin + 0.8 * pt(cell.line) - above_baseline;
+    let typst = baseline("Cell") - baseline("Above.");
+    assert!(
+        (word - typst).abs() < 0.2,
+        "from the line above: Word {word} pt, Typst {typst} pt"
+    );
+}
+
+#[test]
+fn mirrored_content_is_a_picture() {
+    let w = render(&format!(
+        "{PAGE}Normal line.\n\n#scale(x: -100%)[Mirrored words here]\n\n\
+         #scale(y: -100%)[Upside down words]\n"
+    ));
+    assert_eq!(
+        w.texts()
+            .iter()
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>(),
+        ["Normal line."]
+    );
+    let pictures = w
+        .body_drawings()
+        .into_iter()
+        .filter(|(_, d)| d.picture)
+        .count();
+    assert_eq!(pictures, 2);
+    assert!(w.has("docx::rasterized"));
+}
+
+#[test]
+fn a_notice_raised_twice_alike_is_reported_once() {
+    let w = render(&format!(
+        "{PAGE}#set list(marker: box(width: 4pt, height: 4pt, fill: black))\n\
+         - one\n- two\n\nBetween.\n\n- three\n"
+    ));
+    let replaced = w
+        .codes
+        .iter()
+        .filter(|c| *c == "docx::list_marker_replaced")
+        .count();
+    assert_eq!(replaced, 1, "{:?}", w.codes);
+}
+
+#[test]
+fn a_link_to_a_place_in_the_document_keeps_its_text_and_is_reported() {
+    let w = render(&format!(
+        "{PAGE}= Scope <scope>\n\nAs #link(<scope>)[the scope] says, and #link(\"https://example.com\")[the site].\n"
+    ));
+    assert!(w.has("docx::link_internal"), "{:?}", w.codes);
+    assert!(
+        w.texts()
+            .iter()
+            .any(|t| t == "As the scope says, and the site."),
+        "{:?}",
+        w.texts()
+    );
+    let body = w.xml("word/document.xml");
+    assert_eq!(body.matches("<w:hyperlink").count(), 1, "{body}");
 }
