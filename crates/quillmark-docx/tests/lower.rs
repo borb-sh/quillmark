@@ -136,6 +136,25 @@ fn a_paragraphs_lines_join_into_one_run_and_only_a_forced_end_breaks() {
 }
 
 #[test]
+fn lines_closer_than_half_their_size_give_no_pitch() {
+    let mut doc = paragraph(
+        "TeX Gyre Termes",
+        &[
+            ("one line ", LineEnd::Soft { ate_space: true }),
+            ("read as two", LineEnd::Last),
+        ],
+    );
+    doc.nodes[1].lines[1].baseline = 96.0;
+    let (word, _) = lower(&doc);
+    let spacing = word.sections[0].body.last.props.spacing.expect("spacing");
+    assert_eq!(
+        spacing.line,
+        Some(quillmark_docx::model::Line::Exact(288)),
+        "1.2 of the size, not the stride"
+    );
+}
+
+#[test]
 fn a_face_without_a_word_clone_is_named_and_reported() {
     let (word, notices) = lower(&paragraph("Quill Sans", &[("text", LineEnd::Last)]));
     assert_eq!(word.fonts[0].name, "Quill Sans");

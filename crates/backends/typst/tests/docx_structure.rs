@@ -760,3 +760,87 @@ fn a_tabbed_label_has_room_for_its_unkerned_text() {
         .and_then(|v| v.parse::<i64>().ok());
     assert_eq!(hanging, Some(stops[1]));
 }
+
+fn starting(w: &word::Word, prefix: &str) -> word::Par {
+    let all = w.body();
+    all.iter()
+        .find(|p| p.text.starts_with(prefix))
+        .cloned()
+        .unwrap_or_else(|| panic!("no paragraph {prefix:?} in {:?}", word::texts(&all)))
+}
+
+#[test]
+fn a_superscript_joins_its_line_and_is_set_at_the_lines_size() {
+    let w = render(&format!(
+        "{PAGE}The 1#super[st] Indorsement sits in a paragraph long enough to wrap onto a second line.\n\n\
+         A plain paragraph that is also long enough to wrap onto a second line.\n"
+    ));
+    let raised = starting(&w, "The 1st Indorsement");
+    let plain = starting(&w, "A plain paragraph");
+    assert_eq!(raised.line, plain.line, "one pitch for both");
+    let st = raised.runs.iter().find(|r| r.text == "st").expect("a run");
+    assert_eq!(st.vert.as_deref(), Some("superscript"));
+    assert_eq!(st.size, raised.runs[0].size, "Word shrinks it itself");
+}
+
+#[test]
+fn inline_math_is_a_picture_on_its_line_and_the_next_paragraph_keeps_its_pitch() {
+    let w = render(&format!(
+        "{PAGE}Inline $x_i + y^2$ in a line.\n\nThe next paragraph.\n"
+    ));
+    let math = w.par("Inline  in a line.");
+    let next = w.par("The next paragraph.");
+    assert_eq!(math.line, next.line);
+    assert!(math.line.is_some_and(|l| l > 0), "{:?}", math.line);
+    let [picture] = &math.drawings[..] else {
+        panic!("{:?}", math.drawings)
+    };
+    assert!(picture.picture && !picture.anchored);
+    assert_eq!(picture.descr.as_deref(), Some("x_i + y^2"));
+    assert!(
+        picture.position.is_some_and(|p| p < 0),
+        "lowered to the baseline"
+    );
+    assert!(w.has("docx::rasterized"), "{:?}", w.codes);
+    assert!(!w.has("docx::equation_text"), "{:?}", w.codes);
+}
+
+#[test]
+fn display_math_is_one_centred_picture() {
+    let w = render(&format!(
+        "{PAGE}Before.\n\n$ x = (a + b) / 2 $\n\nAfter the display.\n"
+    ));
+    assert_eq!(
+        w.texts()
+            .iter()
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>(),
+        ["Before.", "After the display."]
+    );
+    let display = w
+        .body()
+        .into_iter()
+        .find(|p| !p.drawings.is_empty())
+        .expect("a picture paragraph");
+    assert_eq!(display.jc.as_deref(), Some("center"));
+    assert_eq!(
+        display.drawings[0].descr.as_deref(),
+        Some("x = (a + b) / 2")
+    );
+}
+
+#[test]
+fn an_equation_that_wraps_keeps_its_text_and_is_reported() {
+    let w = render(&format!(
+        "{PAGE}Before $a^2 + b^2 + c^2 + d^2 + e^2 + f^2 + g^2 + h^2 + i^2 + j^2 + k^2 + l^2$ after.\n\n\
+         The next paragraph, long enough that it wraps onto a second line too.\n"
+    ));
+    assert!(w.has("docx::equation_text"), "{:?}", w.codes);
+    let math = starting(&w, "Before");
+    assert!(math.drawings.is_empty());
+    let (line, next) = (
+        math.line.unwrap(),
+        starting(&w, "The next paragraph").line.unwrap(),
+    );
+    assert!((line - next).abs() <= 2, "{line} against {next}");
+}

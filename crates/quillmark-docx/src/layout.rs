@@ -189,6 +189,7 @@ pub enum ItemKind {
     Raster {
         image: ImageId,
         rect: Rect,
+        alt: Option<String>,
     },
     Mark(PointHint),
 }

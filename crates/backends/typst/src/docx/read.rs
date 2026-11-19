@@ -20,13 +20,15 @@ use quillmark_docx::layout::{
     Node, NodeId, NodeKind, Notice, NumberFormat, Page, PageSetup, ParStyle, Parity, PointHint,
     Rect, Rgb, Shape, Sides, TextRun, VAlign,
 };
-use typst::foundations::{Content, Dict, Smart, StyleChain, Value};
+use typst::World;
+use typst::foundations::{Content, Dict, Packed, Smart, StyleChain, Value};
 use typst::introspection::{Location, Tag};
 use typst::layout::{
     Abs, Alignment, Frame, FrameItem, GroupItem, HAlignment, Length, Point, Sides as TSides, Size,
     Transform,
 };
 use typst::layout::{GridCell, GridElem, HideElem, PlaceElem, Sizing, VAlignment};
+use typst::math::EquationElem;
 use typst::model::{
     Destination, EmphElem, EnumElem, FigureCaption, FigureElem, FootnoteElem, HeadingElem,
     LinkElem, LinkTarget, ListElem, ListMarker, Numbering, OutlineElem, OutlineEntry, ParElem,
@@ -45,6 +47,7 @@ pub(crate) const CODE_MARGINS_ASSUMED: &str = "docx::margins_assumed";
 pub(crate) const CODE_RASTERIZED: &str = "docx::rasterized";
 pub(crate) const CODE_PICTURE_FAILED: &str = "docx::picture_failed";
 pub(crate) const CODE_LINK_INTERNAL: &str = "docx::link_internal";
+pub(crate) const CODE_EQUATION_TEXT: &str = "docx::equation_text";
 pub(crate) const CODE_HINT_UNKNOWN: &str = "docx::hint_unknown";
 pub(crate) const CODE_HINT_UNCLOSED: &str = "docx::hint_unclosed";
 pub(crate) const CODE_LIST_MARKER_REPLACED: &str = "docx::list_marker_replaced";
@@ -79,6 +82,8 @@ struct Open {
 
 struct Reader<'a> {
     flow: &'a PagedIntrospector,
+    /// The sources an equation's alt text is taken from.
+    world: &'a dyn World,
     out: LayoutDoc,
     stack: Vec<Open>,
     saved: Vec<(Location, Vec<Open>)>,
@@ -109,12 +114,24 @@ struct Reader<'a> {
     unpictured: usize,
     /// Links to a place in the document, whose text is kept without the link.
     internal_links: usize,
+    /// The equations carried as pictures whose end tag is still to come.
+    equations: Vec<Location>,
+    /// Equations whose ink is read as text, since their end tag lies in
+    /// another frame.
+    equation_texts: usize,
+    /// A display equation's picture, until the block that shows it opens.
+    held: Option<ItemKind>,
 }
 
-/// The Layout IR of `document`.
-pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc {
+/// The Layout IR of `document`, compiled from `world`'s sources.
+pub(crate) fn read(
+    document: &PagedDocument,
+    world: &dyn World,
+    title: Option<String>,
+) -> LayoutDoc {
     let mut r = Reader {
         flow: document.introspector(),
+        world,
         out: LayoutDoc {
             info: DocInfo {
                 title,
@@ -139,6 +156,9 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
         page_text: DEFAULT_TEXT_SIZE,
         unpictured: 0,
         internal_links: 0,
+        equations: Vec::new(),
+        equation_texts: 0,
+        held: None,
     };
     let mut assumed = 0;
     for (i, page) in document.pages().iter().enumerate() {
@@ -195,8 +215,8 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
         r.notice(
             CODE_RASTERIZED,
             format!(
-                "{n} curve(s), gradient(s), vector image(s), or rotated, mirrored or clipped group(s) \
-                 are carried as pictures"
+                "{n} equation(s), curve(s), gradient(s), vector image(s), or rotated, mirrored or \
+                 clipped group(s) are carried as pictures"
             ),
         );
     }
@@ -207,6 +227,16 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
             format!(
                 "{n} rotated, clipped or drawn group(s) on the page could not be carried as \
                  pictures, so their ink is read as it is laid out, unrotated and unclipped"
+            ),
+        );
+    }
+    if r.equation_texts > 0 {
+        let n = r.equation_texts;
+        r.notice(
+            CODE_EQUATION_TEXT,
+            format!(
+                "{n} equation(s) that wrap across lines or frames are carried as their glyphs' \
+                 text, not as pictures"
             ),
         );
     }
@@ -351,20 +381,37 @@ impl Reader<'_> {
         id
     }
 
-    /// `item` at `pos` under `ts` as a 300 dpi picture of its ink.
-    /// A picture of `item`'s ink on the page, at 300 dpi or at the density
-    /// that keeps its longer side within a PNG render's: whether one was made,
-    /// or `None` when no ink of it shows on the page.
+    /// A picture of `item`'s ink in place: whether one was made, or `None`
+    /// when no ink of it shows on the page.
     fn raster(&mut self, item: &FrameItem, pos: Point, ts: Transform) -> Option<bool> {
+        let made = self.picture(item, pos, ts, None, None)?;
+        Some(made.map(|kind| self.ink(kind)).is_some())
+    }
+
+    /// A picture of `item`'s ink on the page, at 300 dpi or at the density
+    /// that keeps its longer side within a PNG render's, and across `span`
+    /// when one is given: `None` when no ink of it shows on the page, and
+    /// `Some(None)` when it could not be drawn.
+    fn picture(
+        &mut self,
+        item: &FrameItem,
+        pos: Point,
+        ts: Transform,
+        alt: Option<String>,
+        span: Option<(f64, f64)>,
+    ) -> Option<Option<ItemKind>> {
         if self.top().is_none() || self.hidden() {
             return None;
         }
         let [w, h] = self.out.pages[self.page as usize].size;
-        let rect = ink_box(item, pos, ts).map(|r| Rect {
-            x0: r.x0.max(0.0),
-            y0: r.y0.max(0.0),
-            x1: r.x1.min(w),
-            y1: r.y1.min(h),
+        let rect = ink_box(item, pos, ts).map(|r| {
+            let (x0, x1) = span.map_or((r.x0, r.x1), |(a, b)| (a.min(r.x0), b.max(r.x1)));
+            Rect {
+                x0: x0.max(0.0),
+                y0: r.y0.max(0.0),
+                x1: x1.min(w),
+                y1: r.y1.min(h),
+            }
         })?;
         if rect.width() <= 0.0 || rect.height() <= 0.0 {
             return None;
@@ -387,16 +434,90 @@ impl Reader<'_> {
         let scale = (300.0_f64 / 72.0).min(side / rect.width().max(rect.height()));
         let pixmap = typst_render::render(&page, &crate::compile::render_options(scale as f32));
         let Ok(png) = pixmap.encode_png() else {
-            return Some(false);
+            return Some(None);
         };
         let image = self.image(ImageFormat::Png, &png);
         self.rasters += 1;
-        self.ink(ItemKind::Raster { image, rect });
-        Some(true)
+        Some(Some(ItemKind::Raster { image, rect, alt }))
+    }
+
+    /// Carries the equation `eq` as one picture of everything painted
+    /// between its start tag at `at` and its end tag in `rest`, as wide as
+    /// its advance when it is inline. A display equation's picture is held
+    /// for the block that shows it. An equation whose end tag lies in
+    /// another frame is left to be read as text.
+    fn equation(
+        &mut self,
+        eq: &Packed<EquationElem>,
+        at: Point,
+        rest: &[(Point, FrameItem)],
+        ts: Transform,
+    ) {
+        if self.in_raster > 0 || self.top().is_none() || self.hidden() {
+            return;
+        }
+        let Some(loc) = eq.location() else { return };
+        let end = rest
+            .iter()
+            .position(|(_, item)| matches!(item, FrameItem::Tag(Tag::End(l, ..)) if *l == loc));
+        let Some(end) = end else {
+            self.equation_texts += 1;
+            return;
+        };
+        let mut inner = Frame::soft(Size::zero());
+        for (pos, item) in &rest[..end] {
+            inner.push(*pos, item.clone());
+        }
+        let group = FrameItem::Group(GroupItem::new(inner));
+        let span = (!eq.block.get(StyleChain::default())).then(|| {
+            (
+                at.transform(ts).x.to_pt(),
+                rest[end].0.transform(ts).x.to_pt(),
+            )
+        });
+        let source = eq.span().id().and_then(|id| {
+            let source = self.world.source(id).ok()?;
+            let range = source.find(eq.span())?.range();
+            Some(source.text()[range].trim_matches('$').trim().to_string())
+        });
+        let alt = eq
+            .alt
+            .get_cloned(StyleChain::default())
+            .map(|a| a.to_string())
+            .or(source)
+            .unwrap_or_else(|| eq.body.plain_text().to_string());
+        match self.picture(&group, Point::zero(), ts, Some(alt), span) {
+            Some(Some(kind)) => {
+                match span {
+                    Some(_) => self.ink(kind),
+                    None => self.held = Some(kind),
+                }
+                self.in_raster += 1;
+                self.equations.push(loc);
+            }
+            Some(None) => self.unpictured += 1,
+            None => {}
+        }
+    }
+
+    /// Places the held picture of a display equation in the innermost open
+    /// node.
+    fn place_held(&mut self) {
+        let (Some(kind), Some(node)) = (self.held.take(), self.top()) else {
+            return;
+        };
+        let page = &mut self.out.pages[self.page as usize];
+        let at = ItemRef {
+            page: self.page,
+            index: page.items.len() as u32,
+        };
+        page.items.push(Item { node, kind });
+        self.out.nodes[node].children.push(Child::Item(at));
     }
 
     fn walk(&mut self, frame: &Frame, ts: Transform) {
-        for (pos, item) in frame.items() {
+        let items = frame.items().as_slice();
+        for (i, (pos, item)) in items.iter().enumerate() {
             match item {
                 FrameItem::Group(group) => {
                     let raster = self.in_raster == 0
@@ -438,8 +559,22 @@ impl Reader<'_> {
                         self.in_raster -= 1;
                     }
                 }
-                FrameItem::Tag(Tag::Start(elem, _)) => self.start(elem, pos.transform(ts)),
+                FrameItem::Tag(Tag::Start(elem, _)) => {
+                    if let Some(eq) = elem.to_packed::<EquationElem>() {
+                        self.equation(eq, *pos, &items[i + 1..], ts);
+                    }
+                    let open = self.stack.len();
+                    self.start(elem, pos.transform(ts));
+                    if self.held.is_some() && self.stack.len() > open {
+                        self.place_held();
+                    }
+                }
                 FrameItem::Tag(Tag::End(loc, ..)) => {
+                    if self.equations.last() == Some(loc) {
+                        self.place_held();
+                        self.equations.pop();
+                        self.in_raster -= 1;
+                    }
                     if let Some(i) = self.saved.iter().rposition(|(l, _)| l == loc) {
                         self.stack = self.saved.remove(i).1;
                         self.saved.truncate(i);
@@ -1643,6 +1778,20 @@ fn inline_items(doc: &LayoutDoc, id: NodeId, out: &mut Vec<ItemRef>) {
     }
 }
 
+/// Whether `node` lies in a superscript or subscript inside `par`.
+fn raised(doc: &LayoutDoc, mut node: NodeId, par: NodeId) -> bool {
+    while node != par {
+        if matches!(doc.nodes[node].kind, NodeKind::Super | NodeKind::Sub) {
+            return true;
+        }
+        match doc.nodes[node].parent {
+            Some(p) => node = p,
+            None => return false,
+        }
+    }
+    false
+}
+
 fn form_lines(doc: &mut LayoutDoc) {
     for id in 0..doc.nodes.len() {
         if !doc.nodes[id].kind.forms_paragraph()
@@ -1653,12 +1802,26 @@ fn form_lines(doc: &mut LayoutDoc) {
         let mut items = Vec::new();
         inline_items(doc, id, &mut items);
         let mut lines: Vec<Line> = Vec::new();
+        // Each line's main size, and whether an item that is not raised or
+        // lowered set its baseline.
+        let mut mains: Vec<(f64, bool)> = Vec::new();
         for r in items {
             match &doc.item(r).kind {
                 ItemKind::Text(t) => {
-                    let same = lines.last().is_some_and(|l| {
-                        l.page == r.page && (l.baseline - t.origin[1]).abs() <= 0.45 * t.size
-                    });
+                    let raised = raised(doc, doc.item(r).node, id);
+                    let y = t.origin[1];
+                    // A raised or lowered item joins the line it follows,
+                    // within an em of its baseline.
+                    let same = lines
+                        .last()
+                        .zip(mains.last())
+                        .is_some_and(|(l, &(size, main))| {
+                            let size = size.max(t.size);
+                            let reach = if raised || !main { size } else { 0.45 * size };
+                            l.page == r.page
+                                && (l.baseline - y).abs() <= reach
+                                && (!raised || t.origin[0] >= l.x1 - 1.0)
+                        });
                     if !same {
                         if let Some(l) = lines.last_mut() {
                             if l.end == LineEnd::Last {
@@ -1667,14 +1830,20 @@ fn form_lines(doc: &mut LayoutDoc) {
                         }
                         lines.push(Line {
                             page: r.page,
-                            baseline: t.origin[1],
+                            baseline: y,
                             x0: t.origin[0],
                             x1: t.origin[0] + t.width,
                             items: Vec::new(),
                             end: LineEnd::Last,
                         });
+                        mains.push((t.size, !raised));
                     }
                     let l = lines.last_mut().expect("a line is open");
+                    let m = mains.last_mut().expect("a line is open");
+                    if !raised && (!m.1 || t.size > m.0) {
+                        l.baseline = y;
+                        *m = (t.size, true);
+                    }
                     l.x0 = l.x0.min(t.origin[0]);
                     l.x1 = l.x1.max(t.origin[0] + t.width);
                     l.items.push(r);
@@ -1691,14 +1860,17 @@ fn form_lines(doc: &mut LayoutDoc) {
                             l.x1 = l.x1.max(rect.x1);
                             l.items.push(r);
                         }
-                        None => lines.push(Line {
-                            page: r.page,
-                            baseline: rect.y1,
-                            x0: rect.x0,
-                            x1: rect.x1,
-                            items: vec![r],
-                            end: LineEnd::Last,
-                        }),
+                        None => {
+                            lines.push(Line {
+                                page: r.page,
+                                baseline: rect.y1,
+                                x0: rect.x0,
+                                x1: rect.x1,
+                                items: vec![r],
+                                end: LineEnd::Last,
+                            });
+                            mains.push((0.0, true));
+                        }
                     }
                 }
                 ItemKind::Mark(m) => {

@@ -279,6 +279,17 @@ fn stride_key(doc: &LayoutDoc, n: NodeId) -> Option<StrideKey> {
     ))
 }
 
+/// The baseline strides between consecutive `lines` on one page that can be
+/// a line pitch for text `size` tall: a stride under half the size is one
+/// line read as two.
+fn line_strides(lines: &[crate::layout::Line], size: f64) -> impl Iterator<Item = f64> + '_ {
+    lines
+        .windows(2)
+        .filter(|w| w[0].page == w[1].page)
+        .map(|w| w[1].baseline - w[0].baseline)
+        .filter(move |s| *s >= 0.5 * size)
+}
+
 /// The median baseline stride per face, size and leading, over the
 /// paragraphs with two or more lines on one page.
 fn strides(doc: &LayoutDoc) -> HashMap<StrideKey, f64> {
@@ -290,15 +301,13 @@ fn strides(doc: &LayoutDoc) -> HashMap<StrideKey, f64> {
         let Some(key) = stride_key(doc, n) else {
             continue;
         };
-        for w in doc.nodes[n].lines.windows(2) {
-            if w[0].page == w[1].page {
-                all.entry(key)
-                    .or_default()
-                    .push(w[1].baseline - w[0].baseline);
-            }
-        }
+        let size = key.1 as f64 / 100.0;
+        all.entry(key)
+            .or_default()
+            .extend(line_strides(&doc.nodes[n].lines, size));
     }
     all.into_iter()
+        .filter(|(_, v)| !v.is_empty())
         .map(|(k, mut v)| {
             v.sort_by(f64::total_cmp);
             (k, v[v.len() / 2])
@@ -856,7 +865,7 @@ impl Lower<'_> {
                 self.consumed.insert(r);
                 let (image, rect, alt) = match &self.doc.item(r).kind {
                     ItemKind::Image { image, rect, alt } => (*image, *rect, alt.clone()),
-                    ItemKind::Raster { image, rect } => (*image, *rect, None),
+                    ItemKind::Raster { image, rect, alt } => (*image, *rect, alt.clone()),
                     _ => unreachable!(),
                 };
                 let rect = &rect;
@@ -867,6 +876,12 @@ impl Lower<'_> {
                         props: RunProps::default(),
                         content: vec![RunContent::Drawing(drawing)],
                     })],
+                };
+                let node = self.doc.item(r).node;
+                p.props.align = match ctx.align.or(self.par_style(node).map(|s| s.align)) {
+                    Some(HAlign::Center) => Some(Align::Center),
+                    Some(HAlign::End) => Some(Align::End),
+                    _ => None,
                 };
                 self.apply_break(&mut p, r.page, ctx);
                 self.prev = Some(Prev::Bottom(r.page, rect.y1));
@@ -1789,15 +1804,6 @@ impl Lower<'_> {
     /// stride of paragraphs of its face, size and leading, else its style's
     /// leading plus its line box.
     fn pitch(&self, n: NodeId, lines: &[crate::layout::Line], style: Option<ParStyle>) -> f64 {
-        let mut strides: Vec<f64> = lines
-            .windows(2)
-            .filter(|w| w[0].page == w[1].page)
-            .map(|w| w[1].baseline - w[0].baseline)
-            .collect();
-        if !strides.is_empty() {
-            strides.sort_by(f64::total_cmp);
-            return strides[strides.len() / 2];
-        }
         let size = lines
             .iter()
             .flat_map(|l| &l.items)
@@ -1806,6 +1812,11 @@ impl Lower<'_> {
                 _ => None,
             })
             .unwrap_or(11.0);
+        let mut strides: Vec<f64> = line_strides(lines, size).collect();
+        if !strides.is_empty() {
+            strides.sort_by(f64::total_cmp);
+            return strides[strides.len() / 2];
+        }
         stride_key(self.doc, n)
             .and_then(|k| self.strides.get(&k).copied())
             .or_else(|| {
@@ -1857,6 +1868,13 @@ impl Lower<'_> {
         let mut tabbed = false;
         for (li, line) in lines.iter().enumerate() {
             let texts: Vec<ItemRef> = line.items.clone();
+            let main = texts
+                .iter()
+                .filter_map(|r| match &self.doc.item(*r).kind {
+                    ItemKind::Text(t) if !self.raised(self.doc.item(*r).node, n) => Some(t.size),
+                    _ => None,
+                })
+                .reduce(f64::max);
             let last_text = texts
                 .iter()
                 .rposition(|r| matches!(self.doc.item(*r).kind, ItemKind::Text(_)));
@@ -1914,7 +1932,10 @@ impl Lower<'_> {
                         if Some(i) == last_text && line.end == LineEnd::Hyphenated {
                             text = text.trim_end_matches('\u{ad}').to_string();
                         }
-                        let props = self.run_props(t, &chain);
+                        let mut props = self.run_props(t, &chain);
+                        if let (Some(_), Some(main)) = (props.vert, main) {
+                            props.size = Some((main * 2.0).round().max(2.0) as u32);
+                        }
                         let link = chain.iter().find_map(|k| match k {
                             NodeKind::Link { url } if !runs_script(url) => Some(url.clone()),
                             _ => None,
@@ -1959,12 +1980,16 @@ impl Lower<'_> {
                             }),
                         ));
                     }
-                    ItemKind::Raster { image, rect } => {
-                        let drawing = self.picture(*image, *rect, None, Placement::Inline);
+                    ItemKind::Raster { image, rect, alt } => {
+                        let drawing = self.picture(*image, *rect, alt.clone(), Placement::Inline);
+                        let position = (2.0 * (line.baseline - rect.y1)).round() as i32;
                         out.push((
                             None,
                             Inline::Run(Run {
-                                props: RunProps::default(),
+                                props: RunProps {
+                                    position: (position != 0).then_some(position),
+                                    ..RunProps::default()
+                                },
                                 content: vec![RunContent::Drawing(drawing)],
                             }),
                         ));
@@ -1999,6 +2024,13 @@ impl Lower<'_> {
     }
 
     /// The kinds from `item_node` up to and including `top`.
+    /// Whether `node` lies in a superscript or subscript inside `top`.
+    fn raised(&self, node: NodeId, top: NodeId) -> bool {
+        self.chain(node, top)
+            .iter()
+            .any(|k| matches!(k, NodeKind::Super | NodeKind::Sub))
+    }
+
     fn chain(&self, item_node: NodeId, top: NodeId) -> Vec<NodeKind> {
         let mut out = Vec::new();
         let mut at = Some(item_node);
@@ -2953,7 +2985,7 @@ impl Lower<'_> {
                                 format!("{}@{}", t.text, (t.origin[0] * 10.0).round()),
                             )),
                             ItemKind::Image { rect, image, .. }
-                            | ItemKind::Raster { rect, image } => out.push((
+                            | ItemKind::Raster { rect, image, .. } => out.push((
                                 (rect.y0 * 10.0).round() as i64,
                                 format!("img{image}@{}", (rect.x0 * 10.0).round()),
                             )),

@@ -50,6 +50,9 @@ pub struct TextRun {
     pub text: String,
     pub bold: bool,
     pub no_proof: bool,
+    /// In half-points.
+    pub size: Option<i64>,
+    pub vert: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -66,6 +69,9 @@ pub struct Drawing {
     pub z: Option<i64>,
     pub width: i64,
     pub height: i64,
+    pub descr: Option<String>,
+    /// The `w:position` of the run that holds it, in half-points.
+    pub position: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -374,10 +380,16 @@ pub fn paragraphs(xml: &str) -> Vec<Par> {
                 let has = |name: &str| {
                     rpr.is_some_and(|n| n.children().any(|c| c.has_tag_name((W, name))))
                 };
+                let val = |name: &str| {
+                    rpr.and_then(|n| n.children().find(|c| c.has_tag_name((W, name))))
+                        .and_then(|c| c.attribute((W, "val")))
+                };
                 (!text.is_empty()).then(|| TextRun {
                     text,
                     bold: has("b"),
                     no_proof: has("noProof"),
+                    size: val("sz").and_then(|v| v.parse().ok()),
+                    vert: val("vertAlign").map(str::to_string),
                 })
             })
             .collect();
@@ -459,6 +471,18 @@ fn drawing(d: roxmltree::Node) -> Drawing {
             .and_then(|v| v.parse().ok()),
         width: dim("cx"),
         height: dim("cy"),
+        descr: d
+            .descendants()
+            .find(|n| n.tag_name().name() == "docPr")
+            .and_then(|n| n.attribute("descr"))
+            .map(str::to_string),
+        position: d
+            .ancestors()
+            .find(|a| a.has_tag_name((W, "r")))
+            .and_then(|r| r.children().find(|c| c.has_tag_name((W, "rPr"))))
+            .and_then(|p| p.children().find(|c| c.has_tag_name((W, "position"))))
+            .and_then(|p| p.attribute((W, "val")))
+            .and_then(|v| v.parse().ok()),
     }
 }
 

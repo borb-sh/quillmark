@@ -675,7 +675,7 @@ pub mod testing {
         world.inject_helper_package(json_data, &meta)?;
         let (live, _) = compile::compile_document(&world)?;
         let doc = crate::docx::probed(&live, &world).map_err(RenderError::from_diag)?;
-        Ok(crate::docx::read::read(&doc, None))
+        Ok(crate::docx::read::read(&doc, &world, None))
     }
 
     fn hints_in(doc: &typst_layout::PagedDocument) -> std::collections::BTreeSet<String> {

@@ -45,8 +45,8 @@ pub(crate) fn export(
     title: Option<String>,
 ) -> (Vec<u8>, Vec<Diagnostic>) {
     let (doc, mut warnings) = match probed(live, world) {
-        Ok(doc) => (read::read(&doc, title), Vec::new()),
-        Err(warning) => (read::read(live, title), vec![warning]),
+        Ok(doc) => (read::read(&doc, world, title), Vec::new()),
+        Err(warning) => (read::read(live, world, title), vec![warning]),
     };
     let (word, notices) = quillmark_docx::lower::lower(&doc);
     warnings.extend(
