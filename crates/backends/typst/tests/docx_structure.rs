@@ -639,3 +639,68 @@ fn a_block_quote_and_a_caption_take_words_own_styles() {
         "{styles}"
     );
 }
+
+/// The memo's heading block as plain Typst: a date line, then grids
+/// for MEMORANDUM FOR (its recipients in a nested grid), FROM and SUBJECT,
+/// one blank line apart, then the body.
+const HEADING_STACK: &str = "#set page(width: 612pt, height: 792pt, margin: 72pt)\n\
+     #set text(font: \"TeX Gyre Termes\", size: 12pt)\n\
+     #set par(leading: 0.5em, spacing: 0pt)\n\
+     #set block(spacing: 0pt)\n\
+     Dated line\n\
+     #v(13.95pt)\n\
+     #grid(columns: (auto, auto, 1fr), [MEMORANDUM FOR], \"  \", grid([123 OG/CC], [123 MXG/CC]))\n\
+     #v(13.95pt)\n\
+     #grid(columns: (auto, auto, 1fr), [FROM:], \"  \", [123 CS/SCX])\n\
+     #v(13.95pt)\n\
+     #grid(columns: (auto, auto, 1fr), [SUBJECT:], \"  \", [Annual Review])\n\
+     #v(13.95pt)\n\
+     Body text.\n";
+
+/// Word's distance between two lines, by the export's model, against
+/// Typst's.
+fn gaps(w: &word::Word, quill: &quillmark_core::quill::Quill, pairs: &[(&str, &str)]) {
+    for (a, b) in pairs {
+        let word = w.word_baseline(b) - w.word_baseline(a);
+        let typst = word::typst_baseline(quill, b) - word::typst_baseline(quill, a);
+        assert!(
+            (word - typst).abs() < 0.25,
+            "{a:?} to {b:?}: Word {word:.2} pt, Typst {typst:.2} pt"
+        );
+    }
+}
+
+#[test]
+fn two_grids_a_gap_apart_keep_the_gap_and_stay_two_tables() {
+    let plate = format!(
+        "{PAGE}#grid(columns: (auto, 1fr), [One], [Left])\n#v(20pt)\n\
+         #grid(columns: (auto, 1fr), [Two], [Right])\nAfter.\n"
+    );
+    let w = render(&plate);
+    let xml = w.xml("word/document.xml");
+    assert_eq!(xml.matches("<w:tbl>").count(), 2);
+    assert!(!xml.contains("</w:tbl><w:tbl>"), "the tables touch");
+    let quill = common::quill_with_plate(
+        &common::yaml(""),
+        &format!("#import \"@local/quillmark-helper:0.2.0\" as qm\n{plate}"),
+    );
+    gaps(&w, &quill, &[("One", "Two"), ("Two", "After.")]);
+}
+
+#[test]
+fn the_memo_heading_stack_keeps_each_blank_line() {
+    let w = word::render_hosted(HEADING_STACK);
+    let xml = w.xml("word/document.xml");
+    assert!(!xml.contains("</w:tbl><w:tbl>"), "the tables touch");
+    gaps(
+        &w,
+        &word::hosted(HEADING_STACK),
+        &[
+            ("Dated line", "MEMORANDUM FOR"),
+            ("MEMORANDUM FOR", "123 OG/CC"),
+            ("123 MXG/CC", "FROM:"),
+            ("FROM:", "SUBJECT:"),
+            ("SUBJECT:", "Body text."),
+        ],
+    );
+}

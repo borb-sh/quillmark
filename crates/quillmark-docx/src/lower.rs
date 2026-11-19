@@ -49,8 +49,27 @@ const WORD_CLONES: &[(&str, &str)] = &[
 
 const EMU_PER_PT: f64 = 12700.0;
 
+/// The height of the paragraph that closes a table cell ending in a table,
+/// which Word requires and draws a line tall unless told otherwise.
+const CLOSING: Twips = 20;
+
 fn tw(pt: f64) -> Twips {
     (pt * 20.0).round() as Twips
+}
+
+/// An empty paragraph `height` twips tall, at least one.
+fn spacer(height: Twips) -> Paragraph {
+    Paragraph {
+        props: ParProps {
+            spacing: Some(Spacing {
+                before: Some(0),
+                after: Some(0),
+                line: Some(Line::Exact(height.max(1))),
+            }),
+            ..ParProps::default()
+        },
+        content: Vec::new(),
+    }
 }
 
 fn emu(pt: f64) -> i64 {
@@ -345,7 +364,7 @@ impl Lower<'_> {
             let ctx = at(current);
             let blocks = self.child(&c, &ctx);
             self.settle(&mut bodies[current], &mut root_late);
-            bodies[current].extend(blocks);
+            Self::append(&mut bodies[current], blocks);
         }
         if let Some(s) = self.pending.first().map(|d| section_of(d.0)) {
             let ctx = Ctx {
@@ -742,16 +761,17 @@ impl Lower<'_> {
             self.flush_pending(self.child_page(c), &mut out, ctx);
             let blocks = self.child(c, ctx);
             self.settle(&mut out, &mut late);
-            out.extend(blocks);
+            Self::append(&mut out, blocks);
         }
         out
     }
 
     /// What the child just lowered asks of the paragraph before it: the
-    /// space a table needs above it, as that paragraph's space after. When
-    /// no paragraph comes before it at this level, the request is `late`
-    /// and belongs to the level above.
-    fn settle(&mut self, before: &mut [Block], late: &mut bool) {
+    /// space a table needs above it, as that paragraph's space after, or as
+    /// a spacer paragraph of that height after a table or contents. When
+    /// nothing comes before it at this level, the request is `late` and
+    /// belongs to the level above.
+    fn settle(&mut self, before: &mut Vec<Block>, late: &mut bool) {
         if *late || (self.table_gap.is_none() && !self.keep) {
             return;
         }
@@ -782,9 +802,23 @@ impl Lower<'_> {
                 let gap = self.table_gap.take();
                 p.props.spacing.get_or_insert_with(Spacing::default).after = gap;
             }
-            Some(_) => self.table_gap = None,
+            Some(_) => {
+                let gap = self.table_gap.take().unwrap_or(0);
+                before.push(Block::Paragraph(spacer(gap)));
+            }
             None => *late = true,
         }
+    }
+
+    /// `blocks` after `out`, with a spacer between two tables that nothing
+    /// else separates, since Word joins adjacent tables into one.
+    fn append(out: &mut Vec<Block>, blocks: Vec<Block>) {
+        if matches!(out.last(), Some(Block::Table(_)))
+            && matches!(blocks.first(), Some(Block::Table(_)))
+        {
+            out.push(Block::Paragraph(spacer(0)));
+        }
+        out.extend(blocks);
     }
 
     fn loose_item(&mut self, r: ItemRef, ctx: &Ctx) -> Vec<Block> {
@@ -2281,6 +2315,48 @@ impl Lower<'_> {
             })
     }
 
+    /// Where Word ends a table's last row on `page`: below the last line its
+    /// cells hold there at that line's pitch, plus the cell's bottom inset and
+    /// the closing paragraph of a cell that ends in a table.
+    fn table_bottom(
+        &self,
+        cells: &[NodeId],
+        nrows: u32,
+        page: u32,
+        closed: &HashSet<NodeId>,
+    ) -> Option<f64> {
+        cells
+            .iter()
+            .filter_map(|&c| match self.kind(c) {
+                NodeKind::Cell {
+                    row,
+                    rowspan,
+                    inset,
+                    ..
+                } if row + (*rowspan).max(1) >= nrows => {
+                    let text = self
+                        .doc
+                        .subtree(c)
+                        .into_iter()
+                        .filter_map(|m| {
+                            let lines = &self.doc.nodes[m].lines;
+                            let last = lines.last().filter(|l| l.page == page)?;
+                            let pitch = self.pitch(m, lines, self.par_style(m));
+                            Some(last.baseline + 0.2 * pitch)
+                        })
+                        .reduce(f64::max)?;
+                    let closing = if closed.contains(&c) {
+                        CLOSING as f64 / 20.0
+                    } else {
+                        0.0
+                    };
+                    Some(text + inset.bottom + closing)
+                }
+                _ => None,
+            })
+            .reduce(f64::max)
+    }
+
     fn table(&mut self, n: NodeId, ctx: &Ctx) -> Table {
         let NodeKind::Table {
             columns,
@@ -2359,6 +2435,7 @@ impl Lower<'_> {
             };
         self.break_pending = false;
         let saved = self.prev;
+        let mut closed = HashSet::new();
         let border = |b: Option<(f64, Rgb)>| {
             b.map(|(w, c)| Border {
                 size: ((w * 8.0).round() as u32).clamp(2, 96),
@@ -2414,6 +2491,10 @@ impl Lower<'_> {
                     };
                     self.prev = None;
                     let mut blocks = self.children(m, &inner);
+                    if matches!(blocks.last(), Some(Block::Table(_))) {
+                        blocks.push(Block::Paragraph(spacer(CLOSING)));
+                        closed.insert(m);
+                    }
                     let header = (r as u32) < header_rows;
                     for b in &mut blocks {
                         if let Block::Paragraph(p) = b {
@@ -2475,9 +2556,12 @@ impl Lower<'_> {
         }
         self.prev = saved;
         if let Some(&(p, f)) = self.doc.nodes[n].frames.last() {
-            self.prev = Some(Prev::Bottom(p, f.y1));
+            let bottom = self
+                .table_bottom(&cells, nrows as u32, p, &closed)
+                .unwrap_or(f.y1);
+            self.prev = Some(Prev::Bottom(p, bottom));
             if !ctx.nested {
-                self.prev_bottom = Some((p, f.y1));
+                self.prev_bottom = Some((p, bottom));
             }
         }
         Table {

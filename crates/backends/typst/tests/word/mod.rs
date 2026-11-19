@@ -85,9 +85,41 @@ pub struct Section {
 /// Renders `plate`, with the helper imported as `qm`, to DOCX.
 pub fn render(plate: &str) -> Word {
     let plate = format!("#import \"@local/quillmark-helper:0.2.0\" as qm\n{plate}");
-    let quill = common::quill_with_plate(&common::yaml(""), &plate);
+    render_quill(&common::quill_with_plate(&common::yaml(""), &plate))
+}
+
+/// [`render`] in the fixture quill whose fonts include TeX Gyre Termes.
+pub fn render_hosted(plate: &str) -> Word {
+    render_quill(&hosted(plate))
+}
+
+/// The fixture quill with fonts, holding `plate` with the helper as `qm`.
+pub fn hosted(plate: &str) -> quillmark_core::quill::Quill {
+    common::host_with_plate(&format!(
+        "#import \"@local/quillmark-helper:0.2.0\" as qm\n{plate}"
+    ))
+}
+
+/// The baseline Typst sets the first line holding `text` on, in points.
+pub fn typst_baseline(quill: &quillmark_core::quill::Quill, text: &str) -> f64 {
+    let doc =
+        quillmark_typst::testing::layout(quill, &json!({}), common::test_date()).expect("layout");
+    doc.nodes
+        .iter()
+        .flat_map(|n| &n.lines)
+        .find(|l| {
+            l.items.iter().any(|r| {
+                matches!(&doc.item(*r).kind,
+                    quillmark_docx::layout::ItemKind::Text(t) if t.text.trim() == text)
+            })
+        })
+        .map(|l| l.baseline)
+        .unwrap_or_else(|| panic!("no line {text:?}"))
+}
+
+fn render_quill(quill: &quillmark_core::quill::Quill) -> Word {
     let session = TypstBackend::default()
-        .open(&quill, &json!({}), common::test_date())
+        .open(quill, &json!({}), common::test_date())
         .expect("open");
     let result = session
         .render(&RenderOptions::default().with_output_format(OutputFormat::Docx))
@@ -204,6 +236,77 @@ impl Word {
             .flat_map(|p| p.drawings.into_iter().map(move |d| (p.page, d)))
             .collect()
     }
+
+    /// Each paragraph's text and first baseline in points below the body's
+    /// top, stacked as the export models Word on one page: a paragraph is its
+    /// space before, its exact line with the baseline 0.8 down, and its space
+    /// after; a row is its tallest cell, margins included, or its height.
+    pub fn word_baselines(&self) -> Vec<(String, f64)> {
+        let xml = self.xml("word/document.xml");
+        let doc = roxmltree::Document::parse(&xml).expect("well-formed");
+        let body = doc
+            .descendants()
+            .find(|n| n.has_tag_name((W, "body")))
+            .expect("a body");
+        let mut out = Vec::new();
+        stack(body, 0.0, &mut out);
+        out
+    }
+
+    /// [`Self::word_baselines`] of the first paragraph holding `text`.
+    pub fn word_baseline(&self, text: &str) -> f64 {
+        self.word_baselines()
+            .into_iter()
+            .find(|(t, _)| t == text)
+            .map(|(_, y)| y)
+            .unwrap_or_else(|| panic!("no paragraph {text:?}"))
+    }
+}
+
+fn twips(n: Option<roxmltree::Node>, name: &str, attr: &str) -> f64 {
+    n.and_then(|n| n.children().find(|c| c.has_tag_name((W, name))))
+        .and_then(|c| c.attribute((W, attr)))
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0)
+        / 20.0
+}
+
+/// The blocks under `parent` stacked from `top`; returns their bottom.
+fn stack(parent: roxmltree::Node, top: f64, out: &mut Vec<(String, f64)>) -> f64 {
+    let mut y = top;
+    for b in parent.children() {
+        if b.has_tag_name((W, "p")) {
+            let ppr = b.children().find(|c| c.has_tag_name((W, "pPr")));
+            let line = twips(ppr, "spacing", "line");
+            y += twips(ppr, "spacing", "before");
+            let text: String = b
+                .descendants()
+                .filter(|n| {
+                    n.has_tag_name((W, "t"))
+                        && !n.ancestors().any(|a| a.has_tag_name((W, "drawing")))
+                })
+                .filter_map(|n| n.text())
+                .collect();
+            out.push((text, y + 0.8 * line));
+            y += line + twips(ppr, "spacing", "after");
+        } else if b.has_tag_name((W, "tbl")) {
+            for tr in b.children().filter(|c| c.has_tag_name((W, "tr"))) {
+                let trpr = tr.children().find(|c| c.has_tag_name((W, "trPr")));
+                let mut height = twips(trpr, "trHeight", "val");
+                for tc in tr.children().filter(|c| c.has_tag_name((W, "tc"))) {
+                    let mar = tc
+                        .children()
+                        .find(|c| c.has_tag_name((W, "tcPr")))
+                        .and_then(|p| p.children().find(|c| c.has_tag_name((W, "tcMar"))));
+                    let inner = y + twips(mar, "top", "w");
+                    let bottom = stack(tc, inner, out) + twips(mar, "bottom", "w");
+                    height = height.max(bottom - y);
+                }
+                y += height;
+            }
+        }
+    }
+    y
 }
 
 pub fn texts(pars: &[Par]) -> Vec<String> {
