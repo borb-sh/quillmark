@@ -181,6 +181,11 @@ pub enum ItemKind {
         alt: Option<String>,
     },
     Shape(Shape),
+    /// Ink the IR cannot hold, as a picture of it.
+    Raster {
+        image: ImageId,
+        rect: Rect,
+    },
     Mark(PointHint),
 }
 
@@ -327,10 +332,30 @@ pub enum ArtifactKind {
     Other,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumberFormat {
+    Decimal,
+    LowerLetter,
+    UpperLetter,
+    LowerRoman,
+    UpperRoman,
+}
+
+/// What a list prints before each item, from the list's own fields.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Marker {
-    Bullet,
-    Numbered,
+    /// The glyph printed at this nesting depth.
+    Bullet(String),
+    /// The counters printed at this level, outermost first, each with the
+    /// text before it, then the text after the last; `start` is the first
+    /// item's number.
+    Numbered {
+        counters: Vec<(String, NumberFormat)>,
+        suffix: String,
+        start: u64,
+    },
+    /// Numbers no pattern describes, which the labels' ink holds as printed.
+    Printed,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -359,7 +384,9 @@ pub enum NodeKind {
     Emph,
     Underline,
     Strike,
-    Highlight,
+    Highlight {
+        fill: Rgb,
+    },
     Sub,
     Super,
     Link {
@@ -397,7 +424,11 @@ pub enum NodeKind {
     },
     List {
         marker: Marker,
+        /// Whether each label is set flush against the body's edge.
+        label_end: bool,
     },
+    /// The label Typst prints before a list item's or a footnote entry's
+    /// body.
     ListLabel,
     Place {
         float: bool,
@@ -430,7 +461,7 @@ impl NodeKind {
                 | NodeKind::Emph
                 | NodeKind::Underline
                 | NodeKind::Strike
-                | NodeKind::Highlight
+                | NodeKind::Highlight { .. }
                 | NodeKind::Sub
                 | NodeKind::Super
                 | NodeKind::Link { .. }

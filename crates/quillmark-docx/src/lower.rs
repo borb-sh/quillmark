@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::layout::{
     ArtifactKind, Child, Geometry, HAlign, ImageFormat, ItemKind, ItemRef, LayoutDoc, LineEnd,
-    Marker, NodeId, NodeKind, Notice, ParStyle, PointHint, Rect, Rgb,
+    Marker, NodeId, NodeKind, Notice, NumberFormat, ParStyle, PointHint, Rect, Rgb,
 };
 use crate::model::{
     AbstractNum, Align, Anchor, Block, Blocks, Border, Borders, BreakKind, Cell, CellMargins,
@@ -19,7 +19,7 @@ use crate::model::{
     Footnote, HeaderRefs, Hyperlink, Indent, Info, Inline, Level, LevelSuffix, Line, LinkTarget,
     Media, MediaKind, Num, NumFormat, NumRef, PageMargins, PageNumbers, ParProps, Paragraph,
     Placement, Row, RowProps, Run, RunContent, RunProps, Section, SectionProps, SectionStart,
-    Settings, Spacing, Style, Styles, TabKind, TabLeader, TabStop, Table, TableProps, TextBox,
+    Settings, ShapeGeometry, Spacing, Stroke, Style, Styles, TabKind, TabLeader, TabStop, Table, TableProps, TextBox,
     Twips, VMerge, VertAlign, Wrap,
 };
 
@@ -72,7 +72,7 @@ pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
         prev: None,
         placed: 0,
         headings: BTreeSet::new(),
-        skip: HashSet::new(),
+        label_prefix: None,
     };
     let document = l.document();
     let mut notices = doc.notices.clone();
@@ -116,7 +116,8 @@ struct Lower<'a> {
     prev: Option<Prev>,
     placed: usize,
     headings: BTreeSet<u8>,
-    skip: HashSet<ItemRef>,
+    /// A printed list number the next paragraph opens with.
+    label_prefix: Option<String>,
 }
 
 impl Lower<'_> {
@@ -265,7 +266,7 @@ impl Lower<'_> {
                     continue;
                 }
                 match item.kind {
-                    ItemKind::Text(_) | ItemKind::Image { .. } => ink += 1,
+                    ItemKind::Text(_) | ItemKind::Image { .. } | ItemKind::Raster { .. } => ink += 1,
                     ItemKind::Shape(_) => shapes += 1,
                     ItemKind::Mark(_) => {}
                 }
@@ -367,9 +368,27 @@ impl Lower<'_> {
                 }
                 Vec::new()
             }
-            ItemKind::Image { image, rect, alt } => {
+            ItemKind::Shape(shape) => {
                 self.consumed.insert(r);
-                let drawing = self.picture(*image, *rect, alt.clone(), Placement::Inline);
+                let decoration = matches!(
+                    self.kind(self.doc.item(r).node),
+                    NodeKind::Underline | NodeKind::Strike | NodeKind::Highlight { .. }
+                );
+                if !decoration {
+                    let drawing = self.shape(shape);
+                    self.pending.push(drawing);
+                }
+                Vec::new()
+            }
+            ItemKind::Image { .. } | ItemKind::Raster { .. } => {
+                self.consumed.insert(r);
+                let (image, rect, alt) = match &self.doc.item(r).kind {
+                    ItemKind::Image { image, rect, alt } => (*image, *rect, alt.clone()),
+                    ItemKind::Raster { image, rect } => (*image, *rect, None),
+                    _ => unreachable!(),
+                };
+                let rect = &rect;
+                let drawing = self.picture(image, *rect, alt, Placement::Inline);
                 let mut p = Paragraph {
                     props: self.par_frame(ctx, None, r.page, rect.y1, rect.height(), true),
                     content: vec![Inline::Run(Run {
@@ -557,7 +576,15 @@ impl Lower<'_> {
             s.sort_by(f64::total_cmp);
             s[s.len() / 2]
         };
+        let tall = lines.iter().flat_map(|l| &l.items).any(|r| {
+            matches!(&self.doc.item(*r).kind, ItemKind::Raster { rect, .. } if rect.height() > pitch)
+        });
         let mut props = self.par_frame(ctx, style, first.page, first.baseline, pitch, false);
+        if tall {
+            if let Some(sp) = props.spacing.as_mut() {
+                sp.line = Some(Line::Auto(240));
+            }
+        }
         let justify = matches!(kind, NodeKind::Par { justify: true, .. });
         let align = ctx.align.or(style.map(|s| s.align)).unwrap_or_default();
         props.align = match (align, justify) {
@@ -612,15 +639,23 @@ impl Lower<'_> {
         if let Some((num, level)) = ctx.list {
             props.numbering = Some(NumRef { level, num });
         }
+        self.inline_shapes(n);
         for place in self.inline_places(n) {
             let drawings = self.text_box(place, ctx);
             self.placed += 1;
             self.pending.extend(drawings);
         }
-        let mut para = Paragraph {
-            props,
-            content: self.runs(n, &lines, ctx),
-        };
+        let mut content = self.runs(n, &lines, ctx);
+        if let Some(label) = self.label_prefix.take() {
+            content.insert(
+                0,
+                Inline::Run(Run {
+                    props: RunProps::default(),
+                    content: vec![RunContent::Text(label), RunContent::Tab],
+                }),
+            );
+        }
+        let mut para = Paragraph { props, content };
         self.apply_break(&mut para, first.page, ctx);
         let last = lines.last().expect("a line");
         self.prev = Some(Prev::Baseline(last.page, last.baseline));
@@ -651,9 +686,6 @@ impl Lower<'_> {
                 .iter()
                 .rposition(|r| matches!(self.doc.item(*r).kind, ItemKind::Text(_)));
             for (i, r) in texts.iter().enumerate() {
-                if self.skip.contains(r) {
-                    continue;
-                }
                 self.consumed.insert(*r);
                 let item = self.doc.item(*r);
                 match &item.kind {
@@ -692,6 +724,16 @@ impl Lower<'_> {
                             })
                         };
                         out.push((link, inline));
+                    }
+                    ItemKind::Raster { image, rect } => {
+                        let drawing = self.picture(*image, *rect, None, Placement::Inline);
+                        out.push((
+                            None,
+                            Inline::Run(Run {
+                                props: RunProps::default(),
+                                content: vec![RunContent::Drawing(drawing)],
+                            }),
+                        ));
                     }
                     ItemKind::Mark(PointHint::FootnoteRef { note }) => {
                         let index = self.footnote(*note);
@@ -748,7 +790,10 @@ impl Lower<'_> {
             underline: has(|k| matches!(k, NodeKind::Underline)),
             color: (t.fill != Rgb(0, 0, 0)).then(|| hex(t.fill)),
             size: Some((t.size * 2.0).round().max(2.0) as u32),
-            shade: has(|k| matches!(k, NodeKind::Highlight)).then(|| "FFFF00".to_string()),
+            shade: chain.iter().find_map(|k| match k {
+                NodeKind::Highlight { fill } => Some(hex(*fill)),
+                _ => None,
+            }),
             vert: if has(|k| matches!(k, NodeKind::Super)) {
                 Some(VertAlign::Superscript)
             } else if has(|k| matches!(k, NodeKind::Sub)) {
@@ -794,14 +839,29 @@ impl Lower<'_> {
             self.break_pending,
             std::mem::take(&mut self.pending),
         );
+        let page = self.first_page(note).unwrap_or(0) as usize;
+        let left = self.doc.pages.get(page).map_or(0.0, |p| p.setup.margins.left);
         let ctx = Ctx {
             nested: true,
-            left: self.doc.nodes[note].frames.first().map_or(0.0, |f| f.1.x0),
+            left,
             ..Ctx::default()
         };
-        self.drop_note_number(note);
+        let number = self.doc.nodes[note].children.iter().find_map(|c| match c {
+            Child::Node(m) if matches!(self.kind(*m), NodeKind::ListLabel) => Some(*m),
+            _ => None,
+        });
+        let indent = number
+            .and_then(|m| self.doc.nodes[m].frames.first())
+            .map(|f| f.1.x0 - left);
         let mut blocks = self.children(note, &ctx);
         if let Some(Block::Paragraph(p)) = blocks.first_mut() {
+            if let Some(x) = indent.filter(|x| x.abs() >= 0.25) {
+                p.props.indent = Some(Indent {
+                    left: None,
+                    right: None,
+                    first: Some(FirstLine::Indent(tw(x))),
+                });
+            }
             p.content.insert(
                 0,
                 Inline::Run(Run {
@@ -825,28 +885,6 @@ impl Lower<'_> {
         i
     }
 
-    /// The entry's own number, which Word writes as the footnote's mark.
-    fn drop_note_number(&mut self, note: NodeId) {
-        let mut texts = self
-            .doc
-            .subtree(note)
-            .into_iter()
-            .flat_map(|n| self.doc.nodes[n].children.clone())
-            .filter_map(|c| match c {
-                Child::Item(r) => match &self.doc.item(r).kind {
-                    ItemKind::Text(t) => Some((r, t.clone())),
-                    _ => None,
-                },
-                Child::Node(_) => None,
-            });
-        if let (Some((r, a)), Some((_, b))) = (texts.next(), texts.next()) {
-            if a.size < b.size && a.text.chars().count() <= 4 {
-                self.consumed.insert(r);
-                self.skip.insert(r);
-            }
-        }
-    }
-
     fn list(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Block> {
         let (num, level) = match ctx.list {
             Some((num, level)) => (num, (level + 1).min(8)),
@@ -866,26 +904,35 @@ impl Lower<'_> {
                 (num, 0)
             }
         };
-        let marker = match self.kind(n) {
-            NodeKind::List { marker } => marker.clone(),
-            _ => Marker::Bullet,
+        let (marker, label_end) = match self.kind(n) {
+            NodeKind::List { marker, label_end } => (marker.clone(), *label_end),
+            _ => (Marker::Printed, false),
         };
         let (labels, bodies) = self.list_parts(n);
-        let label_text = labels.first().map(|&l| self.text_of(l)).unwrap_or_default();
-        let label_x = labels
+        let label_frame = labels
             .first()
             .and_then(|&l| self.doc.nodes[l].frames.first())
-            .map(|f| f.1.x0);
+            .map(|f| f.1);
         let body_x = bodies
             .first()
             .and_then(|&b| self.doc.nodes[b].frames.first())
             .map(|f| f.1.x0);
-        let (format, text, start) = level_of(&label_text, level, &marker);
+        if marker == Marker::Printed {
+            let kids = self.doc.nodes[n].children.clone();
+            let inner = Ctx {
+                list: None,
+                ..ctx.clone()
+            };
+            let mut out = Vec::new();
+            for c in &kids {
+                out.extend(self.printed_child(c, &inner));
+            }
+            return out;
+        }
+        let (format, text, start) = level_of(&marker, level);
         let left = body_x.map_or(18.0 * (level as f64 + 1.0), |x| x - ctx.left);
-        let hanging = match (label_x, body_x) {
-            (Some(l), Some(b)) => b - l,
-            _ => 18.0,
-        };
+        let label_at = label_frame.map(|f| if label_end { f.x1 } else { f.x0 } - ctx.left);
+        let hanging = label_at.map_or(18.0, |l| left - l);
         let abs = self
             .numbering
             .nums
@@ -918,7 +965,7 @@ impl Lower<'_> {
             style: None,
             suffix: LevelSuffix::Tab,
             text,
-            align: Align::Start,
+            align: if label_end { Align::End } else { Align::Start },
             indent: Indent {
                 left: Some(tw(left)),
                 right: None,
@@ -986,6 +1033,31 @@ impl Lower<'_> {
                     self.node(m, ctx)
                 }
             }
+        }
+    }
+
+    /// A child of a list whose numbers stay as printed: each label's text
+    /// opens the paragraph of the body after it, with a tab between.
+    fn printed_child(&mut self, c: &Child, ctx: &Ctx) -> Vec<Block> {
+        let Child::Node(m) = c else {
+            return self.child(c, ctx);
+        };
+        match self.kind(*m) {
+            NodeKind::ListLabel => {
+                self.consume_subtree(*m);
+                let text = self.text_of(*m);
+                self.label_prefix = Some(text.trim().to_string());
+                Vec::new()
+            }
+            NodeKind::Block { .. } | NodeKind::Align { .. } => {
+                let kids = self.doc.nodes[*m].children.clone();
+                let mut out = Vec::new();
+                for k in &kids {
+                    out.extend(self.printed_child(k, ctx));
+                }
+                out
+            }
+            _ => self.child(c, ctx),
         }
     }
 
@@ -1229,6 +1301,49 @@ impl Lower<'_> {
         }
     }
 
+    /// A drawn line or box as a shape anchored to the page where it sits.
+    fn shape(&mut self, shape: &crate::layout::Shape) -> Drawing {
+        self.z += 1;
+        Drawing {
+            placement: Placement::Anchor(Anchor {
+                x: emu(shape.rect.x0),
+                y: emu(shape.rect.y0),
+                behind_text: shape.fill.is_some(),
+                z: self.z,
+                wrap: Wrap::None,
+            }),
+            width: emu(shape.rect.width().max(0.05)),
+            height: emu(shape.rect.height().max(0.05)),
+            content: DrawingContent::Shape(crate::model::Shape {
+                geometry: match shape.geometry {
+                    Geometry::Line { rising } => ShapeGeometry::Line { rising },
+                    Geometry::Rect => ShapeGeometry::Rect,
+                },
+                fill: shape.fill.map(hex),
+                stroke: shape.stroke.map(|(w, c)| Stroke {
+                    width: emu(w),
+                    color: hex(c),
+                }),
+            }),
+            descr: None,
+        }
+    }
+
+    /// The shapes inside `n`'s inline content that no decoration explains,
+    /// which a paragraph holds as anchored drawings.
+    fn inline_shapes(&mut self, n: NodeId) {
+        let kids = self.doc.nodes[n].children.clone();
+        for c in kids {
+            match c {
+                Child::Item(r) if matches!(self.doc.item(r).kind, ItemKind::Shape(_)) => {
+                    self.loose_item(r, &Ctx::default());
+                }
+                Child::Node(m) if self.kind(m).is_inline() => self.inline_shapes(m),
+                _ => {}
+            }
+        }
+    }
+
     /// `n`'s content as a page-anchored text box where its ink sits, then
     /// the boxes of the places inside it, since Word nests no text box in
     /// another.
@@ -1457,7 +1572,8 @@ impl Lower<'_> {
                                 (t.origin[1] * 10.0).round() as i64,
                                 format!("{}@{}", t.text, (t.origin[0] * 10.0).round()),
                             )),
-                            ItemKind::Image { rect, image, .. } => out.push((
+                            ItemKind::Image { rect, image, .. }
+                            | ItemKind::Raster { rect, image } => out.push((
                                 (rect.y0 * 10.0).round() as i64,
                                 format!("img{image}@{}", (rect.x0 * 10.0).round()),
                             )),
@@ -1502,29 +1618,6 @@ fn is_roman(s: &str, upper: bool) -> bool {
     !s.is_empty() && s.chars().all(|c| set.contains(c))
 }
 
-fn roman_value(s: &str) -> u32 {
-    let v = |c: char| match c.to_ascii_lowercase() {
-        'i' => 1,
-        'v' => 5,
-        'x' => 10,
-        'l' => 50,
-        'c' => 100,
-        'd' => 500,
-        'm' => 1000,
-        _ => 0,
-    };
-    let chars: Vec<u32> = s.chars().map(v).collect();
-    let mut total = 0i64;
-    for (i, &c) in chars.iter().enumerate() {
-        if chars.get(i + 1).is_some_and(|&n| n > c) {
-            total -= c as i64;
-        } else {
-            total += c as i64;
-        }
-    }
-    total.max(1) as u32
-}
-
 /// The Word format of a displayed page number.
 fn number_format(text: &str) -> Option<NumFormat> {
     let t = text.trim();
@@ -1543,41 +1636,33 @@ fn number_format(text: &str) -> Option<NumFormat> {
     }
 }
 
-/// A list level's format, `lvlText` and start, from the first label Typst
-/// printed at that level.
-fn level_of(label: &str, level: u8, marker: &Marker) -> (NumFormat, String, u32) {
-    let label = label.trim();
-    if matches!(marker, Marker::Bullet) || !label.chars().any(char::is_alphanumeric) {
-        let bullet = if label.is_empty() { "\u{2022}" } else { label };
-        return (NumFormat::Bullet, bullet.to_string(), 1);
+/// A list level's format, `lvlText` and start from the list's marker.
+fn level_of(marker: &Marker, level: u8) -> (NumFormat, String, u32) {
+    match marker {
+        Marker::Bullet(glyph) => (NumFormat::Bullet, glyph.clone(), 1),
+        Marker::Numbered {
+            counters,
+            suffix,
+            start,
+        } => {
+            let first = (level as usize + 1).saturating_sub(counters.len());
+            let mut text = String::new();
+            for (i, (prefix, _)) in counters.iter().enumerate() {
+                text.push_str(prefix);
+                text.push_str(&format!("%{}", first + i + 1));
+            }
+            text.push_str(suffix);
+            let format = match counters.last().map(|c| c.1) {
+                Some(NumberFormat::LowerLetter) => NumFormat::LowerLetter,
+                Some(NumberFormat::UpperLetter) => NumFormat::UpperLetter,
+                Some(NumberFormat::LowerRoman) => NumFormat::LowerRoman,
+                Some(NumberFormat::UpperRoman) => NumFormat::UpperRoman,
+                _ => NumFormat::Decimal,
+            };
+            (format, text, (*start).clamp(0, u32::MAX as u64) as u32)
+        }
+        Marker::Printed => (NumFormat::None, String::new(), 1),
     }
-    let start = label.find(char::is_alphanumeric).unwrap_or(0);
-    let end = label
-        .char_indices()
-        .rev()
-        .find(|(_, c)| c.is_alphanumeric())
-        .map_or(label.len(), |(i, c)| i + c.len_utf8());
-    let (prefix, core, suffix) = (&label[..start], &label[start..end], &label[end..]);
-    let (format, value) = if core.chars().all(|c| c.is_ascii_digit()) {
-        (NumFormat::Decimal, core.parse().unwrap_or(1))
-    } else if is_roman(core, false) && core != "c" && core != "d" && core != "l" && core != "m" {
-        (NumFormat::LowerRoman, roman_value(core))
-    } else if is_roman(core, true) && core != "C" && core != "D" && core != "L" && core != "M" {
-        (NumFormat::UpperRoman, roman_value(core))
-    } else if core.chars().count() == 1 && core.chars().all(|c| c.is_ascii_lowercase()) {
-        (
-            NumFormat::LowerLetter,
-            core.as_bytes()[0] as u32 - b'a' as u32 + 1,
-        )
-    } else if core.chars().count() == 1 && core.chars().all(|c| c.is_ascii_uppercase()) {
-        (
-            NumFormat::UpperLetter,
-            core.as_bytes()[0] as u32 - b'A' as u32 + 1,
-        )
-    } else {
-        (NumFormat::Decimal, 1)
-    };
-    (format, format!("{prefix}%{}{suffix}", level + 1), value)
 }
 
 /// The Word face for a Typst family: a metric-compatible clone a Word
@@ -1653,8 +1738,7 @@ fn merge(items: Vec<(Option<String>, Inline)>) -> Vec<Inline> {
 mod properties {
     use proptest::prelude::*;
 
-    use super::{level_of, number_format, roman_value};
-    use crate::layout::Marker;
+    use super::number_format;
     use crate::model::NumFormat;
 
     fn roman(mut n: u32) -> String {
@@ -1685,23 +1769,8 @@ mod properties {
 
     proptest! {
         #[test]
-        fn a_numbered_label_keeps_its_affixes_and_start(
-            n in 1u32..4000,
-            prefix in "[(\\[]?",
-            suffix in "[.):]?",
-            level in 0u8..9,
-        ) {
-            let label = format!("{prefix}{n}{suffix}");
-            let (format, text, start) = level_of(&label, level, &Marker::Numbered);
-            prop_assert_eq!(format, NumFormat::Decimal);
-            prop_assert_eq!(text, format!("{prefix}%{}{suffix}", level + 1));
-            prop_assert_eq!(start, n);
-        }
-
-        #[test]
-        fn a_roman_number_reads_back_as_its_value(n in 1u32..4000) {
+        fn a_roman_page_number_has_a_roman_format(n in 1u32..4000) {
             let r = roman(n);
-            prop_assert_eq!(roman_value(&r), n);
             prop_assert_eq!(number_format(&r), Some(NumFormat::LowerRoman));
             prop_assert_eq!(number_format(&r.to_uppercase()), Some(NumFormat::UpperRoman));
         }

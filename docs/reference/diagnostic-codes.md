@@ -232,11 +232,12 @@ Opening a Typst quill and compiling its plate.
 A Word export. Each warns that the Word file carries less than the PDF shows; none says that Word lays the document out differently, which is expected.
 
 - `docx::font_not_embedded`: a font with no metric-compatible Word face is named without being embedded, so Word substitutes another where it is not installed.
-- `docx::image_dropped`: an image that is neither PNG nor JPEG is left out.
+- `docx::list_marker_replaced`: a list's marker is not text, so its items carry a bullet, or its numbering is not a pattern Word can count, so its numbers are kept as printed.
 - `docx::margins_assumed`: a page carries no page probe, so its margins are taken as 1 in.
 - `docx::ink_dropped`: text or an image that no paragraph, table, text box or picture holds is left out.
 - `docx::place_anchored`: placed content is a text box anchored to the page, so it does not move with the text around it.
 - `docx::probes_disabled`: the probed compile did not lay out the document's ink, so the Word file is read without its probes.
+- `docx::rasterized`: a curve, a gradient or pattern paint, an image that is neither PNG nor JPEG, or a rotated, skewed, unevenly scaled or clipped group is carried as a 300 dpi picture of its ink.
 - `docx::shape_dropped`: a drawn line or box that no table border or text decoration explains is left out.
 
 ## `acroform::`

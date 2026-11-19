@@ -17,25 +17,29 @@ use std::collections::HashMap;
 use quillmark_docx::layout::{
     ArtifactKind, Child, DocInfo, FontFace, FontId, Geometry, HAlign, ImageData, ImageFormat,
     ImageId, Item, ItemKind, ItemRef, LayoutDoc, Line, LineEnd, Marker, Node, NodeId, NodeKind,
-    Notice, Page, PageSetup, ParStyle, Parity, PointHint, Rect, Rgb, Shape, Sides, TextRun,
+    Notice, NumberFormat, Page, PageSetup, ParStyle, Parity, PointHint, Rect, Rgb, Shape, Sides, TextRun,
 };
-use typst::foundations::{Content, Dict, StyleChain, Value};
+use typst::foundations::{Content, Dict, Smart, StyleChain, Value};
 use typst::introspection::{Location, Tag};
-use typst::layout::{Alignment, Frame, FrameItem, HAlignment, Length, Point, Transform};
+use typst::layout::{
+    Abs, Alignment, Frame, FrameItem, GroupItem, HAlignment, Length, Point, Sides as TSides, Size,
+    Transform,
+};
 use typst::layout::{GridCell, GridElem, HideElem, PlaceElem};
 use typst::model::{
     Destination, EmphElem, EnumElem, FigureCaption, FigureElem, FootnoteElem, HeadingElem,
-    LinkElem, LinkTarget, ListElem, ParElem, StrongElem, TableCell, TableElem,
+    LinkElem, LinkTarget, ListElem, ListMarker, Numbering, ParElem, StrongElem, TableCell, TableElem,
 };
 use typst::pdf::{ArtifactElem, PdfMarkerTag, PdfMarkerTagKind, TableCellKind};
-use typst::text::{HighlightElem, StrikeElem, SubElem, SuperElem, UnderlineElem};
+use typst::text::{HighlightElem, StandardAxes, StrikeElem, SubElem, SuperElem, UnderlineElem};
 use typst::visualize::{ExchangeFormat, ImageKind, Paint, RasterFormat};
 use typst_layout::{PagedDocument, PagedIntrospector};
 
 use crate::tags::{marker, relocated};
 
 pub(crate) const CODE_MARGINS_ASSUMED: &str = "docx::margins_assumed";
-pub(crate) const CODE_IMAGE_DROPPED: &str = "docx::image_dropped";
+pub(crate) const CODE_RASTERIZED: &str = "docx::rasterized";
+pub(crate) const CODE_LIST_MARKER_REPLACED: &str = "docx::list_marker_replaced";
 const HINT: &str = "__qm_hint__";
 
 #[derive(Clone, Copy, PartialEq)]
@@ -64,7 +68,10 @@ struct Reader<'a> {
     page: u32,
     probe: Option<Dict>,
     number_text: Option<String>,
-    images_dropped: usize,
+    rasters: usize,
+    /// Inside ink already carried as a picture: tags still open and close
+    /// nodes, and nothing else is read.
+    in_raster: u32,
 }
 
 /// The Layout IR of `document`.
@@ -87,7 +94,8 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
         page: 0,
         probe: None,
         number_text: None,
-        images_dropped: 0,
+        rasters: 0,
+        in_raster: 0,
     };
     let mut assumed = 0;
     for (i, page) in document.pages().iter().enumerate() {
@@ -132,11 +140,14 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
             format!("{assumed} page(s) carry no page probe, so their margins are taken as 1 in"),
         );
     }
-    if r.images_dropped > 0 {
-        let n = r.images_dropped;
+    if r.rasters > 0 {
+        let n = r.rasters;
         r.notice(
-            CODE_IMAGE_DROPPED,
-            format!("{n} image(s) are not PNG or JPEG and are left out of the Word file"),
+            CODE_RASTERIZED,
+            format!(
+                "{n} curve(s), gradient(s), vector image(s), or rotated or clipped group(s) \
+                 are carried as pictures"
+            ),
         );
     }
     let mut out = r.out;
@@ -191,6 +202,9 @@ impl Reader<'_> {
     }
 
     fn ink(&mut self, kind: ItemKind) {
+        if self.in_raster > 0 {
+            return;
+        }
         let Some(node) = self.top() else { return };
         let page = &mut self.out.pages[self.page as usize];
         let at = ItemRef {
@@ -201,10 +215,63 @@ impl Reader<'_> {
         self.out.nodes[node].children.push(Child::Item(at));
     }
 
+    fn image(&mut self, format: ImageFormat, bytes: &[u8]) -> ImageId {
+        let hash = typst::utils::hash128(bytes);
+        let next = self.out.images.len();
+        let id = *self.images.entry(hash).or_insert(next);
+        if id == next {
+            self.out.images.push(ImageData {
+                format,
+                bytes: bytes.to_vec(),
+            });
+        }
+        id
+    }
+
+    /// `item` at `pos` under `ts` as a 300 dpi picture of its ink.
+    fn raster(&mut self, item: &FrameItem, pos: Point, ts: Transform) {
+        if self.top().is_none() || self.hidden() {
+            return;
+        }
+        let Some(rect) = ink_box(item, pos, ts) else {
+            return;
+        };
+        if rect.width() <= 0.0 || rect.height() <= 0.0 {
+            return;
+        }
+        let mut inner = Frame::soft(Size::zero());
+        inner.push(pos, item.clone());
+        let mut group = GroupItem::new(inner);
+        group.transform =
+            Transform::translate(Abs::pt(-rect.x0), Abs::pt(-rect.y0)).pre_concat(ts);
+        let mut frame = Frame::hard(Size::new(Abs::pt(rect.width()), Abs::pt(rect.height())));
+        frame.push(Point::zero(), FrameItem::Group(group));
+        let page = typst_layout::Page {
+            frame,
+            bleed: TSides::default(),
+            fill: Smart::Custom(None),
+            numbering: None,
+            supplement: Content::empty(),
+            number: 1,
+        };
+        let pixmap = typst_render::render(&page, &crate::compile::render_options(300.0 / 72.0));
+        let Ok(png) = pixmap.encode_png() else {
+            return;
+        };
+        let image = self.image(ImageFormat::Png, &png);
+        self.rasters += 1;
+        self.ink(ItemKind::Raster { image, rect });
+    }
+
     fn walk(&mut self, frame: &Frame, ts: Transform) {
         for (pos, item) in frame.items() {
             match item {
                 FrameItem::Group(group) => {
+                    let raster = self.in_raster == 0 && needs_raster(group, ts);
+                    if raster {
+                        self.raster(item, *pos, ts);
+                        self.in_raster += 1;
+                    }
                     let ts = ts
                         .pre_concat(Transform::translate(pos.x, pos.y))
                         .pre_concat(group.transform);
@@ -228,6 +295,9 @@ impl Reader<'_> {
                         }
                         None => self.walk(&group.frame, ts),
                     }
+                    if raster {
+                        self.in_raster -= 1;
+                    }
                 }
                 FrameItem::Tag(Tag::Start(elem, _)) => self.start(elem, pos.transform(ts)),
                 FrameItem::Tag(Tag::End(loc, ..)) => {
@@ -243,8 +313,26 @@ impl Reader<'_> {
                         continue;
                     }
                     let info = text.font.info();
-                    let bold = info.variant.weight.to_number() >= 600;
-                    let italic = !matches!(info.variant.style, typst::text::FontStyle::Normal);
+                    let axis = |tag| {
+                        text.font
+                            .variations()
+                            .0
+                            .iter()
+                            .find(|(t, _)| *t == tag)
+                            .map(|(_, v)| v.0 as f64)
+                    };
+                    let weight = axis(StandardAxes::WGHT)
+                        .unwrap_or(info.variant.weight.to_number() as f64);
+                    let bold = weight >= 600.0;
+                    let italic = axis(StandardAxes::ITAL).map_or_else(
+                        || {
+                            axis(StandardAxes::SLNT).map_or(
+                                !matches!(info.variant.style, typst::text::FontStyle::Normal),
+                                |s| s != 0.0,
+                            )
+                        },
+                        |i| i >= 0.5,
+                    );
                     let family = info.family.clone();
                     let monospace = info.flags.contains(typst::text::FontFlags::MONOSPACE);
                     let next = self.out.fonts.len();
@@ -279,7 +367,15 @@ impl Reader<'_> {
                     }));
                 }
                 FrameItem::Shape(shape, _) => {
-                    if self.top().is_none() || self.hidden() {
+                    if self.top().is_none() || self.hidden() || self.in_raster > 0 {
+                        continue;
+                    }
+                    let flat = |p: &Paint| matches!(p, Paint::Solid(_));
+                    if matches!(shape.geometry, typst::visualize::Geometry::Curve(_))
+                        || shape.fill.as_ref().is_some_and(|p| !flat(p))
+                        || shape.stroke.as_ref().is_some_and(|s| !flat(&s.paint))
+                    {
+                        self.raster(item, *pos, ts);
                         continue;
                     }
                     let bb = shape.geometry.bbox(shape.stroke.as_ref());
@@ -305,27 +401,26 @@ impl Reader<'_> {
                     if self.top().is_none() || self.hidden() {
                         continue;
                     }
-                    let ImageKind::Raster(raster) = image.kind() else {
-                        self.images_dropped += 1;
+                    if self.in_raster > 0 {
+                        continue;
+                    }
+                    let format = match image.kind() {
+                        ImageKind::Raster(raster) => match raster.format() {
+                            RasterFormat::Exchange(ExchangeFormat::Png) => {
+                                Some((ImageFormat::Png, raster))
+                            }
+                            RasterFormat::Exchange(ExchangeFormat::Jpg) => {
+                                Some((ImageFormat::Jpeg, raster))
+                            }
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    let Some((format, raster)) = format else {
+                        self.raster(item, *pos, ts);
                         continue;
                     };
-                    let format = match raster.format() {
-                        RasterFormat::Exchange(ExchangeFormat::Png) => ImageFormat::Png,
-                        RasterFormat::Exchange(ExchangeFormat::Jpg) => ImageFormat::Jpeg,
-                        _ => {
-                            self.images_dropped += 1;
-                            continue;
-                        }
-                    };
-                    let hash = typst::utils::hash128(raster.data());
-                    let next = self.out.images.len();
-                    let id = *self.images.entry(hash).or_insert(next);
-                    if id == next {
-                        self.out.images.push(ImageData {
-                            format,
-                            bytes: raster.data().to_vec(),
-                        });
-                    }
+                    let id = self.image(format, raster.data());
                     let rect = transformed(*pos, Point::zero(), size.to_point(), ts);
                     self.ink(ItemKind::Image {
                         image: id,
@@ -408,7 +503,21 @@ impl Reader<'_> {
             self.push(Key::Elem(loc), Some(node), false);
             return;
         }
-        let Some(kind) = node_kind(elem) else { return };
+        if let Some(m) = elem.to_packed::<PdfMarkerTag>() {
+            if matches!(m.kind, PdfMarkerTagKind::Label)
+                && self
+                    .top()
+                    .is_some_and(|n| matches!(self.out.nodes[n].kind, NodeKind::Footnote))
+            {
+                let node = self.add_node(NodeKind::ListLabel);
+                self.push(Key::Elem(loc), Some(node), false);
+                return;
+            }
+        }
+        let list = self.list_kind(elem);
+        let Some(kind) = list.or_else(|| node_kind(elem)) else {
+            return;
+        };
         if self.top().is_none() {
             self.push(Key::Elem(loc), None, false);
             return;
@@ -416,6 +525,92 @@ impl Reader<'_> {
         let node = self.add_node(kind);
         self.by_loc.insert(loc, node);
         self.push(Key::Elem(loc), Some(node), false);
+    }
+
+    /// How many lists of the kind `pred` accepts enclose the walk.
+    fn depth(&self, pred: impl Fn(&Marker) -> bool) -> usize {
+        self.stack
+            .iter()
+            .filter_map(|o| o.node)
+            .filter(|&n| matches!(&self.out.nodes[n].kind, NodeKind::List { marker, .. } if pred(marker)))
+            .count()
+    }
+
+    /// A list's marker from its own fields at its nesting depth.
+    fn list_kind(&mut self, elem: &Content) -> Option<NodeKind> {
+        let styles = StyleChain::default();
+        let end = |a: Alignment| matches!(a.x(), Some(HAlignment::Right | HAlignment::End));
+        if let Some(list) = elem.to_packed::<ListElem>() {
+            let depth = self.depth(|m| matches!(m, Marker::Bullet(_)));
+            let glyph = match list.marker.get_ref(styles) {
+                ListMarker::Content(v) if !v.is_empty() => v[depth % v.len()].plain_text(),
+                _ => Default::default(),
+            };
+            let glyph = if glyph.trim().is_empty() {
+                self.notice(
+                    CODE_LIST_MARKER_REPLACED,
+                    "a list's marker is not text, so its items carry a bullet".into(),
+                );
+                "\u{2022}".to_string()
+            } else {
+                glyph.trim().to_string()
+            };
+            return Some(NodeKind::List {
+                marker: Marker::Bullet(glyph),
+                label_end: end(list.marker_align.get(styles)),
+            });
+        }
+        let list = elem.to_packed::<EnumElem>()?;
+        let depth = self.depth(|m| !matches!(m, Marker::Bullet(_)));
+        let start = match list.start.get(styles) {
+            typst::foundations::Smart::Custom(n) => n,
+            typst::foundations::Smart::Auto => 1,
+        };
+        let marker = match list.numbering.get_ref(styles) {
+            Numbering::Pattern(p) if !list.reversed.get(styles) => {
+                let format = |sys: &dyn Fn() -> Option<&'static str>| match sys() {
+                    Some("1") => Some(NumberFormat::Decimal),
+                    Some("a") => Some(NumberFormat::LowerLetter),
+                    Some("A") => Some(NumberFormat::UpperLetter),
+                    Some("i") => Some(NumberFormat::LowerRoman),
+                    Some("I") => Some(NumberFormat::UpperRoman),
+                    _ => None,
+                };
+                let piece = |k: usize| {
+                    let (prefix, sys) = &p.pieces[k.min(p.pieces.len() - 1)];
+                    Some((prefix.to_string(), format(&|| sys.shorthand())?))
+                };
+                let counters: Option<Vec<(String, NumberFormat)>> =
+                    if list.full.get(styles) {
+                        (0..=depth).map(piece).collect()
+                    } else {
+                        let (_, f) = piece(depth)?;
+                        let prefix = p.pieces.first().map(|(s, _)| s.to_string());
+                        Some(vec![(prefix.unwrap_or_default(), f)])
+                    };
+                match counters {
+                    Some(counters) if !p.pieces.is_empty() => Marker::Numbered {
+                        counters,
+                        suffix: p.suffix.to_string(),
+                        start,
+                    },
+                    _ => Marker::Printed,
+                }
+            }
+            _ => Marker::Printed,
+        };
+        if marker == Marker::Printed {
+            self.notice(
+                CODE_LIST_MARKER_REPLACED,
+                "a numbered list's numbering is not a pattern Word can count, so its numbers \
+                 are kept as printed"
+                    .into(),
+            );
+        }
+        Some(NodeKind::List {
+            marker,
+            label_end: end(list.number_align.get(styles)),
+        })
     }
 
     fn hint(&mut self, d: &Dict) {
@@ -570,20 +765,14 @@ fn node_kind(elem: &Content) -> Option<NodeKind> {
         NodeKind::Underline
     } else if elem.is::<StrikeElem>() {
         NodeKind::Strike
-    } else if elem.is::<HighlightElem>() {
-        NodeKind::Highlight
+    } else if let Some(h) = elem.to_packed::<HighlightElem>() {
+        NodeKind::Highlight {
+            fill: h.fill.get_ref(styles).as_ref().map_or(Rgb(255, 255, 0), rgb),
+        }
     } else if elem.is::<SubElem>() {
         NodeKind::Sub
     } else if elem.is::<SuperElem>() {
         NodeKind::Super
-    } else if elem.is::<ListElem>() {
-        NodeKind::List {
-            marker: Marker::Bullet,
-        }
-    } else if elem.is::<EnumElem>() {
-        NodeKind::List {
-            marker: Marker::Numbered,
-        }
     } else if elem.is::<TableElem>() || elem.is::<GridElem>() {
         NodeKind::Table {
             columns: Vec::new(),
@@ -598,6 +787,98 @@ fn node_kind(elem: &Content) -> Option<NodeKind> {
         return None;
     };
     Some(kind)
+}
+
+/// A group the IR cannot carry item by item: a rotation, a skew or an
+/// unequal scale, or a clip that cuts its ink.
+fn needs_raster(group: &GroupItem, ts: Transform) -> bool {
+    let t = ts.pre_concat(group.transform);
+    if t.kx.get().abs() > 1e-6
+        || t.ky.get().abs() > 1e-6
+        || (t.sx.get().abs() - t.sy.get().abs()).abs() > 1e-6
+    {
+        return true;
+    }
+    let Some(clip) = &group.clip else {
+        return false;
+    };
+    let c = clip.bbox(None);
+    let dy = 0.5_f64.max(0.25 * max_text_size(&group.frame));
+    frame_box(&group.frame, Transform::identity()).is_some_and(|r| {
+        r.x0 < c.min.x.to_pt() - 0.5
+            || r.y0 < c.min.y.to_pt() - dy
+            || r.x1 > c.max.x.to_pt() + 0.5
+            || r.y1 > c.max.y.to_pt() + dy
+    })
+}
+
+/// The largest text size in `frame`, since glyphs rise past a box's text
+/// edges and a clip at that edge cuts nothing a reader would miss.
+fn max_text_size(frame: &Frame) -> f64 {
+    frame
+        .items()
+        .map(|(_, item)| match item {
+            FrameItem::Text(t) => t.size.to_pt(),
+            FrameItem::Group(g) => max_text_size(&g.frame),
+            _ => 0.0,
+        })
+        .fold(0.0, f64::max)
+}
+
+fn frame_box(frame: &Frame, ts: Transform) -> Option<Rect> {
+    frame
+        .items()
+        .filter_map(|(pos, item)| ink_box(item, *pos, ts))
+        .reduce(|a, b| a.union(&b))
+}
+
+/// The box `item` inks at `pos` under `ts`, clipped where a group clips.
+fn ink_box(item: &FrameItem, pos: Point, ts: Transform) -> Option<Rect> {
+    match item {
+        FrameItem::Text(text) => {
+            let face = text.font.ttf();
+            let em = |v: i16| Abs::pt(v as f64 / face.units_per_em() as f64 * text.size.to_pt());
+            let mut x = Abs::zero();
+            let mut out: Option<Rect> = None;
+            for g in &text.glyphs {
+                let at = x + g.x_offset.at(text.size);
+                if let Some(b) = face.glyph_bounding_box(ttf_parser::GlyphId(g.id)) {
+                    let lo = Point::new(at + em(b.x_min), -em(b.y_max) - g.y_offset.at(text.size));
+                    let hi = Point::new(at + em(b.x_max), -em(b.y_min) - g.y_offset.at(text.size));
+                    let r = transformed(pos, lo, hi, ts);
+                    out = Some(out.map_or(r, |o| o.union(&r)));
+                }
+                x += g.x_advance.at(text.size);
+            }
+            out
+        }
+        FrameItem::Shape(shape, _) => {
+            let bb = shape.geometry.bbox(shape.stroke.as_ref());
+            Some(transformed(pos, bb.min, bb.max, ts))
+        }
+        FrameItem::Image(_, size, _) => Some(transformed(pos, Point::zero(), size.to_point(), ts)),
+        FrameItem::Group(group) => {
+            let inner = ts
+                .pre_concat(Transform::translate(pos.x, pos.y))
+                .pre_concat(group.transform);
+            let r = frame_box(&group.frame, inner)?;
+            match &group.clip {
+                Some(clip) => {
+                    let c = clip.bbox(None);
+                    let c = transformed(Point::zero(), c.min, c.max, inner);
+                    let r = Rect {
+                        x0: r.x0.max(c.x0),
+                        y0: r.y0.max(c.y0),
+                        x1: r.x1.min(c.x1),
+                        y1: r.y1.min(c.y1),
+                    };
+                    (r.x1 > r.x0 && r.y1 > r.y0).then_some(r)
+                }
+                None => Some(r),
+            }
+        }
+        _ => None,
+    }
 }
 
 fn smart_index(v: typst::foundations::Smart<usize>) -> u32 {
@@ -721,7 +1002,9 @@ fn transparent(doc: &LayoutDoc, id: NodeId) -> bool {
 fn inline_item(doc: &LayoutDoc, r: ItemRef) -> bool {
     matches!(
         doc.item(r).kind,
-        ItemKind::Text(_) | ItemKind::Mark(PointHint::Br | PointHint::FootnoteRef { .. })
+        ItemKind::Text(_)
+            | ItemKind::Raster { .. }
+            | ItemKind::Mark(PointHint::Br | PointHint::FootnoteRef { .. })
     )
 }
 
@@ -756,9 +1039,7 @@ fn form_paragraphs(doc: &mut LayoutDoc) {
                     _ => None,
                 });
             let run_kind = match kind {
-                NodeKind::Root | NodeKind::Artifact { .. } | NodeKind::Footnote => {
-                    NodeKind::Unstructured
-                }
+                NodeKind::Root | NodeKind::Artifact { .. } => NodeKind::Unstructured,
                 _ => NodeKind::InlineRun { style },
             };
             let children = std::mem::take(&mut doc.nodes[id].children);
@@ -859,6 +1140,26 @@ fn form_lines(doc: &mut LayoutDoc) {
                     l.x1 = l.x1.max(t.origin[0] + t.width);
                     l.items.push(r);
                 }
+                ItemKind::Raster { rect, .. } => {
+                    let on = lines.last_mut().filter(|l| {
+                        l.page == r.page && rect.y0 <= l.baseline + 1.0 && rect.y1 >= l.baseline - 1.0
+                    });
+                    match on {
+                        Some(l) => {
+                            l.x0 = l.x0.min(rect.x0);
+                            l.x1 = l.x1.max(rect.x1);
+                            l.items.push(r);
+                        }
+                        None => lines.push(Line {
+                            page: r.page,
+                            baseline: rect.y1,
+                            x0: rect.x0,
+                            x1: rect.x1,
+                            items: vec![r],
+                            end: LineEnd::Last,
+                        }),
+                    }
+                }
                 ItemKind::Mark(m) => {
                     if let Some(l) = lines.last_mut() {
                         if matches!(m, PointHint::Br) {
@@ -873,6 +1174,7 @@ fn form_lines(doc: &mut LayoutDoc) {
         for l in &mut lines {
             let x = |r: &ItemRef| match &doc.item(*r).kind {
                 ItemKind::Text(t) => t.origin[0],
+                ItemKind::Raster { rect, .. } => rect.x0,
                 _ => f64::MAX,
             };
             l.items.sort_by(|a, b| x(a).total_cmp(&x(b)));
@@ -897,7 +1199,7 @@ fn form_lines(doc: &mut LayoutDoc) {
 fn item_rect(doc: &LayoutDoc, r: ItemRef) -> Option<Rect> {
     match &doc.item(r).kind {
         ItemKind::Text(t) => Some(t.rect()),
-        ItemKind::Image { rect, .. } => Some(*rect),
+        ItemKind::Image { rect, .. } | ItemKind::Raster { rect, .. } => Some(*rect),
         ItemKind::Shape(s) => Some(s.rect),
         ItemKind::Mark(_) => None,
     }

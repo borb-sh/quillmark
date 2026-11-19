@@ -2,7 +2,8 @@
 //! documents, each read through the probed compile.
 
 use quillmark_docx::layout::{
-    ArtifactKind, Child, HAlign, ItemKind, LayoutDoc, LineEnd, Marker, NodeId, NodeKind, PointHint,
+    ArtifactKind, Child, HAlign, ItemKind, LayoutDoc, LineEnd, Marker, NodeId, NodeKind,
+    NumberFormat, PointHint,
 };
 use quillmark_typst::testing::layout;
 
@@ -111,13 +112,10 @@ fn headings_lists_and_tables_keep_their_structure() {
             .is_some()),
         "the heading's block is sticky"
     );
-    for (marker, items) in [
-        (Marker::Bullet, ["one", "two"]),
-        (Marker::Numbered, ["first", "second"]),
-    ] {
+    for (bullet, items) in [(true, ["one", "two"]), (false, ["first", "second"])] {
         let list = find(
             &doc,
-            |k| matches!(k, NodeKind::List { marker: m } if *m == marker),
+            |k| matches!(k, NodeKind::List { marker: m, .. } if matches!(m, Marker::Bullet(_)) == bullet),
         );
         assert_eq!(list.len(), 1);
         let bodies: Vec<String> = doc
@@ -283,4 +281,72 @@ fn every_fixture_reads_into_a_tree_that_holds_each_item_once() {
             assert!(ir.pages.iter().all(|p| p.number_text.is_some()), "{name}");
         }
     }
+}
+
+#[test]
+fn a_list_number_format_comes_from_the_enum_and_not_its_labels() {
+    let doc = read(&format!(
+        "{PAGE}#enum(numbering: \"(a)\", start: 9, [nine], [ten])\n#list(marker: [--], [dash])\n"
+    ));
+    let markers: Vec<Marker> = find(&doc, |k| matches!(k, NodeKind::List { .. }))
+        .into_iter()
+        .map(|n| match &doc.nodes[n].kind {
+            NodeKind::List { marker, .. } => marker.clone(),
+            _ => unreachable!(),
+        })
+        .collect();
+    assert_eq!(
+        markers,
+        [
+            Marker::Numbered {
+                counters: vec![("(".into(), NumberFormat::LowerLetter)],
+                suffix: ")".into(),
+                start: 9,
+            },
+            Marker::Bullet("\u{2013}".into()),
+        ]
+    );
+}
+
+#[test]
+fn a_newline_a_string_spells_inside_a_grid_cell_is_a_forced_line_end() {
+    let doc = read(&format!(
+        "{PAGE}#grid(columns: 2, [#\"123 Street\\nSpringfield\"], [right])\n"
+    ));
+    let cell = paragraphs(&doc)
+        .into_iter()
+        .find(|&p| text(&doc, p).starts_with("123"))
+        .expect("the cell's paragraph");
+    assert_eq!(lines(&doc, cell), ["123 Street", "Springfield"]);
+    assert_eq!(doc.nodes[cell].lines[0].end, LineEnd::Forced);
+}
+
+#[test]
+fn ink_the_tree_cannot_hold_is_a_picture_and_a_highlight_keeps_its_fill() {
+    let doc = read(&format!(
+        "{PAGE}Before #highlight(fill: blue)[blue] after.\n#circle(radius: 10pt, fill: red)\n\
+         #rotate(30deg)[Turned]\n#rect(width: 40pt, height: 10pt, fill: gradient.linear(red, blue))\n\
+         #line(length: 100%)\n#box(clip: true, width: 20pt, height: 8pt)[clipped text that is long]\n\
+         #box(clip: true, width: 200pt)[fits]\n#text(weight: \"bold\")[Heavy]\n"
+    ));
+    let items: Vec<&ItemKind> = doc.pages.iter().flat_map(|p| &p.items).map(|i| &i.kind).collect();
+    let rasters = items.iter().filter(|k| matches!(k, ItemKind::Raster { .. })).count();
+    assert_eq!(rasters, 4, "circle, rotation, gradient and the cutting clip");
+    assert!(items.iter().any(|k| matches!(k, ItemKind::Shape(_))), "the rule stays a line");
+    assert!(doc.notices.iter().any(|n| n.code == "docx::rasterized"));
+    let fills: Vec<_> = find(&doc, |k| matches!(k, NodeKind::Highlight { .. }))
+        .into_iter()
+        .map(|n| doc.nodes[n].kind.clone())
+        .collect();
+    assert_eq!(fills, [NodeKind::Highlight { fill: quillmark_docx::layout::Rgb(0, 116, 217) }]);
+    let heavy = paragraphs(&doc)
+        .into_iter()
+        .flat_map(|p| doc.nodes[p].lines.clone())
+        .flat_map(|l| l.items)
+        .find_map(|r| match &doc.item(r).kind {
+            ItemKind::Text(t) if t.text == "Heavy" => Some(t.font),
+            _ => None,
+        })
+        .expect("the bold run");
+    assert!(doc.fonts[heavy].bold, "a weight on a variable face is bold");
 }

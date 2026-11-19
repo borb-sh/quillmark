@@ -133,7 +133,8 @@ fn lists_tables_and_footnotes_lower_to_their_word_structures() {
     assert_eq!(xml.matches("<w:tblHeader/>").count(), 1);
     assert_eq!(xml.matches("<w:footnoteReference").count(), 1);
     let notes = part(&parts, "word/footnotes.xml");
-    assert!(notes.contains("The note."));
+    let entry: Vec<String> = paragraphs(&notes).into_iter().map(|p| p.0).collect();
+    assert!(entry.iter().any(|t| t == " The note."), "{entry:?}");
     assert!(!codes.iter().any(|c| c == "docx::ink_dropped"), "{codes:?}");
 }
 
@@ -191,4 +192,21 @@ fn every_fixture_exports_with_all_its_text_placed() {
             }
         }
     }
+}
+
+#[test]
+fn a_highlight_rule_and_picture_keep_their_ink() {
+    let (parts, codes) = render(&format!(
+        "{PAGE}Before #highlight(fill: blue)[blue] and #box(circle(radius: 3pt, fill: red)) after.\n\
+         #line(length: 100%)\n"
+    ));
+    let xml = part(&parts, "word/document.xml");
+    assert!(xml.contains("w:fill=\"0074D9\""), "the highlight's own fill");
+    assert!(xml.contains("prst=\"line\""), "the rule is a shape");
+    let texts: Vec<String> = paragraphs(&xml).into_iter().map(|p| p.0).collect();
+    assert!(texts.iter().any(|t| t == "Before blue and  after."), "{texts:?}");
+    assert!(xml.contains("<wp:inline"), "the circle is a picture in its paragraph");
+    assert!(parts.iter().any(|(n, _)| n.starts_with("word/media/")));
+    assert!(codes.iter().any(|c| c == "docx::rasterized"), "{codes:?}");
+    assert!(!codes.iter().any(|c| c == "docx::ink_dropped" || c == "docx::shape_dropped"), "{codes:?}");
 }

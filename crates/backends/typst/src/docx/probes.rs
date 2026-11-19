@@ -7,7 +7,8 @@ use typst::Library;
 use typst::comemo::Track;
 use typst::engine::Sink;
 use typst::foundations::{
-    Content, Context, Dict, Element, Func, NativeElement, Recipe, Scope, Selector, Transformation,
+    Content, Context, Dict, Element, Func, NativeElement, Recipe, Regex, Scope, Selector,
+    Transformation,
 };
 use typst::introspection::EmptyIntrospector;
 use typst::layout::{AlignElem, BlockElem, BoxElem, ColumnsElem, PageElem, PagebreakElem};
@@ -17,13 +18,15 @@ use typst::syntax::{Span, SyntaxMode};
 use typst::text::LinebreakElem;
 use typst::utils::LazyHash;
 
-/// One rule per key, and `page`, the foreground every page carries. Values
-/// pass typed, never as `repr` strings.
+/// One rule per element key, `newline` for a line break a string spells as
+/// `\n`, and `page`, the foreground every page carries. Values pass typed,
+/// never as `repr` strings.
 const PRELUDE: &str = r#"{
   let h(..d) = [#metadata((kind: "__qm_hint__", ..d.named()))<__qm_hint__>]
   (
     pagebreak: it => { it; h(hint: "break", weak: it.weak, to: it.to) },
     linebreak: it => { h(hint: "br"); it },
+    newline: it => { h(hint: "br"); it },
     align: it => { h(hint: "align", edge: "open", a: it.alignment); it; h(hint: "align", edge: "close") },
     columns: it => { h(hint: "columns", edge: "open", count: it.count, gutter: it.gutter); it; h(hint: "columns", edge: "close") },
     block: it => {
@@ -96,6 +99,15 @@ pub(crate) fn with_probes(
             .into(),
         );
     }
+    let newline = dict.get("newline").ok()?.clone().cast::<Func>().ok()?;
+    out.styles.apply_one(
+        Recipe::new(
+            Some(Selector::Regex(Regex::new("\n").ok()?)),
+            Transformation::Func(newline),
+            Span::detached(),
+        )
+        .into(),
+    );
     let page = dict.get("page").ok()?.clone().cast::<Content>().ok()?;
     out.styles
         .apply_one(typst::foundations::Property::new(PageElem::foreground, Some(page)).into());
