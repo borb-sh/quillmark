@@ -2621,7 +2621,6 @@ dependencies = [
  "miniz_oxide",
  "proptest",
  "roxmltree 0.21.2",
- "serde",
 ]
 
 [[package]]

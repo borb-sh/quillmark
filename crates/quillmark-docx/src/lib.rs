@@ -20,9 +20,3 @@ pub mod model;
 mod write;
 
 pub use write::write_docx;
-
-/// Reads a package [`write_docx`] wrote back into its parts, or `None`.
-#[doc(hidden)]
-pub fn unzip(bytes: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
-    write::zip::unzip(bytes)
-}

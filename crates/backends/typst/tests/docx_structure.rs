@@ -567,3 +567,16 @@ fn a_link_to_a_place_in_the_document_keeps_its_text_and_is_reported() {
     let body = w.xml("word/document.xml");
     assert_eq!(body.matches("<w:hyperlink").count(), 1, "{body}");
 }
+
+#[test]
+fn a_link_that_runs_script_keeps_its_text_and_is_reported() {
+    let w = render(&format!(
+        "{PAGE}Press #link(\" JavaScript:alert(1)\")[here] or #link(\"https://example.com\")[there].\n"
+    ));
+    assert!(w.has("docx::link_script"), "{:?}", w.codes);
+    assert_eq!(w.texts(), ["Press here or there."]);
+    let body = w.xml("word/document.xml");
+    assert_eq!(body.matches("<w:hyperlink").count(), 1, "{body}");
+    let rels = w.xml("word/_rels/document.xml.rels");
+    assert!(!rels.to_ascii_lowercase().contains("javascript"), "{rels}");
+}

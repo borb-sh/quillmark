@@ -6,6 +6,7 @@ use quillmark_typst::TypstBackend;
 use serde_json::json;
 
 mod common;
+mod word;
 
 /// Each part of the one artifact `plate` renders to as DOCX.
 fn docx_parts(plate: &str, data: serde_json::Value) -> Vec<(String, Vec<u8>)> {
@@ -21,7 +22,7 @@ fn docx_parts(plate: &str, data: serde_json::Value) -> Vec<(String, Vec<u8>)> {
         .expect("render");
     assert_eq!(result.artifacts.len(), 1, "a DOCX render is one artifact");
     assert_eq!(result.artifacts[0].output_format, OutputFormat::Docx);
-    quillmark_docx::unzip(&result.artifacts[0].bytes).expect("a zip package")
+    word::unzip(&result.artifacts[0].bytes)
 }
 
 fn document_text(parts: &[(String, Vec<u8>)]) -> String {
@@ -68,10 +69,7 @@ fn render(plate: &str) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
         .iter()
         .filter_map(|w| w.code.clone())
         .collect();
-    (
-        quillmark_docx::unzip(&result.artifacts[0].bytes).unwrap(),
-        codes,
-    )
+    (word::unzip(&result.artifacts[0].bytes), codes)
 }
 
 /// The `w:p` elements of `xml` with the text each holds.
@@ -183,7 +181,7 @@ fn every_fixture_exports_with_all_its_text_placed() {
                 "{name}: {:?}",
                 result.warnings
             );
-            let parts = quillmark_docx::unzip(&result.artifacts[0].bytes).expect("zip");
+            let parts = word::unzip(&result.artifacts[0].bytes);
             for (n, bytes) in &parts {
                 if n.ends_with(".xml") || n.ends_with(".rels") {
                     let s = String::from_utf8(bytes.clone()).unwrap();
@@ -329,10 +327,7 @@ fn fixture_parts(name: &str) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
         .iter()
         .filter_map(|w| w.code.clone())
         .collect();
-    (
-        quillmark_docx::unzip(&result.artifacts[0].bytes).unwrap(),
-        codes,
-    )
+    (word::unzip(&result.artifacts[0].bytes), codes)
 }
 
 fn style_of(xml: &str, text: &str) -> Option<String> {

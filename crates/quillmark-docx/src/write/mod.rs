@@ -170,7 +170,7 @@ impl Rels {
                 &[
                     ("Id", &format!("rIdLink{}", i + 1)),
                     ("Type", &format!("{REL}/hyperlink")),
-                    ("Target", url),
+                    ("Target", &uri(url)),
                     ("TargetMode", "External"),
                 ],
             );
@@ -178,6 +178,29 @@ impl Rels {
         x.close("Relationships");
         x.finish()
     }
+}
+
+/// `url` as a URI: each byte a URI does not allow is percent-encoded, as is a
+/// `%` that starts no escape and every `#` after the first.
+fn uri(url: &str) -> String {
+    let bytes = url.as_bytes();
+    let mut out = String::with_capacity(url.len());
+    let mut fragment = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        let kept = match b {
+            b'%' => bytes
+                .get(i + 1..i + 3)
+                .is_some_and(|h| h.iter().all(u8::is_ascii_hexdigit)),
+            b'#' => !std::mem::replace(&mut fragment, true),
+            _ => b.is_ascii_alphanumeric() || b"-._~:/?[]@!$&'()*+,;=".contains(&b),
+        };
+        if kept {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 /// What writing one part's content shares: the id counter and the part's

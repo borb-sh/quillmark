@@ -33,6 +33,7 @@ pub const CODE_TOC_FROZEN: &str = "docx::toc_frozen";
 pub const CODE_HINT_UNCHECKED: &str = "docx::hint_unchecked";
 pub const CODE_UNSTRUCTURED_TEXT: &str = "docx::unstructured_text";
 pub const CODE_PAGE_NUMBER_FROZEN: &str = "docx::page_number_frozen";
+pub const CODE_LINK_SCRIPT: &str = "docx::link_script";
 
 /// Families whose metric-compatible Word face a Word machine has.
 const WORD_CLONES: &[(&str, &str)] = &[
@@ -546,6 +547,18 @@ impl Lower<'_> {
                      count, so they stay as printed text",
                     self.frozen_numbers
                 ),
+            });
+        }
+        let scripts = self
+            .doc
+            .nodes
+            .iter()
+            .filter(|n| matches!(&n.kind, NodeKind::Link { url } if runs_script(url)))
+            .count();
+        if scripts > 0 {
+            out.push(Notice {
+                code: CODE_LINK_SCRIPT.into(),
+                message: format!("{scripts} link(s) that run script are carried as plain text"),
             });
         }
         if self.unstructured > 0 {
@@ -1782,7 +1795,7 @@ impl Lower<'_> {
                         }
                         let props = self.run_props(t, &chain);
                         let link = chain.iter().find_map(|k| match k {
-                            NodeKind::Link { url } => Some(url.clone()),
+                            NodeKind::Link { url } if !runs_script(url) => Some(url.clone()),
                             _ => None,
                         });
                         let number = ctx.page_number.and_then(|p| {
@@ -3055,6 +3068,18 @@ fn level_of(marker: &Marker, level: u8) -> (NumFormat, String, u32) {
         }
         Marker::Printed => (NumFormat::None, String::new(), 1),
     }
+}
+
+/// Whether `url` names the `javascript:` scheme, read as a browser reads
+/// it: past leading spaces and controls, with tabs and line breaks ignored.
+fn runs_script(url: &str) -> bool {
+    let scheme: String = url
+        .trim_start_matches(|c: char| c <= ' ')
+        .chars()
+        .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
+        .take_while(|&c| c != ':')
+        .collect();
+    scheme.eq_ignore_ascii_case("javascript") && url.contains(':')
 }
 
 /// The Word face for a Typst family: a metric-compatible clone a Word

@@ -2,7 +2,10 @@
 //! children in schema order, and bytes that depend on the model alone.
 
 use quillmark_docx::model::*;
-use quillmark_docx::{unzip, write_docx};
+use quillmark_docx::write_docx;
+use zip::unzip;
+
+mod zip;
 
 fn run(text: &str) -> Run {
     Run {
@@ -685,4 +688,33 @@ fn an_empty_document_writes_one_paragraph_and_its_section() {
         .map(local)
         .collect();
     assert_eq!(kids, ["p", "sectPr"]);
+}
+
+#[test]
+fn a_hyperlink_target_is_written_as_a_uri() {
+    let link = Paragraph {
+        props: ParProps::default(),
+        content: vec![Inline::Hyperlink(Hyperlink {
+            target: LinkTarget::Url("https://example.com/a b/\u{e9}?q=<x>&r=%zz%41#one#two".into()),
+            runs: vec![run("out")],
+        })],
+    };
+    let doc = Document {
+        sections: vec![Section {
+            body: Blocks::from_paragraphs(vec![link]),
+            props: SectionProps::default(),
+        }],
+        ..Document::default()
+    };
+    let rels = Package::of(&doc).xml("word/_rels/document.xml.rels");
+    let rels = roxmltree::Document::parse(&rels).unwrap();
+    let targets: Vec<&str> = rels
+        .descendants()
+        .filter(|n| n.attribute("TargetMode") == Some("External"))
+        .filter_map(|n| n.attribute("Target"))
+        .collect();
+    assert_eq!(
+        targets,
+        ["https://example.com/a%20b/%C3%A9?q=%3Cx%3E&r=%25zz%41#one%23two"]
+    );
 }

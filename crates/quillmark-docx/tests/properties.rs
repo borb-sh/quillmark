@@ -1,10 +1,12 @@
-//! The writer over generated text and the package reader over generated
-//! bytes: every part stays well-formed XML whatever a run or an attribute
-//! holds, and the reader refuses what it cannot read rather than panicking.
+//! The writer over generated text: every part stays well-formed XML whatever
+//! a run or an attribute holds.
+
+mod zip;
 
 use proptest::prelude::*;
 use quillmark_docx::model::*;
-use quillmark_docx::{unzip, write_docx};
+use quillmark_docx::write_docx;
+use zip::unzip;
 
 fn xml_text(s: &str) -> String {
     s.chars()
@@ -77,22 +79,5 @@ proptest! {
                 prop_assert_eq!(style.attributes().next().unwrap().value(), xml_text(&attr));
             }
         }
-    }
-
-    #[test]
-    fn the_reader_refuses_mutated_packages_without_panicking(flips in proptest::collection::vec((any::<usize>(), any::<u8>()), 1..8), cut in any::<usize>()) {
-        let mut bytes = write_docx(&doc_with("x", "y"));
-        for (at, b) in flips {
-            let n = bytes.len();
-            bytes[at % n] ^= b;
-        }
-        let _ = unzip(&bytes);
-        let n = bytes.len();
-        let _ = unzip(&bytes[..cut % n]);
-    }
-
-    #[test]
-    fn the_reader_survives_arbitrary_bytes(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
-        let _ = unzip(&bytes);
     }
 }

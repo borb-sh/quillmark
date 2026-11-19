@@ -9,8 +9,8 @@
 #hints.hint("chrome", place(top + center, dy: -36pt)[*NUMBERED LETTER*])
 
 #hints.hint("role", name: "Letter Heading", next: "Letter Body")[
-  #hints.hint("layout", form: "tabbed", grid(columns: (72pt, 1fr), [FROM:], [#qm.data.at("from", default: "")]))
-  #hints.hint("layout", form: "tabbed", grid(columns: (72pt, 1fr), [SUBJECT:], [#qm.data.at("subject", default: "")]))
+  #hints.hint("layout", form: "tabbed", grid(columns: (72pt, 1fr), [FROM:], [#qm.data.from]))
+  #hints.hint("layout", form: "tabbed", grid(columns: (72pt, 1fr), [SUBJECT:], [#qm.data.subject]))
 ]
 
 #let levels = (

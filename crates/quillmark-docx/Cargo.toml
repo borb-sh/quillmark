@@ -16,7 +16,6 @@ publish = true
 [dependencies]
 miniz_oxide = { workspace = true }
 crc32fast = { workspace = true }
-serde = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
