@@ -1,0 +1,20 @@
+section 0, next page
+  T
+    cell 0,0
+      P "Wide" before=0 after=- line=299
+    cell 0,1
+      P "C" before=0 after=- line=299
+    cell 1,0
+      P "Tall" before=0 after=- line=299
+    cell 1,1
+      P "B" before=0 after=- line=299
+    cell 1,2
+      P "C2" before=0 after=- line=299
+    cell 2,0
+      P "" before=- after=- line=-
+    cell 2,1
+      P "B3" before=0 after=- line=299
+    cell 2,2
+      P "C3" before=0 after=- line=299
+  P "" before=- after=- line=-
+notices: docx::font_not_embedded

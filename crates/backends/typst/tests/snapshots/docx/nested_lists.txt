@@ -1,0 +1,8 @@
+section 0, next page
+  P "one" before=0 after=- line=299
+  P "one a" before=0 after=- line=299
+  P "one b" before=0 after=- line=299
+  P "two" before=0 after=- line=299
+  P "bullet" before=0 after=- line=299
+  P "After." before=121 after=- line=299
+notices: docx::font_not_embedded

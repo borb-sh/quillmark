@@ -1,0 +1,5 @@
+section 0, next page
+  P "Author:" before=0 after=- line=297
+  P "Favorite Ice Cream: taro" before=121 after=- line=297
+  P ": " before=539 after=- line=297
+notices: docx::font_not_embedded

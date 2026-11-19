@@ -1,0 +1,4 @@
+section 0, next page
+  P "Annual Roster" before=0 after=- line=299
+  P "[ ] Sq/CC Candidate\n[ ] Flight CC\n[ ] DO" before=121 after=- line=299
+notices: docx::font_not_embedded

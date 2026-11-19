@@ -73,6 +73,34 @@ impl LayoutDoc {
         }
         None
     }
+
+    /// The cells of `table` itself, not of a table nested in it, in reading
+    /// order.
+    pub fn cells_of(&self, table: NodeId) -> Vec<NodeId> {
+        self.subtree(table)
+            .into_iter()
+            .filter(|&n| {
+                matches!(self.nodes[n].kind, NodeKind::Cell { .. })
+                    && self.ancestor(self.nodes[n].parent.unwrap_or(0), |k| {
+                        matches!(k, NodeKind::Table { .. })
+                    }) == Some(table)
+            })
+            .collect()
+    }
+
+    /// Whether `node` lies in a superscript or subscript inside `top`.
+    pub fn raised(&self, mut node: NodeId, top: NodeId) -> bool {
+        while node != top {
+            if matches!(self.nodes[node].kind, NodeKind::Super | NodeKind::Sub) {
+                return true;
+            }
+            match self.nodes[node].parent {
+                Some(p) => node = p,
+                None => return false,
+            }
+        }
+        false
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

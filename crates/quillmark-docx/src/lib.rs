@@ -10,13 +10,14 @@
 //!
 //! [`layout::LayoutDoc`] is the engine-free laid-out document a backend's
 //! reader fills, and [`lower::lower`] turns it into the model, with notices
-//! for what the Word file carries less of.
+//! for what the Word file carries less of, each of a [`notice::Code`].
 //!
 //! This crate depends on neither Typst nor `quillmark-core`.
 
 pub mod layout;
 pub mod lower;
 pub mod model;
+pub mod notice;
 mod write;
 
 pub use write::write_docx;

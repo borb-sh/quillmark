@@ -10,12 +10,10 @@ pub(crate) mod probes;
 pub(crate) mod read;
 
 use quillmark_core::error::{Diagnostic, Severity};
+use quillmark_docx::notice::Code;
 use typst_layout::PagedDocument;
 
 use crate::world::QuillWorld;
-
-const CODE_PROBES_DISABLED: &str = "docx::probes_disabled";
-const CODE_FORM_FIELD_DECLINED: &str = "docx::form_field_declined";
 
 /// The probed compile of `world` when its ink equals `live`'s, else `None`
 /// and the `docx::probes_disabled` warning.
@@ -29,13 +27,8 @@ pub(crate) fn probed(
         .map(|(doc, _)| doc)
         .filter(|doc| crate::ink_hashes(doc) == crate::ink_hashes(live))
         .ok_or_else(|| {
-            Diagnostic::new(
-                Severity::Warning,
-                "the probed compile did not lay out the document's ink, so the Word file is \
-                 read without its probes and carries less structure"
-                    .to_string(),
-            )
-            .with_code(CODE_PROBES_DISABLED.to_string())
+            Diagnostic::new(Severity::Warning, Code::ProbesDisabled.message("", 1))
+                .with_code(Code::ProbesDisabled.as_str().to_string())
         })
 }
 
@@ -56,13 +49,9 @@ pub(crate) fn export(
         warnings.push(
             Diagnostic::new(
                 Severity::Warning,
-                format!(
-                    "{} form or signature field(s) the PDF carries as widgets have no Word \
-                     counterpart and are left out",
-                    names.len()
-                ),
+                Code::FormFieldDeclined.message("", names.len()),
             )
-            .with_code(CODE_FORM_FIELD_DECLINED.to_string()),
+            .with_code(Code::FormFieldDeclined.as_str().to_string()),
         );
     }
     let (word, notices) = quillmark_docx::lower::lower(&doc);

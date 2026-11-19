@@ -1,0 +1,5 @@
+section 0, next page
+  P "Before." before=0 after=- line=299
+  P "first line" before=150 after=- line=240
+  P "second line" before=0 after=- line=240
+notices: docx::font_not_embedded

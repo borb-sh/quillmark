@@ -1,0 +1,32 @@
+section 0, next page
+  P "Dated line" before=0 after=159 line=279
+  T
+    cell 0,0
+      P "MEMORANDUM FOR" before=0 after=- line=279
+    cell 0,1
+      P "  " before=0 after=- line=279
+    cell 0,2
+      T
+        cell 0,0
+          P "123 OG/CC" before=0 after=- line=279
+        cell 1,0
+          P "123 MXG/CC" before=0 after=- line=279
+      P "" before=0 after=0 line=20
+  P "" before=0 after=0 line=139
+  T
+    cell 0,0
+      P "FROM:" before=0 after=- line=279
+    cell 0,1
+      P "  " before=0 after=- line=279
+    cell 0,2
+      P "123 CS/SCX" before=0 after=- line=279
+  P "" before=0 after=0 line=159
+  T
+    cell 0,0
+      P "SUBJECT:" before=0 after=- line=279
+    cell 0,1
+      P "  " before=0 after=- line=279
+    cell 0,2
+      P "Annual Review" before=0 after=- line=279
+  P "Body text." before=159 after=- line=279
+notices: 

@@ -1,0 +1,4 @@
+section 0, next page
+  P "Scope" before=0 after=- line=370
+  P "As the scope says, and the site." before=22 after=- line=299
+notices: docx::link_internal docx::font_not_embedded

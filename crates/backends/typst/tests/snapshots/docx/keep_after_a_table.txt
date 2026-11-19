@@ -1,0 +1,6 @@
+section 0, next page
+  T
+    cell 0,0
+      P "Cell" before=0 after=- line=299
+  P "After." before=121 after=- line=299
+notices: docx::font_not_embedded

@@ -1,0 +1,7 @@
+section 0, next page
+  P "Front one." before=0 after=- line=299
+  P "Front two." before=0 after=- line=299 page_break
+section 1, next page
+  P "Body one." before=0 after=- line=299 page_break
+  P "Body two." before=0 after=- line=299 page_break
+notices: docx::font_not_embedded

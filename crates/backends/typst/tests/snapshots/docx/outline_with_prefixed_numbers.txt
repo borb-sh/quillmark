@@ -1,0 +1,6 @@
+section 0, next page
+  P "Contents" before=0 after=- line=370
+  C
+    P "Intro\tA-1" before=57 after=- line=264
+  P "Intro" before=245 after=- line=370
+notices: docx::toc_frozen docx::font_not_embedded

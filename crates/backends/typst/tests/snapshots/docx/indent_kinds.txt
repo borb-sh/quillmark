@@ -1,0 +1,9 @@
+section 0, next page
+  P "One line gap." before=0 after=- line=299
+  P "A gap that opens a paragraph long enough" before=121 after=- line=299
+  P "One line padded." before=121 after=- line=299
+  P "A padded paragraph that is long enough t" before=121 after=- line=299
+  P "Plain first." before=121 after=- line=299
+  P "Indented one line." before=121 after=- line=299
+  P "Indented and long enough that it wraps o" before=121 after=- line=299
+notices: docx::font_not_embedded

@@ -1,0 +1,9 @@
+section 0, next page
+  P "FROM:\t123 Example Office" before=0 after=- line=-
+  P "SUBJECT:\tNumbered paragraphs" before=84 after=- line=-
+  P "The first paragraph is long enough that " before=84 after=- line=327
+  P "A sub-paragraph sits under its parent’s " before=84 after=- line=327
+  P "The second paragraph is the last one." before=84 after=- line=327
+  P "Respectfully," before=84 after=- line=327 keep_next
+  P "SIGNER NAME" before=84 after=- line=327
+notices: docx::font_not_embedded

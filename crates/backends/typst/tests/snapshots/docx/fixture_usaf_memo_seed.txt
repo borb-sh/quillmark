@@ -1,0 +1,39 @@
+section 0, next page
+  P "" before=0 after=0 line=20
+    box
+      P "DEPARTMENT OF THE AIR FORCE" before=0 after=- line=288
+    box
+      P "" before=0 after=- line=- keep_lines
+        picture
+  T
+    cell 0,0
+      P "MEMORANDUM FOR" before=0 after=- line=279
+    cell 0,1
+      P "  " before=0 after=- line=279
+    cell 0,2
+      T
+      P "" before=0 after=0 line=20
+  P "" before=0 after=0 line=279
+  T
+    cell 0,0
+      P "SUBJECT:" before=0 after=- line=279
+    cell 0,1
+      P "  " before=0 after=- line=279
+    cell 0,2
+      P "" before=- after=- line=-
+  P "" before=0 after=0 line=1793
+  T
+    cell 0,0
+      P "1st Ind, " before=0 after=- line=279
+    cell 0,1
+      P "" before=- after=- line=-
+  P "" before=0 after=0 line=360 keep_next keep_lines
+  T
+    cell 0,0
+      P "MEMORANDUM FOR" before=0 after=- line=279
+    cell 0,1
+      P "  " before=0 after=- line=279
+    cell 0,2
+      P "" before=- after=- line=-
+  P "" before=- after=- line=-
+notices: docx::font_not_embedded docx::place_anchored

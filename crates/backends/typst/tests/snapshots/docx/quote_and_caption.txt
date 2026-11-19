@@ -1,0 +1,7 @@
+section 0, next page
+  P "Quoted words." before=0 after=- line=299
+  P "— Someone" before=55 after=- line=299
+  P "The body." before=253 after=- line=299 keep_next keep_lines
+  P "Figure\u{a0}1: The caption." before=0 after=- line=299 keep_lines
+  P "After." before=121 after=- line=299
+notices: docx::font_not_embedded

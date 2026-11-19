@@ -1,0 +1,4 @@
+section 0, next page
+  P "Left to right." before=0 after=- line=297
+  P "שלום" before=121 after=- line=288
+notices: docx::direction_dropped docx::font_not_embedded

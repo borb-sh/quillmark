@@ -1,0 +1,6 @@
+section 0, next page
+  P "Before." before=0 after=- line=299
+  P "" before=170 after=- line=- keep_lines
+    picture
+  P "After the display." before=181 after=- line=299
+notices: docx::rasterized docx::font_not_embedded

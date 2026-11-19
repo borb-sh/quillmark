@@ -1,0 +1,7 @@
+section 0, next page
+  P "Normal line." before=0 after=- line=299
+  P "" before=222 after=- line=- keep_lines
+    picture
+  P "" before=217 after=- line=- keep_lines
+    picture
+notices: docx::rasterized docx::font_not_embedded

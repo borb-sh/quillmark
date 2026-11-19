@@ -1,0 +1,5 @@
+section 0, next page
+  P "Inline  in a line." before=0 after=- line=299
+    picture
+  P "The next paragraph." before=121 after=- line=299
+notices: docx::rasterized docx::font_not_embedded

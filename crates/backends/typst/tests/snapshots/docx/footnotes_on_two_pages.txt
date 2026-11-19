@@ -1,0 +1,9 @@
+section 0, next page
+  P "First page text." before=0 after=- line=299
+  P "Second page text, no note." before=0 after=- line=299 page_break
+  P "Third page text." before=0 after=- line=299 page_break
+footnote 0
+  P " A note." before=0 after=- line=224
+footnote 1
+  P " Another note." before=0 after=- line=224
+notices: docx::font_not_embedded

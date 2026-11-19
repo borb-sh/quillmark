@@ -1,0 +1,6 @@
+section 0, next page
+  P "Body text." before=0 after=- line=299
+  P "Next." before=121 after=- line=299
+footnote 0
+  P " The note." before=0 after=- line=224
+notices: docx::font_not_embedded

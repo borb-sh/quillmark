@@ -1,0 +1,6 @@
+section 0, next page
+  P "One." before=0 after=- line=299
+  P "Two." before=0 after=- line=299 page_break
+    box
+      P "Placed" before=0 after=- line=264
+notices: docx::font_not_embedded docx::place_anchored

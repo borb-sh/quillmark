@@ -1,0 +1,7 @@
+section 0, next page
+  P "Before." before=0 after=- line=299
+  P "" before=0 after=0 line=20 page_break
+    box
+      P "Fixed" before=0 after=- line=264
+  P "After." before=0 after=- line=299 page_break
+notices: docx::font_not_embedded docx::place_anchored

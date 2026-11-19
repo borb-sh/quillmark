@@ -1,0 +1,4 @@
+section 0, next page
+  P "The 1st Indorsement sits in a paragraph " before=0 after=- line=299
+  P "A plain paragraph that is also long enou" before=121 after=- line=299
+notices: docx::font_not_embedded
