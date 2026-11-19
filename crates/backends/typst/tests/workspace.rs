@@ -120,6 +120,7 @@ fn a_manifest_cannot_escape_the_workspace_or_replace_the_helper() {
         [
             std::path::Path::new("packages/local/quillmark-helper/0.2.0/lib.typ"),
             std::path::Path::new("packages/local/quillmark-helper/0.2.0/typst.toml"),
+            std::path::Path::new("packages/local/quillmark-helper/0.2.0/hints.typ"),
         ],
     );
 }

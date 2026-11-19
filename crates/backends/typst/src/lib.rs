@@ -1,4 +1,5 @@
-//! Typst backend for Quillmark: markdown + card-YAML data → PDF, SVG, PNG.
+//! Typst backend for Quillmark: markdown + card-YAML data → PDF, SVG, PNG,
+//! DOCX.
 //!
 //! Richtext fields cross the seam as canonical content JSON and are lowered to
 //! Typst markup by `emit` at codegen time; no code re-parses markdown at
@@ -7,12 +8,14 @@
 //! only; SVG and PNG render an invisible placeholder.
 
 mod compile;
+mod docx;
 /// Content → Typst-markup lowering plus its per-segment source map.
 mod emit;
 mod error_mapping;
 mod families;
 mod glyphs;
 mod library;
+mod tags;
 mod tex;
 
 mod helper;
@@ -47,8 +50,12 @@ impl TypstBackend {
     }
 }
 
-const SUPPORTED_FORMATS: &[OutputFormat] =
-    &[OutputFormat::Pdf, OutputFormat::Svg, OutputFormat::Png];
+const SUPPORTED_FORMATS: &[OutputFormat] = &[
+    OutputFormat::Pdf,
+    OutputFormat::Svg,
+    OutputFormat::Png,
+    OutputFormat::Docx,
+];
 
 /// Persisting the world keeps fonts, packages, and assets parsed once per
 /// session rather than once per compile: the substrate for incremental
@@ -161,6 +168,119 @@ fn session_warnings(
     all
 }
 
+/// A text item's pixels: its glyphs without their spans, which are source
+/// locations.
+fn hash_text_ink<H: std::hash::Hasher>(text: &typst::text::TextItem, state: &mut H) {
+    use std::hash::Hash;
+    text.font.hash(state);
+    text.size.hash(state);
+    text.fill.hash(state);
+    text.stroke.hash(state);
+    text.lang.hash(state);
+    text.region.hash(state);
+    text.text.hash(state);
+    for g in &text.glyphs {
+        g.id.hash(state);
+        g.x_advance.hash(state);
+        g.x_offset.hash(state);
+        g.y_advance.hash(state);
+        g.y_offset.hash(state);
+        g.range.hash(state);
+        // g.span deliberately omitted: source location, not pixels.
+    }
+}
+
+/// Per-page fingerprints of the ink alone: each item drawn, under the
+/// transform and clips it is drawn with, in paint order. A group that draws
+/// nothing adds nothing, so two compiles that differ only in inkless
+/// structure, as the Word export's probes do, hash alike. Transforms are
+/// composed down the group tree, and a deeper tree sums the same offsets in
+/// another order, so each is compared at 1/10000 pt.
+pub(crate) fn ink_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
+    use std::hash::{Hash, Hasher};
+    use typst::layout::{FrameItem, Transform};
+
+    fn quantized(ts: Transform) -> [i64; 6] {
+        let q = |v: f64| (v * 10_000.0).round() as i64;
+        [
+            q(ts.sx.get()),
+            q(ts.ky.get()),
+            q(ts.kx.get()),
+            q(ts.sy.get()),
+            q(ts.tx.to_pt()),
+            q(ts.ty.to_pt()),
+        ]
+    }
+
+    fn walk<H: Hasher>(
+        frame: &typst::layout::Frame,
+        ts: Transform,
+        clips: &mut Vec<(Transform, typst::visualize::Curve)>,
+        state: &mut H,
+    ) {
+        for (pos, item) in frame.items() {
+            let at = ts.pre_concat(Transform::translate(pos.x, pos.y));
+            let ink = |state: &mut H, clips: &[(Transform, typst::visualize::Curve)]| {
+                quantized(at).hash(state);
+                for (ts, clip) in clips {
+                    quantized(*ts).hash(state);
+                    clip.hash(state);
+                }
+            };
+            match item {
+                FrameItem::Tag(_) => {}
+                FrameItem::Group(g) => {
+                    let inner = at.pre_concat(g.transform);
+                    let clipped = g
+                        .clip
+                        .as_ref()
+                        .map(|c| clips.push((inner, c.clone())))
+                        .is_some();
+                    walk(&g.frame, inner, clips, state);
+                    if clipped {
+                        clips.pop();
+                    }
+                }
+                FrameItem::Text(text) => {
+                    ink(state, clips);
+                    hash_text_ink(text, state);
+                }
+                FrameItem::Shape(shape, _span) => {
+                    ink(state, clips);
+                    shape.hash(state);
+                }
+                FrameItem::Image(image, size, _span) => {
+                    ink(state, clips);
+                    image.hash(state);
+                    size.hash(state);
+                }
+                FrameItem::Link(dest, size) => {
+                    ink(state, clips);
+                    dest.hash(state);
+                    size.hash(state);
+                }
+            }
+        }
+    }
+
+    struct Ink<'a>(&'a typst_layout::Page);
+    impl Hash for Ink<'_> {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            self.0.fill.hash(state);
+            self.0.numbering.hash(state);
+            self.0.number.hash(state);
+            self.0.frame.size().hash(state);
+            walk(&self.0.frame, Transform::identity(), &mut Vec::new(), state);
+        }
+    }
+
+    document
+        .pages()
+        .iter()
+        .map(|page| typst::utils::hash128(&Ink(page)))
+        .collect()
+}
+
 /// Per-page fingerprints of *visible* content, diffed across compiles for
 /// `ChangeSet::dirty_pages`. Introspection `Tag` items and group parent
 /// locations are skipped: they carry element hashes spanning content on *other*
@@ -173,25 +293,6 @@ fn session_warnings(
 pub(crate) fn page_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
     use std::hash::{Hash, Hasher};
     use typst::layout::FrameItem;
-
-    fn hash_text<H: Hasher>(text: &typst::text::TextItem, state: &mut H) {
-        text.font.hash(state);
-        text.size.hash(state);
-        text.fill.hash(state);
-        text.stroke.hash(state);
-        text.lang.hash(state);
-        text.region.hash(state);
-        text.text.hash(state);
-        for g in &text.glyphs {
-            g.id.hash(state);
-            g.x_advance.hash(state);
-            g.x_offset.hash(state);
-            g.y_advance.hash(state);
-            g.y_offset.hash(state);
-            g.range.hash(state);
-            // g.span deliberately omitted: source location, not pixels.
-        }
-    }
 
     fn walk<H: Hasher>(frame: &typst::layout::Frame, state: &mut H) {
         frame.size().hash(state);
@@ -206,7 +307,7 @@ pub(crate) fn page_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
                 }
                 FrameItem::Text(text) => {
                     pos.hash(state);
-                    hash_text(text, state);
+                    hash_text_ink(text, state);
                 }
                 // Shape/Image carry a trailing `Span` their derived `Hash` would
                 // fold in; destructure to hash the visible parts and drop it, same
@@ -248,12 +349,16 @@ pub(crate) fn page_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
 
 impl SessionHandle for TypstSession {
     fn render(&self, opts: &RenderOptions) -> Result<RenderResult, RenderError> {
+        let world = match opts.output_format {
+            Some(OutputFormat::Docx) => &self.world.with_helper(&self.live.helper_source),
+            _ => &self.world,
+        };
         compile::render_document_pages(
             &self.live.document,
             opts,
             &self.live.field_specs,
             &self.fallback_title,
-            &self.world,
+            world,
         )
     }
 
@@ -506,6 +611,101 @@ impl Backend for TypstBackend {
                 }
             })
             .collect()
+    }
+}
+
+/// Test hooks of the Word export.
+#[doc(hidden)]
+pub mod testing {
+    use super::*;
+
+    /// The plain and the probed compile of `source` over `json_data`, each
+    /// as its PDF, its ink hashes and its warnings.
+    pub struct ProbeCheck {
+        pub plain_pdf: Vec<u8>,
+        pub probed_pdf: Vec<u8>,
+        pub plain_hashes: Vec<u128>,
+        pub probed_hashes: Vec<u128>,
+        pub plain_warnings: Vec<Diagnostic>,
+        pub probed_warnings: Vec<Diagnostic>,
+        /// The `hint` of every probe the probed compile laid out.
+        pub probed_hints: std::collections::BTreeSet<String>,
+    }
+
+    pub fn probe_check(
+        source: &Quill,
+        json_data: &serde_json::Value,
+        today: CalendarDate,
+    ) -> Result<ProbeCheck, RenderError> {
+        let plate = read_plate(source)?;
+        let meta = SchemaMeta::from_config(source.config());
+        let mut world = quill_world(source, &plate, &FontLibrary::default())?;
+        world.set_today(today);
+        world.inject_helper_package(json_data, &meta)?;
+        let probed_world = world.probed().ok_or_else(|| {
+            RenderError::coded("docx::probes_disabled", "the probes did not evaluate")
+        })?;
+        let (plain, plain_warnings) = compile::compile_document(&world)?;
+        let (probed, probed_warnings) = compile::compile_document(&probed_world)?;
+        let pdf = |doc: &typst_layout::PagedDocument| {
+            typst_pdf::pdf(doc, &typst_pdf::PdfOptions::default())
+                .map_err(|e| RenderError::coded("typst::pdf_generation", format!("{e:?}")))
+        };
+        Ok(ProbeCheck {
+            plain_pdf: pdf(&plain)?,
+            probed_pdf: pdf(&probed)?,
+            plain_hashes: ink_hashes(&plain),
+            probed_hashes: ink_hashes(&probed),
+            plain_warnings,
+            probed_warnings,
+            probed_hints: hints_in(&probed),
+        })
+    }
+
+    /// The Word export's Layout IR of `source` rendered with `json_data`.
+    pub fn layout(
+        source: &Quill,
+        json_data: &serde_json::Value,
+        today: CalendarDate,
+    ) -> Result<quillmark_docx::layout::LayoutDoc, RenderError> {
+        let plate = read_plate(source)?;
+        let meta = SchemaMeta::from_config(source.config());
+        let mut world = quill_world(source, &plate, &FontLibrary::default())?;
+        world.set_today(today);
+        world.inject_helper_package(json_data, &meta)?;
+        let (live, _) = compile::compile_document(&world)?;
+        let doc = crate::docx::probed(&live, &world).map_err(RenderError::from_diag)?;
+        Ok(crate::docx::read::read(&doc, &world, None))
+    }
+
+    fn hints_in(doc: &typst_layout::PagedDocument) -> std::collections::BTreeSet<String> {
+        use typst::foundations::Value;
+        use typst::introspection::Tag;
+        use typst::layout::FrameItem;
+        fn walk(frame: &typst::layout::Frame, out: &mut std::collections::BTreeSet<String>) {
+            for (_, item) in frame.items() {
+                match item {
+                    FrameItem::Group(g) => walk(&g.frame, out),
+                    FrameItem::Tag(Tag::Start(elem, _)) => {
+                        if let Ok(Value::Dict(d)) = elem.get_by_name("value") {
+                            if let (Ok(Value::Str(k)), Ok(Value::Str(h))) =
+                                (d.get("kind"), d.get("hint"))
+                            {
+                                if k.as_str() == "__qm_hint__" {
+                                    out.insert(h.to_string());
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let mut out = std::collections::BTreeSet::new();
+        for page in doc.pages() {
+            walk(&page.frame, &mut out);
+        }
+        out
     }
 }
 

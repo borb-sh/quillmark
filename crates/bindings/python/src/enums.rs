@@ -41,6 +41,7 @@ py_enum! {
         PDF,
         SVG,
         PNG,
+        DOCX,
     }
 }
 
@@ -57,6 +58,7 @@ impl From<PyOutputFormat> for OutputFormat {
             PyOutputFormat::PDF => OutputFormat::Pdf,
             PyOutputFormat::SVG => OutputFormat::Svg,
             PyOutputFormat::PNG => OutputFormat::Png,
+            PyOutputFormat::DOCX => OutputFormat::Docx,
         }
     }
 }
@@ -67,6 +69,7 @@ impl From<OutputFormat> for PyOutputFormat {
             OutputFormat::Pdf => PyOutputFormat::PDF,
             OutputFormat::Svg => PyOutputFormat::SVG,
             OutputFormat::Png => PyOutputFormat::PNG,
+            OutputFormat::Docx => PyOutputFormat::DOCX,
         }
     }
 }

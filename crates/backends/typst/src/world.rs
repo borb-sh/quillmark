@@ -177,6 +177,7 @@ pub(crate) fn sets_text(info: &FontInfo, font: &Font) -> bool {
 /// Typst `World` implementation for quill-based compilation, rooted at the
 /// quill: `.typ` sources load at their quill paths, packages from
 /// `{quill}/packages/` and assets from `{quill}/assets/`.
+#[derive(Clone)]
 pub(crate) struct QuillWorld {
     library: LazyHash<Library>,
     book: LazyHash<FontBook>,
@@ -235,6 +236,8 @@ impl QuillWorld {
             Self::helper_fid("typst.toml"),
             Bytes::new(helper::generate_typst_toml().into_bytes()),
         );
+        let hints = Self::helper_fid("hints.typ");
+        sources.insert(hints, Source::new(hints, helper::HINTS_TYP.to_string()));
 
         let main_id = file_id(None, plate.path.clone());
         Self::load_project_sources(source, main_id, &mut sources, &mut load_warnings);
@@ -258,6 +261,24 @@ impl QuillWorld {
             world.library = LazyHash::new(library);
         }
         Ok(world)
+    }
+
+    /// This world with the Word export's probes in its library, or `None`
+    /// when they fail to evaluate.
+    pub(crate) fn probed(&self) -> Option<Self> {
+        let library = crate::docx::probes::with_probes(self, &self.library)?;
+        Some(Self {
+            library: LazyHash::new(library),
+            ..self.clone()
+        })
+    }
+
+    /// This world with the helper `lib.typ` as `source` holds it: the sources
+    /// a served compile was built from, which a failed update leaves behind.
+    pub(crate) fn with_helper(&self, source: &Source) -> Self {
+        let mut world = self.clone();
+        world.set_source(Self::helper_fid("lib.typ"), source.text());
+        world
     }
 
     pub(crate) fn set_today(&mut self, today: CalendarDate) {

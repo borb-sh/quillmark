@@ -195,3 +195,21 @@ The table of codes and keys lives in [Diagnostic Codes § Args](../docs/referenc
 **Escaping is total and one character to its bytes.** Document text can inject no markup, and the per-segment source map that click-to-caret reads stays exact. Smart quotes pass through, so the quill decides them with a set rule.
 
 **One address grammar, two implementations.** The plate helper and core's `QuillConfig::field_at` each implement the schema address grammar, and a test holds both to one table, so one address binds on either backend. Rust code that resolves an address calls `field_at`: acroform binds by it, and a Typst widget's inherited tooltip reads its description through it, so a third walk would be a third implementation the table does not hold.
+
+## Word export
+
+**Word structure comes only from tags.** A paragraph, heading, list number, table or piece of page furniture in a Word file is what an element tag Typst leaves in the frames, a probe the backend adds, or a hint the quill emits says it is. Positions fill in numbers only: indents, spacing, tab stops, widths. A tolerance may decide a number, never a kind. Rejected: structure inferred from where ink sits or how a package spells it, which failed on each quill a rule had not been fitted to.
+
+**The Word writer knows no Typst and no quill.** `quillmark-docx` depends on neither Typst nor core, and no Typst type, element name or field crosses into it. Its lowering never branches on a quill and holds no quill's constants. A Typst upgrade then touches only the backend's reader, and lowering is tested from layout values built in Rust.
+
+**A Word file carries what a paragraph property can hold, and leaves line and page breaks to Word.** Positions, the space between elements, indents, alignment, number formats, keeps and forced breaks are carried as measured, which is what a document standard is made of. Which word ends a line and which line ends a page are Word's. Rejected: Typst's own line and page breaks, which hold only if the quill adopts Word's line model and moves its PDF ink to do it.
+
+- Text no element tags is the exception: it is a paragraph per printed line, with a notice. Nothing says where its paragraphs end, so joining its lines would run separate paragraphs together.
+
+**Every walk of the frames shares one barrier rule and one marker recognizer.** An artifact, and a group whose logical parent is a footnote or a place, is out of the flow around it: inside it, what the flow has open (a field's claim, an underline, a bracket) does not apply, and it is restored at the end. The span scan and the Word reader both take this rule and Quillmark's `__qm_` metadata markers from `tags.rs`. Rejected: a rule per walk, under which a paragraph crossing a page break lends its underline to the next page's header in one reader and not the other.
+
+**A probe emits only labelled metadata, and the export compile is checked against the live one.** The Word export compiles the session's sources a second time with show and set rules in the library's base styles that record what Typst lays out without tagging it, and each returns its element unchanged. A probe brackets or precedes its element and never labels it, since a second label warns. The export reads the probed compile only when its ink equals the live compile's, so a probe that moved ink costs the export its structure, never the document its layout. Rejected: probes in every compile, which a session pays for on each keystroke.
+
+- The rule for a `\n` is the one probe that returns something else: a `linebreak`, which the line break probe marks. Typst's regex match sees every line break as a `\n` and hands it over as text, and a space before text does not collapse the way it does before a line break.
+
+**A quill hint closes under the element it opened in.** A hint bracket's close counts only against a bracket opened under the innermost open element; one still open when its element ends closes there with a notice. One unclosed label then costs one paragraph its live number. Rejected: a close that reaches past an element boundary, under which one unclosed label swallowed most of a document's words with no notice.

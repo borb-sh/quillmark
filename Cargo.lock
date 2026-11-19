@@ -2614,6 +2614,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "quillmark-docx"
+version = "0.139.0"
+dependencies = [
+ "crc32fast",
+ "miniz_oxide",
+ "proptest",
+ "roxmltree 0.21.2",
+]
+
+[[package]]
 name = "quillmark-fixtures"
 version = "0.139.0"
 dependencies = [
@@ -2650,16 +2660,19 @@ dependencies = [
  "comemo",
  "getrandom 0.4.3",
  "lopdf",
+ "miniz_oxide",
  "proptest",
  "quillmark",
  "quillmark-content",
  "quillmark-core",
+ "quillmark-docx",
  "quillmark-fixtures",
  "quillmark-pdf",
  "roxmltree 0.21.2",
  "serde_json",
  "thiserror",
  "toml 1.2.1+spec-1.1.0",
+ "ttf-parser",
  "typst",
  "typst-layout",
  "typst-pdf",

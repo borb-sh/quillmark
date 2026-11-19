@@ -3,6 +3,8 @@ pub enum OutputFormat {
     Svg,
     Pdf,
     Png,
+    /// A Word document (`.docx`).
+    Docx,
 }
 
 impl OutputFormat {
@@ -10,16 +12,21 @@ impl OutputFormat {
     ///
     /// A slice, not an array: an array's length is part of its type, so a
     /// fourth format would break every caller that names this type.
-    pub const ALL: &'static [OutputFormat] =
-        &[OutputFormat::Pdf, OutputFormat::Svg, OutputFormat::Png];
+    pub const ALL: &'static [OutputFormat] = &[
+        OutputFormat::Pdf,
+        OutputFormat::Svg,
+        OutputFormat::Png,
+        OutputFormat::Docx,
+    ];
 
-    /// The lowercase string id (`"pdf"`, `"svg"`, `"png"`): the format ↔ string
+    /// The lowercase string id (`"pdf"`, `"svg"`, `"png"`, `"docx"`): the format ↔ string
     /// mapping every binding and the CLI share.
     pub fn as_str(&self) -> &'static str {
         match self {
             OutputFormat::Pdf => "pdf",
             OutputFormat::Svg => "svg",
             OutputFormat::Png => "png",
+            OutputFormat::Docx => "docx",
         }
     }
 
@@ -29,6 +36,9 @@ impl OutputFormat {
             OutputFormat::Pdf => "application/pdf",
             OutputFormat::Svg => "image/svg+xml",
             OutputFormat::Png => "image/png",
+            OutputFormat::Docx => {
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            }
         }
     }
 }
@@ -72,6 +82,7 @@ impl std::str::FromStr for OutputFormat {
             "pdf" => Ok(OutputFormat::Pdf),
             "svg" => Ok(OutputFormat::Svg),
             "png" => Ok(OutputFormat::Png),
+            "docx" => Ok(OutputFormat::Docx),
             other => Err(ParseOutputFormatError::new(other)),
         }
     }
@@ -97,8 +108,8 @@ mod tests {
     #[test]
     fn unknown_output_format_names_the_input_lowercased() {
         assert_eq!(
-            OutputFormat::from_str("Docx"),
-            Err(ParseOutputFormatError::new("docx"))
+            OutputFormat::from_str("Odt"),
+            Err(ParseOutputFormatError::new("odt"))
         );
     }
 }
@@ -150,7 +161,8 @@ pub struct RenderOptions {
     /// `backend::page_index_out_of_bounds` code: call
     /// `LiveSession::page_count()` first if validation is needed. A format the
     /// backend emits whole — PDF on both built-in backends — fails with
-    /// `backend::page_selection_not_supported` when this is `Some`.
+    /// `backend::page_selection_not_supported` when this is `Some`, and so does
+    /// DOCX, which Word paginates itself.
     pub pages: Option<Vec<usize>>,
     /// Populate [`RenderResult::regions`](crate::error::RenderResult) with the
     /// schema-field geometry sidecar, for consumers without a live session.
@@ -159,11 +171,12 @@ pub struct RenderOptions {
     /// The sidecar always describes the **whole document**: page indices are
     /// document-space and unaffected by a `pages` subset selection.
     pub regions: bool,
-    /// The PDF document title: what a viewer shows in its title bar and a
-    /// screen reader announces on open. Overrides the plate's own
+    /// The document title: what a viewer shows in its title bar and a screen
+    /// reader announces on open. Overrides the plate's own
     /// `set document(title: ..)`, which overrides the quill's `description`.
-    /// Each is trimmed, and a blank one counts as absent. Ignored by every format but PDF, and by
-    /// the acroform backend, whose base PDF carries its own metadata.
+    /// Each is trimmed, and a blank one counts as absent. Read by PDF and DOCX,
+    /// ignored by SVG and PNG, and by the acroform backend, whose base PDF
+    /// carries its own metadata.
     pub title: Option<String>,
 }
 

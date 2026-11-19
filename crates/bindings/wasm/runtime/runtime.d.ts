@@ -266,9 +266,9 @@ export interface RenderOptions {
 	 */
 	regions?: boolean;
 	/**
-	 * The PDF document title, over the plate's own `set document(title: ..)`
-	 * and then the quill's `description`. A blank title counts as absent;
-	 * ignored by PNG and SVG.
+	 * The document title, over the plate's own `set document(title: ..)` and
+	 * then the quill's `description`. A blank title counts as absent; read by
+	 * PDF and DOCX, ignored by PNG and SVG.
 	 */
 	title?: string;
 }
@@ -376,7 +376,7 @@ export interface RenderResult {
 }
 
 /** The emittable formats. */
-export type OutputFormat = 'pdf' | 'svg' | 'png';
+export type OutputFormat = 'pdf' | 'svg' | 'png' | 'docx';
 
 /** Page geometry, in points. */
 export interface PageSize {

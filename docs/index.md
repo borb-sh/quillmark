@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@quillmark/wasm.svg?color=CB3837)](https://www.npmjs.com/package/@quillmark/wasm)
 [![Documentation](https://docs.rs/quillmark/badge.svg)](https://docs.rs/quillmark)
 
-Quillmark is a schema-driven document framework. You define a document format once, as a **quill**: a schema for its fields and a layout for its pages, either a Typst plate or an existing PDF form. Authors then write plain Markdown, and Quillmark validates each document against its quill and renders it to PDF, SVG, or PNG.
+Quillmark is a schema-driven document framework. You define a document format once, as a **quill**: a schema for its fields and a layout for its pages, either a Typst plate or an existing PDF form. Authors then write plain Markdown, and Quillmark validates each document against its quill and renders it to PDF, SVG, PNG, or, from a Typst plate, Word.
 
 <div class="grid" markdown>
 

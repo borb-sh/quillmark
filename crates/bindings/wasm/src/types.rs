@@ -16,6 +16,7 @@ pub enum OutputFormat {
     Pdf,
     Svg,
     Png,
+    Docx,
 }
 
 #[cfg(feature = "render")]
@@ -25,6 +26,7 @@ impl From<OutputFormat> for quillmark_core::types::OutputFormat {
             OutputFormat::Pdf => quillmark_core::types::OutputFormat::Pdf,
             OutputFormat::Svg => quillmark_core::types::OutputFormat::Svg,
             OutputFormat::Png => quillmark_core::types::OutputFormat::Png,
+            OutputFormat::Docx => quillmark_core::types::OutputFormat::Docx,
         }
     }
 }
@@ -36,6 +38,7 @@ impl From<quillmark_core::types::OutputFormat> for OutputFormat {
             quillmark_core::types::OutputFormat::Pdf => OutputFormat::Pdf,
             quillmark_core::types::OutputFormat::Svg => OutputFormat::Svg,
             quillmark_core::types::OutputFormat::Png => OutputFormat::Png,
+            quillmark_core::types::OutputFormat::Docx => OutputFormat::Docx,
         }
     }
 }

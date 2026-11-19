@@ -1,0 +1,19 @@
+quill:
+  name: numbered_letter
+  version: 0.1.0
+  backend: typst
+  description: A letter that numbers its paragraphs by hand and marks them with Word export hints
+
+typst:
+  plate_file: plate.typ
+
+main:
+  fields:
+    from:
+      description: Who the letter is from
+      type: text
+      example: 123 Example Office
+    subject:
+      description: What the letter is about
+      type: text
+      example: Numbered paragraphs

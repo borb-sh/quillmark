@@ -92,6 +92,10 @@ pub fn workspace(
             helper_dir.join("typst.toml"),
             helper::generate_typst_toml().into_bytes(),
         ),
+        (
+            helper_dir.join("hints.typ"),
+            helper::HINTS_TYP.as_bytes().to_vec(),
+        ),
     ];
 
     let helper_spec = format!("@{HELPER_NAMESPACE}/{HELPER_NAME}:{HELPER_VERSION}");
