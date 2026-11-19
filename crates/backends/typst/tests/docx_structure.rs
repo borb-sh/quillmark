@@ -942,3 +942,22 @@ fn widow_and_orphan_control_is_on_for_every_paragraph() {
     );
     assert!(!w.xml("word/document.xml").contains("w:widowControl"));
 }
+
+#[test]
+fn a_place_after_a_table_that_fills_its_page_adds_no_page_break() {
+    let w = render(
+        "#set page(width: 300pt, height: 200pt, margin: 36pt)\n\
+         #table(columns: 1fr, rows: 110pt, [A tall cell.])\n\
+         #place(top + right)[Placed.]\n\
+         Next paragraph after the place, long enough to need a few lines so that it cannot \
+         fit at the foot of the first page.\n\nSecond paragraph.\n",
+    );
+    assert!(
+        w.body_drawings()
+            .iter()
+            .any(|(_, d)| d.anchored && d.text == "Placed.")
+    );
+    let next = starting(&w, "Next paragraph after the place");
+    assert!(!next.page_break_before);
+    assert!(w.body().iter().all(|p| !p.page_break_before));
+}

@@ -1129,8 +1129,9 @@ impl Lower<'_> {
 
     /// The objects waiting for a paragraph on an earlier page than `before`
     /// (or any, with none), set on that page: on its last paragraph when
-    /// `out` ends with one there, else on a 1 pt paragraph of their own that
-    /// the next page breaks after, as a page with no flow has.
+    /// `out` ends with one there, else on a 1 pt paragraph of their own,
+    /// which the next page breaks after when it stands for a page with no
+    /// flow.
     fn flush_pending(&mut self, before: Option<u32>, out: &mut Vec<Block>, ctx: &Ctx) {
         let Some(&(page, _)) = self.pending.first() else {
             return;
@@ -1160,7 +1161,7 @@ impl Lower<'_> {
         self.break_pending |= prev.is_some_and(|p| p < page);
         self.apply_break(&mut anchor, page, ctx);
         self.prev = Some(Prev::Bottom(page, 0.0));
-        self.break_pending = true;
+        self.break_pending = prev != Some(page);
         out.push(Block::Paragraph(anchor));
     }
 
