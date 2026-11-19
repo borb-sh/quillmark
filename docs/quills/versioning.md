@@ -30,6 +30,8 @@ This is not standard semver. The compatibility boundary is `MAJOR.MINOR`: every
 patch in one series reads the documents an earlier patch stored, unchanged. The
 rule is the same below and above `1.0.0`, so `0.x` promises no less than `1.x`.
 
+`Quill.compare` between the released version and the new one checks the first row: a change is PATCH when every entry is `same`, `widened` or `added` ([Moving a document to another quill](../integration/persistence.md#moving-a-document-to-another-quill)). It cannot tell MINOR from MAJOR, since a rename and a removal both read as one slot `unclaimed` and one `added`.
+
 Reordering a field's `values:` is PATCH: a field's blank is `""` rather than
 `values[0]`, so no document's rendered output changes. It still moves picker
 order, the schemas' `enum` lists, and acroform dropdown order.
