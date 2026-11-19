@@ -1,0 +1,765 @@
+//! Lowering: a [`LayoutDoc`] to a Word [`Document`].
+//!
+//! One walk of the tree in reading order. Each paragraph-forming node is one
+//! Word paragraph whose lines are joined back into running text; its kind
+//! decides its style, numbering and keeps, and measurement decides only the
+//! numbers: indents, spacing, line pitch, widths. Chrome and placed content
+//! become page-anchored text boxes. Every text and image item the walk does
+//! not place is counted under `docx::ink_dropped`.
+
+mod drawings;
+mod lists;
+mod notices;
+mod paragraph;
+mod sections;
+mod space;
+mod styles;
+mod tables;
+
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+use crate::layout::{
+    ArtifactKind, BracketHint, Child, HAlign, ItemKind, ItemRef, LayoutDoc, LineEnd, NodeId,
+    NodeKind, Notice, PointHint, Rgb, VAlign,
+};
+use crate::model::{
+    Align, Block, Blocks, Columns, Document, Drawing, FirstLine, FontDecl, Footnote, Indent, Info,
+    Inline, Line, Media, PageMargins, PageNumbers, ParProps, Paragraph, Placement, Run, RunContent,
+    RunProps, Section, SectionProps, SectionStart, Settings, Spacing, Style, Toc, Twips, VertAlign,
+    Wrap,
+};
+
+use lists::Scheme;
+use sections::{fill_inherited, printed_number};
+use space::{Prev, SpaceKey, StrideKey, drop_opening_break, strides};
+
+pub const CODE_FONT_NOT_EMBEDDED: &str = "docx::font_not_embedded";
+pub const CODE_PLACE_ANCHORED: &str = "docx::place_anchored";
+pub const CODE_SHAPE_DROPPED: &str = "docx::shape_dropped";
+pub const CODE_INK_DROPPED: &str = "docx::ink_dropped";
+pub const CODE_LABEL_MISMATCH: &str = "docx::label_mismatch";
+pub const CODE_TOC_FROZEN: &str = "docx::toc_frozen";
+pub const CODE_HINT_UNCHECKED: &str = "docx::hint_unchecked";
+pub const CODE_COLUMNS_FLATTENED: &str = "docx::columns_flattened";
+pub const CODE_DIRECTION_DROPPED: &str = "docx::direction_dropped";
+pub const CODE_UNSTRUCTURED_TEXT: &str = "docx::unstructured_text";
+pub const CODE_PAGE_NUMBER_FROZEN: &str = "docx::page_number_frozen";
+pub const CODE_LINK_SCRIPT: &str = "docx::link_script";
+
+fn tw(pt: f64) -> Twips {
+    (pt * 20.0).round() as Twips
+}
+
+/// An empty paragraph `height` twips tall, at least one.
+fn spacer(height: Twips) -> Paragraph {
+    Paragraph {
+        props: ParProps {
+            spacing: Some(Spacing {
+                before: Some(0),
+                after: Some(0),
+                line: Some(Line::Exact(height.max(1))),
+            }),
+            ..ParProps::default()
+        },
+        content: Vec::new(),
+    }
+}
+
+fn hex(c: Rgb) -> String {
+    format!("{:02X}{:02X}{:02X}", c.0, c.1, c.2)
+}
+
+/// The Word document for `doc` and what the export carries less of.
+pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
+    let mut first = Lower::new(doc, HashMap::new());
+    first.document();
+    let usual = first
+        .measured
+        .into_iter()
+        .map(|(k, mut v)| {
+            v.sort_by(f64::total_cmp);
+            (k, v[v.len() / 2])
+        })
+        .collect();
+    let mut l = Lower::new(doc, usual);
+    let document = l.document();
+    let mut seen = HashSet::new();
+    let notices = doc
+        .notices
+        .iter()
+        .cloned()
+        .chain(l.notices())
+        .filter(|n| seen.insert((n.code.clone(), n.message.clone())))
+        .collect();
+    (document, notices)
+}
+
+impl<'a> Lower<'a> {
+    /// A lowering of `doc` that gives a paragraph Typst put at a page top
+    /// the `usual` space above paragraphs like it.
+    fn new(doc: &'a LayoutDoc, usual: HashMap<SpaceKey, f64>) -> Self {
+        let mut l = Lower {
+            doc,
+            consumed: HashSet::new(),
+            fonts: BTreeMap::new(),
+            unmapped: BTreeSet::new(),
+            numbering: Default::default(),
+            footnotes: Vec::new(),
+            notes: HashMap::new(),
+            media: Vec::new(),
+            media_of: HashMap::new(),
+            pending: Vec::new(),
+            z: 0,
+            break_pending: false,
+            prev: None,
+            placed: 0,
+            headings: BTreeSet::new(),
+            unlisted: BTreeSet::new(),
+            builtin: BTreeSet::new(),
+            toc_levels: BTreeSet::new(),
+            toc_prefixed: false,
+            frozen: 0,
+            label_prefix: None,
+            strides: strides(doc),
+            prev_bottom: None,
+            table_gap: None,
+            footer_floats: Vec::new(),
+            skip: HashSet::new(),
+            schemes: Vec::new(),
+            counters: HashMap::new(),
+            extra_styles: Vec::new(),
+            roles: BTreeMap::new(),
+            chrome_places: Vec::new(),
+            alt_names: BTreeMap::new(),
+            keep: false,
+            mismatches: 0,
+            untabbed: 0,
+            flattened: 0,
+            unstructured: 0,
+            numbered: HashSet::new(),
+            frozen_numbers: 0,
+            measured: HashMap::new(),
+            usual,
+        };
+        l.chrome_places = l.find_chrome_places();
+        l.numbered = l.numbered_runs();
+        l
+    }
+}
+
+#[derive(Clone, Default)]
+struct Ctx {
+    align: Option<HAlign>,
+    /// The x of the container's left edge, which indents are measured from.
+    left: f64,
+    /// The container's width, for centred chrome.
+    width: f64,
+    /// Inside a cell, text box or footnote: no space above the first line
+    /// and no page breaks.
+    nested: bool,
+    /// The page whose number chrome text prints.
+    page_number: Option<usize>,
+    list: Option<(u32, u8)>,
+    /// The `list` hint around: its scheme, its `w:num`, and whether it is
+    /// the scheme's first instance.
+    hint_list: Option<(usize, u32, bool)>,
+    /// Inside a table of contents entry at this level.
+    toc: Option<u8>,
+}
+
+struct Lower<'a> {
+    doc: &'a LayoutDoc,
+    consumed: HashSet<ItemRef>,
+    fonts: BTreeMap<String, FontDecl>,
+    unmapped: BTreeSet<String>,
+    numbering: crate::model::Numbering,
+    footnotes: Vec<Footnote>,
+    notes: HashMap<NodeId, usize>,
+    media: Vec<Media>,
+    media_of: HashMap<usize, usize>,
+    pending: Vec<(u32, Drawing)>,
+    z: u32,
+    break_pending: bool,
+    prev: Option<Prev>,
+    placed: usize,
+    headings: BTreeSet<u8>,
+    unlisted: BTreeSet<u8>,
+    /// Word's own paragraph styles in use, by id and name.
+    builtin: BTreeSet<(&'static str, &'static str)>,
+    toc_levels: BTreeSet<u8>,
+    /// An entry of the table of contents being lowered prints a page number
+    /// that is no plain numeral.
+    toc_prefixed: bool,
+    frozen: usize,
+    /// A printed list number the next paragraph opens with.
+    label_prefix: Option<String>,
+    /// The usual baseline stride of paragraphs of one face, size and leading.
+    strides: HashMap<StrideKey, f64>,
+    /// Where the last body paragraph's last line box ends.
+    prev_bottom: Option<(u32, f64)>,
+    /// The space a table just lowered needs above it, which the paragraph
+    /// before it carries as space after.
+    table_gap: Option<Twips>,
+    /// Bottom floats of the first page, which its footer holds and reserves.
+    footer_floats: Vec<NodeId>,
+    /// Ink a paragraph leaves out: the label a live number replaces.
+    skip: HashSet<ItemRef>,
+    schemes: Vec<Scheme>,
+    /// Per `w:num`, the count Word reaches at each level.
+    counters: HashMap<u32, [u64; 9]>,
+    /// The level styles of each scheme.
+    extra_styles: Vec<Style>,
+    /// Role style id to its name and the role after it.
+    roles: BTreeMap<String, (String, Option<String>)>,
+    /// Placed objects a `chrome` hint gives to a page: page, node, footer.
+    chrome_places: Vec<(usize, NodeId, bool)>,
+    /// A face's name for readers without it, from the quill's `font` hint.
+    alt_names: BTreeMap<String, String>,
+    /// A `keep` the paragraph before it has yet to take.
+    keep: bool,
+    mismatches: usize,
+    untabbed: usize,
+    /// In-flow column blocks written as one column.
+    flattened: usize,
+    unstructured: usize,
+    /// The text around a page number that chrome prints on more than one
+    /// number, which makes a chrome run holding the number a page number.
+    numbered: HashSet<(String, String)>,
+    frozen_numbers: usize,
+    /// The space above each paragraph that follows a paragraph on its page.
+    measured: HashMap<SpaceKey, Vec<f64>>,
+    /// The median of `measured`, from a first lowering.
+    usual: HashMap<SpaceKey, f64>,
+}
+
+impl<'a> Lower<'a> {
+    fn kind(&self, n: NodeId) -> &NodeKind {
+        &self.doc.nodes[n].kind
+    }
+
+    fn first_page(&self, n: NodeId) -> Option<u32> {
+        self.doc.nodes[n].frames.first().map(|f| f.0)
+    }
+
+    fn document(&mut self) -> Document {
+        let doc = self.doc;
+        let groups = self.section_pages();
+        let starts: Vec<SectionStart> = (0..groups.len())
+            .map(|s| self.section_start(&groups, s))
+            .collect();
+        let mut sections: Vec<Section> = Vec::new();
+        let mut bodies: Vec<Vec<Block>> = vec![Vec::new(); groups.len()];
+        let section_of = |page: u32| {
+            groups
+                .iter()
+                .position(|g| g.contains(&(page as usize)))
+                .unwrap_or(0)
+        };
+        let root = doc.nodes[0].children.clone();
+        let mut current = 0;
+        for c in root {
+            let page = match c {
+                Child::Node(n) => {
+                    if self.separator(n) {
+                        self.consume_subtree(n);
+                        continue;
+                    }
+                    if matches!(
+                        self.kind(n),
+                        NodeKind::Artifact {
+                            kind: ArtifactKind::Header
+                                | ArtifactKind::Footer
+                                | ArtifactKind::Background
+                                | ArtifactKind::PageNumber
+                        } | NodeKind::Footnote
+                    ) {
+                        continue;
+                    }
+                    self.first_page(n)
+                }
+                Child::Item(r) => Some(r.page),
+            };
+            let at = |s: usize| Ctx {
+                left: doc.pages[groups[s][0]].setup.margins.left,
+                ..Ctx::default()
+            };
+            if let Some(s) = self.pending.first().map(|d| section_of(d.0)) {
+                self.flush_pending(page, &mut bodies[s], &at(s));
+            }
+            if let Some(p) = page {
+                current = section_of(p);
+                let last = match c {
+                    Child::Node(n) => doc.nodes[n].frames.last().map(|f| f.0),
+                    Child::Item(r) => Some(r.page),
+                };
+                let to = last.map_or(current, section_of);
+                if to > current
+                    && starts[current + 1..=to] == vec![SectionStart::Continuous; to - current][..]
+                {
+                    current = to;
+                }
+            }
+            let ctx = at(current);
+            let blocks = self.child(&c, &ctx);
+            let mut late = false;
+            self.settle(&mut bodies[current], &mut late);
+            if late {
+                self.table_gap = None;
+                self.keep = false;
+            }
+            Self::append(&mut bodies[current], blocks);
+        }
+        if let Some(s) = self.pending.first().map(|d| section_of(d.0)) {
+            let ctx = Ctx {
+                left: doc.pages[groups[s][0]].setup.margins.left,
+                ..Ctx::default()
+            };
+            self.flush_pending(None, &mut bodies[s], &ctx);
+        }
+        for (body, start) in bodies.iter_mut().zip(&starts) {
+            if matches!(start, SectionStart::OddPage | SectionStart::EvenPage) {
+                drop_opening_break(body);
+            }
+        }
+        let roles = self.role_styles(&mut bodies);
+        self.extra_styles.extend(roles);
+        for f in self.fonts.values_mut() {
+            if let Some(alt) = self.alt_names.get(&f.name) {
+                f.alt_name = Some(alt.clone());
+            }
+        }
+        let mut headers = Vec::new();
+        let mut footers = Vec::new();
+        let mut had = [[false; 2]; 2];
+        let mut prev_number: Option<u64> = None;
+        for ((pages, body), start) in groups.iter().zip(bodies).zip(starts) {
+            let first = &doc.pages[pages[0]];
+            let s = first.setup;
+            let (mut header, mut footer, title_page) =
+                self.chrome(pages, &mut headers, &mut footers);
+            let [had_header, had_footer] = &mut had;
+            fill_inherited(&mut header, had_header, &mut headers);
+            fill_inherited(&mut footer, had_footer, &mut footers);
+            let format = printed_number(first).map(|p| p.format);
+            let restart = match prev_number {
+                Some(p) => p + 1 != first.number,
+                None => first.number != 1,
+            };
+            let page_numbers = format.map(|format| PageNumbers {
+                format,
+                start: restart.then_some(first.number as u32),
+            });
+            prev_number = Some(doc.pages[*pages.last().expect("a page")].number);
+            sections.push(Section {
+                body: Blocks::from_blocks(body),
+                props: SectionProps {
+                    header,
+                    footer,
+                    start,
+                    page_width: tw(first.size[0]),
+                    page_height: tw(first.size[1]),
+                    landscape: s.flipped,
+                    margins: PageMargins {
+                        top: tw(s.margins.top),
+                        right: tw(s.margins.right),
+                        bottom: tw(s.margins.bottom),
+                        left: tw(s.margins.left),
+                        header: tw((s.margins.top - s.header_ascent - 1.0).max(0.0)),
+                        footer: tw((s.margins.bottom - s.footer_descent - 1.0).max(0.0)),
+                    },
+                    page_numbers,
+                    columns: (s.columns > 1).then_some(Columns {
+                        count: s.columns,
+                        space: tw(s.gutter),
+                    }),
+                    title_page,
+                },
+            });
+        }
+        Document {
+            sections,
+            headers,
+            footers,
+            footnotes: std::mem::take(&mut self.footnotes),
+            styles: self.styles(),
+            numbering: std::mem::take(&mut self.numbering),
+            fonts: self.fonts.values().cloned().collect(),
+            media: std::mem::take(&mut self.media),
+            settings: Settings {
+                default_tab_stop: 720,
+                even_and_odd_headers: false,
+            },
+            info: Info {
+                title: doc.info.title.clone(),
+                language: doc.info.language.clone(),
+            },
+        }
+    }
+
+    fn child(&mut self, c: &Child, ctx: &Ctx) -> Vec<Block> {
+        match c {
+            Child::Node(n) => self.node(*n, ctx),
+            Child::Item(r) => self.loose_item(*r, ctx),
+        }
+    }
+
+    fn children(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Block> {
+        let kids = self.doc.nodes[n].children.clone();
+        let mut out = Vec::new();
+        let mut held: Option<(Option<Twips>, bool)> = None;
+        for c in &kids {
+            self.flush_pending(self.child_page(c), &mut out, ctx);
+            let blocks = self.child(c, ctx);
+            let mut late = false;
+            self.settle(&mut out, &mut late);
+            if late {
+                let (gap, keep) = held.get_or_insert((None, false));
+                *gap = self.table_gap.take().or(*gap);
+                *keep |= std::mem::take(&mut self.keep);
+            }
+            Self::append(&mut out, blocks);
+        }
+        if let Some((gap, keep)) = held {
+            self.table_gap = gap;
+            self.keep = keep;
+        }
+        out
+    }
+
+    fn loose_item(&mut self, r: ItemRef, ctx: &Ctx) -> Vec<Block> {
+        match &self.doc.item(r).kind {
+            ItemKind::Mark(PointHint::Keep) => {
+                self.consumed.insert(r);
+                self.keep = true;
+                Vec::new()
+            }
+            ItemKind::Mark(PointHint::Font { family, alt }) => {
+                self.consumed.insert(r);
+                self.alt_names.insert(family.clone(), alt.clone());
+                Vec::new()
+            }
+            ItemKind::Mark(PointHint::Break { .. }) => {
+                self.consumed.insert(r);
+                if !ctx.nested {
+                    self.break_pending = true;
+                }
+                Vec::new()
+            }
+            ItemKind::Shape(shape) => {
+                self.consumed.insert(r);
+                let decoration = matches!(
+                    self.kind(self.doc.item(r).node),
+                    NodeKind::Underline | NodeKind::Strike | NodeKind::Highlight { .. }
+                );
+                if !decoration {
+                    let drawing = self.shape(shape);
+                    self.pending.push((r.page, drawing));
+                }
+                Vec::new()
+            }
+            ItemKind::Image { .. } | ItemKind::Raster { .. } => {
+                self.consumed.insert(r);
+                let (image, rect, alt) = match &self.doc.item(r).kind {
+                    ItemKind::Image { image, rect, alt } => (*image, *rect, alt.clone()),
+                    ItemKind::Raster { image, rect, alt } => (*image, *rect, alt.clone()),
+                    _ => unreachable!(),
+                };
+                let rect = &rect;
+                let drawing = self.picture(image, *rect, alt, Placement::Inline);
+                let mut p = Paragraph {
+                    props: self.par_frame(ctx, None, None, r.page, rect.y1, rect.height(), true),
+                    content: vec![Inline::Run(Run {
+                        props: RunProps::default(),
+                        content: vec![RunContent::Drawing(drawing)],
+                    })],
+                };
+                let node = self.doc.item(r).node;
+                p.props.align = match ctx.align.or(self.par_style(node).map(|s| s.align)) {
+                    Some(HAlign::Center) => Some(Align::Center),
+                    Some(HAlign::End) => Some(Align::End),
+                    _ => None,
+                };
+                self.apply_break(&mut p, r.page, ctx);
+                self.prev = Some(Prev::Bottom(r.page, rect.y1));
+                vec![Block::Paragraph(p)]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn node(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Block> {
+        let kind = self.kind(n).clone();
+        if kind == NodeKind::Unstructured && !self.doc.nodes[n].lines.is_empty() {
+            let lines = self.doc.nodes[n].lines.clone();
+            self.unstructured += lines.len();
+            return lines
+                .into_iter()
+                .filter_map(|line| {
+                    let line = crate::layout::Line {
+                        end: LineEnd::Last,
+                        ..line
+                    };
+                    self.paragraph_of(n, vec![line], ctx)
+                })
+                .map(Block::Paragraph)
+                .collect();
+        }
+        if kind.forms_paragraph() && !self.doc.nodes[n].lines.is_empty() {
+            return self
+                .paragraph(n, ctx)
+                .into_iter()
+                .map(Block::Paragraph)
+                .collect();
+        }
+        match kind {
+            NodeKind::Hint(BracketHint::List { name, levels }) => {
+                let list = self.scheme(&name, &levels);
+                let ctx = Ctx {
+                    hint_list: Some(list),
+                    ..ctx.clone()
+                };
+                self.children(n, &ctx)
+            }
+            NodeKind::Table { .. } if self.tabbed_grid(n) => match self.tabbed(n, ctx) {
+                Some(blocks) => blocks,
+                None => {
+                    self.untabbed += 1;
+                    vec![Block::Table(self.table(n, ctx))]
+                }
+            },
+            NodeKind::Table { .. } => vec![Block::Table(self.table(n, ctx))],
+            NodeKind::List { .. } => self.list(n, ctx),
+            NodeKind::Block {
+                sticky, breakable, ..
+            } => {
+                let mut blocks = self.children(n, ctx);
+                let count = blocks.len();
+                for (i, b) in blocks.iter_mut().enumerate() {
+                    if let Block::Paragraph(p) = b {
+                        if !breakable {
+                            p.props.keep_lines = true;
+                            if i + 1 < count {
+                                p.props.keep_next = true;
+                            }
+                        }
+                        if sticky && i + 1 == count {
+                            p.props.keep_next = true;
+                        }
+                    }
+                }
+                blocks
+            }
+            NodeKind::Align { h } => {
+                let ctx = Ctx {
+                    align: Some(h),
+                    ..ctx.clone()
+                };
+                self.children(n, &ctx)
+            }
+            NodeKind::Columns { count, .. } if count > 1 => {
+                self.flattened += 1;
+                self.children(n, ctx)
+            }
+            NodeKind::Artifact {
+                kind: ArtifactKind::Other,
+            } if self.doc.nodes[n].parent == Some(0) => {
+                let drawings = self.text_box(n, ctx);
+                self.placed += drawings.len();
+                let page = self.first_page(n).unwrap_or_default();
+                self.pending.extend(drawings.into_iter().map(|d| (page, d)));
+                Vec::new()
+            }
+            NodeKind::Place { float, valign } => {
+                if self.chrome_places.iter().any(|c| c.1 == n) {
+                    return Vec::new();
+                }
+                if float && valign == Some(VAlign::Bottom) && self.first_page(n) == Some(0) {
+                    self.footer_floats.push(n);
+                    return Vec::new();
+                }
+                let mut drawings = self.text_box(n, ctx);
+                if float {
+                    if let Some(Placement::Anchor(a)) =
+                        drawings.first_mut().map(|d| &mut d.placement)
+                    {
+                        a.wrap = Wrap::TopAndBottom;
+                    }
+                } else {
+                    self.placed += 1;
+                }
+                let page = self.first_page(n).unwrap_or_default();
+                self.pending.extend(drawings.into_iter().map(|d| (page, d)));
+                Vec::new()
+            }
+            NodeKind::ListLabel => {
+                self.consume_subtree(n);
+                Vec::new()
+            }
+            NodeKind::Toc { depth } => self.toc(n, depth, ctx),
+            NodeKind::Figure => {
+                let mut blocks = self.children(n, ctx);
+                let body = blocks.len().saturating_sub(1);
+                for b in &mut blocks[..body] {
+                    if let Block::Paragraph(p) = b {
+                        p.props.keep_next = true;
+                    }
+                }
+                blocks
+            }
+            NodeKind::TocEntry { level } => {
+                let ctx = Ctx {
+                    toc: Some(level),
+                    ..ctx.clone()
+                };
+                self.children(n, &ctx)
+            }
+            _ => self.children(n, ctx),
+        }
+    }
+
+    /// A table of contents: its title paragraphs, then one field whose
+    /// stored result is its entries.
+    fn toc(&mut self, n: NodeId, depth: Option<u8>, ctx: &Ctx) -> Vec<Block> {
+        let mut before = Vec::new();
+        let mut entries = Vec::new();
+        let mut after = Vec::new();
+        self.toc_prefixed = false;
+        for c in self.doc.nodes[n].children.clone() {
+            let entry = matches!(c, Child::Node(m) if self.doc.subtree(m).iter().any(|&e| {
+                matches!(self.kind(e), NodeKind::TocEntry { .. })
+            }));
+            let blocks = self.child(&c, ctx);
+            if entry {
+                entries.extend(blocks.into_iter().filter_map(|b| match b {
+                    Block::Paragraph(p) => Some(p),
+                    _ => None,
+                }));
+            } else if entries.is_empty() {
+                before.extend(blocks);
+            } else {
+                after.extend(blocks);
+            }
+        }
+        if entries.is_empty() {
+            before.extend(after);
+            return before;
+        }
+        let locked = self.toc_prefixed;
+        self.frozen += locked as usize;
+        before.push(Block::Toc(Toc {
+            instruction: format!(
+                "TOC \\o \"1-{}\" \\h \\z \\u",
+                depth.unwrap_or(9).clamp(1, 9)
+            ),
+            locked,
+            entries,
+        }));
+        before.extend(after);
+        before
+    }
+
+    fn consume_subtree(&mut self, n: NodeId) {
+        for m in self.doc.subtree(n) {
+            for c in &self.doc.nodes[m].children {
+                if let Child::Item(r) = c {
+                    self.consumed.insert(*r);
+                }
+            }
+        }
+    }
+
+    /// Whether `n` is the rule Typst draws above a page's footnotes: an
+    /// artifact that is not chrome, holding only shapes, on a page with a
+    /// footnote. Word draws its own.
+    fn separator(&self, n: NodeId) -> bool {
+        let NodeKind::Artifact {
+            kind: ArtifactKind::Other,
+        } = self.kind(n)
+        else {
+            return false;
+        };
+        let page = self.first_page(n);
+        let footnoted = self.doc.nodes[0].children.iter().any(|c| {
+            matches!(c, Child::Node(f) if matches!(self.kind(*f), NodeKind::Footnote)
+                && self.first_page(*f) == page)
+        });
+        let shapes_only = self.doc.subtree(n).iter().all(|&m| {
+            self.doc.nodes[m].children.iter().all(|c| match c {
+                Child::Item(r) => matches!(self.doc.item(*r).kind, ItemKind::Shape(_)),
+                Child::Node(_) => true,
+            })
+        });
+        footnoted && shapes_only
+    }
+
+    fn child_page(&self, c: &Child) -> Option<u32> {
+        match c {
+            Child::Node(n) => self.first_page(*n),
+            Child::Item(r) => Some(r.page),
+        }
+    }
+
+    fn footnote(&mut self, note: NodeId) -> usize {
+        if let Some(&i) = self.notes.get(&note) {
+            return i;
+        }
+        let i = self.footnotes.len();
+        self.notes.insert(note, i);
+        self.footnotes.push(Footnote {
+            body: Blocks::default(),
+        });
+        let saved = (
+            self.prev,
+            self.break_pending,
+            std::mem::take(&mut self.pending),
+        );
+        let page = self.first_page(note).unwrap_or(0) as usize;
+        let left = self
+            .doc
+            .pages
+            .get(page)
+            .map_or(0.0, |p| p.setup.margins.left);
+        let ctx = Ctx {
+            nested: true,
+            left,
+            ..Ctx::default()
+        };
+        let number = self.doc.nodes[note].children.iter().find_map(|c| match c {
+            Child::Node(m) if matches!(self.kind(*m), NodeKind::ListLabel) => Some(*m),
+            _ => None,
+        });
+        let indent = number
+            .and_then(|m| self.doc.nodes[m].frames.first())
+            .map(|f| f.1.x0 - left);
+        let mut blocks = self.children(note, &ctx);
+        if let Some(Block::Paragraph(p)) = blocks.first_mut() {
+            if let Some(x) = indent.filter(|x| x.abs() >= 0.25) {
+                p.props.indent = Some(Indent {
+                    left: None,
+                    right: None,
+                    first: Some(FirstLine::Indent(tw(x))),
+                });
+            }
+            p.content.insert(
+                0,
+                Inline::Run(Run {
+                    props: RunProps {
+                        vert: Some(VertAlign::Superscript),
+                        ..RunProps::default()
+                    },
+                    content: vec![RunContent::FootnoteMark],
+                }),
+            );
+            p.content.insert(
+                1,
+                Inline::Run(Run {
+                    props: RunProps::default(),
+                    content: vec![RunContent::Text(" ".into())],
+                }),
+            );
+        }
+        self.footnotes[i].body = Blocks::from_blocks(blocks);
+        (self.prev, self.break_pending, self.pending) = saved;
+        i
+    }
+}
