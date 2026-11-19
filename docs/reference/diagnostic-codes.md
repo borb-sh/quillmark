@@ -231,8 +231,11 @@ Opening a Typst quill and compiling its plate.
 
 A Word export. Each warns that the Word file carries less than the PDF shows; none says that Word lays the document out differently, which is expected.
 
+- `docx::columns_flattened`: a `columns` block within the flow, rather than a page's `columns`, is written as one column.
+- `docx::direction_dropped`: a paragraph holds right-to-left text, and the Word file marks no paragraph or run as right to left.
 - `docx::equation_text`: an equation that wraps across lines keeps its glyphs as text, set in their face and size, rather than being one picture.
 - `docx::font_not_embedded`: a font with no metric-compatible Word face is named without being embedded, so Word substitutes another where it is not installed.
+- `docx::form_field_declined`: a form or signature field, which the PDF carries as a widget, is left out of the Word file.
 - `docx::label_mismatch`: a paragraph number a `label` hint marks is not the number Word would count, so it stays as printed text.
 - `docx::link_internal`: a link goes to a place in the document rather than to a URL, so its text is kept without the link.
 - `docx::link_script`: a link's target is a `javascript:` URL, so its text is kept without the link.
@@ -245,7 +248,7 @@ A Word export. Each warns that the Word file carries less than the PDF shows; no
 - `docx::page_number_frozen`: a page number that chrome prints is not literal text around a number Word can count in one of its formats, so it stays as printed text and does not follow the page.
 - `docx::picture_failed`: a group that needs to be carried as a picture could not be drawn as one, so its ink is read as it is laid out, unrotated and unclipped.
 - `docx::place_anchored`: placed content is a text box anchored to the page, so it does not move with the text around it.
-- `docx::probes_disabled`: the probed compile did not lay out the document's ink, so the Word file is read without its probes.
+- `docx::probes_disabled`: the probed compile did not lay out the document's ink, so the Word file is read without its probes. A `linebreak(justify: true)` does this, since the line break probe cannot keep its `justify`.
 - `docx::rasterized`: an equation, a curve, a gradient or pattern paint, an image that is neither PNG nor JPEG, or a rotated, skewed, mirrored, unevenly scaled or clipped group is carried as a picture of its ink where it shows on the page, at 300 dpi or at the density that keeps its longer side within a PNG render's limit.
 - `docx::shape_dropped`: a drawn line or box that no table border, text decoration or footnote rule explains is left out.
 - `docx::toc_frozen`: a table of contents prints page numbers with a prefix Word's `PAGE` field cannot print, so its field is locked against an update.

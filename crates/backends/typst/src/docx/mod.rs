@@ -15,6 +15,7 @@ use typst_layout::PagedDocument;
 use crate::world::QuillWorld;
 
 const CODE_PROBES_DISABLED: &str = "docx::probes_disabled";
+const CODE_FORM_FIELD_DECLINED: &str = "docx::form_field_declined";
 
 /// The probed compile of `world` when its ink equals `live`'s, else `None`
 /// and the `docx::probes_disabled` warning.
@@ -38,16 +39,32 @@ pub(crate) fn probed(
         })
 }
 
-/// The `.docx` bytes for `live` and the warnings the export raises.
+/// The `.docx` bytes for `live`, whose PDF carries `fields` as widgets, and
+/// the warnings the export raises.
 pub(crate) fn export(
     live: &PagedDocument,
     world: &QuillWorld,
     title: Option<String>,
+    fields: &[quillmark_pdf::FieldSpec],
 ) -> (Vec<u8>, Vec<Diagnostic>) {
     let (doc, mut warnings) = match probed(live, world) {
         Ok(doc) => (read::read(&doc, world, title), Vec::new()),
         Err(warning) => (read::read(live, world, title), vec![warning]),
     };
+    let names: std::collections::BTreeSet<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+    if !names.is_empty() {
+        warnings.push(
+            Diagnostic::new(
+                Severity::Warning,
+                format!(
+                    "{} form or signature field(s) the PDF carries as widgets have no Word \
+                     counterpart and are left out",
+                    names.len()
+                ),
+            )
+            .with_code(CODE_FORM_FIELD_DECLINED.to_string()),
+        );
+    }
     let (word, notices) = quillmark_docx::lower::lower(&doc);
     warnings.extend(
         notices

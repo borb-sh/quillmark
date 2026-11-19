@@ -31,6 +31,8 @@ pub const CODE_INK_DROPPED: &str = "docx::ink_dropped";
 pub const CODE_LABEL_MISMATCH: &str = "docx::label_mismatch";
 pub const CODE_TOC_FROZEN: &str = "docx::toc_frozen";
 pub const CODE_HINT_UNCHECKED: &str = "docx::hint_unchecked";
+pub const CODE_COLUMNS_FLATTENED: &str = "docx::columns_flattened";
+pub const CODE_DIRECTION_DROPPED: &str = "docx::direction_dropped";
 pub const CODE_UNSTRUCTURED_TEXT: &str = "docx::unstructured_text";
 pub const CODE_PAGE_NUMBER_FROZEN: &str = "docx::page_number_frozen";
 pub const CODE_LINK_SCRIPT: &str = "docx::link_script";
@@ -159,6 +161,7 @@ impl<'a> Lower<'a> {
             keep: false,
             mismatches: 0,
             untabbed: 0,
+            flattened: 0,
             unstructured: 0,
             numbered: HashSet::new(),
             frozen_numbers: 0,
@@ -256,6 +259,8 @@ struct Lower<'a> {
     keep: bool,
     mismatches: usize,
     untabbed: usize,
+    /// In-flow column blocks written as one column.
+    flattened: usize,
     unstructured: usize,
     /// The text around a page number that chrome prints on more than one
     /// number, which makes a chrome run holding the number a page number.
@@ -675,6 +680,25 @@ impl Lower<'_> {
                 ),
             });
         }
+        if self.flattened > 0 {
+            out.push(Notice {
+                code: CODE_COLUMNS_FLATTENED.into(),
+                message: format!(
+                    "{} block(s) set in columns within the flow are written as one column",
+                    self.flattened
+                ),
+            });
+        }
+        let rtl = self.right_to_left();
+        if rtl > 0 {
+            out.push(Notice {
+                code: CODE_DIRECTION_DROPPED.into(),
+                message: format!(
+                    "{rtl} paragraph(s) hold right-to-left text, which the Word file sets with \
+                     no text direction"
+                ),
+            });
+        }
         let misused = self.misused_hints();
         if misused > 0 {
             out.push(Notice {
@@ -1034,6 +1058,10 @@ impl Lower<'_> {
                     ..ctx.clone()
                 };
                 self.children(n, &ctx)
+            }
+            NodeKind::Columns { count, .. } if count > 1 => {
+                self.flattened += 1;
+                self.children(n, ctx)
             }
             NodeKind::Artifact {
                 kind: ArtifactKind::Other,
@@ -1694,6 +1722,24 @@ impl Lower<'_> {
             .subtree(n)
             .into_iter()
             .find_map(|m| role(self.kind(m)))
+    }
+
+    /// The paragraphs whose text holds a right-to-left letter.
+    fn right_to_left(&self) -> usize {
+        let rtl = |c: char| {
+            matches!(c as u32,
+                0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFC | 0x10800..=0x10FFF
+                    | 0x1E800..=0x1EFFF)
+        };
+        self.doc
+            .nodes
+            .iter()
+            .filter(|n| {
+                n.lines.iter().flat_map(|l| &l.items).any(|r| {
+                    matches!(&self.doc.item(*r).kind, ItemKind::Text(t) if t.text.chars().any(rtl))
+                })
+            })
+            .count()
     }
 
     /// The `label` hints outside any `list`, and the `layout` and `chrome`

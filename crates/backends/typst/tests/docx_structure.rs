@@ -1040,3 +1040,35 @@ fn a_hint_on_what_it_cannot_apply_to_is_reported() {
          #hints.hint(\"label\", level: 1, value: 1)[1.#h(4pt)]In a list.\n]"
     ));
 }
+
+#[test]
+fn form_and_signature_fields_are_reported_as_left_out() {
+    let w = render(&format!(
+        "{PAGE}Name: #qm.form-field(\"name\", type: \"text\", value: \"Ann\")\n\n\
+         Signed: #qm.form-field(\"sig\", type: \"signature\")\n"
+    ));
+    assert!(w.has("docx::form_field_declined"), "{:?}", w.codes);
+    assert!(!render(&format!("{PAGE}No fields.\n")).has("docx::form_field_declined"));
+}
+
+#[test]
+fn columns_in_the_flow_are_reported_as_one_column() {
+    let w = render(&format!(
+        "{PAGE}Before.\n\n#columns(2)[Left column text.\n#colbreak()\nRight column text.]\n"
+    ));
+    assert!(w.has("docx::columns_flattened"), "{:?}", w.codes);
+    assert_eq!(w.sections().len(), 1);
+    assert!(!render(&format!("{PAGE}#columns(1)[One.]\n")).has("docx::columns_flattened"));
+}
+
+#[test]
+fn right_to_left_text_is_reported() {
+    let w = word::render_hosted(&format!(
+        "{PAGE}Left to right.\n\n#text(font: \"Liberation Mono\", lang: \"he\")[\u{5e9}\u{5dc}\u{5d5}\u{5dd}]\n"
+    ));
+    assert!(w.texts().iter().any(|t| t.contains('\u{5e9}')));
+    assert!(w.has("docx::direction_dropped"), "{:?}", w.codes);
+    assert!(
+        !word::render_hosted(&format!("{PAGE}Left to right.\n")).has("docx::direction_dropped")
+    );
+}

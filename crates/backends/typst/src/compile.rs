@@ -183,8 +183,9 @@ fn export_pdf(
     Ok((pdf, warnings))
 }
 
-/// `field_specs` are stamped as AcroForm widgets by the PDF path only, and the
-/// title is written by the PDF and DOCX paths.
+/// `field_specs` are stamped as AcroForm widgets by the PDF path only, and
+/// reported as left out by the DOCX path; the title is written by the PDF and
+/// DOCX paths.
 pub(crate) fn render_document_pages(
     document: &PagedDocument,
     opts: &quillmark_core::types::RenderOptions,
@@ -243,7 +244,7 @@ pub(crate) fn render_document_pages(
                 .title
                 .as_ref()
                 .map(|t| t.to_string());
-            let (bytes, warnings) = crate::docx::export(document, world, title);
+            let (bytes, warnings) = crate::docx::export(document, world, title, field_specs);
             let mut result = RenderResult::new(
                 vec![Artifact::new(bytes, OutputFormat::Docx)],
                 OutputFormat::Docx,
