@@ -409,7 +409,6 @@ impl Lower<'_> {
         };
         let root = doc.nodes[0].children.clone();
         let mut current = 0;
-        let mut root_late = false;
         for c in root {
             let page = match c {
                 Child::Node(n) => {
@@ -454,7 +453,12 @@ impl Lower<'_> {
             }
             let ctx = at(current);
             let blocks = self.child(&c, &ctx);
-            self.settle(&mut bodies[current], &mut root_late);
+            let mut late = false;
+            self.settle(&mut bodies[current], &mut late);
+            if late {
+                self.table_gap = None;
+                self.keep = false;
+            }
             Self::append(&mut bodies[current], blocks);
         }
         if let Some(s) = self.pending.first().map(|d| section_of(d.0)) {
@@ -888,12 +892,22 @@ impl Lower<'_> {
     fn children(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Block> {
         let kids = self.doc.nodes[n].children.clone();
         let mut out = Vec::new();
-        let mut late = false;
+        let mut held: Option<(Option<Twips>, bool)> = None;
         for c in &kids {
             self.flush_pending(self.child_page(c), &mut out, ctx);
             let blocks = self.child(c, ctx);
+            let mut late = false;
             self.settle(&mut out, &mut late);
+            if late {
+                let (gap, keep) = held.get_or_insert((None, false));
+                *gap = self.table_gap.take().or(*gap);
+                *keep |= std::mem::take(&mut self.keep);
+            }
             Self::append(&mut out, blocks);
+        }
+        if let Some((gap, keep)) = held {
+            self.table_gap = gap;
+            self.keep = keep;
         }
         out
     }
@@ -902,7 +916,8 @@ impl Lower<'_> {
     /// space a table needs above it, as that paragraph's space after, or as
     /// a spacer paragraph of that height after a table or contents. When
     /// nothing comes before it at this level, the request is `late` and
-    /// belongs to the level above.
+    /// belongs to the level above, and the children after it settle their
+    /// own.
     fn settle(&mut self, before: &mut Vec<Block>, late: &mut bool) {
         if *late || (self.table_gap.is_none() && !self.keep) {
             return;

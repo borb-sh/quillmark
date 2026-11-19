@@ -705,6 +705,35 @@ fn the_memo_heading_stack_keeps_each_blank_line() {
     );
 }
 
+/// An indorsement heading as plain Typst: a block that keeps two grids a
+/// blank line apart, set a gap below the line before it.
+const INDORSEMENT: &str = "#set page(width: 612pt, height: 792pt, margin: 72pt)\n\
+     #set text(font: \"TeX Gyre Termes\", size: 12pt)\n\
+     #set par(leading: 0.5em, spacing: 0pt)\n\
+     #set block(spacing: 0pt)\n\
+     Last line.\n\
+     #v(40pt)\n\
+     #block(breakable: false, sticky: true)[\
+     #grid(columns: (auto, 1fr), [1st Ind, 123 OG/CC], align(right)[14 November 2026])\n\
+     #v(13.95pt)\n\
+     #grid(columns: (auto, auto, 1fr), [MEMORANDUM FOR], \"  \", [123 CS/SCX])]\n\
+     #v(13.95pt)\n\
+     Body text.\n";
+
+#[test]
+fn two_grids_in_a_block_keep_the_gap_above_the_block_and_between_them() {
+    let w = word::render_hosted(INDORSEMENT);
+    gaps(
+        &w,
+        &word::hosted(INDORSEMENT),
+        &[
+            ("Last line.", "1st Ind, 123 OG/CC"),
+            ("1st Ind, 123 OG/CC", "MEMORANDUM FOR"),
+            ("MEMORANDUM FOR", "Body text."),
+        ],
+    );
+}
+
 /// The `w:gridCol` widths of the table holding `text`, and its tab stops
 /// and hanging indent when `text` is a tabbed paragraph instead.
 fn grid_of(xml: &str, text: &str) -> Vec<i64> {
