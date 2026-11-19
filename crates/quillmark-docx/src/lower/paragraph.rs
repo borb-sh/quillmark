@@ -10,7 +10,7 @@ use crate::model::{
 use crate::notice::Code;
 
 use super::sections::is_roman;
-use super::space::Prev;
+use super::space::{Entry, line_props};
 use super::styles::style_id;
 use super::{Ctx, Lower, hex, tw};
 
@@ -132,7 +132,7 @@ pub(super) fn merge(items: Vec<(Option<String>, Inline)>) -> Vec<Inline> {
 }
 
 impl<'a> Lower<'a> {
-    pub(super) fn paragraph(&mut self, n: NodeId, ctx: &Ctx) -> Option<Paragraph> {
+    pub(super) fn paragraph(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Entry> {
         let lines = self.doc.nodes[n].lines.clone();
         self.paragraph_of(n, lines, ctx)
     }
@@ -154,15 +154,17 @@ impl<'a> Lower<'a> {
 
     /// One Word paragraph of some of `n`'s lines: all of them, or one line
     /// of text no element tags. The objects and number the node holds go
-    /// with its first line.
+    /// with its first line, after the drawings it anchors.
     pub(super) fn paragraph_of(
         &mut self,
         n: NodeId,
         lines: Vec<crate::layout::Line>,
         ctx: &Ctx,
-    ) -> Option<Paragraph> {
+    ) -> Vec<Entry> {
         let node = &self.doc.nodes[n];
-        let first = lines.first()?;
+        let Some(first) = lines.first() else {
+            return Vec::new();
+        };
         let opens = node.lines.first().is_some_and(|l| l.items == first.items);
         let first_x = first.x0;
         let kind = node.kind.clone();
@@ -171,15 +173,7 @@ impl<'a> Lower<'a> {
         let tall = lines.iter().flat_map(|l| &l.items).any(|r| {
             matches!(&self.doc.item(*r).kind, ItemKind::Raster { rect, .. } if rect.height() > pitch)
         });
-        let mut props = self.par_frame(
-            ctx,
-            Some(n),
-            style,
-            first.page,
-            first.baseline,
-            pitch,
-            false,
-        );
+        let mut props = line_props(pitch, false);
         if tall {
             if let Some(sp) = props.spacing.as_mut() {
                 sp.line = Some(Line::Auto(240));
@@ -280,13 +274,13 @@ impl<'a> Lower<'a> {
         if let Some((num, level)) = ctx.list {
             props.numbering = Some(NumRef { level, num });
         }
+        let mut out = Vec::new();
         if opens {
-            self.inline_shapes(n);
+            out = self.inline_shapes(n);
             for place in self.inline_places(n) {
                 let drawings = self.text_box(place, ctx);
                 self.tally.count(Code::PlaceAnchored, "", 1);
-                self.pending
-                    .extend(drawings.into_iter().map(|d| (first.page, d)));
+                out.extend(drawings.into_iter().map(|d| Entry::Drawing(first.page, d)));
             }
         }
         let label = self.label_in(n).filter(|_| opens);
@@ -353,14 +347,10 @@ impl<'a> Lower<'a> {
                 }),
             );
         }
-        let mut para = Paragraph { props, content };
-        self.apply_break(&mut para, first.page, ctx);
         let last = lines.last().expect("a line");
-        self.prev = Some(Prev::Baseline(last.page, last.baseline));
-        if !ctx.nested {
-            self.prev_bottom = Some((last.page, last.baseline + 0.2 * pitch));
-        }
-        Some(para)
+        let at = self.placed(n, ctx, style, first, last, pitch);
+        out.push(Entry::Par(Paragraph { props, content }, at));
+        out
     }
 
     /// The first `label` hint among `n`'s inline content.

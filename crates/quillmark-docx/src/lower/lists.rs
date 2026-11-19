@@ -1,9 +1,10 @@
 use crate::layout::{Child, HintLevel, ItemKind, Marker, NodeId, NodeKind, NumberFormat};
 use crate::model::{
-    AbstractNum, Align, Block, FirstLine, Indent, Level, LevelSuffix, Num, NumFormat, NumRef,
-    ParProps, RunProps, Style, TabKind, TabLeader, TabStop,
+    AbstractNum, Align, FirstLine, Indent, Level, LevelSuffix, Num, NumFormat, NumRef, ParProps,
+    RunProps, Style, TabKind, TabLeader, TabStop,
 };
 
+use super::space::Entry;
 use super::styles::style_id;
 use super::{Ctx, Lower, tw};
 
@@ -147,7 +148,7 @@ impl<'a> Lower<'a> {
         (self.schemes.len() - 1, num, true)
     }
 
-    pub(super) fn list(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Block> {
+    pub(super) fn list(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Entry> {
         let (num, level) = match ctx.list {
             Some((num, level)) => (num, (level + 1).min(8)),
             None => {
@@ -252,7 +253,7 @@ impl<'a> Lower<'a> {
         out
     }
 
-    pub(super) fn list_child(&mut self, c: &Child, ctx: &Ctx, left: f64) -> Vec<Block> {
+    pub(super) fn list_child(&mut self, c: &Child, ctx: &Ctx, left: f64) -> Vec<Entry> {
         let Child::Node(m) = c else {
             return self.child(c, ctx);
         };
@@ -274,7 +275,7 @@ impl<'a> Lower<'a> {
                         ctx.clone()
                     };
                     let produced = self.child(k, &inner);
-                    numbered |= produced.iter().any(|b| matches!(b, Block::Paragraph(_)));
+                    numbered |= produced.iter().any(|e| matches!(e, Entry::Par(..)));
                     blocks.extend(produced);
                 }
                 blocks
@@ -300,7 +301,7 @@ impl<'a> Lower<'a> {
 
     /// A child of a list whose numbers stay as printed: each label's text
     /// opens the paragraph of the body after it, with a tab between.
-    pub(super) fn printed_child(&mut self, c: &Child, ctx: &Ctx) -> Vec<Block> {
+    pub(super) fn printed_child(&mut self, c: &Child, ctx: &Ctx) -> Vec<Entry> {
         let Child::Node(m) = c else {
             return self.child(c, ctx);
         };

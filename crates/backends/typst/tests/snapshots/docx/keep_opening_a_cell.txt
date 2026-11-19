@@ -7,7 +7,7 @@ Document {
                         Paragraph {
                             props: ParProps {
                                 style: None,
-                                keep_next: true,
+                                keep_next: false,
                                 keep_lines: false,
                                 page_break_before: false,
                                 widow_control: None,

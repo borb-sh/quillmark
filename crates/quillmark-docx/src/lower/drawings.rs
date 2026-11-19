@@ -7,6 +7,7 @@ use crate::model::{
 };
 
 use super::paragraph::read_into;
+use super::space::{self, Entry};
 use super::{Ctx, Lower, hex};
 
 pub(super) const EMU_PER_PT: f64 = 12700.0;
@@ -74,17 +75,19 @@ impl<'a> Lower<'a> {
 
     /// The shapes inside `n`'s inline content that no decoration explains,
     /// which a paragraph holds as anchored drawings.
-    pub(super) fn inline_shapes(&mut self, n: NodeId) {
+    pub(super) fn inline_shapes(&mut self, n: NodeId) -> Vec<Entry> {
         let kids = self.doc.nodes[n].children.clone();
+        let mut out = Vec::new();
         for c in kids {
             match c {
                 Child::Item(r) if matches!(self.doc.item(r).kind, ItemKind::Shape(_)) => {
-                    self.loose_item(r, &Ctx::default());
+                    out.extend(self.loose_item(r, &Ctx::default()));
                 }
-                Child::Node(m) if read_into(self.kind(m)) => self.inline_shapes(m),
+                Child::Node(m) if read_into(self.kind(m)) => out.extend(self.inline_shapes(m)),
                 _ => {}
             }
         }
+        out
     }
 
     /// `n`'s content as a page-anchored text box where its ink sits, then
@@ -125,29 +128,19 @@ impl<'a> Lower<'a> {
             HAlign::Start => (rect.x0, rect.width() + 2.0, false),
             _ => (col_left, col_width, true),
         };
-        let saved = (
-            self.prev,
-            self.break_pending,
-            std::mem::take(&mut self.pending),
-        );
-        self.prev = None;
         let inner = Ctx {
-            nested: true,
             left: x,
             width,
             align: ctx.align,
             page_number: ctx.page_number,
             ..Ctx::default()
         };
-        let blocks = match self.kind(n) {
+        let entries = match self.kind(n) {
             NodeKind::Place { .. } | NodeKind::Artifact { .. } => self.children(n, &inner),
             _ => self.node(n, &inner),
         };
-        let inner_boxes: Vec<Drawing> = std::mem::take(&mut self.pending)
-            .into_iter()
-            .map(|(_, d)| d)
-            .collect();
-        (self.prev, self.break_pending, self.pending) = saved;
+        let (blocks, inner) = space::nested(entries);
+        let inner_boxes: Vec<Drawing> = inner.into_iter().map(|(_, d)| d).collect();
         let has_content = blocks.iter().any(|b| match b {
             Block::Paragraph(p) => !p.content.is_empty(),
             _ => true,

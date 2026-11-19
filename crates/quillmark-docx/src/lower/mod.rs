@@ -6,6 +6,11 @@
 //! numbers: indents, spacing, line pitch, widths. Chrome and placed content
 //! become page-anchored text boxes. Every text and image item the walk does
 //! not place is counted under `docx::ink_dropped`.
+//!
+//! The walk yields each scope (the body, a cell, a text box, a footnote) as a
+//! flat list of entries in reading order, and one pass over that list decides
+//! what depends on a neighbour: the space above a paragraph, the gap above a
+//! table, keeps, page breaks, and the paragraph a drawing is anchored in.
 
 mod drawings;
 mod lists;
@@ -23,8 +28,8 @@ use crate::layout::{
     NodeKind, Notice, PointHint, Rgb, VAlign,
 };
 use crate::model::{
-    Align, Block, Blocks, Columns, Document, Drawing, FirstLine, FontDecl, Footnote, Indent, Info,
-    Inline, Line, Media, PageMargins, PageNumbers, ParProps, Paragraph, Placement, Run, RunContent,
+    Align, Block, Blocks, Columns, Document, FirstLine, FontDecl, Footnote, Indent, Info, Inline,
+    Line, Media, PageMargins, PageNumbers, ParProps, Paragraph, Placement, Run, RunContent,
     RunProps, Section, SectionProps, SectionStart, Settings, Spacing, Style, Toc, Twips, VertAlign,
     Wrap,
 };
@@ -32,7 +37,7 @@ use crate::notice::{Code, Tally};
 
 use lists::Scheme;
 use sections::{Pages, fill_inherited};
-use space::{Prev, SpaceKey, Strides, drop_opening_break};
+use space::{Entry, Hold, Placed, Prev, Strides, drop_opening_break};
 use tables::tabbed_hint;
 
 pub const CODE_FONT_NOT_EMBEDDED: &str = Code::FontNotEmbedded.as_str();
@@ -75,17 +80,7 @@ fn hex(c: Rgb) -> String {
 pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
     let pages = Pages::new(doc);
     let strides = Strides::new(doc);
-    let mut first = Lower::new(doc, &pages, &strides, HashMap::new());
-    first.document();
-    let usual = first
-        .measured
-        .into_iter()
-        .map(|(k, mut v)| {
-            v.sort_by(f64::total_cmp);
-            (k, v[v.len() / 2])
-        })
-        .collect();
-    let mut l = Lower::new(doc, &pages, &strides, usual);
+    let mut l = Lower::new(doc, &pages, &strides);
     let document = l.document();
     let mut seen = HashSet::new();
     let notices = doc
@@ -99,14 +94,7 @@ pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
 }
 
 impl<'a> Lower<'a> {
-    /// A lowering of `doc` that gives a paragraph Typst put at a page top
-    /// the `usual` space above paragraphs like it.
-    fn new(
-        doc: &'a LayoutDoc,
-        pages: &'a Pages<'a>,
-        strides: &'a Strides<'a>,
-        usual: HashMap<SpaceKey, f64>,
-    ) -> Self {
+    fn new(doc: &'a LayoutDoc, pages: &'a Pages<'a>, strides: &'a Strides<'a>) -> Self {
         Lower {
             doc,
             pages,
@@ -118,18 +106,13 @@ impl<'a> Lower<'a> {
             notes: HashMap::new(),
             media: Vec::new(),
             media_of: HashMap::new(),
-            pending: Vec::new(),
             z: 0,
-            break_pending: false,
-            prev: None,
             headings: BTreeSet::new(),
             unlisted: BTreeSet::new(),
             builtin: BTreeSet::new(),
             toc_levels: BTreeSet::new(),
             toc_prefixed: false,
             label_prefix: None,
-            prev_bottom: None,
-            table_gap: None,
             footer_floats: Vec::new(),
             skip: HashSet::new(),
             schemes: Vec::new(),
@@ -137,10 +120,7 @@ impl<'a> Lower<'a> {
             extra_styles: Vec::new(),
             roles: BTreeMap::new(),
             alt_names: BTreeMap::new(),
-            keep: false,
             tally: Tally::default(),
-            measured: HashMap::new(),
-            usual,
         }
     }
 }
@@ -152,9 +132,6 @@ struct Ctx {
     left: f64,
     /// The container's width, for centred chrome.
     width: f64,
-    /// Inside a cell, text box or footnote: no space above the first line
-    /// and no page breaks.
-    nested: bool,
     /// The page whose number chrome text prints.
     page_number: Option<usize>,
     list: Option<(u32, u8)>,
@@ -176,10 +153,7 @@ struct Lower<'a> {
     notes: HashMap<NodeId, usize>,
     media: Vec<Media>,
     media_of: HashMap<usize, usize>,
-    pending: Vec<(u32, Drawing)>,
     z: u32,
-    break_pending: bool,
-    prev: Option<Prev>,
     headings: BTreeSet<u8>,
     unlisted: BTreeSet<u8>,
     /// Word's own paragraph styles in use, by id and name.
@@ -190,11 +164,6 @@ struct Lower<'a> {
     toc_prefixed: bool,
     /// A printed list number the next paragraph opens with.
     label_prefix: Option<String>,
-    /// Where the last body paragraph's last line box ends.
-    prev_bottom: Option<(u32, f64)>,
-    /// The space a table just lowered needs above it, which the paragraph
-    /// before it carries as space after.
-    table_gap: Option<Twips>,
     /// Bottom floats of the first page, which its footer holds and reserves.
     footer_floats: Vec<NodeId>,
     /// Ink a paragraph leaves out: the label a live number replaces.
@@ -208,13 +177,7 @@ struct Lower<'a> {
     roles: BTreeMap<String, (String, Option<String>)>,
     /// A face's name for readers without it, from the quill's `font` hint.
     alt_names: BTreeMap<String, String>,
-    /// A `keep` the paragraph before it has yet to take.
-    keep: bool,
     tally: Tally,
-    /// The space above each paragraph that follows a paragraph on its page.
-    measured: HashMap<SpaceKey, Vec<f64>>,
-    /// The median of `measured`, from a first lowering.
-    usual: HashMap<SpaceKey, f64>,
 }
 
 impl<'a> Lower<'a> {
@@ -231,14 +194,9 @@ impl<'a> Lower<'a> {
         let groups = &self.pages.groups;
         let starts = &self.pages.starts;
         let mut sections: Vec<Section> = Vec::new();
-        let mut bodies: Vec<Vec<Block>> = vec![Vec::new(); groups.len()];
-        let section_of = |page: u32| {
-            groups
-                .iter()
-                .position(|g| g.contains(&(page as usize)))
-                .unwrap_or(0)
-        };
+        let section_of = |page: u32| space::section_of(groups, page);
         let root = doc.nodes[0].children.clone();
+        let mut entries = Vec::new();
         let mut current = 0;
         for c in root {
             let page = match c {
@@ -262,13 +220,7 @@ impl<'a> Lower<'a> {
                 }
                 Child::Item(r) => Some(r.page),
             };
-            let at = |s: usize| Ctx {
-                left: doc.pages[groups[s][0]].setup.margins.left,
-                ..Ctx::default()
-            };
-            if let Some(s) = self.pending.first().map(|d| section_of(d.0)) {
-                self.flush_pending(page, &mut bodies[s], &at(s));
-            }
+            entries.push(Entry::Child(page));
             if let Some(p) = page {
                 current = section_of(p);
                 let last = match c {
@@ -282,23 +234,14 @@ impl<'a> Lower<'a> {
                     current = to;
                 }
             }
-            let ctx = at(current);
-            let blocks = self.child(&c, &ctx);
-            let mut late = false;
-            self.settle(&mut bodies[current], &mut late);
-            if late {
-                self.table_gap = None;
-                self.keep = false;
-            }
-            Self::append(&mut bodies[current], blocks);
-        }
-        if let Some(s) = self.pending.first().map(|d| section_of(d.0)) {
             let ctx = Ctx {
-                left: doc.pages[groups[s][0]].setup.margins.left,
+                left: doc.pages[groups[current][0]].setup.margins.left,
                 ..Ctx::default()
             };
-            self.flush_pending(None, &mut bodies[s], &ctx);
+            entries.push(Entry::Section(current));
+            entries.extend(self.child(&c, &ctx));
         }
+        let mut bodies = space::body(doc, groups, entries);
         for (body, start) in bodies.iter_mut().zip(starts) {
             if matches!(start, SectionStart::OddPage | SectionStart::EvenPage) {
                 drop_opening_break(body);
@@ -379,42 +322,34 @@ impl<'a> Lower<'a> {
         }
     }
 
-    fn child(&mut self, c: &Child, ctx: &Ctx) -> Vec<Block> {
+    fn child(&mut self, c: &Child, ctx: &Ctx) -> Vec<Entry> {
         match c {
             Child::Node(n) => self.node(*n, ctx),
             Child::Item(r) => self.loose_item(*r, ctx),
         }
     }
 
-    fn children(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Block> {
+    fn children(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Entry> {
+        self.held(n, ctx, Hold::None)
+    }
+
+    /// `n`'s children, with the keeps `hold` puts on their paragraphs.
+    fn held(&mut self, n: NodeId, ctx: &Ctx, hold: Hold) -> Vec<Entry> {
         let kids = self.doc.nodes[n].children.clone();
-        let mut out = Vec::new();
-        let mut held: Option<(Option<Twips>, bool)> = None;
+        let mut out = vec![Entry::Open];
         for c in &kids {
-            self.flush_pending(self.child_page(c), &mut out, ctx);
-            let blocks = self.child(c, ctx);
-            let mut late = false;
-            self.settle(&mut out, &mut late);
-            if late {
-                let (gap, keep) = held.get_or_insert((None, false));
-                *gap = self.table_gap.take().or(*gap);
-                *keep |= std::mem::take(&mut self.keep);
-            }
-            Self::append(&mut out, blocks);
+            out.push(Entry::Child(self.child_page(c)));
+            out.extend(self.child(c, ctx));
         }
-        if let Some((gap, keep)) = held {
-            self.table_gap = gap;
-            self.keep = keep;
-        }
+        out.push(Entry::Close(hold));
         out
     }
 
-    fn loose_item(&mut self, r: ItemRef, ctx: &Ctx) -> Vec<Block> {
+    fn loose_item(&mut self, r: ItemRef, ctx: &Ctx) -> Vec<Entry> {
         match &self.doc.item(r).kind {
             ItemKind::Mark(PointHint::Keep) => {
                 self.consumed.insert(r);
-                self.keep = true;
-                Vec::new()
+                vec![Entry::Keep]
             }
             ItemKind::Mark(PointHint::Font { family, alt }) => {
                 self.consumed.insert(r);
@@ -423,10 +358,7 @@ impl<'a> Lower<'a> {
             }
             ItemKind::Mark(PointHint::Break { .. }) => {
                 self.consumed.insert(r);
-                if !ctx.nested {
-                    self.break_pending = true;
-                }
-                Vec::new()
+                vec![Entry::Break]
             }
             ItemKind::Shape(shape) => {
                 self.consumed.insert(r);
@@ -434,11 +366,10 @@ impl<'a> Lower<'a> {
                     self.kind(self.doc.item(r).node),
                     NodeKind::Underline | NodeKind::Strike | NodeKind::Highlight { .. }
                 );
-                if !decoration {
-                    let drawing = self.shape(shape);
-                    self.pending.push((r.page, drawing));
+                if decoration {
+                    return Vec::new();
                 }
-                Vec::new()
+                vec![Entry::Drawing(r.page, self.shape(shape))]
             }
             ItemKind::Image { .. } | ItemKind::Raster { .. } => {
                 self.consumed.insert(r);
@@ -450,7 +381,7 @@ impl<'a> Lower<'a> {
                 let rect = &rect;
                 let drawing = self.picture(image, *rect, alt, Placement::Inline);
                 let mut p = Paragraph {
-                    props: self.par_frame(ctx, None, None, r.page, rect.y1, rect.height(), true),
+                    props: space::line_props(rect.height(), true),
                     content: vec![Inline::Run(Run {
                         props: RunProps::default(),
                         content: vec![RunContent::Drawing(drawing)],
@@ -462,37 +393,40 @@ impl<'a> Lower<'a> {
                     Some(HAlign::End) => Some(Align::End),
                     _ => None,
                 };
-                self.apply_break(&mut p, r.page, ctx);
-                self.prev = Some(Prev::Bottom(r.page, rect.y1));
-                vec![Block::Paragraph(p)]
+                let at = Placed {
+                    page: r.page,
+                    baseline: rect.y1,
+                    pitch: rect.height(),
+                    key: None,
+                    spacing: 0.0,
+                    object: true,
+                    end: Prev::Bottom(r.page, rect.y1),
+                    bottom: None,
+                };
+                vec![Entry::Par(p, at)]
             }
             _ => Vec::new(),
         }
     }
 
-    fn node(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Block> {
+    fn node(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Entry> {
         let kind = self.kind(n).clone();
         if kind == NodeKind::Unstructured && !self.doc.nodes[n].lines.is_empty() {
             let lines = self.doc.nodes[n].lines.clone();
             self.tally.count(Code::UnstructuredText, "", lines.len());
             return lines
                 .into_iter()
-                .filter_map(|line| {
+                .flat_map(|line| {
                     let line = crate::layout::Line {
                         end: LineEnd::Last,
                         ..line
                     };
                     self.paragraph_of(n, vec![line], ctx)
                 })
-                .map(Block::Paragraph)
                 .collect();
         }
         if kind.forms_paragraph() && !self.doc.nodes[n].lines.is_empty() {
-            return self
-                .paragraph(n, ctx)
-                .into_iter()
-                .map(Block::Paragraph)
-                .collect();
+            return self.paragraph(n, ctx);
         }
         match kind {
             NodeKind::Hint(BracketHint::List { name, levels }) => {
@@ -505,35 +439,18 @@ impl<'a> Lower<'a> {
             }
             NodeKind::Table { .. } if tabbed_hint(self.doc, n).is_some() => {
                 match self.tabbed(n, ctx) {
-                    Some(blocks) => blocks,
+                    Some(entries) => entries,
                     None => {
                         self.tally.count(Code::GridUntabbed, "", 1);
-                        vec![Block::Table(self.table(n, ctx))]
+                        self.table(n, ctx)
                     }
                 }
             }
-            NodeKind::Table { .. } => vec![Block::Table(self.table(n, ctx))],
+            NodeKind::Table { .. } => self.table(n, ctx),
             NodeKind::List { .. } => self.list(n, ctx),
             NodeKind::Block {
                 sticky, breakable, ..
-            } => {
-                let mut blocks = self.children(n, ctx);
-                let count = blocks.len();
-                for (i, b) in blocks.iter_mut().enumerate() {
-                    if let Block::Paragraph(p) = b {
-                        if !breakable {
-                            p.props.keep_lines = true;
-                            if i + 1 < count {
-                                p.props.keep_next = true;
-                            }
-                        }
-                        if sticky && i + 1 == count {
-                            p.props.keep_next = true;
-                        }
-                    }
-                }
-                blocks
-            }
+            } => self.held(n, ctx, Hold::Block { sticky, breakable }),
             NodeKind::Align { h } => {
                 let ctx = Ctx {
                     align: Some(h),
@@ -551,8 +468,10 @@ impl<'a> Lower<'a> {
                 let drawings = self.text_box(n, ctx);
                 self.tally.count(Code::PlaceAnchored, "", drawings.len());
                 let page = self.first_page(n).unwrap_or_default();
-                self.pending.extend(drawings.into_iter().map(|d| (page, d)));
-                Vec::new()
+                drawings
+                    .into_iter()
+                    .map(|d| Entry::Drawing(page, d))
+                    .collect()
             }
             NodeKind::Place { float, valign } => {
                 if self.pages.is_chrome_place(n) {
@@ -573,24 +492,17 @@ impl<'a> Lower<'a> {
                     self.tally.count(Code::PlaceAnchored, "", 1);
                 }
                 let page = self.first_page(n).unwrap_or_default();
-                self.pending.extend(drawings.into_iter().map(|d| (page, d)));
-                Vec::new()
+                drawings
+                    .into_iter()
+                    .map(|d| Entry::Drawing(page, d))
+                    .collect()
             }
             NodeKind::ListLabel => {
                 self.consume_subtree(n);
                 Vec::new()
             }
             NodeKind::Toc { depth } => self.toc(n, depth, ctx),
-            NodeKind::Figure => {
-                let mut blocks = self.children(n, ctx);
-                let body = blocks.len().saturating_sub(1);
-                for b in &mut blocks[..body] {
-                    if let Block::Paragraph(p) = b {
-                        p.props.keep_next = true;
-                    }
-                }
-                blocks
-            }
+            NodeKind::Figure => self.held(n, ctx, Hold::Figure),
             NodeKind::TocEntry { level } => {
                 let ctx = Ctx {
                     toc: Some(level),
@@ -604,7 +516,7 @@ impl<'a> Lower<'a> {
 
     /// A table of contents: its title paragraphs, then one field whose
     /// stored result is its entries.
-    fn toc(&mut self, n: NodeId, depth: Option<u8>, ctx: &Ctx) -> Vec<Block> {
+    fn toc(&mut self, n: NodeId, depth: Option<u8>, ctx: &Ctx) -> Vec<Entry> {
         let mut before = Vec::new();
         let mut entries = Vec::new();
         let mut after = Vec::new();
@@ -613,32 +525,28 @@ impl<'a> Lower<'a> {
             let entry = matches!(c, Child::Node(m) if self.doc.subtree(m).iter().any(|&e| {
                 matches!(self.kind(e), NodeKind::TocEntry { .. })
             }));
-            let blocks = self.child(&c, ctx);
+            let produced = self.child(&c, ctx);
             if entry {
-                entries.extend(blocks.into_iter().filter_map(|b| match b {
-                    Block::Paragraph(p) => Some(p),
-                    _ => None,
-                }));
-            } else if entries.is_empty() {
-                before.extend(blocks);
+                entries.extend(produced);
+            } else if !entries.iter().any(|e| matches!(e, Entry::Par(..))) {
+                before.extend(produced);
             } else {
-                after.extend(blocks);
+                after.extend(produced);
             }
         }
-        if entries.is_empty() {
-            before.extend(after);
-            return before;
-        }
         let locked = self.toc_prefixed;
-        self.tally.count(Code::TocFrozen, "", locked as usize);
-        before.push(Block::Toc(Toc {
+        if entries.iter().any(|e| matches!(e, Entry::Par(..))) {
+            self.tally.count(Code::TocFrozen, "", locked as usize);
+        }
+        let toc = Toc {
             instruction: format!(
                 "TOC \\o \"1-{}\" \\h \\z \\u",
                 depth.unwrap_or(9).clamp(1, 9)
             ),
             locked,
-            entries,
-        }));
+            entries: Vec::new(),
+        };
+        before.push(Entry::Toc(toc, entries));
         before.extend(after);
         before
     }
@@ -693,11 +601,6 @@ impl<'a> Lower<'a> {
         self.footnotes.push(Footnote {
             body: Blocks::default(),
         });
-        let saved = (
-            self.prev,
-            self.break_pending,
-            std::mem::take(&mut self.pending),
-        );
         let page = self.first_page(note).unwrap_or(0) as usize;
         let left = self
             .doc
@@ -705,7 +608,6 @@ impl<'a> Lower<'a> {
             .get(page)
             .map_or(0.0, |p| p.setup.margins.left);
         let ctx = Ctx {
-            nested: true,
             left,
             ..Ctx::default()
         };
@@ -716,7 +618,7 @@ impl<'a> Lower<'a> {
         let indent = number
             .and_then(|m| self.doc.nodes[m].frames.first())
             .map(|f| f.1.x0 - left);
-        let mut blocks = self.children(note, &ctx);
+        let (mut blocks, _) = space::nested(self.children(note, &ctx));
         if let Some(Block::Paragraph(p)) = blocks.first_mut() {
             if let Some(x) = indent.filter(|x| x.abs() >= 0.25) {
                 p.props.indent = Some(Indent {
@@ -744,7 +646,6 @@ impl<'a> Lower<'a> {
             );
         }
         self.footnotes[i].body = Blocks::from_blocks(blocks);
-        (self.prev, self.break_pending, self.pending) = saved;
         i
     }
 }

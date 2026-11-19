@@ -8,7 +8,7 @@ use crate::model::{
 };
 
 use super::paragraph::style_of;
-use super::space::Prev;
+use super::space::{self, Entry, Rows, line_props};
 use super::styles::style_id;
 use super::{Ctx, Lower, hex, spacer, tw};
 
@@ -98,7 +98,7 @@ impl<'a> Lower<'a> {
     /// tab each, a tab stop at each column, and the last column's text
     /// hanging at its x; `None` when a cell before the last wraps or the
     /// last holds a table.
-    pub(super) fn tabbed(&mut self, n: NodeId, ctx: &Ctx) -> Option<Vec<Block>> {
+    pub(super) fn tabbed(&mut self, n: NodeId, ctx: &Ctx) -> Option<Vec<Entry>> {
         let NodeKind::Table { columns, .. } = self.kind(n).clone() else {
             return None;
         };
@@ -163,15 +163,7 @@ impl<'a> Lower<'a> {
             let style = style_of(self.doc, lead);
             let lead_lines = self.doc.nodes[lead].lines.clone();
             let pitch = self.strides.pitch(lead, &lead_lines, style);
-            let mut props = self.par_frame(
-                ctx,
-                Some(lead),
-                style,
-                first.page,
-                first.baseline,
-                pitch,
-                false,
-            );
+            let mut props = line_props(pitch, false);
             let x = |l: &Self, c: NodeId, col: u32| {
                 let inset = match l.kind(c) {
                     NodeKind::Cell { inset, .. } => inset.left,
@@ -238,18 +230,13 @@ impl<'a> Lower<'a> {
                 self.roles.entry(id.clone()).or_insert((name, next));
                 props.style = Some(id);
             }
-            let mut para = Paragraph { props, content };
-            self.apply_break(&mut para, first.page, ctx);
             let last_line = self
                 .cell_paragraphs(last)
                 .last()
                 .and_then(|&p| self.doc.nodes[p].lines.last().cloned())
-                .unwrap_or(first);
-            self.prev = Some(Prev::Baseline(last_line.page, last_line.baseline));
-            if !ctx.nested {
-                self.prev_bottom = Some((last_line.page, last_line.baseline + 0.2 * pitch));
-            }
-            out.push(Block::Paragraph(para));
+                .unwrap_or_else(|| first.clone());
+            let at = self.placed(lead, ctx, style, &first, &last_line, pitch);
+            out.push(Entry::Par(Paragraph { props, content }, at));
         }
         Some(out)
     }
@@ -328,7 +315,9 @@ impl<'a> Lower<'a> {
             .reduce(f64::max)
     }
 
-    pub(super) fn table(&mut self, n: NodeId, ctx: &Ctx) -> Table {
+    /// Table `n`, then the drawings in its cells that no paragraph there
+    /// takes.
+    pub(super) fn table(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Entry> {
         let NodeKind::Table {
             columns,
             content_sized,
@@ -384,27 +373,18 @@ impl<'a> Lower<'a> {
             })
             .max()
             .unwrap_or(0) as usize;
-        let top = tops.first().copied();
-        if let (Some((page, y)), Some((p, bottom))) = (top, self.prev_bottom) {
-            if p == page && !ctx.nested {
-                let first = self
-                    .first_line_in_row(&cells, 0, page)
-                    .map_or(y, |(m, inset)| {
-                        let lines = self.doc.nodes[m].lines.clone();
-                        let pitch = self.strides.pitch(m, &lines, self.par_style(m));
-                        lines[0].baseline - 0.8 * pitch - inset
-                    });
-                self.table_gap = Some(tw((first - bottom).max(0.0)));
-            }
-        }
-        let forced = self.break_pending
-            && !ctx.nested
-            && match (self.prev, top) {
-                (Some(p), Some((q, _))) => p.page() < q,
-                _ => false,
-            };
-        self.break_pending = false;
-        let saved = self.prev;
+        let top = tops.first().map(|&(page, y)| {
+            let first = self
+                .first_line_in_row(&cells, 0, page)
+                .map_or(y, |(m, inset)| {
+                    let lines = self.doc.nodes[m].lines.clone();
+                    let pitch = self.strides.pitch(m, &lines, self.par_style(m));
+                    lines[0].baseline - 0.8 * pitch - inset
+                });
+            (page, first)
+        });
+        let mut opens = false;
+        let mut drawings = Vec::new();
         let mut closed = HashSet::new();
         let border = |b: Option<(f64, Rgb)>| {
             b.map(|(w, c)| Border {
@@ -450,13 +430,12 @@ impl<'a> Lower<'a> {
                 let span = colspan.max(1).min((ncols - c) as u32);
                 let (body, merge) = if here.is_some() {
                     let inner = Ctx {
-                        nested: true,
                         left: columns.get(c).copied().unwrap_or(ctx.left) + inset.left,
                         width: grid.iter().skip(c).take(span as usize).sum::<i32>() as f64 / 20.0,
                         ..Ctx::default()
                     };
-                    self.prev = None;
-                    let mut blocks = self.children(m, &inner);
+                    let (mut blocks, left) = space::nested(self.children(m, &inner));
+                    drawings.extend(left);
                     if matches!(blocks.last(), Some(Block::Table(_))) {
                         blocks.push(Block::Paragraph(spacer(CLOSING)));
                         closed.insert(m);
@@ -467,11 +446,8 @@ impl<'a> Lower<'a> {
                             p.props.keep_next |= header;
                         }
                     }
-                    if forced && r == 0 && c == 0 {
-                        if let Some(Block::Paragraph(p)) = blocks.first_mut() {
-                            p.props.page_break_before = true;
-                        }
-                    }
+                    opens |=
+                        r == 0 && c == 0 && matches!(blocks.first(), Some(Block::Paragraph(_)));
                     (
                         Blocks::from_blocks(blocks),
                         (rowspan > 1).then_some(VMerge::Restart),
@@ -520,17 +496,13 @@ impl<'a> Lower<'a> {
                 cells: row_cells,
             });
         }
-        self.prev = saved;
-        if let Some(&(p, f)) = self.doc.nodes[n].frames.last() {
+        let end = self.doc.nodes[n].frames.last().map(|&(p, f)| {
             let bottom = self
                 .table_bottom(&cells, nrows as u32, p, &closed)
                 .unwrap_or(f.y1);
-            self.prev = Some(Prev::Bottom(p, bottom));
-            if !ctx.nested {
-                self.prev_bottom = Some((p, bottom));
-            }
-        }
-        Table {
+            (p, bottom)
+        });
+        let table = Table {
             props: TableProps {
                 style: None,
                 width: Some(grid.iter().sum()),
@@ -541,6 +513,13 @@ impl<'a> Lower<'a> {
             },
             grid,
             rows,
-        }
+        };
+        let mut out = vec![Entry::Table(table, Rows { top, opens, end })];
+        out.extend(
+            drawings
+                .into_iter()
+                .map(|(page, d)| Entry::Drawing(page, d)),
+        );
+        out
     }
 }
