@@ -498,6 +498,18 @@ pub enum NodeKind {
     },
     Footnote,
     Hint(BracketHint),
+    /// A table of contents over the heading levels to `depth`, or all.
+    Toc {
+        depth: Option<u8>,
+    },
+    /// One entry of a table of contents, for a heading at `level`.
+    TocEntry {
+        level: u8,
+    },
+    /// The ink that leads from an entry's text to its page number.
+    TocFill,
+    /// An entry's page number as printed.
+    TocPage,
 }
 
 impl NodeKind {
@@ -528,6 +540,8 @@ impl NodeKind {
                 | NodeKind::Link { .. }
                 | NodeKind::NoBreak
                 | NodeKind::Hint(BracketHint::Label { .. })
+                | NodeKind::TocFill
+                | NodeKind::TocPage
         )
     }
 }

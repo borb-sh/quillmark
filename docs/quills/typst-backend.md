@@ -500,6 +500,7 @@ PNG resolution is set via the `ppi` option (default **144**, 2× at 72pt/inch, s
 Every quill on this backend exports to Word with no change to the quill: ask for `docx` (`OutputFormat.DOCX` in Python). The Word file is the PDF's document laid out by Word, for someone who keeps editing it there. Its text and structure are the PDF's.
 
 - **What a Word file carries as the PDF has it:** where each element sits, the space between elements, each paragraph's indents and alignment, forced line and page breaks, keeps, page size and margins, and the title.
+- **Contents:** an `outline` is a table of contents Word can update, holding the PDF's entries until it does. Its page numbers can differ from Word's by a page until then. One whose page numbers carry a prefix ("A-1") is locked, since an update would print the bare number. A heading with `outlined: false` takes an "Unlisted Heading" style, so an update leaves it out.
 - **What Word decides:** which word ends a line and which line ends a page, as in any document typed in Word. A page that is full in the PDF can spill onto another in Word.
 - **Fonts:** a face with a metric-compatible Word face is named as that face (TeX Gyre Termes and Liberation Serif as Times New Roman, Liberation Sans and TeX Gyre Heros as Arial, Liberation Mono as Courier New, Carlito as Calibri, Caladea as Cambria). Any other face is named as it is, without being embedded.
 - **What reaches Word only as frozen text, a picture, or not at all** raises a warning, so a render's warnings say where the Word file carries less than the PDF shows.

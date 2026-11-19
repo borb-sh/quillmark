@@ -29,8 +29,8 @@ use typst::layout::{
 use typst::layout::{GridCell, GridElem, HideElem, PlaceElem, Sizing, VAlignment};
 use typst::model::{
     Destination, EmphElem, EnumElem, FigureCaption, FigureElem, FootnoteElem, HeadingElem,
-    LinkElem, LinkTarget, ListElem, ListMarker, Numbering, ParElem, StrongElem, TableCell,
-    TableElem,
+    LinkElem, LinkTarget, ListElem, ListMarker, Numbering, OutlineElem, OutlineEntry, ParElem,
+    StrongElem, TableCell, TableElem,
 };
 use typst::pdf::{ArtifactElem, PdfMarkerTag, PdfMarkerTagKind, TableCellKind};
 use typst::text::{HighlightElem, StandardAxes, StrikeElem, SubElem, SuperElem, UnderlineElem};
@@ -243,11 +243,41 @@ impl Reader<'_> {
         }
     }
 
+    fn in_toc_entry(&self) -> bool {
+        self.stack
+            .iter()
+            .rev()
+            .filter_map(|o| o.node)
+            .any(|n| matches!(self.out.nodes[n].kind, NodeKind::TocEntry { .. }))
+    }
+
+    /// A page-number node under the innermost open node; the last box before
+    /// it there is the entry's fill.
+    fn toc_page(&mut self) -> NodeId {
+        let top = self.top().unwrap_or(0);
+        let fill = self.out.nodes[top]
+            .children
+            .iter()
+            .rev()
+            .find_map(|c| match c {
+                Child::Node(m) if matches!(self.out.nodes[*m].kind, NodeKind::NoBreak) => Some(*m),
+                _ => None,
+            });
+        if let Some(m) = fill {
+            self.out.nodes[m].kind = NodeKind::TocFill;
+        }
+        self.add_node_under(top, NodeKind::TocPage)
+    }
+
     fn ink(&mut self, kind: ItemKind) {
+        let Some(node) = self.top() else { return };
+        self.ink_under(node, kind);
+    }
+
+    fn ink_under(&mut self, node: NodeId, kind: ItemKind) {
         if self.in_raster > 0 {
             return;
         }
-        let Some(node) = self.top() else { return };
         let page = &mut self.out.pages[self.page as usize];
         let at = ItemRef {
             page: self.page,
@@ -401,14 +431,48 @@ impl Reader<'_> {
                         .sum::<f64>()
                         * scale;
                     let origin = pos.transform(ts);
-                    self.ink(ItemKind::Text(TextRun {
-                        origin: [origin.x.to_pt(), origin.y.to_pt()],
-                        text: text.text.to_string(),
-                        font,
-                        size,
-                        fill: rgb(&text.fill),
-                        width,
-                    }));
+                    let run = |text_: &str, dx: f64, width: f64| {
+                        ItemKind::Text(TextRun {
+                            origin: [origin.x.to_pt() + dx, origin.y.to_pt()],
+                            text: text_.to_string(),
+                            font,
+                            size,
+                            fill: rgb(&text.fill),
+                            width,
+                        })
+                    };
+                    // Typst sets a word joiner between an outline entry's
+                    // fill and its page number.
+                    let joiner = text.text.rfind('\u{2060}').filter(|_| self.in_toc_entry());
+                    let Some(j) = joiner else {
+                        self.ink(run(&text.text, 0.0, width));
+                        continue;
+                    };
+                    let advance = |from: usize, to: usize| {
+                        text.glyphs
+                            .iter()
+                            .filter(|g| (from..to).contains(&(g.range.start as usize)))
+                            .map(|g| g.x_advance.at(text.size).to_pt())
+                            .sum::<f64>()
+                            * scale
+                    };
+                    let page_at = j + '\u{2060}'.len_utf8();
+                    let lead = advance(0, j);
+                    if j > 0 {
+                        self.ink(run(&text.text[..j], 0.0, lead));
+                    }
+                    if page_at < text.text.len() {
+                        let start = lead + advance(j, page_at);
+                        let page = self.toc_page();
+                        self.ink_under(
+                            page,
+                            run(
+                                &text.text[page_at..],
+                                start,
+                                advance(page_at, text.text.len()),
+                            ),
+                        );
+                    }
                 }
                 FrameItem::Shape(shape, _) => {
                     if self.top().is_none() || self.hidden() || self.in_raster > 0 {
@@ -1048,6 +1112,14 @@ fn node_kind(elem: &Content) -> Option<NodeKind> {
             rows: Vec::new(),
             header_rows: 0,
             grid: elem.is::<GridElem>(),
+        }
+    } else if let Some(o) = elem.to_packed::<OutlineElem>() {
+        NodeKind::Toc {
+            depth: o.depth.get(styles).map(|d| d.get().min(9) as u8),
+        }
+    } else if let Some(e) = elem.to_packed::<OutlineEntry>() {
+        NodeKind::TocEntry {
+            level: e.level.get().min(9) as u8,
         }
     } else if elem.is::<FigureElem>() {
         NodeKind::Figure

@@ -21,7 +21,7 @@ use crate::model::{
     Media, MediaKind, Num, NumFormat, NumRef, PageMargins, PageNumbers, ParProps, Paragraph,
     Placement, Row, RowProps, Run, RunContent, RunProps, Section, SectionProps, SectionStart,
     Settings, ShapeGeometry, Spacing, Stroke, Style, Styles, TabKind, TabLeader, TabStop, Table,
-    TableProps, TextBox, Twips, VMerge, VertAlign, Wrap,
+    TableProps, TextBox, Toc, Twips, VMerge, VertAlign, Wrap,
 };
 
 pub const CODE_FONT_NOT_EMBEDDED: &str = "docx::font_not_embedded";
@@ -29,6 +29,7 @@ pub const CODE_PLACE_ANCHORED: &str = "docx::place_anchored";
 pub const CODE_SHAPE_DROPPED: &str = "docx::shape_dropped";
 pub const CODE_INK_DROPPED: &str = "docx::ink_dropped";
 pub const CODE_LABEL_MISMATCH: &str = "docx::label_mismatch";
+pub const CODE_TOC_FROZEN: &str = "docx::toc_frozen";
 pub const CODE_HINT_UNCHECKED: &str = "docx::hint_unchecked";
 
 /// Families whose metric-compatible Word face a Word machine has.
@@ -75,6 +76,10 @@ pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
         prev: None,
         placed: 0,
         headings: BTreeSet::new(),
+        unlisted: BTreeSet::new(),
+        toc_levels: BTreeSet::new(),
+        toc_prefixed: false,
+        frozen: 0,
         label_prefix: None,
         strides: strides(doc),
         prev_bottom: None,
@@ -118,6 +123,8 @@ struct Ctx {
     /// The `list` hint around: its scheme, its `w:num`, and whether it is
     /// the scheme's first instance.
     hint_list: Option<(usize, u32, bool)>,
+    /// Inside a table of contents entry at this level.
+    toc: Option<u8>,
 }
 
 /// A numbering scheme a `list` hint names: its levels and its first `w:num`.
@@ -143,6 +150,12 @@ struct Lower<'a> {
     prev: Option<Prev>,
     placed: usize,
     headings: BTreeSet<u8>,
+    unlisted: BTreeSet<u8>,
+    toc_levels: BTreeSet<u8>,
+    /// An entry of the table of contents being lowered prints a page number
+    /// that is no plain numeral.
+    toc_prefixed: bool,
+    frozen: usize,
     /// A printed list number the next paragraph opens with.
     label_prefix: Option<String>,
     /// The usual baseline stride of paragraphs of one face, size and leading.
@@ -461,6 +474,16 @@ impl Lower<'_> {
 
     fn notices(&self) -> Vec<Notice> {
         let mut out = Vec::new();
+        if self.frozen > 0 {
+            out.push(Notice {
+                code: CODE_TOC_FROZEN.into(),
+                message: format!(
+                    "{} table(s) of contents print page numbers Word's PAGE field cannot, so \
+                     they are locked against an update",
+                    self.frozen
+                ),
+            });
+        }
         if self.mismatches > 0 {
             out.push(Notice {
                 code: CODE_LABEL_MISMATCH.into(),
@@ -556,6 +579,30 @@ impl Lower<'_> {
                     ..ParProps::default()
                 },
                 ..Style::paragraph(format!("Heading{level}"), format!("heading {level}"), true)
+            });
+        }
+        for &level in &self.unlisted {
+            styles.push(Style {
+                based_on: Some("Normal".into()),
+                next: Some("Normal".into()),
+                quick: true,
+                par: ParProps {
+                    keep_next: true,
+                    ..ParProps::default()
+                },
+                ..Style::paragraph(
+                    format!("UnlistedHeading{level}"),
+                    format!("Unlisted Heading {level}"),
+                    false,
+                )
+            });
+        }
+        for &level in &self.toc_levels {
+            styles.push(Style {
+                based_on: Some("Normal".into()),
+                next: Some("Normal".into()),
+                ui_priority: Some(39),
+                ..Style::paragraph(format!("TOC{level}"), format!("toc {level}"), true)
             });
         }
         let mut sizes: HashMap<u32, usize> = HashMap::new();
@@ -791,8 +838,56 @@ impl Lower<'_> {
                 self.consume_subtree(n);
                 Vec::new()
             }
+            NodeKind::Toc { depth } => self.toc(n, depth, ctx),
+            NodeKind::TocEntry { level } => {
+                let ctx = Ctx {
+                    toc: Some(level),
+                    ..ctx.clone()
+                };
+                self.children(n, &ctx)
+            }
             _ => self.children(n, ctx),
         }
+    }
+
+    /// A table of contents: its title paragraphs, then one field whose
+    /// stored result is its entries.
+    fn toc(&mut self, n: NodeId, depth: Option<u8>, ctx: &Ctx) -> Vec<Block> {
+        let mut before = Vec::new();
+        let mut entries = Vec::new();
+        let mut after = Vec::new();
+        self.toc_prefixed = false;
+        for c in self.doc.nodes[n].children.clone() {
+            let entry =
+                matches!(c, Child::Node(m) if matches!(self.kind(m), NodeKind::TocEntry { .. }));
+            let blocks = self.child(&c, ctx);
+            if entry {
+                entries.extend(blocks.into_iter().filter_map(|b| match b {
+                    Block::Paragraph(p) => Some(p),
+                    _ => None,
+                }));
+            } else if entries.is_empty() {
+                before.extend(blocks);
+            } else {
+                after.extend(blocks);
+            }
+        }
+        if entries.is_empty() {
+            before.extend(after);
+            return before;
+        }
+        let locked = self.toc_prefixed;
+        self.frozen += locked as usize;
+        before.push(Block::Toc(Toc {
+            instruction: format!(
+                "TOC \\o \"1-{}\" \\h \\z \\u",
+                depth.unwrap_or(9).clamp(1, 9)
+            ),
+            locked,
+            entries,
+        }));
+        before.extend(after);
+        before
     }
 
     fn consume_subtree(&mut self, n: NodeId) {
@@ -950,10 +1045,28 @@ impl Lower<'_> {
                 });
             }
         }
-        if let NodeKind::Heading { level, .. } = kind {
+        if let NodeKind::Heading {
+            level, outlined, ..
+        } = kind
+        {
             let level = level.clamp(1, 9);
-            self.headings.insert(level);
-            props.style = Some(format!("Heading{level}"));
+            props.style = Some(if outlined {
+                self.headings.insert(level);
+                format!("Heading{level}")
+            } else {
+                self.unlisted.insert(level);
+                format!("UnlistedHeading{level}")
+            });
+        }
+        if let Some(level) = ctx.toc {
+            let level = level.clamp(1, 9);
+            self.toc_levels.insert(level);
+            props.style = Some(format!("TOC{level}"));
+            props.tabs = vec![TabStop {
+                kind: TabKind::Right,
+                pos: tw(first.x1 - ctx.left),
+                leader: TabLeader::Dot,
+            }];
         }
         if let Some((num, level)) = ctx.list {
             props.numbering = Some(NumRef { level, num });
@@ -1402,6 +1515,7 @@ impl Lower<'_> {
     /// The runs of `n`'s lines, joined into running text.
     fn runs(&mut self, n: NodeId, lines: &[crate::layout::Line], ctx: &Ctx) -> Vec<Inline> {
         let mut out: Vec<(Option<String>, Inline)> = Vec::new();
+        let mut tabbed = false;
         for (li, line) in lines.iter().enumerate() {
             let texts: Vec<ItemRef> = line.items.clone();
             let last_text = texts
@@ -1416,6 +1530,34 @@ impl Lower<'_> {
                 match &item.kind {
                     ItemKind::Text(t) => {
                         let chain = self.chain(item.node, n);
+                        let fill = chain.iter().any(|k| matches!(k, NodeKind::TocFill));
+                        let page = chain.iter().any(|k| matches!(k, NodeKind::TocPage));
+                        if (fill || page) && !tabbed {
+                            tabbed = true;
+                            if let Some((_, Inline::Run(r))) = out.last_mut() {
+                                if let Some(RunContent::Text(t)) = r.content.last_mut() {
+                                    let trimmed = t.trim_end().len();
+                                    t.truncate(trimmed);
+                                }
+                            }
+                            out.push((
+                                None,
+                                Inline::Run(Run {
+                                    props: RunProps::default(),
+                                    content: vec![RunContent::Tab],
+                                }),
+                            ));
+                        }
+                        if fill || (tabbed && !page && t.text.trim().is_empty()) {
+                            continue;
+                        }
+                        if page {
+                            let s = t.text.trim();
+                            let numeral = s.chars().all(|c| c.is_ascii_digit())
+                                || is_roman(s, false)
+                                || is_roman(s, true);
+                            self.toc_prefixed |= !numeral;
+                        }
                         let mut text = t.text.clone();
                         if chain.iter().any(|k| matches!(k, NodeKind::NoBreak)) {
                             text = text.replace(' ', "\u{a0}").replace('-', "\u{2011}");
@@ -1951,6 +2093,7 @@ impl Lower<'_> {
                         page_number: None,
                         list: None,
                         hint_list: None,
+                        toc: None,
                     };
                     self.prev = None;
                     let mut blocks = self.children(m, &inner);
@@ -2157,6 +2300,7 @@ impl Lower<'_> {
             page_number: ctx.page_number.clone(),
             list: None,
             hint_list: None,
+            toc: None,
         };
         let blocks = match self.kind(n) {
             NodeKind::Place { .. } | NodeKind::Artifact { .. } => self.children(n, &inner),

@@ -483,3 +483,62 @@ fn a_misspelt_hint_fails_the_compile_with_its_message() {
         "{err:?}"
     );
 }
+
+#[test]
+fn an_outline_is_a_toc_field_over_its_entries_and_its_title_is_unlisted() {
+    let (parts, codes) = render(&format!(
+        "{PAGE}#outline()\n= Intro\nText.\n== Sub\n#pagebreak()\n= Second\n"
+    ));
+    let xml = part(&parts, "word/document.xml");
+    assert!(
+        xml.contains(
+            "<w:instrText xml:space=\"preserve\"> TOC \\o \"1-9\" \\h \\z \\u </w:instrText>"
+        ),
+        "{xml}"
+    );
+    assert!(!xml.contains("w:fldLock"));
+    assert_eq!(
+        style_of(&xml, "Contents").as_deref(),
+        Some("UnlistedHeading1")
+    );
+    let texts: Vec<String> = paragraphs(&xml).into_iter().map(|p| p.0).collect();
+    assert!(
+        texts.contains(&"Intro1".to_string()) && texts.contains(&"Second2".to_string()),
+        "{texts:?}"
+    );
+    assert_eq!(style_of(&xml, "Sub1").as_deref(), Some("TOC2"));
+    assert_eq!(
+        xml.matches("<w:tab w:val=\"right\" w:leader=\"dot\"")
+            .count(),
+        3
+    );
+    let styles = part(&parts, "word/styles.xml");
+    assert!(styles.contains("<w:name w:val=\"toc 2\"/>"));
+    let unlisted = styles
+        .split("<w:style ")
+        .find(|s| s.contains("w:styleId=\"UnlistedHeading1\""))
+        .expect("the unlisted style");
+    assert!(
+        unlisted.contains("<w:keepNext/>") && !unlisted.contains("outlineLvl"),
+        "{unlisted}"
+    );
+    assert!(
+        !codes
+            .iter()
+            .any(|c| c == "docx::toc_frozen" || c == "docx::ink_dropped"),
+        "{codes:?}"
+    );
+}
+
+#[test]
+fn an_outline_whose_page_numbers_carry_a_prefix_is_locked() {
+    let (parts, codes) = render(
+        "#set page(width: 300pt, height: 300pt, margin: 30pt, numbering: (..n) => \"A-\" + str(n.pos().first()))\n\
+         #outline()\n= Intro\n",
+    );
+    let xml = part(&parts, "word/document.xml");
+    assert!(xml.contains("w:fldLock=\"1\""), "{xml}");
+    let texts: Vec<String> = paragraphs(&xml).into_iter().map(|p| p.0).collect();
+    assert!(texts.contains(&"IntroA-1".to_string()), "{texts:?}");
+    assert!(codes.iter().any(|c| c == "docx::toc_frozen"), "{codes:?}");
+}

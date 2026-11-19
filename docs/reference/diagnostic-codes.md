@@ -243,6 +243,7 @@ A Word export. Each warns that the Word file carries less than the PDF shows; no
 - `docx::probes_disabled`: the probed compile did not lay out the document's ink, so the Word file is read without its probes.
 - `docx::rasterized`: a curve, a gradient or pattern paint, an image that is neither PNG nor JPEG, or a rotated, skewed, unevenly scaled or clipped group is carried as a 300 dpi picture of its ink.
 - `docx::shape_dropped`: a drawn line or box that no table border or text decoration explains is left out.
+- `docx::toc_frozen`: a table of contents prints page numbers with a prefix Word's `PAGE` field cannot print, so its field is locked against an update.
 
 ## `acroform::`
 
