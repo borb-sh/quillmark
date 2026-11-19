@@ -303,7 +303,19 @@ impl Lower<'_> {
         for c in root {
             let page = match c {
                 Child::Node(n) => {
-                    if matches!(self.kind(n), NodeKind::Artifact { .. } | NodeKind::Footnote) {
+                    if self.separator(n) {
+                        self.consume_subtree(n);
+                        continue;
+                    }
+                    if matches!(
+                        self.kind(n),
+                        NodeKind::Artifact {
+                            kind: ArtifactKind::Header
+                                | ArtifactKind::Footer
+                                | ArtifactKind::Background
+                                | ArtifactKind::PageNumber
+                        } | NodeKind::Footnote
+                    ) {
                         continue;
                     }
                     self.first_page(n)
@@ -869,6 +881,15 @@ impl Lower<'_> {
                 };
                 self.children(n, &ctx)
             }
+            NodeKind::Artifact {
+                kind: ArtifactKind::Other,
+            } if self.doc.nodes[n].parent == Some(0) => {
+                let drawings = self.text_box(n, ctx);
+                self.placed += drawings.len();
+                let page = self.first_page(n).unwrap_or_default();
+                self.pending.extend(drawings.into_iter().map(|d| (page, d)));
+                Vec::new()
+            }
             NodeKind::Place { float, valign } => {
                 if self.chrome_places.iter().any(|c| c.1 == n) {
                     return Vec::new();
@@ -1020,6 +1041,30 @@ impl Lower<'_> {
         self.prev = Some(Prev::Bottom(page, 0.0));
         self.break_pending = true;
         out.push(Block::Paragraph(anchor));
+    }
+
+    /// Whether `n` is the rule Typst draws above a page's footnotes: an
+    /// artifact that is not chrome, holding only shapes, on a page with a
+    /// footnote. Word draws its own.
+    fn separator(&self, n: NodeId) -> bool {
+        let NodeKind::Artifact {
+            kind: ArtifactKind::Other,
+        } = self.kind(n)
+        else {
+            return false;
+        };
+        let page = self.first_page(n);
+        let footnoted = self.doc.nodes[0].children.iter().any(|c| {
+            matches!(c, Child::Node(f) if matches!(self.kind(*f), NodeKind::Footnote)
+                && self.first_page(*f) == page)
+        });
+        let shapes_only = self.doc.subtree(n).iter().all(|&m| {
+            self.doc.nodes[m].children.iter().all(|c| match c {
+                Child::Item(r) => matches!(self.doc.item(*r).kind, ItemKind::Shape(_)),
+                Child::Node(_) => true,
+            })
+        });
+        footnoted && shapes_only
     }
 
     fn child_page(&self, c: &Child) -> Option<u32> {
@@ -2732,7 +2777,7 @@ impl Lower<'_> {
             .iter()
             .filter_map(|c| match c {
                 Child::Node(n) => match self.kind(*n) {
-                    NodeKind::Artifact { kind } => {
+                    NodeKind::Artifact { kind } if *kind != ArtifactKind::Other => {
                         let at = self.first_page(*n)? as usize;
                         let low = matches!(kind, ArtifactKind::Footer | ArtifactKind::PageNumber);
                         (at == page && low == footer).then_some(*n)

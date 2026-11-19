@@ -338,3 +338,26 @@ fn a_custom_outline_entry_leads_to_its_prefixed_number_and_is_locked() {
     assert!(xml.contains("w:fldLock=\"1\""));
     assert!(w.has("docx::toc_frozen"), "{:?}", w.codes);
 }
+
+#[test]
+fn the_footnote_rule_is_left_to_word_and_reaches_no_header() {
+    let w = render(&format!(
+        "{PAGE}First page text.#footnote[A note.]\n#pagebreak()\n\
+         Second page text, no note.\n#pagebreak()\n\
+         Third page text.#footnote[Another note.]\n"
+    ));
+    let sections = w.sections();
+    assert_eq!(sections.len(), 1);
+    assert!(sections[0].headers.is_empty(), "{:?}", sections[0].headers);
+    assert!(sections[0].footers.is_empty(), "{:?}", sections[0].footers);
+    assert!(!sections[0].title_page);
+    assert!(w.body_drawings().is_empty());
+    let notes = w.part_paragraphs("word/footnotes.xml");
+    let texts: Vec<&str> = notes
+        .iter()
+        .map(|p| p.text.trim())
+        .filter(|t| !t.is_empty())
+        .collect();
+    assert_eq!(texts, ["A note.", "Another note."]);
+    assert!(!w.has("docx::shape_dropped"), "{:?}", w.codes);
+}
