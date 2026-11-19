@@ -240,9 +240,10 @@ A Word export. Each warns that the Word file carries less than the PDF shows; no
 - `docx::hint_unknown`: a hint names a kind the Word export does not know, so it is ignored.
 - `docx::ink_dropped`: text or an image that no paragraph, table, text box or picture holds is left out.
 - `docx::page_number_frozen`: a page number that chrome prints is not literal text around a number Word can count in one of its formats, so it stays as printed text and does not follow the page.
+- `docx::picture_failed`: a group that needs to be carried as a picture could not be drawn as one, so its ink is read as it is laid out, unrotated and unclipped.
 - `docx::place_anchored`: placed content is a text box anchored to the page, so it does not move with the text around it.
 - `docx::probes_disabled`: the probed compile did not lay out the document's ink, so the Word file is read without its probes.
-- `docx::rasterized`: a curve, a gradient or pattern paint, an image that is neither PNG nor JPEG, or a rotated, skewed, unevenly scaled or clipped group is carried as a 300 dpi picture of its ink.
+- `docx::rasterized`: a curve, a gradient or pattern paint, an image that is neither PNG nor JPEG, or a rotated, skewed, unevenly scaled or clipped group is carried as a picture of its ink where it shows on the page, at 300 dpi or at the density that keeps its longer side within a PNG render's limit.
 - `docx::shape_dropped`: a drawn line or box that no table border or text decoration explains is left out.
 - `docx::toc_frozen`: a table of contents prints page numbers with a prefix Word's `PAGE` field cannot print, so its field is locked against an update.
 - `docx::unstructured_text`: text that no element tags, so nothing says where its paragraphs begin, is set as one paragraph per printed line.

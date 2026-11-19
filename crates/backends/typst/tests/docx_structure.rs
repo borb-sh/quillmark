@@ -433,3 +433,32 @@ fn a_failed_update_leaves_the_word_export_of_the_served_document() {
     };
     assert_eq!(texts(&after), ["Title ok", "Second block."]);
 }
+
+#[test]
+fn a_picture_of_ink_past_the_page_is_clipped_to_the_page() {
+    let w = render(&format!(
+        "{PAGE}Text.\n#rotate(5deg, reflow: false, rect(width: 30in, height: 30in))\n"
+    ));
+    let pngs: Vec<(u32, u32)> = w
+        .parts
+        .iter()
+        .filter(|(name, _)| name.starts_with("word/media/") && name.ends_with(".png"))
+        .map(|(_, b)| {
+            let be = |at: usize| u32::from_be_bytes(b[at..at + 4].try_into().unwrap());
+            (be(16), be(20))
+        })
+        .collect();
+    assert_eq!(pngs.len(), 1);
+    let (width, height) = pngs[0];
+    assert!(width <= 1250 && height <= 1250, "{width} x {height} px");
+    let drawings = w.body_drawings();
+    let picture = drawings
+        .iter()
+        .find(|(_, d)| d.picture)
+        .expect("a picture")
+        .1
+        .clone();
+    assert!(picture.width <= 300 * 12700 && picture.height <= 300 * 12700);
+    assert!(w.has("docx::rasterized"));
+    assert!(!w.has("docx::picture_failed"), "{:?}", w.codes);
+}

@@ -41,6 +41,7 @@ use crate::tags::{marker, relocated};
 
 pub(crate) const CODE_MARGINS_ASSUMED: &str = "docx::margins_assumed";
 pub(crate) const CODE_RASTERIZED: &str = "docx::rasterized";
+pub(crate) const CODE_PICTURE_FAILED: &str = "docx::picture_failed";
 pub(crate) const CODE_HINT_UNKNOWN: &str = "docx::hint_unknown";
 pub(crate) const CODE_HINT_UNCLOSED: &str = "docx::hint_unclosed";
 pub(crate) const CODE_LIST_MARKER_REPLACED: &str = "docx::list_marker_replaced";
@@ -100,6 +101,9 @@ struct Reader<'a> {
     /// The text size the page probe records for the page being read, which
     /// it paints last.
     page_text: f64,
+    /// Groups that needed a picture and got none, whose ink is read as laid
+    /// out.
+    unpictured: usize,
 }
 
 /// The Layout IR of `document`.
@@ -128,6 +132,7 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
         in_raster: 0,
         toc_led: None,
         page_text: DEFAULT_TEXT_SIZE,
+        unpictured: 0,
     };
     let mut assumed = 0;
     for (i, page) in document.pages().iter().enumerate() {
@@ -186,6 +191,16 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
             format!(
                 "{n} curve(s), gradient(s), vector image(s), or rotated or clipped group(s) \
                  are carried as pictures"
+            ),
+        );
+    }
+    if r.unpictured > 0 {
+        let n = r.unpictured;
+        r.notice(
+            CODE_PICTURE_FAILED,
+            format!(
+                "{n} rotated, clipped or drawn group(s) on the page could not be carried as \
+                 pictures, so their ink is read as it is laid out, unrotated and unclipped"
             ),
         );
     }
@@ -324,15 +339,22 @@ impl Reader<'_> {
     }
 
     /// `item` at `pos` under `ts` as a 300 dpi picture of its ink.
-    fn raster(&mut self, item: &FrameItem, pos: Point, ts: Transform) {
+    /// A picture of `item`'s ink on the page, at 300 dpi or at the density
+    /// that keeps its longer side within a PNG render's: whether one was made,
+    /// or `None` when no ink of it shows on the page.
+    fn raster(&mut self, item: &FrameItem, pos: Point, ts: Transform) -> Option<bool> {
         if self.top().is_none() || self.hidden() {
-            return;
+            return None;
         }
-        let Some(rect) = ink_box(item, pos, ts) else {
-            return;
-        };
+        let [w, h] = self.out.pages[self.page as usize].size;
+        let rect = ink_box(item, pos, ts).map(|r| Rect {
+            x0: r.x0.max(0.0),
+            y0: r.y0.max(0.0),
+            x1: r.x1.min(w),
+            y1: r.y1.min(h),
+        })?;
         if rect.width() <= 0.0 || rect.height() <= 0.0 {
-            return;
+            return None;
         }
         let mut inner = Frame::soft(Size::zero());
         inner.push(pos, item.clone());
@@ -348,22 +370,32 @@ impl Reader<'_> {
             supplement: Content::empty(),
             number: 1,
         };
-        let pixmap = typst_render::render(&page, &crate::compile::render_options(300.0 / 72.0));
+        let side = f64::from(quillmark_core::backend::MAX_RASTER_SIDE);
+        let scale = (300.0_f64 / 72.0).min(side / rect.width().max(rect.height()));
+        let pixmap = typst_render::render(&page, &crate::compile::render_options(scale as f32));
         let Ok(png) = pixmap.encode_png() else {
-            return;
+            return Some(false);
         };
         let image = self.image(ImageFormat::Png, &png);
         self.rasters += 1;
         self.ink(ItemKind::Raster { image, rect });
+        Some(true)
     }
 
     fn walk(&mut self, frame: &Frame, ts: Transform) {
         for (pos, item) in frame.items() {
             match item {
                 FrameItem::Group(group) => {
-                    let raster = self.in_raster == 0 && needs_raster(group, ts);
+                    let raster = self.in_raster == 0
+                        && needs_raster(group, ts)
+                        && match self.raster(item, *pos, ts) {
+                            Some(false) => {
+                                self.unpictured += 1;
+                                false
+                            }
+                            _ => true,
+                        };
                     if raster {
-                        self.raster(item, *pos, ts);
                         self.in_raster += 1;
                     }
                     let ts = ts
