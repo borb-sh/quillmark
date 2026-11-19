@@ -27,6 +27,7 @@ pub struct Par {
     pub style: Option<String>,
     pub jc: Option<String>,
     pub ind_left: Option<i64>,
+    pub ind_first: Option<i64>,
     pub page_break_before: bool,
     pub keep_next: bool,
     /// Inside a table cell.
@@ -402,6 +403,7 @@ pub fn paragraphs(xml: &str) -> Vec<Par> {
             style: attr("pStyle", "val").map(str::to_string),
             jc: attr("jc", "val").map(str::to_string),
             ind_left: int("ind", "left"),
+            ind_first: int("ind", "firstLine"),
             page_break_before,
             keep_next: prop("keepNext").is_some(),
             in_table,

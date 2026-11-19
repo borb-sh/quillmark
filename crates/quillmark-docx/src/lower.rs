@@ -1273,16 +1273,20 @@ impl Lower<'_> {
             (HAlign::Start, false) => None,
         };
         if align == HAlign::Start && ctx.list.is_none() {
-            let (field_first, hanging) = match kind {
+            let (field_first, hanging, edge) = match kind {
                 NodeKind::Par {
                     first_line,
                     hanging,
+                    left,
                     ..
-                } => (first_line, hanging),
-                _ => (0.0, 0.0),
+                } => (first_line, hanging, left.filter(|_| opens)),
+                _ => (0.0, 0.0, None),
             };
             let (left, first_off) = if lines.len() >= 2 {
                 let rest = lines[1..].iter().map(|l| l.x0).fold(f64::MAX, f64::min);
+                (rest - ctx.left, first.x0 - rest)
+            } else if let Some(edge) = edge {
+                let rest = edge + hanging;
                 (rest - ctx.left, first.x0 - rest)
             } else {
                 let delta = first.x0 - ctx.left;
@@ -1842,22 +1846,29 @@ impl Lower<'_> {
         out
     }
 
-    /// The alignment of the Align bracket a paragraph reads all its content
-    /// through.
+    /// The alignment of the innermost Align bracket, or block set centred or
+    /// to the end, that a paragraph reads all its content through.
     fn read_align(&self, n: NodeId) -> Option<HAlign> {
         let mut at = n;
+        let mut found = None;
         loop {
             let mut nodes = self.doc.nodes[at].children.iter().filter(|c| match c {
                 Child::Node(_) => true,
                 Child::Item(r) => matches!(self.doc.item(*r).kind, ItemKind::Text(_)),
             });
             let (Some(Child::Node(m)), None) = (nodes.next(), nodes.next()) else {
-                return None;
+                return found;
             };
             match self.kind(*m) {
                 NodeKind::Align { h } => return Some(*h),
-                NodeKind::Block { .. } | NodeKind::Hint(_) => at = *m,
-                _ => return None,
+                NodeKind::Block { style, .. } => {
+                    if style.align != HAlign::Start {
+                        found = Some(style.align);
+                    }
+                    at = *m;
+                }
+                NodeKind::Hint(_) => at = *m,
+                _ => return found,
             }
         }
     }

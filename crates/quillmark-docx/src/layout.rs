@@ -423,6 +423,8 @@ pub enum NodeKind {
         first_line: f64,
         hanging: f64,
         style: Option<ParStyle>,
+        /// The x where its lines start before any indent, on its first page.
+        left: Option<f64>,
     },
     Heading {
         level: u8,

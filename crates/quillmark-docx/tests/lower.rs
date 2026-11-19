@@ -48,6 +48,7 @@ fn paragraph(family: &str, lines: &[(&str, LineEnd)]) -> LayoutDoc {
             first_line: 0.0,
             hanging: 0.0,
             style: None,
+            left: None,
         },
     ));
     doc.nodes[0].children.push(Child::Node(par));

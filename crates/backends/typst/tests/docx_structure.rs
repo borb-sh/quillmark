@@ -844,3 +844,39 @@ fn an_equation_that_wraps_keeps_its_text_and_is_reported() {
     );
     assert!((line - next).abs() <= 2, "{line} against {next}");
 }
+
+#[test]
+fn a_one_line_paragraph_takes_the_indent_kind_of_its_wrapped_sibling() {
+    let w = render(&format!(
+        "{PAGE}#h(2em)One line gap.\n\n\
+         #h(2em)A gap that opens a paragraph long enough to wrap onto a second line.\n\n\
+         #pad(left: 2em)[One line padded.]\n\n\
+         #pad(left: 2em)[A padded paragraph that is long enough to wrap onto a second line.]\n\n\
+         #set par(first-line-indent: 1.5em)\nPlain first.\n\nIndented one line.\n\n\
+         Indented and long enough that it wraps onto a second line as well.\n"
+    ));
+    let indents = |prefix: &str| {
+        let p = starting(&w, prefix);
+        (p.ind_left, p.ind_first)
+    };
+    assert_eq!(indents("One line gap"), (None, Some(440)));
+    assert_eq!(indents("A gap that opens"), (None, Some(440)));
+    assert_eq!(indents("One line padded"), (Some(440), None));
+    assert_eq!(indents("A padded paragraph"), (Some(440), None));
+    assert_eq!(indents("Indented one line"), (None, Some(330)));
+    assert_eq!(indents("Indented and long"), (None, Some(330)));
+}
+
+#[test]
+fn a_heading_shown_through_a_centred_block_is_centred_not_indented() {
+    let w = render(&format!(
+        "{PAGE}#show heading: it => {{\n  set align(center)\n  \
+         block(width: 100%, text(weight: \"bold\", it.body))\n}}\n\
+         = Summary\n\nA body paragraph.\n"
+    ));
+    let heading = w.par("Summary");
+    assert_eq!(heading.style.as_deref(), Some("Heading1"));
+    assert_eq!(heading.jc.as_deref(), Some("center"));
+    assert_eq!(heading.ind_left, None);
+    assert_eq!(w.par("A body paragraph.").jc, None);
+}

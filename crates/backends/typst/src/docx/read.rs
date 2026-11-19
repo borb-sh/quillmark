@@ -730,7 +730,7 @@ impl Reader<'_> {
     fn start(&mut self, elem: &Content, at: Point) {
         if let Some(d) = marker(elem, HINT) {
             if !self.hidden() {
-                self.hint(&d);
+                self.hint(&d, at);
             }
             return;
         }
@@ -1035,7 +1035,8 @@ impl Reader<'_> {
         })
     }
 
-    fn hint(&mut self, d: &Dict) {
+    /// Reads the probe or hint `d`, whose tag sits at `at`.
+    fn hint(&mut self, d: &Dict, at: Point) {
         let get = |k: &str| d.get(k).ok().cloned().unwrap_or(Value::None);
         let Value::Str(hint) = get("hint") else {
             return;
@@ -1135,10 +1136,13 @@ impl Reader<'_> {
                 });
                 if let Some(n) = par {
                     if let NodeKind::Par {
-                        style: s @ None, ..
+                        style: s @ None,
+                        left,
+                        ..
                     } = &mut self.out.nodes[n].kind
                     {
                         *s = Some(style);
+                        *left = Some(at.x.to_pt());
                         self.edges.insert(n, (get("top"), get("bottom")));
                     }
                 }
@@ -1260,6 +1264,7 @@ fn node_kind(elem: &Content) -> Option<NodeKind> {
             first_line: ind(par.first_line_indent.get(styles).amount()),
             hanging: ind(par.hanging_indent.get(styles)),
             style: None,
+            left: None,
         });
     }
     if let Some(h) = elem.to_packed::<HeadingElem>() {
