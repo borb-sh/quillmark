@@ -1257,17 +1257,7 @@ impl Lower<'_> {
             self.attach_pending(out);
             return;
         }
-        let mut anchor = Paragraph {
-            props: ParProps {
-                spacing: Some(Spacing {
-                    before: Some(0),
-                    after: Some(0),
-                    line: Some(Line::Exact(20)),
-                }),
-                ..ParProps::default()
-            },
-            content: Vec::new(),
-        };
+        let mut anchor = spacer(20);
         self.break_pending |= prev.is_some_and(|p| p < page);
         self.apply_break(&mut anchor, page, ctx);
         self.prev = Some(Prev::Bottom(page, 0.0));
@@ -3159,18 +3149,11 @@ impl Lower<'_> {
                     }
                 }
                 let para = Paragraph {
-                    props: ParProps {
-                        spacing: Some(Spacing {
-                            before: Some(0),
-                            after: Some(0),
-                            line: Some(Line::Exact(line)),
-                        }),
-                        ..ParProps::default()
-                    },
                     content: vec![Inline::Run(Run {
                         props: RunProps::default(),
                         content: drawings.into_iter().map(RunContent::Drawing).collect(),
                     })],
+                    ..spacer(line)
                 };
                 let parts = if footer { &mut *footers } else { &mut *headers };
                 parts.push(Blocks::from_paragraphs(vec![para]));
