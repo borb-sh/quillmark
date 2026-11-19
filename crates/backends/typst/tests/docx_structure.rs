@@ -995,3 +995,25 @@ fn a_section_with_no_footer_writes_an_empty_one_rather_than_inherit() {
     assert_eq!(text(part), "");
     assert_eq!(sections[1].start.as_deref(), Some("nextPage"));
 }
+
+#[test]
+fn a_running_header_that_changes_mid_flow_breaks_the_section_on_the_same_page() {
+    let w = render(
+        "#set page(width: 300pt, height: 200pt, margin: 36pt, header: context {\n  \
+         let hs = query(heading.where(level: 1).before(here()))\n  \
+         if hs.len() > 0 [Running #hs.last().body] else [Front]\n})\n\
+         = Alpha\n#lorem(70)\n\n= Beta\n#lorem(60)\n\n= Gamma\nShort.\n",
+    );
+    let sections = w.sections();
+    assert!(sections.len() >= 2, "{} sections", sections.len());
+    for s in &sections[1..] {
+        assert_eq!(s.start.as_deref(), Some("continuous"));
+    }
+    assert!(w.body().iter().all(|p| !p.page_break_before));
+    let headers: Vec<String> = sections
+        .iter()
+        .flat_map(|s| &s.headers)
+        .map(|(_, p)| chrome_text(&w, p))
+        .collect();
+    assert!(headers.iter().any(|h| h == "Running Beta"), "{headers:?}");
+}

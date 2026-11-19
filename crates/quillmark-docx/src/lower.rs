@@ -372,6 +372,9 @@ impl Lower<'_> {
     fn document(&mut self) -> Document {
         let doc = self.doc;
         let groups = self.section_pages();
+        let starts: Vec<SectionStart> = (0..groups.len())
+            .map(|s| self.section_start(&groups, s))
+            .collect();
         let mut sections: Vec<Section> = Vec::new();
         let mut bodies: Vec<Vec<Block>> = vec![Vec::new(); groups.len()];
         let section_of = |page: u32| {
@@ -414,6 +417,16 @@ impl Lower<'_> {
             }
             if let Some(p) = page {
                 current = section_of(p);
+                let last = match c {
+                    Child::Node(n) => doc.nodes[n].frames.last().map(|f| f.0),
+                    Child::Item(r) => Some(r.page),
+                };
+                let to = last.map_or(current, section_of);
+                if to > current
+                    && starts[current + 1..=to] == vec![SectionStart::Continuous; to - current][..]
+                {
+                    current = to;
+                }
             }
             let ctx = at(current);
             let blocks = self.child(&c, &ctx);
@@ -438,7 +451,7 @@ impl Lower<'_> {
         let mut footers = Vec::new();
         let mut had = [[false; 2]; 2];
         let mut prev_number: Option<u64> = None;
-        for (pages, body) in groups.iter().zip(bodies) {
+        for ((pages, body), start) in groups.iter().zip(bodies).zip(starts) {
             let first = &doc.pages[pages[0]];
             let s = first.setup;
             let (mut header, mut footer, title_page) =
@@ -461,7 +474,7 @@ impl Lower<'_> {
                 props: SectionProps {
                     header,
                     footer,
-                    start: SectionStart::NextPage,
+                    start,
                     page_width: tw(first.size[0]),
                     page_height: tw(first.size[1]),
                     landscape: s.flipped,
@@ -3117,22 +3130,58 @@ impl Lower<'_> {
         out
     }
 
+    /// What a Word section holds once for all its pages: size, margins,
+    /// columns and orientation.
+    fn setup_key(&self, i: usize) -> (Twips, Twips, [Twips; 4], u32, bool) {
+        let p = &self.doc.pages[i];
+        let m = p.setup.margins;
+        (
+            tw(p.size[0]),
+            tw(p.size[1]),
+            [tw(m.top), tw(m.right), tw(m.bottom), tw(m.left)],
+            p.setup.columns,
+            p.setup.flipped,
+        )
+    }
+
+    /// How section `s` of `groups` starts: on the same page when only its
+    /// chrome or numbering changes and Typst broke the page where it was
+    /// full, else on a new page. A page Typst broke to carries a break
+    /// mark before its first text outside chrome.
+    fn section_start(&self, groups: &[Vec<usize>], s: usize) -> SectionStart {
+        let (Some(&first), Some(&before)) = (
+            groups[s].first(),
+            s.checked_sub(1).and_then(|p| groups[p].last()),
+        ) else {
+            return SectionStart::NextPage;
+        };
+        let chrome = |n: NodeId| {
+            self.doc
+                .ancestor(n, |k| matches!(k, NodeKind::Artifact { .. }))
+                .is_some()
+        };
+        let forced = self.doc.pages[first]
+            .items
+            .iter()
+            .find_map(|i| match i.kind {
+                ItemKind::Mark(PointHint::Break { .. }) => Some(true),
+                ItemKind::Text(_) if !chrome(i.node) => Some(false),
+                _ => None,
+            })
+            .unwrap_or(false);
+        if forced || self.setup_key(first) != self.setup_key(before) {
+            SectionStart::NextPage
+        } else {
+            SectionStart::Continuous
+        }
+    }
+
     /// Runs of consecutive pages one Word section holds: one page setup, one
     /// way of printing the page number, a count that runs on, and chrome
     /// that is the same on every page but the first.
     fn section_pages(&self) -> Vec<Vec<usize>> {
         let doc = self.doc;
-        let setup = |i: usize| {
-            let p = &doc.pages[i];
-            let m = p.setup.margins;
-            (
-                tw(p.size[0]),
-                tw(p.size[1]),
-                [tw(m.top), tw(m.right), tw(m.bottom), tw(m.left)],
-                p.setup.columns,
-                p.setup.flipped,
-            )
-        };
+        let setup = |i: usize| self.setup_key(i);
         let numbering = |i: usize| {
             let p = &doc.pages[i];
             p.number_text
