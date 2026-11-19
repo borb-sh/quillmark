@@ -1,0 +1,488 @@
+Document {
+    sections: [
+        Section {
+            body: Blocks {
+                blocks: [
+                    Paragraph(
+                        Paragraph {
+                            props: ParProps {
+                                style: None,
+                                keep_next: false,
+                                keep_lines: false,
+                                page_break_before: false,
+                                widow_control: None,
+                                numbering: None,
+                                tabs: [],
+                                spacing: Some(
+                                    Spacing {
+                                        before: Some(
+                                            0,
+                                        ),
+                                        after: None,
+                                        line: Some(
+                                            Exact(
+                                                299,
+                                            ),
+                                        ),
+                                    },
+                                ),
+                                indent: None,
+                                align: None,
+                                outline_level: None,
+                                mark: None,
+                            },
+                            content: [
+                                Run(
+                                    Run {
+                                        props: RunProps {
+                                            style: None,
+                                            font: Some(
+                                                "Roboto",
+                                            ),
+                                            bold: None,
+                                            italic: None,
+                                            strike: false,
+                                            no_proof: false,
+                                            color: None,
+                                            spacing: None,
+                                            scale: None,
+                                            position: None,
+                                            size: Some(
+                                                22,
+                                            ),
+                                            underline: false,
+                                            shade: None,
+                                            vert: None,
+                                            lang: None,
+                                        },
+                                        content: [
+                                            Text(
+                                                "Appendix page.",
+                                            ),
+                                        ],
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                ],
+                last: Paragraph {
+                    props: ParProps {
+                        style: None,
+                        keep_next: false,
+                        keep_lines: false,
+                        page_break_before: true,
+                        widow_control: None,
+                        numbering: None,
+                        tabs: [],
+                        spacing: Some(
+                            Spacing {
+                                before: Some(
+                                    0,
+                                ),
+                                after: None,
+                                line: Some(
+                                    Exact(
+                                        299,
+                                    ),
+                                ),
+                            },
+                        ),
+                        indent: None,
+                        align: None,
+                        outline_level: None,
+                        mark: None,
+                    },
+                    content: [
+                        Run(
+                            Run {
+                                props: RunProps {
+                                    style: None,
+                                    font: Some(
+                                        "Roboto",
+                                    ),
+                                    bold: None,
+                                    italic: None,
+                                    strike: false,
+                                    no_proof: false,
+                                    color: None,
+                                    spacing: None,
+                                    scale: None,
+                                    position: None,
+                                    size: Some(
+                                        22,
+                                    ),
+                                    underline: false,
+                                    shade: None,
+                                    vert: None,
+                                    lang: None,
+                                },
+                                content: [
+                                    Text(
+                                        "Another.",
+                                    ),
+                                ],
+                            },
+                        ),
+                    ],
+                },
+            },
+            props: SectionProps {
+                header: HeaderRefs {
+                    default: None,
+                    first: None,
+                    even: None,
+                },
+                footer: HeaderRefs {
+                    default: Some(
+                        0,
+                    ),
+                    first: None,
+                    even: None,
+                },
+                start: NextPage,
+                page_width: 6000,
+                page_height: 6000,
+                landscape: false,
+                margins: PageMargins {
+                    top: 600,
+                    right: 600,
+                    bottom: 600,
+                    left: 600,
+                    header: 400,
+                    footer: 400,
+                },
+                page_numbers: Some(
+                    PageNumbers {
+                        format: Decimal,
+                        start: None,
+                    },
+                ),
+                columns: None,
+                title_page: false,
+            },
+        },
+    ],
+    headers: [],
+    footers: [
+        Blocks {
+            blocks: [],
+            last: Paragraph {
+                props: ParProps {
+                    style: None,
+                    keep_next: false,
+                    keep_lines: false,
+                    page_break_before: false,
+                    widow_control: None,
+                    numbering: None,
+                    tabs: [],
+                    spacing: Some(
+                        Spacing {
+                            before: Some(
+                                0,
+                            ),
+                            after: Some(
+                                0,
+                            ),
+                            line: Some(
+                                Exact(
+                                    20,
+                                ),
+                            ),
+                        },
+                    ),
+                    indent: None,
+                    align: None,
+                    outline_level: None,
+                    mark: None,
+                },
+                content: [
+                    Run(
+                        Run {
+                            props: RunProps {
+                                style: None,
+                                font: None,
+                                bold: None,
+                                italic: None,
+                                strike: false,
+                                no_proof: false,
+                                color: None,
+                                spacing: None,
+                                scale: None,
+                                position: None,
+                                size: None,
+                                underline: false,
+                                shade: None,
+                                vert: None,
+                                lang: None,
+                            },
+                            content: [
+                                Drawing(
+                                    Drawing {
+                                        placement: Anchor(
+                                            Anchor {
+                                                x: 1800873,
+                                                y: 3508506,
+                                                behind_text: false,
+                                                z: 1,
+                                                wrap: None,
+                                            },
+                                        ),
+                                        width: 233654,
+                                        height: 201168,
+                                        content: TextBox(
+                                            TextBox {
+                                                body: Blocks {
+                                                    blocks: [],
+                                                    last: Paragraph {
+                                                        props: ParProps {
+                                                            style: None,
+                                                            keep_next: false,
+                                                            keep_lines: false,
+                                                            page_break_before: false,
+                                                            widow_control: None,
+                                                            numbering: None,
+                                                            tabs: [],
+                                                            spacing: Some(
+                                                                Spacing {
+                                                                    before: Some(
+                                                                        0,
+                                                                    ),
+                                                                    after: None,
+                                                                    line: Some(
+                                                                        Exact(
+                                                                            264,
+                                                                        ),
+                                                                    ),
+                                                                },
+                                                            ),
+                                                            indent: None,
+                                                            align: None,
+                                                            outline_level: None,
+                                                            mark: None,
+                                                        },
+                                                        content: [
+                                                            Run(
+                                                                Run {
+                                                                    props: RunProps {
+                                                                        style: None,
+                                                                        font: Some(
+                                                                            "Roboto",
+                                                                        ),
+                                                                        bold: None,
+                                                                        italic: None,
+                                                                        strike: false,
+                                                                        no_proof: false,
+                                                                        color: None,
+                                                                        spacing: None,
+                                                                        scale: None,
+                                                                        position: None,
+                                                                        size: Some(
+                                                                            22,
+                                                                        ),
+                                                                        underline: false,
+                                                                        shade: None,
+                                                                        vert: None,
+                                                                        lang: None,
+                                                                    },
+                                                                    content: [
+                                                                        Text(
+                                                                            "A-",
+                                                                        ),
+                                                                    ],
+                                                                },
+                                                            ),
+                                                            Field(
+                                                                Field {
+                                                                    instruction: "PAGE",
+                                                                    props: RunProps {
+                                                                        style: None,
+                                                                        font: Some(
+                                                                            "Roboto",
+                                                                        ),
+                                                                        bold: None,
+                                                                        italic: None,
+                                                                        strike: false,
+                                                                        no_proof: false,
+                                                                        color: None,
+                                                                        spacing: None,
+                                                                        scale: None,
+                                                                        position: None,
+                                                                        size: Some(
+                                                                            22,
+                                                                        ),
+                                                                        underline: false,
+                                                                        shade: None,
+                                                                        vert: None,
+                                                                        lang: None,
+                                                                    },
+                                                                    result: [
+                                                                        Run {
+                                                                            props: RunProps {
+                                                                                style: None,
+                                                                                font: Some(
+                                                                                    "Roboto",
+                                                                                ),
+                                                                                bold: None,
+                                                                                italic: None,
+                                                                                strike: false,
+                                                                                no_proof: false,
+                                                                                color: None,
+                                                                                spacing: None,
+                                                                                scale: None,
+                                                                                position: None,
+                                                                                size: Some(
+                                                                                    22,
+                                                                                ),
+                                                                                underline: false,
+                                                                                shade: None,
+                                                                                vert: None,
+                                                                                lang: None,
+                                                                            },
+                                                                            content: [
+                                                                                Text(
+                                                                                    "1",
+                                                                                ),
+                                                                            ],
+                                                                        },
+                                                                    ],
+                                                                    locked: false,
+                                                                },
+                                                            ),
+                                                        ],
+                                                    },
+                                                },
+                                                wrap: false,
+                                            },
+                                        ),
+                                        descr: None,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                ],
+            },
+        },
+    ],
+    footnotes: [],
+    styles: Styles {
+        default_run: RunProps {
+            style: None,
+            font: Some(
+                "Roboto",
+            ),
+            bold: None,
+            italic: None,
+            strike: false,
+            no_proof: false,
+            color: None,
+            spacing: None,
+            scale: None,
+            position: None,
+            size: Some(
+                22,
+            ),
+            underline: false,
+            shade: None,
+            vert: None,
+            lang: None,
+        },
+        default_par: ParProps {
+            style: None,
+            keep_next: false,
+            keep_lines: false,
+            page_break_before: false,
+            widow_control: Some(
+                true,
+            ),
+            numbering: None,
+            tabs: [],
+            spacing: Some(
+                Spacing {
+                    before: None,
+                    after: Some(
+                        0,
+                    ),
+                    line: None,
+                },
+            ),
+            indent: None,
+            align: None,
+            outline_level: None,
+            mark: None,
+        },
+        styles: [
+            Style {
+                id: "Normal",
+                name: "Normal",
+                kind: Paragraph,
+                builtin: true,
+                based_on: None,
+                next: None,
+                ui_priority: None,
+                semi_hidden: false,
+                quick: true,
+                par: ParProps {
+                    style: None,
+                    keep_next: false,
+                    keep_lines: false,
+                    page_break_before: false,
+                    widow_control: None,
+                    numbering: None,
+                    tabs: [],
+                    spacing: None,
+                    indent: None,
+                    align: None,
+                    outline_level: None,
+                    mark: None,
+                },
+                run: RunProps {
+                    style: None,
+                    font: None,
+                    bold: None,
+                    italic: None,
+                    strike: false,
+                    no_proof: false,
+                    color: None,
+                    spacing: None,
+                    scale: None,
+                    position: None,
+                    size: None,
+                    underline: false,
+                    shade: None,
+                    vert: None,
+                    lang: None,
+                },
+            },
+        ],
+    },
+    numbering: Numbering {
+        abstracts: [],
+        nums: [],
+    },
+    fonts: [
+        FontDecl {
+            name: "Roboto",
+            alt_name: None,
+            family: Roman,
+            pitch_fixed: false,
+        },
+    ],
+    media: [],
+    settings: Settings {
+        default_tab_stop: 720,
+        even_and_odd_headers: false,
+    },
+    info: Info {
+        title: None,
+        language: None,
+    },
+}
+media: []
+notices: [
+    Notice {
+        code: "docx::font_not_embedded",
+        message: "the Word file names the font Roboto without embedding it, so Word substitutes another where it is not installed",
+    },
+]

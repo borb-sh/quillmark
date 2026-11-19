@@ -1,0 +1,1423 @@
+Document {
+    sections: [
+        Section {
+            body: Blocks {
+                blocks: [
+                    Paragraph(
+                        Paragraph {
+                            props: ParProps {
+                                style: None,
+                                keep_next: false,
+                                keep_lines: false,
+                                page_break_before: false,
+                                widow_control: None,
+                                numbering: None,
+                                tabs: [
+                                    TabStop {
+                                        kind: Left,
+                                        pos: 658,
+                                        leader: None,
+                                    },
+                                ],
+                                spacing: Some(
+                                    Spacing {
+                                        before: Some(
+                                            0,
+                                        ),
+                                        after: None,
+                                        line: Some(
+                                            Exact(
+                                                299,
+                                            ),
+                                        ),
+                                    },
+                                ),
+                                indent: Some(
+                                    Indent {
+                                        left: Some(
+                                            658,
+                                        ),
+                                        right: None,
+                                        first: Some(
+                                            Hanging(
+                                                658,
+                                            ),
+                                        ),
+                                    },
+                                ),
+                                align: None,
+                                outline_level: None,
+                                mark: None,
+                            },
+                            content: [
+                                Run(
+                                    Run {
+                                        props: RunProps {
+                                            style: None,
+                                            font: Some(
+                                                "Roboto",
+                                            ),
+                                            bold: None,
+                                            italic: None,
+                                            strike: false,
+                                            no_proof: false,
+                                            color: None,
+                                            spacing: None,
+                                            scale: None,
+                                            position: None,
+                                            size: Some(
+                                                22,
+                                            ),
+                                            underline: false,
+                                            shade: None,
+                                            vert: None,
+                                            lang: None,
+                                        },
+                                        content: [
+                                            Text(
+                                                "FROM:",
+                                            ),
+                                        ],
+                                    },
+                                ),
+                                Run(
+                                    Run {
+                                        props: RunProps {
+                                            style: None,
+                                            font: None,
+                                            bold: None,
+                                            italic: None,
+                                            strike: false,
+                                            no_proof: false,
+                                            color: None,
+                                            spacing: None,
+                                            scale: None,
+                                            position: None,
+                                            size: None,
+                                            underline: false,
+                                            shade: None,
+                                            vert: None,
+                                            lang: None,
+                                        },
+                                        content: [
+                                            Tab,
+                                        ],
+                                    },
+                                ),
+                                Run(
+                                    Run {
+                                        props: RunProps {
+                                            style: None,
+                                            font: Some(
+                                                "Roboto",
+                                            ),
+                                            bold: None,
+                                            italic: None,
+                                            strike: false,
+                                            no_proof: false,
+                                            color: None,
+                                            spacing: None,
+                                            scale: None,
+                                            position: None,
+                                            size: Some(
+                                                22,
+                                            ),
+                                            underline: false,
+                                            shade: None,
+                                            vert: None,
+                                            lang: None,
+                                        },
+                                        content: [
+                                            Text(
+                                                "Here",
+                                            ),
+                                        ],
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                ],
+                last: Paragraph {
+                    props: ParProps {
+                        style: Some(
+                            "List1",
+                        ),
+                        keep_next: false,
+                        keep_lines: false,
+                        page_break_before: false,
+                        widow_control: None,
+                        numbering: None,
+                        tabs: [],
+                        spacing: Some(
+                            Spacing {
+                                before: Some(
+                                    121,
+                                ),
+                                after: None,
+                                line: Some(
+                                    Exact(
+                                        299,
+                                    ),
+                                ),
+                            },
+                        ),
+                        indent: None,
+                        align: None,
+                        outline_level: None,
+                        mark: None,
+                    },
+                    content: [
+                        Run(
+                            Run {
+                                props: RunProps {
+                                    style: None,
+                                    font: Some(
+                                        "Roboto",
+                                    ),
+                                    bold: None,
+                                    italic: None,
+                                    strike: false,
+                                    no_proof: false,
+                                    color: None,
+                                    spacing: None,
+                                    scale: None,
+                                    position: None,
+                                    size: Some(
+                                        22,
+                                    ),
+                                    underline: false,
+                                    shade: None,
+                                    vert: None,
+                                    lang: None,
+                                },
+                                content: [
+                                    Text(
+                                        "In a list.",
+                                    ),
+                                ],
+                            },
+                        ),
+                    ],
+                },
+            },
+            props: SectionProps {
+                header: HeaderRefs {
+                    default: Some(
+                        0,
+                    ),
+                    first: None,
+                    even: None,
+                },
+                footer: HeaderRefs {
+                    default: None,
+                    first: None,
+                    even: None,
+                },
+                start: NextPage,
+                page_width: 6000,
+                page_height: 6000,
+                landscape: false,
+                margins: PageMargins {
+                    top: 600,
+                    right: 600,
+                    bottom: 600,
+                    left: 600,
+                    header: 400,
+                    footer: 400,
+                },
+                page_numbers: Some(
+                    PageNumbers {
+                        format: Decimal,
+                        start: None,
+                    },
+                ),
+                columns: None,
+                title_page: false,
+            },
+        },
+    ],
+    headers: [
+        Blocks {
+            blocks: [],
+            last: Paragraph {
+                props: ParProps {
+                    style: None,
+                    keep_next: false,
+                    keep_lines: false,
+                    page_break_before: false,
+                    widow_control: None,
+                    numbering: None,
+                    tabs: [],
+                    spacing: Some(
+                        Spacing {
+                            before: Some(
+                                0,
+                            ),
+                            after: Some(
+                                0,
+                            ),
+                            line: Some(
+                                Exact(
+                                    20,
+                                ),
+                            ),
+                        },
+                    ),
+                    indent: None,
+                    align: None,
+                    outline_level: None,
+                    mark: None,
+                },
+                content: [
+                    Run(
+                        Run {
+                            props: RunProps {
+                                style: None,
+                                font: None,
+                                bold: None,
+                                italic: None,
+                                strike: false,
+                                no_proof: false,
+                                color: None,
+                                spacing: None,
+                                scale: None,
+                                position: None,
+                                size: None,
+                                underline: false,
+                                shade: None,
+                                vert: None,
+                                lang: None,
+                            },
+                            content: [
+                                Drawing(
+                                    Drawing {
+                                        placement: Anchor(
+                                            Anchor {
+                                                x: 3112901,
+                                                y: 346206,
+                                                behind_text: false,
+                                                z: 1,
+                                                wrap: None,
+                                            },
+                                        ),
+                                        width: 341499,
+                                        height: 201168,
+                                        content: TextBox(
+                                            TextBox {
+                                                body: Blocks {
+                                                    blocks: [],
+                                                    last: Paragraph {
+                                                        props: ParProps {
+                                                            style: None,
+                                                            keep_next: false,
+                                                            keep_lines: false,
+                                                            page_break_before: false,
+                                                            widow_control: None,
+                                                            numbering: None,
+                                                            tabs: [],
+                                                            spacing: Some(
+                                                                Spacing {
+                                                                    before: Some(
+                                                                        0,
+                                                                    ),
+                                                                    after: None,
+                                                                    line: Some(
+                                                                        Exact(
+                                                                            264,
+                                                                        ),
+                                                                    ),
+                                                                },
+                                                            ),
+                                                            indent: None,
+                                                            align: None,
+                                                            outline_level: None,
+                                                            mark: None,
+                                                        },
+                                                        content: [
+                                                            Run(
+                                                                Run {
+                                                                    props: RunProps {
+                                                                        style: None,
+                                                                        font: Some(
+                                                                            "Roboto",
+                                                                        ),
+                                                                        bold: None,
+                                                                        italic: None,
+                                                                        strike: false,
+                                                                        no_proof: false,
+                                                                        color: None,
+                                                                        spacing: None,
+                                                                        scale: None,
+                                                                        position: None,
+                                                                        size: Some(
+                                                                            22,
+                                                                        ),
+                                                                        underline: false,
+                                                                        shade: None,
+                                                                        vert: None,
+                                                                        lang: None,
+                                                                    },
+                                                                    content: [
+                                                                        Text(
+                                                                            "Mark",
+                                                                        ),
+                                                                    ],
+                                                                },
+                                                            ),
+                                                        ],
+                                                    },
+                                                },
+                                                wrap: false,
+                                            },
+                                        ),
+                                        descr: None,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                ],
+            },
+        },
+    ],
+    footers: [],
+    footnotes: [],
+    styles: Styles {
+        default_run: RunProps {
+            style: None,
+            font: Some(
+                "Roboto",
+            ),
+            bold: None,
+            italic: None,
+            strike: false,
+            no_proof: false,
+            color: None,
+            spacing: None,
+            scale: None,
+            position: None,
+            size: Some(
+                22,
+            ),
+            underline: false,
+            shade: None,
+            vert: None,
+            lang: None,
+        },
+        default_par: ParProps {
+            style: None,
+            keep_next: false,
+            keep_lines: false,
+            page_break_before: false,
+            widow_control: Some(
+                true,
+            ),
+            numbering: None,
+            tabs: [],
+            spacing: Some(
+                Spacing {
+                    before: None,
+                    after: Some(
+                        0,
+                    ),
+                    line: None,
+                },
+            ),
+            indent: None,
+            align: None,
+            outline_level: None,
+            mark: None,
+        },
+        styles: [
+            Style {
+                id: "Normal",
+                name: "Normal",
+                kind: Paragraph,
+                builtin: true,
+                based_on: None,
+                next: None,
+                ui_priority: None,
+                semi_hidden: false,
+                quick: true,
+                par: ParProps {
+                    style: None,
+                    keep_next: false,
+                    keep_lines: false,
+                    page_break_before: false,
+                    widow_control: None,
+                    numbering: None,
+                    tabs: [],
+                    spacing: None,
+                    indent: None,
+                    align: None,
+                    outline_level: None,
+                    mark: None,
+                },
+                run: RunProps {
+                    style: None,
+                    font: None,
+                    bold: None,
+                    italic: None,
+                    strike: false,
+                    no_proof: false,
+                    color: None,
+                    spacing: None,
+                    scale: None,
+                    position: None,
+                    size: None,
+                    underline: false,
+                    shade: None,
+                    vert: None,
+                    lang: None,
+                },
+            },
+            Style {
+                id: "List1",
+                name: "List 1",
+                kind: Paragraph,
+                builtin: false,
+                based_on: Some(
+                    "Normal",
+                ),
+                next: None,
+                ui_priority: None,
+                semi_hidden: false,
+                quick: true,
+                par: ParProps {
+                    style: None,
+                    keep_next: false,
+                    keep_lines: false,
+                    page_break_before: false,
+                    widow_control: None,
+                    numbering: Some(
+                        NumRef {
+                            level: 0,
+                            num: 1,
+                        },
+                    ),
+                    tabs: [],
+                    spacing: None,
+                    indent: Some(
+                        Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                    ),
+                    align: None,
+                    outline_level: None,
+                    mark: None,
+                },
+                run: RunProps {
+                    style: None,
+                    font: None,
+                    bold: None,
+                    italic: None,
+                    strike: false,
+                    no_proof: false,
+                    color: None,
+                    spacing: None,
+                    scale: None,
+                    position: None,
+                    size: None,
+                    underline: false,
+                    shade: None,
+                    vert: None,
+                    lang: None,
+                },
+            },
+            Style {
+                id: "List2",
+                name: "List 2",
+                kind: Paragraph,
+                builtin: false,
+                based_on: Some(
+                    "Normal",
+                ),
+                next: None,
+                ui_priority: None,
+                semi_hidden: false,
+                quick: true,
+                par: ParProps {
+                    style: None,
+                    keep_next: false,
+                    keep_lines: false,
+                    page_break_before: false,
+                    widow_control: None,
+                    numbering: Some(
+                        NumRef {
+                            level: 1,
+                            num: 1,
+                        },
+                    ),
+                    tabs: [],
+                    spacing: None,
+                    indent: Some(
+                        Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                    ),
+                    align: None,
+                    outline_level: None,
+                    mark: None,
+                },
+                run: RunProps {
+                    style: None,
+                    font: None,
+                    bold: None,
+                    italic: None,
+                    strike: false,
+                    no_proof: false,
+                    color: None,
+                    spacing: None,
+                    scale: None,
+                    position: None,
+                    size: None,
+                    underline: false,
+                    shade: None,
+                    vert: None,
+                    lang: None,
+                },
+            },
+            Style {
+                id: "List3",
+                name: "List 3",
+                kind: Paragraph,
+                builtin: false,
+                based_on: Some(
+                    "Normal",
+                ),
+                next: None,
+                ui_priority: None,
+                semi_hidden: false,
+                quick: true,
+                par: ParProps {
+                    style: None,
+                    keep_next: false,
+                    keep_lines: false,
+                    page_break_before: false,
+                    widow_control: None,
+                    numbering: Some(
+                        NumRef {
+                            level: 2,
+                            num: 1,
+                        },
+                    ),
+                    tabs: [],
+                    spacing: None,
+                    indent: Some(
+                        Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                    ),
+                    align: None,
+                    outline_level: None,
+                    mark: None,
+                },
+                run: RunProps {
+                    style: None,
+                    font: None,
+                    bold: None,
+                    italic: None,
+                    strike: false,
+                    no_proof: false,
+                    color: None,
+                    spacing: None,
+                    scale: None,
+                    position: None,
+                    size: None,
+                    underline: false,
+                    shade: None,
+                    vert: None,
+                    lang: None,
+                },
+            },
+            Style {
+                id: "List4",
+                name: "List 4",
+                kind: Paragraph,
+                builtin: false,
+                based_on: Some(
+                    "Normal",
+                ),
+                next: None,
+                ui_priority: None,
+                semi_hidden: false,
+                quick: true,
+                par: ParProps {
+                    style: None,
+                    keep_next: false,
+                    keep_lines: false,
+                    page_break_before: false,
+                    widow_control: None,
+                    numbering: Some(
+                        NumRef {
+                            level: 3,
+                            num: 1,
+                        },
+                    ),
+                    tabs: [],
+                    spacing: None,
+                    indent: Some(
+                        Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                    ),
+                    align: None,
+                    outline_level: None,
+                    mark: None,
+                },
+                run: RunProps {
+                    style: None,
+                    font: None,
+                    bold: None,
+                    italic: None,
+                    strike: false,
+                    no_proof: false,
+                    color: None,
+                    spacing: None,
+                    scale: None,
+                    position: None,
+                    size: None,
+                    underline: false,
+                    shade: None,
+                    vert: None,
+                    lang: None,
+                },
+            },
+            Style {
+                id: "List5",
+                name: "List 5",
+                kind: Paragraph,
+                builtin: false,
+                based_on: Some(
+                    "Normal",
+                ),
+                next: None,
+                ui_priority: None,
+                semi_hidden: false,
+                quick: false,
+                par: ParProps {
+                    style: None,
+                    keep_next: false,
+                    keep_lines: false,
+                    page_break_before: false,
+                    widow_control: None,
+                    numbering: Some(
+                        NumRef {
+                            level: 4,
+                            num: 1,
+                        },
+                    ),
+                    tabs: [],
+                    spacing: None,
+                    indent: Some(
+                        Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                    ),
+                    align: None,
+                    outline_level: None,
+                    mark: None,
+                },
+                run: RunProps {
+                    style: None,
+                    font: None,
+                    bold: None,
+                    italic: None,
+                    strike: false,
+                    no_proof: false,
+                    color: None,
+                    spacing: None,
+                    scale: None,
+                    position: None,
+                    size: None,
+                    underline: false,
+                    shade: None,
+                    vert: None,
+                    lang: None,
+                },
+            },
+            Style {
+                id: "List6",
+                name: "List 6",
+                kind: Paragraph,
+                builtin: false,
+                based_on: Some(
+                    "Normal",
+                ),
+                next: None,
+                ui_priority: None,
+                semi_hidden: false,
+                quick: false,
+                par: ParProps {
+                    style: None,
+                    keep_next: false,
+                    keep_lines: false,
+                    page_break_before: false,
+                    widow_control: None,
+                    numbering: Some(
+                        NumRef {
+                            level: 5,
+                            num: 1,
+                        },
+                    ),
+                    tabs: [],
+                    spacing: None,
+                    indent: Some(
+                        Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                    ),
+                    align: None,
+                    outline_level: None,
+                    mark: None,
+                },
+                run: RunProps {
+                    style: None,
+                    font: None,
+                    bold: None,
+                    italic: None,
+                    strike: false,
+                    no_proof: false,
+                    color: None,
+                    spacing: None,
+                    scale: None,
+                    position: None,
+                    size: None,
+                    underline: false,
+                    shade: None,
+                    vert: None,
+                    lang: None,
+                },
+            },
+            Style {
+                id: "List7",
+                name: "List 7",
+                kind: Paragraph,
+                builtin: false,
+                based_on: Some(
+                    "Normal",
+                ),
+                next: None,
+                ui_priority: None,
+                semi_hidden: false,
+                quick: false,
+                par: ParProps {
+                    style: None,
+                    keep_next: false,
+                    keep_lines: false,
+                    page_break_before: false,
+                    widow_control: None,
+                    numbering: Some(
+                        NumRef {
+                            level: 6,
+                            num: 1,
+                        },
+                    ),
+                    tabs: [],
+                    spacing: None,
+                    indent: Some(
+                        Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                    ),
+                    align: None,
+                    outline_level: None,
+                    mark: None,
+                },
+                run: RunProps {
+                    style: None,
+                    font: None,
+                    bold: None,
+                    italic: None,
+                    strike: false,
+                    no_proof: false,
+                    color: None,
+                    spacing: None,
+                    scale: None,
+                    position: None,
+                    size: None,
+                    underline: false,
+                    shade: None,
+                    vert: None,
+                    lang: None,
+                },
+            },
+            Style {
+                id: "List8",
+                name: "List 8",
+                kind: Paragraph,
+                builtin: false,
+                based_on: Some(
+                    "Normal",
+                ),
+                next: None,
+                ui_priority: None,
+                semi_hidden: false,
+                quick: false,
+                par: ParProps {
+                    style: None,
+                    keep_next: false,
+                    keep_lines: false,
+                    page_break_before: false,
+                    widow_control: None,
+                    numbering: Some(
+                        NumRef {
+                            level: 7,
+                            num: 1,
+                        },
+                    ),
+                    tabs: [],
+                    spacing: None,
+                    indent: Some(
+                        Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                    ),
+                    align: None,
+                    outline_level: None,
+                    mark: None,
+                },
+                run: RunProps {
+                    style: None,
+                    font: None,
+                    bold: None,
+                    italic: None,
+                    strike: false,
+                    no_proof: false,
+                    color: None,
+                    spacing: None,
+                    scale: None,
+                    position: None,
+                    size: None,
+                    underline: false,
+                    shade: None,
+                    vert: None,
+                    lang: None,
+                },
+            },
+            Style {
+                id: "List9",
+                name: "List 9",
+                kind: Paragraph,
+                builtin: false,
+                based_on: Some(
+                    "Normal",
+                ),
+                next: None,
+                ui_priority: None,
+                semi_hidden: false,
+                quick: false,
+                par: ParProps {
+                    style: None,
+                    keep_next: false,
+                    keep_lines: false,
+                    page_break_before: false,
+                    widow_control: None,
+                    numbering: Some(
+                        NumRef {
+                            level: 8,
+                            num: 1,
+                        },
+                    ),
+                    tabs: [],
+                    spacing: None,
+                    indent: Some(
+                        Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                    ),
+                    align: None,
+                    outline_level: None,
+                    mark: None,
+                },
+                run: RunProps {
+                    style: None,
+                    font: None,
+                    bold: None,
+                    italic: None,
+                    strike: false,
+                    no_proof: false,
+                    color: None,
+                    spacing: None,
+                    scale: None,
+                    position: None,
+                    size: None,
+                    underline: false,
+                    shade: None,
+                    vert: None,
+                    lang: None,
+                },
+            },
+        ],
+    },
+    numbering: Numbering {
+        abstracts: [
+            AbstractNum {
+                id: 0,
+                nsid: "51530000",
+                levels: [
+                    Level {
+                        start: 1,
+                        format: Decimal,
+                        style: Some(
+                            "List1",
+                        ),
+                        suffix: Nothing,
+                        text: "%1. ",
+                        align: Start,
+                        indent: Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                        tabs: [],
+                        run: RunProps {
+                            style: None,
+                            font: None,
+                            bold: None,
+                            italic: None,
+                            strike: false,
+                            no_proof: false,
+                            color: None,
+                            spacing: None,
+                            scale: None,
+                            position: None,
+                            size: None,
+                            underline: false,
+                            shade: None,
+                            vert: None,
+                            lang: None,
+                        },
+                    },
+                    Level {
+                        start: 1,
+                        format: Decimal,
+                        style: Some(
+                            "List2",
+                        ),
+                        suffix: Nothing,
+                        text: "%2. ",
+                        align: Start,
+                        indent: Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                        tabs: [],
+                        run: RunProps {
+                            style: None,
+                            font: None,
+                            bold: None,
+                            italic: None,
+                            strike: false,
+                            no_proof: false,
+                            color: None,
+                            spacing: None,
+                            scale: None,
+                            position: None,
+                            size: None,
+                            underline: false,
+                            shade: None,
+                            vert: None,
+                            lang: None,
+                        },
+                    },
+                    Level {
+                        start: 1,
+                        format: Decimal,
+                        style: Some(
+                            "List3",
+                        ),
+                        suffix: Nothing,
+                        text: "%3. ",
+                        align: Start,
+                        indent: Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                        tabs: [],
+                        run: RunProps {
+                            style: None,
+                            font: None,
+                            bold: None,
+                            italic: None,
+                            strike: false,
+                            no_proof: false,
+                            color: None,
+                            spacing: None,
+                            scale: None,
+                            position: None,
+                            size: None,
+                            underline: false,
+                            shade: None,
+                            vert: None,
+                            lang: None,
+                        },
+                    },
+                    Level {
+                        start: 1,
+                        format: Decimal,
+                        style: Some(
+                            "List4",
+                        ),
+                        suffix: Nothing,
+                        text: "%4. ",
+                        align: Start,
+                        indent: Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                        tabs: [],
+                        run: RunProps {
+                            style: None,
+                            font: None,
+                            bold: None,
+                            italic: None,
+                            strike: false,
+                            no_proof: false,
+                            color: None,
+                            spacing: None,
+                            scale: None,
+                            position: None,
+                            size: None,
+                            underline: false,
+                            shade: None,
+                            vert: None,
+                            lang: None,
+                        },
+                    },
+                    Level {
+                        start: 1,
+                        format: Decimal,
+                        style: Some(
+                            "List5",
+                        ),
+                        suffix: Nothing,
+                        text: "%5. ",
+                        align: Start,
+                        indent: Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                        tabs: [],
+                        run: RunProps {
+                            style: None,
+                            font: None,
+                            bold: None,
+                            italic: None,
+                            strike: false,
+                            no_proof: false,
+                            color: None,
+                            spacing: None,
+                            scale: None,
+                            position: None,
+                            size: None,
+                            underline: false,
+                            shade: None,
+                            vert: None,
+                            lang: None,
+                        },
+                    },
+                    Level {
+                        start: 1,
+                        format: Decimal,
+                        style: Some(
+                            "List6",
+                        ),
+                        suffix: Nothing,
+                        text: "%6. ",
+                        align: Start,
+                        indent: Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                        tabs: [],
+                        run: RunProps {
+                            style: None,
+                            font: None,
+                            bold: None,
+                            italic: None,
+                            strike: false,
+                            no_proof: false,
+                            color: None,
+                            spacing: None,
+                            scale: None,
+                            position: None,
+                            size: None,
+                            underline: false,
+                            shade: None,
+                            vert: None,
+                            lang: None,
+                        },
+                    },
+                    Level {
+                        start: 1,
+                        format: Decimal,
+                        style: Some(
+                            "List7",
+                        ),
+                        suffix: Nothing,
+                        text: "%7. ",
+                        align: Start,
+                        indent: Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                        tabs: [],
+                        run: RunProps {
+                            style: None,
+                            font: None,
+                            bold: None,
+                            italic: None,
+                            strike: false,
+                            no_proof: false,
+                            color: None,
+                            spacing: None,
+                            scale: None,
+                            position: None,
+                            size: None,
+                            underline: false,
+                            shade: None,
+                            vert: None,
+                            lang: None,
+                        },
+                    },
+                    Level {
+                        start: 1,
+                        format: Decimal,
+                        style: Some(
+                            "List8",
+                        ),
+                        suffix: Nothing,
+                        text: "%8. ",
+                        align: Start,
+                        indent: Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                        tabs: [],
+                        run: RunProps {
+                            style: None,
+                            font: None,
+                            bold: None,
+                            italic: None,
+                            strike: false,
+                            no_proof: false,
+                            color: None,
+                            spacing: None,
+                            scale: None,
+                            position: None,
+                            size: None,
+                            underline: false,
+                            shade: None,
+                            vert: None,
+                            lang: None,
+                        },
+                    },
+                    Level {
+                        start: 1,
+                        format: Decimal,
+                        style: Some(
+                            "List9",
+                        ),
+                        suffix: Nothing,
+                        text: "%9. ",
+                        align: Start,
+                        indent: Indent {
+                            left: Some(
+                                0,
+                            ),
+                            right: None,
+                            first: Some(
+                                Indent(
+                                    0,
+                                ),
+                            ),
+                        },
+                        tabs: [],
+                        run: RunProps {
+                            style: None,
+                            font: None,
+                            bold: None,
+                            italic: None,
+                            strike: false,
+                            no_proof: false,
+                            color: None,
+                            spacing: None,
+                            scale: None,
+                            position: None,
+                            size: None,
+                            underline: false,
+                            shade: None,
+                            vert: None,
+                            lang: None,
+                        },
+                    },
+                ],
+            },
+        ],
+        nums: [
+            Num {
+                id: 1,
+                abstract_id: 0,
+                starts: [
+                    (
+                        0,
+                        1,
+                    ),
+                ],
+            },
+        ],
+    },
+    fonts: [
+        FontDecl {
+            name: "Roboto",
+            alt_name: None,
+            family: Roman,
+            pitch_fixed: false,
+        },
+    ],
+    media: [],
+    settings: Settings {
+        default_tab_stop: 720,
+        even_and_odd_headers: false,
+    },
+    info: Info {
+        title: None,
+        language: None,
+    },
+}
+media: []
+notices: [
+    Notice {
+        code: "docx::font_not_embedded",
+        message: "the Word file names the font Roboto without embedding it, so Word substitutes another where it is not installed",
+    },
+]
