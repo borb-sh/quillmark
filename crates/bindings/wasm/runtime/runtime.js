@@ -1008,6 +1008,18 @@ Quill.prototype.writer = function writer(doc) {
 	return new DocumentWriter(this, doc);
 };
 
+/**
+ * @param {{ from: Quill, to: Quill }} quills the quill a document was written
+ *   for, and the one its `$quill` is retargeted to
+ * @returns {import('../core/wasm.js').SchemaDelta}
+ */
+Quill.compare = function compare(quills) {
+	rejectUnknownKeys(quills, ['from', 'to'], 'Quill.compare quills');
+	requireLocalQuill(quills?.from, 'Quill.compare({ from, to })');
+	requireLocalQuill(quills?.to, 'Quill.compare({ from, to })');
+	return Quill._compare(quills.from, quills.to);
+};
+
 // The transport `Document.getStored` is schema-free, so an unknown field name
 // reads back `undefined` rather than as the typo it is. Binding the quill's
 // schema lets one `get` interpret by declared type and throw `UnknownField`.
