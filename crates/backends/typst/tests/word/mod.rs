@@ -91,8 +91,13 @@ pub struct Section {
 
 /// Renders `plate`, with the helper imported as `qm`, to DOCX.
 pub fn render(plate: &str) -> Word {
+    render_quill(&plain(plate))
+}
+
+/// The fixture quill [`render`] renders `plate` in.
+pub fn plain(plate: &str) -> quillmark_core::quill::Quill {
     let plate = format!("#import \"@local/quillmark-helper:0.2.0\" as qm\n{plate}");
-    render_quill(&common::quill_with_plate(&common::yaml(""), &plate))
+    common::quill_with_plate(&common::yaml(""), &plate)
 }
 
 /// [`render`] in the fixture quill whose fonts include TeX Gyre Termes.
@@ -109,6 +114,12 @@ pub fn hosted(plate: &str) -> quillmark_core::quill::Quill {
 
 /// The baseline Typst sets the first line holding `text` on, in points.
 pub fn typst_baseline(quill: &quillmark_core::quill::Quill, text: &str) -> f64 {
+    typst_line(quill, text).1
+}
+
+/// The page, from 0, and baseline of the first line Typst sets holding
+/// `text`.
+pub fn typst_line(quill: &quillmark_core::quill::Quill, text: &str) -> (u32, f64) {
     let doc =
         quillmark_typst::testing::layout(quill, &json!({}), common::test_date()).expect("layout");
     doc.nodes
@@ -120,11 +131,11 @@ pub fn typst_baseline(quill: &quillmark_core::quill::Quill, text: &str) -> f64 {
                     quillmark_docx::layout::ItemKind::Text(t) if t.text.trim() == text)
             })
         })
-        .map(|l| l.baseline)
+        .map(|l| (l.page, l.baseline))
         .unwrap_or_else(|| panic!("no line {text:?}"))
 }
 
-fn render_quill(quill: &quillmark_core::quill::Quill) -> Word {
+pub fn render_quill(quill: &quillmark_core::quill::Quill) -> Word {
     let session = TypstBackend::default()
         .open(quill, &json!({}), common::test_date())
         .expect("open");

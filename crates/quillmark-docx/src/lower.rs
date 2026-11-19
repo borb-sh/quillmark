@@ -82,48 +82,17 @@ fn hex(c: Rgb) -> String {
 
 /// The Word document for `doc` and what the export carries less of.
 pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
-    let mut l = Lower {
-        doc,
-        consumed: HashSet::new(),
-        fonts: BTreeMap::new(),
-        unmapped: BTreeSet::new(),
-        numbering: Default::default(),
-        footnotes: Vec::new(),
-        notes: HashMap::new(),
-        media: Vec::new(),
-        media_of: HashMap::new(),
-        pending: Vec::new(),
-        z: 0,
-        break_pending: false,
-        prev: None,
-        placed: 0,
-        headings: BTreeSet::new(),
-        unlisted: BTreeSet::new(),
-        builtin: BTreeSet::new(),
-        toc_levels: BTreeSet::new(),
-        toc_prefixed: false,
-        frozen: 0,
-        label_prefix: None,
-        strides: strides(doc),
-        prev_bottom: None,
-        table_gap: None,
-        footer_floats: Vec::new(),
-        skip: HashSet::new(),
-        schemes: Vec::new(),
-        counters: HashMap::new(),
-        extra_styles: Vec::new(),
-        roles: BTreeMap::new(),
-        chrome_places: Vec::new(),
-        alt_names: BTreeMap::new(),
-        keep: false,
-        mismatches: 0,
-        untabbed: 0,
-        unstructured: 0,
-        numbered: HashSet::new(),
-        frozen_numbers: 0,
-    };
-    l.chrome_places = l.find_chrome_places();
-    l.numbered = l.numbered_runs();
+    let mut first = Lower::new(doc, HashMap::new());
+    first.document();
+    let usual = first
+        .measured
+        .into_iter()
+        .map(|(k, mut v)| {
+            v.sort_by(f64::total_cmp);
+            (k, v[v.len() / 2])
+        })
+        .collect();
+    let mut l = Lower::new(doc, usual);
     let document = l.document();
     let mut seen = HashSet::new();
     let notices = doc
@@ -134,6 +103,58 @@ pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
         .filter(|n| seen.insert((n.code.clone(), n.message.clone())))
         .collect();
     (document, notices)
+}
+
+impl<'a> Lower<'a> {
+    /// A lowering of `doc` that gives a paragraph Typst put at a page top
+    /// the `usual` space above paragraphs like it.
+    fn new(doc: &'a LayoutDoc, usual: HashMap<SpaceKey, f64>) -> Self {
+        let mut l = Lower {
+            doc,
+            consumed: HashSet::new(),
+            fonts: BTreeMap::new(),
+            unmapped: BTreeSet::new(),
+            numbering: Default::default(),
+            footnotes: Vec::new(),
+            notes: HashMap::new(),
+            media: Vec::new(),
+            media_of: HashMap::new(),
+            pending: Vec::new(),
+            z: 0,
+            break_pending: false,
+            prev: None,
+            placed: 0,
+            headings: BTreeSet::new(),
+            unlisted: BTreeSet::new(),
+            builtin: BTreeSet::new(),
+            toc_levels: BTreeSet::new(),
+            toc_prefixed: false,
+            frozen: 0,
+            label_prefix: None,
+            strides: strides(doc),
+            prev_bottom: None,
+            table_gap: None,
+            footer_floats: Vec::new(),
+            skip: HashSet::new(),
+            schemes: Vec::new(),
+            counters: HashMap::new(),
+            extra_styles: Vec::new(),
+            roles: BTreeMap::new(),
+            chrome_places: Vec::new(),
+            alt_names: BTreeMap::new(),
+            keep: false,
+            mismatches: 0,
+            untabbed: 0,
+            unstructured: 0,
+            numbered: HashSet::new(),
+            frozen_numbers: 0,
+            measured: HashMap::new(),
+            usual,
+        };
+        l.chrome_places = l.find_chrome_places();
+        l.numbered = l.numbered_runs();
+        l
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -226,6 +247,10 @@ struct Lower<'a> {
     /// number, which makes a chrome run holding the number a page number.
     numbered: HashSet<(String, String)>,
     frozen_numbers: usize,
+    /// The space above each paragraph that follows a paragraph on its page.
+    measured: HashMap<SpaceKey, Vec<f64>>,
+    /// The median of `measured`, from a first lowering.
+    usual: HashMap<SpaceKey, f64>,
 }
 
 /// A role's or a scheme's level's style id: its name without spaces or
@@ -246,6 +271,12 @@ fn read_into(k: &NodeKind) -> bool {
 }
 
 type StrideKey = (usize, i64, i64);
+
+/// What makes paragraphs alike in the space Typst sets above them: the list
+/// level they are numbered at, or else their heading level, their style's
+/// size, leading and spacing, and their block's space above and below, in
+/// hundredths of a point.
+type SpaceKey = (Option<(u32, u8)>, Option<u8>, [i64; 5]);
 
 /// The style a paragraph-forming node's probes resolved: its own, else its
 /// nearest block's.
@@ -871,7 +902,7 @@ impl Lower<'_> {
                 let rect = &rect;
                 let drawing = self.picture(image, *rect, alt, Placement::Inline);
                 let mut p = Paragraph {
-                    props: self.par_frame(ctx, None, r.page, rect.y1, rect.height(), true),
+                    props: self.par_frame(ctx, None, None, r.page, rect.y1, rect.height(), true),
                     content: vec![Inline::Run(Run {
                         props: RunProps::default(),
                         content: vec![RunContent::Drawing(drawing)],
@@ -1179,21 +1210,31 @@ impl Lower<'_> {
     /// Paragraph properties from where a block of `height` whose first
     /// baseline is `baseline` sits.
     fn par_frame(
-        &self,
+        &mut self,
         ctx: &Ctx,
+        n: Option<NodeId>,
         style: Option<ParStyle>,
         page: u32,
         baseline: f64,
         pitch: f64,
         object: bool,
     ) -> ParProps {
+        let key = n.map(|n| self.space_key(n, ctx));
         let before = if ctx.nested {
             0.0
         } else {
             match self.prev {
-                Some(Prev::Baseline(p, y)) if p == page => baseline - y - pitch,
+                Some(Prev::Baseline(p, y)) if p == page => {
+                    let gap = baseline - y - pitch;
+                    if let Some(key) = key {
+                        self.measured.entry(key).or_default().push(gap);
+                    }
+                    gap
+                }
                 Some(Prev::Bottom(p, y)) if p == page => baseline - y - 0.8 * pitch,
-                Some(_) if !self.break_pending => style.map_or(0.0, |s| s.spacing),
+                Some(_) if !self.break_pending => key
+                    .and_then(|k| self.usual.get(&k).copied())
+                    .unwrap_or_else(|| style.map_or(0.0, |s| s.spacing)),
                 _ => {
                     let top = self.doc.pages[page as usize].setup.margins.top;
                     baseline - top - 0.8 * pitch
@@ -1213,6 +1254,36 @@ impl Lower<'_> {
             }),
             ..ParProps::default()
         }
+    }
+
+    fn space_key(&self, n: NodeId, ctx: &Ctx) -> SpaceKey {
+        if ctx.list.is_some() {
+            return (ctx.list, None, [0; 5]);
+        }
+        let heading = match self.kind(n) {
+            NodeKind::Heading { level, .. } => Some(*level),
+            _ => None,
+        };
+        let c = |v: f64| (v * 100.0).round() as i64;
+        let style = self.par_style(n);
+        let block = self
+            .doc
+            .ancestor(n, |k| matches!(k, NodeKind::Block { .. }))
+            .and_then(|b| match self.doc.nodes[b].kind {
+                NodeKind::Block { above, below, .. } => Some((above, below)),
+                _ => None,
+            });
+        (
+            None,
+            heading,
+            [
+                style.map_or(0, |s| c(s.size)),
+                style.map_or(0, |s| c(s.leading)),
+                style.map_or(0, |s| c(s.spacing)),
+                block.map_or(-1, |b| c(b.0)),
+                block.map_or(-1, |b| c(b.1)),
+            ],
+        )
     }
 
     fn paragraph(&mut self, n: NodeId, ctx: &Ctx) -> Option<Paragraph> {
@@ -1254,7 +1325,15 @@ impl Lower<'_> {
         let tall = lines.iter().flat_map(|l| &l.items).any(|r| {
             matches!(&self.doc.item(*r).kind, ItemKind::Raster { rect, .. } if rect.height() > pitch)
         });
-        let mut props = self.par_frame(ctx, style, first.page, first.baseline, pitch, false);
+        let mut props = self.par_frame(
+            ctx,
+            Some(n),
+            style,
+            first.page,
+            first.baseline,
+            pitch,
+            false,
+        );
         if tall {
             if let Some(sp) = props.spacing.as_mut() {
                 sp.line = Some(Line::Auto(240));
@@ -1721,7 +1800,15 @@ impl Lower<'_> {
             let style = style_of(self.doc, lead);
             let lead_lines = self.doc.nodes[lead].lines.clone();
             let pitch = self.pitch(lead, &lead_lines, style);
-            let mut props = self.par_frame(ctx, style, first.page, first.baseline, pitch, false);
+            let mut props = self.par_frame(
+                ctx,
+                Some(lead),
+                style,
+                first.page,
+                first.baseline,
+                pitch,
+                false,
+            );
             let x = |l: &Self, c: NodeId, col: u32| {
                 let inset = match l.kind(c) {
                     NodeKind::Cell { inset, .. } => inset.left,

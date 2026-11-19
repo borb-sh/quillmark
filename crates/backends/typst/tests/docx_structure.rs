@@ -880,3 +880,42 @@ fn a_heading_shown_through_a_centred_block_is_centred_not_indented() {
     assert_eq!(heading.ind_left, None);
     assert_eq!(w.par("A body paragraph.").jc, None);
 }
+
+/// The first of `texts` Typst sets on its second page.
+fn first_on_second_page(quill: &quillmark_core::quill::Quill, texts: &[String]) -> String {
+    texts
+        .iter()
+        .find(|t| word::typst_line(quill, t).0 == 1)
+        .expect("a second page")
+        .clone()
+}
+
+#[test]
+fn a_numbered_paragraph_at_a_page_top_keeps_its_siblings_space_before() {
+    let body: String = (1..=16)
+        .map(|i| {
+            format!("#hints.hint(\"label\", level: 1, value: {i})[{i}.#h(4pt)]Paragraph {i}.\n\n#v(8pt)\n\n")
+        })
+        .collect();
+    let quill = word::plain(&format!(
+        "#let hints = qm.hints\n{PAGE}#set par(spacing: 6pt)\n\
+         #hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n{body}]\n"
+    ));
+    let texts: Vec<String> = (1..=16).map(|i| format!("Paragraph {i}.")).collect();
+    let top = first_on_second_page(&quill, &texts);
+    let w = word::render_quill(&quill);
+    let mid = w.par("Paragraph 3.").space_before;
+    assert!(mid.is_some_and(|b| b > 120), "{mid:?}");
+    assert_eq!(w.par(&top).space_before, mid, "{top}");
+}
+
+#[test]
+fn a_list_item_at_a_page_top_keeps_its_siblings_space_before() {
+    let items: String = (1..=30).map(|i| format!("- Item {i}\n")).collect();
+    let quill = word::plain(&format!("{PAGE}Before the list.\n\n{items}"));
+    let texts: Vec<String> = (1..=30).map(|i| format!("Item {i}")).collect();
+    let top = first_on_second_page(&quill, &texts);
+    let w = word::render_quill(&quill);
+    let mid = w.par("Item 3").space_before;
+    assert_eq!(w.par(&top).space_before, mid, "{top}");
+}
