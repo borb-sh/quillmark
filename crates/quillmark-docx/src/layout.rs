@@ -203,6 +203,9 @@ pub struct TextRun {
     pub fill: Rgb,
     /// The advance width as laid out.
     pub width: f64,
+    /// The advance width of the face's own advances, as a writer that does
+    /// not kern sets the text.
+    pub natural: f64,
 }
 
 impl TextRun {

@@ -498,6 +498,18 @@ impl Reader<'_> {
                         .map(|g| g.x_advance.at(text.size).to_pt())
                         .sum::<f64>()
                         * scale;
+                    let natural: f64 = text
+                        .glyphs
+                        .iter()
+                        .map(|g| {
+                            text.font
+                                .x_advance(g.id)
+                                .unwrap_or(g.x_advance)
+                                .at(text.size)
+                                .to_pt()
+                        })
+                        .sum::<f64>()
+                        * scale;
                     let origin = pos.transform(ts);
                     let run = ItemKind::Text(TextRun {
                         origin: [origin.x.to_pt(), origin.y.to_pt()],
@@ -506,6 +518,7 @@ impl Reader<'_> {
                         size,
                         fill: rgb(&text.fill),
                         width,
+                        natural,
                     });
                     match self.toc_page() {
                         Some(page) => self.ink_under(page, run),

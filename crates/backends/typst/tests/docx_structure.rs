@@ -704,3 +704,59 @@ fn the_memo_heading_stack_keeps_each_blank_line() {
         ],
     );
 }
+
+/// The `w:gridCol` widths of the table holding `text`, and its tab stops
+/// and hanging indent when `text` is a tabbed paragraph instead.
+fn grid_of(xml: &str, text: &str) -> Vec<i64> {
+    let at = xml
+        .find(&format!(">{text}<"))
+        .unwrap_or_else(|| panic!("no {text:?}"));
+    let table = xml[..at].rfind("<w:tblGrid>").expect("a table");
+    xml[table..at]
+        .split("<w:gridCol w:w=\"")
+        .skip(1)
+        .map(|g| g.split('"').next().unwrap().parse().unwrap())
+        .collect()
+}
+
+#[test]
+fn a_content_sized_column_is_as_wide_as_its_unkerned_text() {
+    let w = word::render_hosted(HEADING_STACK);
+    let xml = w.xml("word/document.xml");
+    // Times' own advances at 12 pt: "FROM:" 37.34 pt, "SUBJECT:" 54.01 pt;
+    // Typst kerns them to 36.80 and 52.93.
+    for (label, unkerned) in [("FROM:", 747), ("SUBJECT:", 1081)] {
+        let grid = grid_of(&xml, label);
+        assert!(grid[0] >= unkerned, "{label} column {grid:?}");
+        assert_eq!(
+            grid.iter().sum::<i64>(),
+            9360,
+            "{label} table width {grid:?}"
+        );
+    }
+}
+
+#[test]
+fn a_tabbed_label_has_room_for_its_unkerned_text() {
+    let plate = "#set page(width: 612pt, height: 792pt, margin: 72pt)\n\
+         #set text(font: \"TeX Gyre Termes\", size: 12pt)\n\
+         #qm.hints.hint(\"layout\", form: \"tabbed\")[#grid(columns: (auto, auto, 1fr), \
+         [SUBJECT:], [], [Annual Review of Every Office of Record in the Wing, with a \
+         subject long enough to wrap under itself])]\n";
+    let w = word::render_hosted(plate);
+    let xml = w.xml("word/document.xml");
+    let stops: Vec<i64> = xml
+        .split("<w:tab w:val=\"left\" w:pos=\"")
+        .skip(1)
+        .map(|g| g.split('"').next().unwrap().parse().unwrap())
+        .collect();
+    assert_eq!(stops.len(), 2, "{xml}");
+    assert!(stops[0] >= 1081, "{stops:?}");
+    assert!(stops[1] > stops[0], "two stops share a position: {stops:?}");
+    let hanging = xml
+        .split("w:hanging=\"")
+        .nth(1)
+        .and_then(|v| v.split('"').next())
+        .and_then(|v| v.parse::<i64>().ok());
+    assert_eq!(hanging, Some(stops[1]));
+}

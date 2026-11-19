@@ -1568,6 +1568,55 @@ impl Lower<'_> {
     }
 
     /// The paragraph-forming nodes of `cell`, in reading order.
+    /// How many twips wider than Typst's kerned ink each content-sized
+    /// column of table `n` is in the face's own advances, as Word sets it.
+    fn slack(&self, n: NodeId) -> Vec<Twips> {
+        let NodeKind::Table {
+            columns,
+            content_sized,
+            ..
+        } = self.kind(n)
+        else {
+            return Vec::new();
+        };
+        let mut out = vec![0.0f64; columns.len().saturating_sub(1)];
+        for m in self.doc.subtree(n) {
+            let NodeKind::Cell { col, colspan, .. } = *self.kind(m) else {
+                continue;
+            };
+            let col = col as usize;
+            let own = self
+                .doc
+                .ancestor(self.doc.nodes[m].parent.unwrap_or(0), |k| {
+                    matches!(k, NodeKind::Table { .. })
+                })
+                == Some(n);
+            if !own
+                || colspan != 1
+                || col >= out.len()
+                || !content_sized.get(col).copied().unwrap_or(false)
+            {
+                continue;
+            }
+            for p in self.doc.subtree(m) {
+                for line in &self.doc.nodes[p].lines {
+                    let extra: f64 = line
+                        .items
+                        .iter()
+                        .filter_map(|r| match &self.doc.item(*r).kind {
+                            ItemKind::Text(t) => Some(t.natural - t.width),
+                            _ => None,
+                        })
+                        .sum();
+                    out[col] = out[col].max(extra);
+                }
+            }
+        }
+        out.into_iter()
+            .map(|s| (s * 20.0).ceil() as Twips)
+            .collect()
+    }
+
     fn cell_paragraphs(&self, cell: NodeId) -> Vec<NodeId> {
         self.doc
             .subtree(cell)
@@ -1630,6 +1679,7 @@ impl Lower<'_> {
             }
         }
         let role = self.role_of(n);
+        let slack = self.slack(n);
         let mut out = Vec::new();
         for cells in rows.values() {
             let (_, last) = *cells.last().expect("a cell");
@@ -1658,7 +1708,9 @@ impl Lower<'_> {
                     NodeKind::Cell { inset, .. } => inset.left,
                     _ => 0.0,
                 };
+                let wider: Twips = slack.iter().take(col as usize).sum();
                 columns.get(col as usize).copied().unwrap_or(ctx.left) + inset - ctx.left
+                    + wider as f64 / 20.0
             };
             let end = style.is_some_and(|s| s.align == HAlign::End)
                 || self
@@ -1669,9 +1721,11 @@ impl Lower<'_> {
                     });
             let mut content = Vec::new();
             let mut tabs = Vec::new();
+            let mut stop: Twips = 0;
             for (i, &(col, c)) in cells.iter().enumerate() {
                 if i > 0 {
-                    let pos = ((x(self, c, col) * 20.0).ceil()) as Twips;
+                    let pos = (((x(self, c, col) * 20.0).ceil()) as Twips).max(stop + 1);
+                    stop = pos;
                     let last_cell = i + 1 == cells.len();
                     tabs.push(if last_cell && end {
                         TabStop {
@@ -1702,15 +1756,12 @@ impl Lower<'_> {
                     content.extend(self.runs(p, &lines, ctx));
                 }
             }
-            if !end {
-                if let Some(&(col, c)) = cells.last().filter(|_| cells.len() > 1) {
-                    let hang = x(self, c, col);
-                    props.indent = Some(Indent {
-                        left: Some(tw(hang)),
-                        right: None,
-                        first: Some(FirstLine::Hanging(tw(hang))),
-                    });
-                }
+            if !end && cells.len() > 1 {
+                props.indent = Some(Indent {
+                    left: Some(stop),
+                    right: None,
+                    first: Some(FirstLine::Hanging(stop)),
+                });
             }
             props.tabs = tabs;
             if let Some((name, next)) = role.clone() {
@@ -2398,7 +2449,7 @@ impl Lower<'_> {
             }
         }
         let ncols = columns.len().saturating_sub(1).max(1);
-        let grid: Vec<Twips> = if columns.len() >= 2 {
+        let mut grid: Vec<Twips> = if columns.len() >= 2 {
             columns
                 .windows(2)
                 .map(|w| tw((w[1] - w[0]).max(1.0)))
@@ -2406,6 +2457,18 @@ impl Lower<'_> {
         } else {
             vec![tw(ctx.width.max(72.0))]
         };
+        for (c, add) in self.slack(n).into_iter().enumerate() {
+            if add == 0 || c >= grid.len() {
+                continue;
+            }
+            grid[c] += add;
+            let flexible = (c + 1..grid.len())
+                .chain((0..c).rev())
+                .find(|&d| !content_sized.get(d).copied().unwrap_or(false));
+            if let Some(d) = flexible {
+                grid[d] = (grid[d] - add).max(20);
+            }
+        }
         let nrows = cells
             .iter()
             .filter_map(|&c| match self.kind(c) {
