@@ -152,7 +152,7 @@ struct Lower<'a> {
     notes: HashMap<NodeId, usize>,
     media: Vec<Media>,
     media_of: HashMap<usize, usize>,
-    pending: Vec<Drawing>,
+    pending: Vec<(u32, Drawing)>,
     z: u32,
     break_pending: bool,
     prev: Option<Prev>,
@@ -310,22 +310,27 @@ impl Lower<'_> {
                 }
                 Child::Item(r) => Some(r.page),
             };
+            let at = |s: usize| Ctx {
+                left: doc.pages[groups[s][0]].setup.margins.left,
+                ..Ctx::default()
+            };
+            if let Some(s) = self.pending.first().map(|d| section_of(d.0)) {
+                self.flush_pending(page, &mut bodies[s], &at(s));
+            }
             if let Some(p) = page {
                 current = section_of(p);
             }
-            let left = doc.pages[groups[current][0]].setup.margins.left;
-            let ctx = Ctx {
-                left,
-                ..Ctx::default()
-            };
+            let ctx = at(current);
             let blocks = self.child(&c, &ctx);
             self.settle(&mut bodies[current], &mut root_late);
             bodies[current].extend(blocks);
         }
-        if !self.pending.is_empty() {
-            let last = bodies.last_mut().expect("a section");
-            last.push(Block::Paragraph(Paragraph::default()));
-            self.attach_pending(last);
+        if let Some(s) = self.pending.first().map(|d| section_of(d.0)) {
+            let ctx = Ctx {
+                left: doc.pages[groups[s][0]].setup.margins.left,
+                ..Ctx::default()
+            };
+            self.flush_pending(None, &mut bodies[s], &ctx);
         }
         let roles = self.role_styles(&mut bodies);
         self.extra_styles.extend(roles);
@@ -692,6 +697,7 @@ impl Lower<'_> {
         let mut out = Vec::new();
         let mut late = false;
         for c in &kids {
+            self.flush_pending(self.child_page(c), &mut out, ctx);
             let blocks = self.child(c, ctx);
             self.settle(&mut out, &mut late);
             out.extend(blocks);
@@ -766,7 +772,7 @@ impl Lower<'_> {
                 );
                 if !decoration {
                     let drawing = self.shape(shape);
-                    self.pending.push(drawing);
+                    self.pending.push((r.page, drawing));
                 }
                 Vec::new()
             }
@@ -881,7 +887,8 @@ impl Lower<'_> {
                 } else {
                     self.placed += 1;
                 }
-                self.pending.extend(drawings);
+                let page = self.first_page(n).unwrap_or_default();
+                self.pending.extend(drawings.into_iter().map(|d| (page, d)));
                 Vec::new()
             }
             NodeKind::ListLabel => {
@@ -968,9 +975,56 @@ impl Lower<'_> {
                 0,
                 Inline::Run(Run {
                     props: RunProps::default(),
-                    content: drawings.into_iter().map(RunContent::Drawing).collect(),
+                    content: drawings
+                        .into_iter()
+                        .map(|(_, d)| RunContent::Drawing(d))
+                        .collect(),
                 }),
             );
+        }
+    }
+
+    /// The objects waiting for a paragraph on an earlier page than `before`
+    /// (or any, with none), set on that page: on its last paragraph when
+    /// `out` ends with one there, else on a 1 pt paragraph of their own that
+    /// the next page breaks after, as a page with no flow has.
+    fn flush_pending(&mut self, before: Option<u32>, out: &mut Vec<Block>, ctx: &Ctx) {
+        let Some(&(page, _)) = self.pending.first() else {
+            return;
+        };
+        if ctx.nested || before.is_some_and(|q| q <= page) {
+            return;
+        }
+        let prev = match self.prev {
+            Some(Prev::Baseline(p, _) | Prev::Bottom(p, _)) => Some(p),
+            None => None,
+        };
+        if prev == Some(page) && matches!(out.last(), Some(Block::Paragraph(_))) {
+            self.attach_pending(out);
+            return;
+        }
+        let mut anchor = Paragraph {
+            props: ParProps {
+                spacing: Some(Spacing {
+                    before: Some(0),
+                    after: Some(0),
+                    line: Some(Line::Exact(20)),
+                }),
+                ..ParProps::default()
+            },
+            content: Vec::new(),
+        };
+        self.break_pending |= prev.is_some_and(|p| p < page);
+        self.apply_break(&mut anchor, page, ctx);
+        self.prev = Some(Prev::Bottom(page, 0.0));
+        self.break_pending = true;
+        out.push(Block::Paragraph(anchor));
+    }
+
+    fn child_page(&self, c: &Child) -> Option<u32> {
+        match c {
+            Child::Node(n) => self.first_page(*n),
+            Child::Item(r) => Some(r.page),
         }
     }
 
@@ -979,7 +1033,10 @@ impl Lower<'_> {
             let drawings = std::mem::take(&mut self.pending);
             p.content.push(Inline::Run(Run {
                 props: RunProps::default(),
-                content: drawings.into_iter().map(RunContent::Drawing).collect(),
+                content: drawings
+                    .into_iter()
+                    .map(|(_, d)| RunContent::Drawing(d))
+                    .collect(),
             }));
         }
     }
@@ -1143,7 +1200,8 @@ impl Lower<'_> {
             for place in self.inline_places(n) {
                 let drawings = self.text_box(place, ctx);
                 self.placed += 1;
-                self.pending.extend(drawings);
+                self.pending
+                    .extend(drawings.into_iter().map(|d| (first.page, d)));
             }
         }
         let label = self.label_in(n).filter(|_| opens);
@@ -2418,7 +2476,10 @@ impl Lower<'_> {
             NodeKind::Place { .. } | NodeKind::Artifact { .. } => self.children(n, &inner),
             _ => self.node(n, &inner),
         };
-        let inner_boxes = std::mem::take(&mut self.pending);
+        let inner_boxes: Vec<Drawing> = std::mem::take(&mut self.pending)
+            .into_iter()
+            .map(|(_, d)| d)
+            .collect();
         (self.prev, self.break_pending, self.pending) = saved;
         let has_content = blocks.iter().any(|b| match b {
             Block::Paragraph(p) => !p.content.is_empty(),

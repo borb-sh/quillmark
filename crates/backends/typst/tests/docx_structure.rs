@@ -226,3 +226,88 @@ fn a_number_word_cannot_count_stays_text_and_is_reported() {
     assert!(sections[0].3.is_empty(), "{sections:?}");
     assert!(w.has("docx::page_number_frozen"), "{:?}", w.codes);
 }
+
+/// Each body paragraph's text, the page it starts, and the text of the
+/// objects anchored to it.
+fn anchors(w: &word::Word) -> Vec<(String, usize, Vec<String>)> {
+    w.body()
+        .into_iter()
+        .map(|p| {
+            (
+                p.text,
+                p.page,
+                p.drawings.into_iter().map(|d| d.text).collect(),
+            )
+        })
+        .collect()
+}
+
+fn anchored(text: &str, page: usize, boxes: &[&str]) -> (String, usize, Vec<String>) {
+    (text.into(), page, strings(boxes))
+}
+
+#[test]
+fn a_fixed_page_alone_is_one_anchor_paragraph_in_paint_order() {
+    let w = render(&format!(
+        "{PAGE}#place(top + left, dx: 20pt, dy: 30pt)[Cover title]\n\
+         #place(top + left, dx: 25pt, dy: 32pt)[Over it]\n"
+    ));
+    assert_eq!(anchors(&w), [anchored("", 0, &["Cover title", "Over it"])]);
+    let par = &w.body()[0];
+    assert_eq!(par.line, Some(20));
+    let z: Vec<i64> = par.drawings.iter().map(|d| d.z.expect("z")).collect();
+    assert!(z[0] < z[1], "{z:?}");
+    for d in &par.drawings {
+        assert!(d.anchored);
+        assert_eq!(d.y.as_ref().map(|y| y.0.as_str()), Some("page"));
+    }
+}
+
+#[test]
+fn two_fixed_pages_in_a_row_each_keep_their_objects() {
+    let w = render(&format!(
+        "{PAGE}#place(top + left, dx: 20pt, dy: 30pt)[First page]\n\
+         #pagebreak()\n\
+         #place(top + left, dx: 20pt, dy: 30pt)[Second page]\n"
+    ));
+    assert_eq!(
+        anchors(&w),
+        [
+            anchored("", 0, &["First page"]),
+            anchored("", 1, &["Second page"]),
+        ]
+    );
+    assert!(w.body()[1].page_break_before);
+}
+
+#[test]
+fn a_fixed_page_between_flowing_pages_holds_its_own_objects() {
+    let w = render(&format!(
+        "{PAGE}Before.\n#pagebreak()\n\
+         #place(top + left, dx: 20pt, dy: 30pt)[Fixed]\n\
+         #pagebreak()\nAfter.\n"
+    ));
+    assert_eq!(
+        anchors(&w),
+        [
+            anchored("Before.", 0, &[]),
+            anchored("", 1, &["Fixed"]),
+            anchored("After.", 2, &[]),
+        ]
+    );
+}
+
+#[test]
+fn a_fixed_cover_ends_its_own_section_before_new_margins() {
+    let w = render(&format!(
+        "{PAGE}#place(top + left, dx: 20pt, dy: 30pt)[Cover]\n\
+         #set page(margin: 60pt)\nBody.\n"
+    ));
+    assert_eq!(
+        anchors(&w),
+        [anchored("", 0, &["Cover"]), anchored("Body.", 1, &[])]
+    );
+    assert!(w.body()[0].ends_section);
+    let margins: Vec<i64> = w.sections().iter().map(|s| s.margin_top).collect();
+    assert_eq!(margins, [600, 1200]);
+}
