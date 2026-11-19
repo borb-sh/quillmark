@@ -168,6 +168,7 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
     let mut out = r.out;
     let origins = r.origins;
     let sizings = std::mem::take(&mut r.sizings);
+    hoist_breaks(&mut out);
     form_paragraphs(&mut out);
     form_lines(&mut out);
     measure_frames(&mut out);
@@ -1408,6 +1409,47 @@ fn inline_child(doc: &LayoutDoc, c: &Child) -> bool {
     match c {
         Child::Item(r) => inline_item(doc, *r),
         Child::Node(n) => inline_node(doc, *n),
+    }
+}
+
+/// A page break that opens or closes an element, as a show rule's
+/// `pagebreak` does around a heading, is moved out to stand before or after
+/// it, so the element keeps its own kind.
+fn hoist_breaks(doc: &mut LayoutDoc) {
+    let is_break = |doc: &LayoutDoc, c: &Child| matches!(c, Child::Item(r) if matches!(doc.item(*r).kind, ItemKind::Mark(PointHint::Break { .. })));
+    for id in (0..doc.nodes.len()).rev() {
+        let Some(parent) = doc.nodes[id].parent else {
+            continue;
+        };
+        let children = &doc.nodes[id].children;
+        let lead = children.iter().take_while(|c| is_break(doc, c)).count();
+        if lead == children.len() {
+            continue;
+        }
+        let trail = children
+            .iter()
+            .rev()
+            .take_while(|c| is_break(doc, c))
+            .count();
+        if lead == 0 && trail == 0 {
+            continue;
+        }
+        let mut kept = std::mem::take(&mut doc.nodes[id].children);
+        let after: Vec<Child> = kept.split_off(kept.len() - trail);
+        let before: Vec<Child> = kept.drain(..lead).collect();
+        doc.nodes[id].children = kept;
+        for c in before.iter().chain(&after) {
+            if let Child::Item(r) = c {
+                doc.pages[r.page as usize].items[r.index as usize].node = parent;
+            }
+        }
+        let siblings = &mut doc.nodes[parent].children;
+        let at = siblings
+            .iter()
+            .position(|c| matches!(c, Child::Node(n) if *n == id))
+            .expect("a node is among its parent's children");
+        siblings.splice(at + 1..at + 1, after);
+        siblings.splice(at..at, before);
     }
 }
 

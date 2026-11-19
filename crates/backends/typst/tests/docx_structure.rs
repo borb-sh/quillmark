@@ -62,3 +62,39 @@ fn a_footer_of_two_lines_is_two_paragraphs() {
         .collect();
     assert_eq!(boxes, [["1", "MARKING"]]);
 }
+
+#[test]
+fn a_heading_whose_show_rule_breaks_the_page_keeps_its_style() {
+    let w = render(&format!(
+        "{PAGE}#show heading.where(level: 1): it => {{ pagebreak(weak: true); it }}\n\
+         = First chapter\n\
+         Some text.\n\
+         = Second chapter\n\
+         More text.\n\
+         == A section\n\
+         Even more.\n"
+    ));
+    let pars = w.body();
+    let shape: Vec<(&str, Option<&str>, bool, usize)> = pars
+        .iter()
+        .map(|p| {
+            (
+                p.text.as_str(),
+                p.style.as_deref(),
+                p.page_break_before,
+                p.page,
+            )
+        })
+        .collect();
+    assert_eq!(
+        shape,
+        [
+            ("First chapter", Some("Heading1"), false, 0),
+            ("Some text.", None, false, 0),
+            ("Second chapter", Some("Heading1"), true, 1),
+            ("More text.", None, false, 1),
+            ("A section", Some("Heading2"), false, 1),
+            ("Even more.", None, false, 1),
+        ]
+    );
+}
