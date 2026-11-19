@@ -7,23 +7,23 @@ quill:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    author:
-      description: Author of document
-      type: text
-    ice_cream:
-      description: favorite ice cream flavor
-      type: text
-      default: taro
-    title:
-      description: title of document
-      type: text
-    picture:
-      description: path of an image under the quill's assets
-      type: text
+schema:
+  main:
+    fields:
+      author:
+        description: Author of document
+        type: text
+      ice_cream:
+        description: favorite ice cream flavor
+        type: text
+        default: taro
+      title:
+        description: title of document
+        type: text
+      picture:
+        description: path of an image under the quill's assets
+        type: text
 
-card_kinds:
   quotes:
     title: Inspirational Quotes
     description: A collection of quotes about taro ice cream

@@ -15,20 +15,21 @@ quill:
   backend: typst
   description: Optional probe
 
-main:
-  fields:
-    quorum: { type: integer? }
-    confidential: { type: boolean? }
-    location: { type: text? }
-    attendees: { type: array?, items: { type: text } }
-    result: { type: enum?, values: [carried, failed] }
-    adjourned: { type: date? }
-    minutes: { type: richtext?, shape: blocks }
-    tally:
-      type: object
-      properties:
-        votes_for: { type: integer? }
-        votes_against: { type: integer }
+schema:
+  main:
+    fields:
+      quorum: { type: integer? }
+      confidential: { type: boolean? }
+      location: { type: text? }
+      attendees: { type: array?, items: { type: text } }
+      result: { type: enum?, values: [carried, failed] }
+      adjourned: { type: date? }
+      minutes: { type: richtext?, shape: blocks }
+      tally:
+        type: object
+        properties:
+          votes_for: { type: integer? }
+          votes_against: { type: integer }
 "#;
 
 fn document(fields: &str) -> Document {
@@ -129,7 +130,7 @@ fn a_question_mark_refuses_a_default_and_a_namespace() {
     ] {
         let yaml = format!(
             "quill:\n  name: q\n  version: \"1.0.0\"\n  backend: typst\n  description: q\n\
-             main:\n  fields:\n    f: {field}\n"
+             schema:\n  main:\n    fields:\n      f: {field}\n"
         );
         let err = QuillConfig::from_yaml(&yaml).expect_err(field);
         assert!(err.to_string().contains(code), "{field}: {err}");

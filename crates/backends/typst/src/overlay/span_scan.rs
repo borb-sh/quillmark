@@ -1032,12 +1032,13 @@ quill:
   description: helper-file span resolution probe
 typst:
   plate_file: plate.typ
-main:
-  fields:
-    intro:
-      type: richtext
-      shape: blocks
-      description: a probe field
+schema:
+  main:
+    fields:
+      intro:
+        type: richtext
+        shape: blocks
+        description: a probe field
 "#;
         const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.2.0" as qm
@@ -1100,12 +1101,13 @@ quill:
   description: underline and strike region truncation probe
 typst:
   plate_file: plate.typ
-main:
-  fields:
-    prose:
-      type: richtext
-      shape: blocks
-      description: one paragraph with one decorated run
+schema:
+  main:
+    fields:
+      prose:
+        type: richtext
+        shape: blocks
+        description: one paragraph with one decorated run
 "#;
         const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.2.0" as qm
@@ -1187,12 +1189,13 @@ quill:
   description: two-tier classification probe
 typst:
   plate_file: plate.typ
-main:
-  fields:
-    prose:
-      type: richtext
-      shape: blocks
-      description: a two-item list
+schema:
+  main:
+    fields:
+      prose:
+        type: richtext
+        shape: blocks
+        description: a two-item list
 "#;
         const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.2.0" as qm
@@ -1265,16 +1268,17 @@ quill:
   description: claim probe
 typst:
   plate_file: plate.typ
-main:
-  fields:
-    prose:
-      type: richtext
-      shape: blocks
-      description: the body
-    classification:
-      type: enum
-      values: [UNCLASSIFIED, SECRET]
-      description: a scalar the plate interpolates
+schema:
+  main:
+    fields:
+      prose:
+        type: richtext
+        shape: blocks
+        description: the body
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, SECRET]
+        description: a scalar the plate interpolates
 "#;
 
     /// A compiled plate with the inputs both queries take. Mirrors `open`'s

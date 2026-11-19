@@ -80,7 +80,7 @@ on the block's typed metadata.
 - **`$kind: <kind>`** identifies a card's kind. The root block's kind is
   `main` by position; `$kind: main` may be omitted or declared explicitly:
   any other value is a parse error. A composable card names its kind, matching
-  `[a-z_][a-z0-9_]*` other than `main`, from the quill's `card_kinds`. A block
+  `[a-z_][a-z0-9_]*` other than `main`, from the quill's `schema:` block. A block
   after the root with no `$kind` fails the parse (`parse::missing_kind`) at its
   fence. A card with a kind the quill does not declare still renders, but
   nothing checks its fields, and a plate shows only the kinds it knows.
@@ -277,8 +277,8 @@ everything between that card's closing `~~~` fence and the next block's opener
 (or document end): is carried as the card's `$body` value.
 
 Card kinds and their field schemas are declared in `Quill.yaml` under
-`card_kinds`; see the
-[Quill.yaml Reference](../quills/quill-yaml-reference.md#card_kinds-section).
+`schema:`, beside `main`; see the
+[Quill.yaml Reference](../quills/quill-yaml-reference.md#card-kinds).
 
 ## Emission
 
@@ -293,6 +293,6 @@ inline trailing, including those adjacent to `$` lines) survive the
 round-trip.
 
 The payload is coerced and validated against the schema declared in the
-quill's `Quill.yaml` (`main.fields`). See the
+quill's `Quill.yaml` (`schema.main.fields`). See the
 [Quill.yaml Reference](../quills/quill-yaml-reference.md) for field
 types and constraints.

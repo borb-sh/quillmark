@@ -12,11 +12,11 @@ const PLAIN: &str = r#"quill:
   version: "1.2.0"
   backend: typst
   description: A resume
-main:
-  fields:
-    name: { type: text }
-    level: { type: enum, values: [junior, senior] }
-card_kinds:
+schema:
+  main:
+    fields:
+      name: { type: text }
+      level: { type: enum, values: [junior, senior] }
   job:
     fields:
       employer: { type: text }
@@ -27,12 +27,12 @@ const MODERN: &str = r#"quill:
   version: "0.1.0"
   backend: typst
   description: A resume with an accent
-main:
-  fields:
-    name: { type: text, title: Full name }
-    level: { type: enum, values: [junior, senior, principal] }
-    accent: { type: text, default: teal }
-card_kinds:
+schema:
+  main:
+    fields:
+      name: { type: text, title: Full name }
+      level: { type: enum, values: [junior, senior, principal] }
+      accent: { type: text, default: teal }
   job:
     fields:
       employer: { type: text }

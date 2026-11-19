@@ -107,12 +107,13 @@ const ARRAY_QUILL_YAML = `quill:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    references:
-      type: array
-      items:
-        type: richtext
+schema:
+  main:
+    fields:
+      references:
+        type: array
+        items:
+          type: richtext
 `
 
 const ARRAY_PLATE = `#import "@local/quillmark-helper:0.2.0" as qm

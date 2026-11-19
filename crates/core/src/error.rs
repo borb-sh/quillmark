@@ -930,10 +930,10 @@ quill:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    title: { type: text, default: "" }
-card_kinds:
+schema:
+  main:
+    fields:
+      title: { type: text, default: "" }
   sig:
     fields:
       label: { type: text }
@@ -1065,11 +1065,12 @@ quill:
   backend: typst
   description: A slot whose literal contradicts its declared type
 
-main:
-  fields:
-    title:
-      type: text
-      default: 42
+schema:
+  main:
+    fields:
+      title:
+        type: text
+        default: 42
 "#,
         )
         .expect_err("a default that contradicts its type fails config validation");

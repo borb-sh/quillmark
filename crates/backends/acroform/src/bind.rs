@@ -390,68 +390,68 @@ quill:
   version: 0.1.0
   backend: acroform
   description: bind-test schema
-main:
-  body:
-    enabled: false
-  fields:
-    full_name:
-      type: text
-    comments:
-      type: array
-      items:
+schema:
+  main:
+    body:
+      enabled: false
+    fields:
+      full_name:
         type: text
-    tags:
-      type: array
-      items:
-        type: text
-    agree:
-      type: boolean
-    favorite_color:
-      type: enum
-      values: [red, green, blue]
-    count:
-      type: integer
-    when:
-      type: datetime
-    bio:
-      type: richtext
-      shape: blocks
-    address:
-      type: object
-      properties:
-        street: { type: text }
-        city: { type: text }
-    header:
-      type: object
-      properties:
-        office: { type: text }
-        marking:
-          type: enum
-          values: [UNCLASSIFIED, CUI]
-          default: ""
-          variants:
-            CUI:
-              controlled_by: { type: text }
-    refs:
-      type: array
-      items:
+      comments:
+        type: array
+        items:
+          type: text
+      tags:
+        type: array
+        items:
+          type: text
+      agree:
+        type: boolean
+      favorite_color:
+        type: enum
+        values: [red, green, blue]
+      count:
+        type: integer
+      when:
+        type: datetime
+      bio:
+        type: richtext
+        shape: blocks
+      address:
         type: object
         properties:
-          org: { type: text }
-    classification:
-      type: enum
-      values: [UNCLASSIFIED, CUI]
-      default: ""
-      variants:
-        CUI:
-          poc: { type: text }
-          urgent: { type: boolean }
-    quals:
-      type: matrix
-      members: { flight_cc: Flight CC, dco: DCO }
-      properties:
-        detail: { type: text }
-card_kinds:
+          street: { type: text }
+          city: { type: text }
+      header:
+        type: object
+        properties:
+          office: { type: text }
+          marking:
+            type: enum
+            values: [UNCLASSIFIED, CUI]
+            default: ""
+            variants:
+              CUI:
+                controlled_by: { type: text }
+      refs:
+        type: array
+        items:
+          type: object
+          properties:
+            org: { type: text }
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, CUI]
+        default: ""
+        variants:
+          CUI:
+            poc: { type: text }
+            urgent: { type: boolean }
+      quals:
+        type: matrix
+        members: { flight_cc: Flight CC, dco: DCO }
+        properties:
+          detail: { type: text }
   indorsement:
     fields:
       from:
@@ -546,10 +546,11 @@ card_kinds:
     fn an_off_option_is_refused() {
         let yaml = r#"
 quill: { name: switch, version: 0.1.0, backend: acroform, description: x }
-main:
-  body: { enabled: false }
-  fields:
-    power: { type: enum, values: [On, Off] }
+schema:
+  main:
+    body: { enabled: false }
+    fields:
+      power: { type: enum, values: [On, Off] }
 "#;
         let cfg = QuillConfig::from_yaml_with_warnings(yaml).unwrap().0;
         let field = |option: &str| BoundField {
@@ -762,16 +763,17 @@ quill:
   version: 0.1.0
   backend: acroform
   description: t
-main:
-  body:
-    enabled: false
-  fields:
-    a:
-      type: text
-      description: From the schema.
-    b:
-      type: text
-      description: Also schema.
+schema:
+  main:
+    body:
+      enabled: false
+    fields:
+      a:
+        type: text
+        description: From the schema.
+      b:
+        type: text
+        description: Also schema.
 "#;
         let cfg = QuillConfig::from_yaml_with_warnings(yaml).unwrap().0;
         let spec = FormSpec::parse(
@@ -798,14 +800,15 @@ main:
     fn a_text_cap_binds_as_the_widget_max_len() {
         let yaml = r#"
 quill: { name: capped, version: 0.1.0, backend: acroform, description: x }
-main:
-  body: { enabled: false }
-  fields:
-    ssn: { type: text, max: 9 }
-    statements:
-      type: array
-      max: 4
-      items: { type: text, max: 350 }
+schema:
+  main:
+    body: { enabled: false }
+    fields:
+      ssn: { type: text, max: 9 }
+      statements:
+        type: array
+        max: 4
+        items: { type: text, max: 350 }
 "#;
         let cfg = QuillConfig::from_yaml_with_warnings(yaml).unwrap().0;
         let spec = FormSpec::parse(

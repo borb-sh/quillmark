@@ -21,7 +21,7 @@ const PLATE: &str = "#set page(width: 200pt, height: 120pt, margin: 12pt)\nink\n
 fn open() -> LiveSession {
     TypstBackend::default()
         .open(
-            &quill(&yaml("main:\n  fields: {}\n"), PLATE),
+            &quill(&yaml("schema:\n  main:\n    fields: {}\n"), PLATE),
             &serde_json::json!({}),
             common::test_date(),
         )
@@ -101,7 +101,7 @@ fn the_ppi_a_refusal_names_renders_every_selected_page() {
     let plate = "#page(width: 100pt, height: 9000pt)[A]\n#page(width: 100pt, height: 12000pt)[B]\n";
     let session = TypstBackend::default()
         .open(
-            &quill(&yaml("main:\n  fields: {}\n"), plate),
+            &quill(&yaml("schema:\n  main:\n    fields: {}\n"), plate),
             &serde_json::json!({}),
             common::test_date(),
         )

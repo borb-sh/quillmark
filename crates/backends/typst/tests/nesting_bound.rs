@@ -46,7 +46,7 @@ fn containers_alone_count_toward_the_bound() {
 #[test]
 fn marked_content_nested_to_the_bound_renders_and_round_trips() {
     let quill = common::quill_with_plate(
-        &common::yaml("main:\n  fields: {}\n"),
+        &common::yaml("schema:\n  main:\n    fields: {}\n"),
         "#import \"@local/quillmark-helper:0.2.0\" as qm\n#qm.data.at(\"$body\", default: [])\n",
     );
     let n = MAX_NESTING_DEPTH;

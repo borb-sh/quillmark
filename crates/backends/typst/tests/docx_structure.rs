@@ -392,7 +392,7 @@ fn a_failed_update_leaves_the_word_export_of_the_served_document() {
     use quillmark_core::backend::Backend;
     use quillmark_core::types::{OutputFormat, RenderOptions};
     let quill = common::quill_with_plate(
-        &common::yaml("main:\n  fields:\n    title: { type: text }\n"),
+        &common::yaml("schema:\n  main:\n    fields:\n      title: { type: text }\n"),
         "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
          #set page(width: 300pt, height: 300pt, margin: 30pt)\n\
          #if qm.data.title == \"boom\" { panic(\"boom\") }\n\

@@ -453,69 +453,69 @@ quill:
   backend: typst
   version: 1.0.0
   description: Reader test quill
-main:
-  fields:
-    subject:
-      type: richtext
-    note:
-      type: text
-      shape: lines
-    qty:
-      type: integer
-    recipients:
-      type: array
-      items:
+schema:
+  main:
+    fields:
+      subject:
+        type: richtext
+      note:
         type: text
         shape: lines
-    paragraphs:
-      type: array
-      items:
-        type: richtext
-        shape: blocks
-    tags:
-      type: array
-      items:
-        type: enum
-        values: [x, y]
-    letterhead:
-      type: object
-      properties:
-        motto:
+      qty:
+        type: integer
+      recipients:
+        type: array
+        items:
+          type: text
+          shape: lines
+      paragraphs:
+        type: array
+        items:
           type: richtext
           shape: blocks
-        code:
-          type: integer
-    rows:
-      type: array
-      items:
+      tags:
+        type: array
+        items:
+          type: enum
+          values: [x, y]
+      letterhead:
         type: object
         properties:
-          notes:
+          motto:
             type: richtext
             shape: blocks
-    plain_enum:
-      type: enum
-      values: [a, b]
-    classification:
-      type: enum
-      values: [UNCLASSIFIED, CUI]
-      variants:
-        CUI:
-          controlled_by:
-            type: text
-            shape: lines
-          banner:
-            type: richtext
-            shape: blocks
-          count:
+          code:
             type: integer
-          nest:
-            type: object
-            properties:
-              deep:
-                type: richtext
-                shape: blocks
-card_kinds:
+      rows:
+        type: array
+        items:
+          type: object
+          properties:
+            notes:
+              type: richtext
+              shape: blocks
+      plain_enum:
+        type: enum
+        values: [a, b]
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, CUI]
+        variants:
+          CUI:
+            controlled_by:
+              type: text
+              shape: lines
+            banner:
+              type: richtext
+              shape: blocks
+            count:
+              type: integer
+            nest:
+              type: object
+              properties:
+                deep:
+                  type: richtext
+                  shape: blocks
   note:
     fields:
       prose:

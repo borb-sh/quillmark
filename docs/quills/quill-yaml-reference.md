@@ -10,21 +10,21 @@ A `Quill.yaml` has these top-level sections:
 quill:        # Required: quill metadata
   ...
 
-main:         # Optional, main entry-point card: field schemas and optional title/ui/body
-  title:      # optional label for the card
-  fields:
+schema:       # Optional: what a document holds, one entry per card
+  main:       # the document's own card
+    title:      # optional label for the card
+    fields:
+      ...
+    ui:         # optional UI hints
+    body:       # optional body-region config (enabled, description, example)
+  note:       # a card kind, any name but `main`, shaped as `main` is
     ...
-  ui:         # optional UI hints
-  body:       # optional body-region config (enabled, description, example)
-
-card_kinds:   # Optional: additional composable card kinds
-  ...
 
 typst:        # Optional: backend-specific configuration
   ...
 ```
 
-Root-level `fields:` is not supported; define the main document's field schemas under `main.fields`.
+A field is declared on a card, so root-level `fields:` is refused; the main document's fields go under `schema.main.fields`.
 
 `Quill.yaml` is parsed strictly. Unknown keys in the `quill:` section or the backend's section, unknown top-level sections, malformed `ui:` blocks, and field schemas that can't be parsed all produce errors: they are never silently dropped. Every error is collected in a single pass, so authors see all problems at once; the one exception is a [`requires`](#quill-section) floor above the running Quillmark release, which is reported alone. Run `quillmark validate <quill_dir>` to surface them.
 
@@ -36,7 +36,7 @@ Root-level `fields:` is not supported; define the main document's field schemas 
 # yaml-language-server: $schema=https://quillmark.dev/schemas/quill.schema.json
 ```
 
-The schema checks the file's shape: its keys, each field's `type` and the keys that type takes, and the `ui`, `body`, `card_kinds` and backend sections. A value's own rules, such as a `default` matching its `type`, a license expression, or a `seed`, are the loader's, so `quillmark validate` stays the final word.
+The schema checks the file's shape: its keys, each field's `type` and the keys that type takes, and the `ui`, `body`, `schema` and backend sections. A value's own rules, such as a `default` matching its `type`, a license expression, or a `seed`, are the loader's, so `quillmark validate` stays the final word.
 
 ---
 
@@ -108,7 +108,13 @@ A quill's example document shows it filled in. It is derived from `Quill.yaml`: 
 
 ---
 
-## `main` Section
+## `schema` Section
+
+The `schema:` block declares what a document holds, one entry per card: `main`, the document's own card, and each [card kind](#card-kinds) the document may carry. The entries are peers and share one shape (`fields`, and optional `title`, `description`, `ui`, `body`), and a document names each the same way, `$kind: main` on its first block and `$kind: <name>` on a card.
+
+A card's own key written directly under `schema:` is a `main:` left out, so `fields`, `body`, `title`, `description`, `ui` and `seed` are refused as kind names (`quill::invalid_card_name`), and the hint names where the key belongs.
+
+## `schema.main`
 
 The main document card holds **root-block field schemas** under `main.fields`. Optional `main.description` describes the root card, the authoring schema's own `description` (`quill.description` describes the package and never appears there), and optional `main.title` labels the card as a [card kind's `title`](#title_1) does. Optional `main.ui` sets container-level UI for that card. `quill.ui` is a fallback for `main.ui`, not a merge: any `main.ui` (even an empty `ui: {}`) wins wholesale, and `quill.ui` applies only when `main.ui` is absent.
 
@@ -119,11 +125,12 @@ Field keys must be `snake_case` (`^[a-z][a-z0-9_]*$`). Capitalized field keys ar
 A card declares at most 1000 fields — the width one card-yaml block carries — and past it the quill fails to load (`quill::too_many_fields`). The count is per card, and only its top-level keys are charged: a nested `properties` map, an array's `items`, and a `variants:` cell set all ride inside the one field that declares them.
 
 ```yaml
-main:
-  fields:
-    subject:          # Field name (used as the card-yaml payload key)
-      type: text
-      description: Be brief and clear.
+schema:
+  main:
+    fields:
+      subject:          # Field name (used as the card-yaml payload key)
+        type: text
+        description: Be brief and clear.
 ```
 
 ### Field Properties
@@ -149,13 +156,14 @@ field ("set the point of contact"). Absent, consumers humanize the key
 (`memo_for` → "Memo For"), so declare it only where that reads wrong:
 
 ```yaml
-main:
-  fields:
-    memo_for:
-      type: array
-      title: To       # "Memo For" would confuse users unfamiliar with memo conventions
-      items:
-        type: text
+schema:
+  main:
+    fields:
+      memo_for:
+        type: array
+        title: To       # "Memo For" would confuse users unfamiliar with memo conventions
+        items:
+          type: text
 ```
 
 The authoring schema carries it as the field's `title`, beside its
@@ -338,16 +346,17 @@ if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
 Declare a closed string domain with `type: enum` and a required `values:` list:
 
 ```yaml
-main:
-  fields:
-    format:
-      type: enum
-      values:
-        - standard
-        - informal
-        - separate_page
-      default: standard
-      description: "Format style for the endorsement."
+schema:
+  main:
+    fields:
+      format:
+        type: enum
+        values:
+          - standard
+          - informal
+          - separate_page
+        default: standard
+        description: "Format style for the endorsement."
 ```
 
 `values:` on any other type is a load error, as is the retired `enum:`
@@ -495,37 +504,39 @@ since the name is one value position of the container whichever world brings it 
 Every array declares its element type under `items:`. For a **primitive list**, give `items` a scalar type, coercion and validation then apply element-wise (e.g. each element of an `integer[]` is coerced to an integer, and a bad element fails at its indexed path like `counts[1]`):
 
 ```yaml
-main:
-  fields:
-    tags:
-      type: array
-      items:
-        type: text
-    counts:
-      type: array
-      items:
-        type: integer
-    sections:
-      type: array
-      items:
-        type: richtext   # each element's content is lowered to backend markup
-        shape: blocks
+schema:
+  main:
+    fields:
+      tags:
+        type: array
+        items:
+          type: text
+      counts:
+        type: array
+        items:
+          type: integer
+      sections:
+        type: array
+        items:
+          type: richtext   # each element's content is lowered to backend markup
+          shape: blocks
 ```
 
 For a **typed table** (a list of structured rows) give `items` an `object` type with its own `properties:`. Coercion recurses into each element and converts property values to their declared types:
 
 ```yaml
-main:
-  fields:
-    cells:
-      type: array
-      items:
-        type: object
-        properties:
-          category:
-            type: text
-          score:
-            type: number
+schema:
+  main:
+    fields:
+      cells:
+        type: array
+        items:
+          type: object
+          properties:
+            category:
+              type: text
+            score:
+              type: number
 ```
 
 A document may write a single value where an array is declared: it is a spelling of a one-element array, and the schema is what disambiguates it. `tags: one` renders as `tags: [one]` does, and `quillmark check` passes it. The element is then judged against `items`, so a mapping written for `tags` is a `validation::type_mismatch` at `tags[0]`, while one written for `cells` is its one row. Likewise, a bare boolean, integer, or number written where `text` is declared adopts its canonical scalar token (`true`, `47`, `1.0`; `1.50` reads `1.5`) instead of failing.
@@ -533,15 +544,16 @@ A document may write a single value where an array is declared: it is a spelling
 Use `type: object` with `properties:` for a single structured mapping:
 
 ```yaml
-main:
-  fields:
-    address:
-      type: object
-      properties:
-        street:
-          type: text
-        city:
-          type: text
+schema:
+  main:
+    fields:
+      address:
+        type: object
+        properties:
+          street:
+            type: text
+          city:
+            type: text
 ```
 
 Containers nest freely: a property or an element is an ordinary field, so it carries whatever type a card-level field carries, itself included. `object<array<text>>`, `array<array<integer>>` and a typed table whose row holds a typed dictionary are all declarable, and each leaf is addressable by the schema address its path spells (`contact.address.city`, `grid.0.0`).
@@ -744,28 +756,29 @@ qualifications:
 Related fields group under a top-level `object`. Its `title` and `description` label the group, which an editor frames and the authoring schema carries:
 
 ```yaml
-main:
-  fields:
-    subject:
-      type: text
-    addressing:
-      type: object
-      title: Addressing
-      description: Who the memo is for and from.
-      properties:
-        memo_for:
-          type: array
-          items: { type: text }
-        memo_from:
-          type: array
-          items: { type: text }
-          default: []
-    letterhead:
-      type: object
-      title: "Letterhead & Seal"
-      properties:
-        letterhead_title:
-          type: text
+schema:
+  main:
+    fields:
+      subject:
+        type: text
+      addressing:
+        type: object
+        title: Addressing
+        description: Who the memo is for and from.
+        properties:
+          memo_for:
+            type: array
+            items: { type: text }
+          memo_from:
+            type: array
+            items: { type: text }
+            default: []
+      letterhead:
+        type: object
+        title: "Letterhead & Seal"
+        properties:
+          letterhead_title:
+            type: text
 ```
 
 A group is data. The document nests its keys under the group's id, and a plate reads `data.addressing.memo_for`:
@@ -786,19 +799,20 @@ So moving a field between groups is an address change, a MINOR bump like a renam
 The older spelling still loads: a `ui.groups` registry on the card, and a `ui.group` reference on each field naming its entry.
 
 ```yaml
-main:
-  ui:
-    groups:
-      addressing: {}
-      letterhead: { title: "Letterhead & Seal" }
-  fields:
-    memo_for:
-      type: array
-      items: { type: text }
-      ui: { group: addressing }
-    letterhead_title:
-      type: text
-      ui: { group: letterhead }
+schema:
+  main:
+    ui:
+      groups:
+        addressing: {}
+        letterhead: { title: "Letterhead & Seal" }
+    fields:
+      memo_for:
+        type: array
+        items: { type: text }
+        ui: { group: addressing }
+      letterhead_title:
+        type: text
+        ui: { group: letterhead }
 ```
 
 A group here is a frame, not data: the document stores `memo_for:` and a plate reads `data.memo_for`. It warns `quill::deprecated_groups` and loads with ungrouped fields first, then each group's fields in registry order, whatever order they were declared in. To rewrite it as [Grouping](#grouping), make each group an `object` keyed by its id, in registry order, carrying the registry `title:`; move each grouped field into its `properties`; and drop `ui.group` and `ui.groups`.
@@ -831,14 +845,15 @@ There is no `ui.order` key: an authored `ui: { order: N }` is a load error (`qui
 Labels an `enum`'s [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one) option in a picker. Absent, consumers render a conventional label of their own, so this is only worth setting when a bare empty row would read badly:
 
 ```yaml
-main:
-  fields:
-    classification:
-      type: enum
-      values: [UNCLASSIFIED, CUI, SECRET]
-      default: ""
-      ui:
-        blank_title: "(no marking)"
+schema:
+  main:
+    fields:
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, CUI, SECRET]
+        default: ""
+        ui:
+          blank_title: "(no marking)"
 ```
 
 It labels the blank, never a member: `values:` carries no entry for it. Consumers must keep **unset** selectable and re-selectable — returning to it is how an author clears a value position, so a disabled placeholder that vanishes once a choice is made is the wrong idiom. Unset and a stored `""` differ where `default:` names a member: the stored blank is an answer and outranks the default.
@@ -854,16 +869,17 @@ Asks an editor to set a card-level field beside its neighbours in one row, where
 A text field packs only under `compact: true`, since its type cannot say whether a value is a rank or a subject line; `compact: false` keeps a packing type on its own row.
 
 ```yaml
-main:
-  fields:
-    rank:
-      type: text
-      ui:
-        compact: true
-    due:
-      type: date
-      ui:
-        compact: false
+schema:
+  main:
+    fields:
+      rank:
+        type: text
+        ui:
+          compact: true
+      due:
+        type: date
+        ui:
+          compact: false
 ```
 
 It is a request: an editor grants it only where a neighbour packs too, so a packing field alone between full-row fields still takes its row.
@@ -880,17 +896,18 @@ than one and the default reads wrong. `table` is valid only on a **typed
 table** — an `array` whose `items` is an `object`:
 
 ```yaml
-main:
-  fields:
-    tours:
-      type: array
-      ui:
-        layout: table       # a grid: one row per element, one column per property
-      items:
-        type: object
-        properties:
-          unit:     { type: text, default: "" }
-          duration: { type: integer, default: 0 }
+schema:
+  main:
+    fields:
+      tours:
+        type: array
+        ui:
+          layout: table       # a grid: one row per element, one column per property
+        items:
+          type: object
+          properties:
+            unit:     { type: text, default: "" }
+            duration: { type: integer, default: 0 }
 ```
 
 Without it, an editor draws a typed table as a stack of collapsed rows that open
@@ -920,14 +937,14 @@ leading, so a list of rows reads as a list of things rather than "Item 1, Item
 
 ---
 
-## `card_kinds` Section
+## Card kinds
 
-`card_kinds` define composable, repeatable content blocks (the *kinds*: a document can then carry zero or more *instances* of each kind, interleaved with body content). Each entry is shaped exactly like `main:` (`fields`, optional `title`, `description`, `ui`, `body`); think of `main:` as the single mandatory card-kind for the document body, and `card_kinds:` as the library of additional kinds that may attach to it.
+Every entry of `schema:` but `main` is a card kind: a composable, repeatable content block (a document can then carry zero or more *instances* of each kind, interleaved with body content). Each entry is shaped exactly like `main:` (`fields`, optional `title`, `description`, `ui`, `body`); think of `main:` as the single mandatory card-kind for the document body, and its peers as the library of additional kinds that may attach to it.
 
-Card-kind names (the keys under `card_kinds`) must match `[a-z_][a-z0-9_]*` (leading underscore is allowed). `main` is reserved for the document root.
+Card-kind names (the keys beside `main`) must match `[a-z_][a-z0-9_]*` (leading underscore is allowed), and none is a card's own key (see [`schema`](#schema-section)).
 
 ```yaml
-card_kinds:
+schema:
   indorsement:                    # Card-kind name
     description: Chain of routing endorsements.
     fields:
@@ -972,7 +989,7 @@ scalar, which is fine for a few lines and wrong for a memo's worth.
 |---------------|--------|----------|-------------|
 | `title`       | string | no       | The kind's label, a literal (see [`title`](#title_1)) |
 | `description` | string | no       | Help text describing the card's purpose |
-| `fields`      | object | no       | Field schemas (same structure as top-level fields) |
+| `fields`      | object | no       | Field schemas (same structure as `main`'s fields) |
 | `ui`          | object | no       | Container-level UI hints (see [Card-level `ui`](#card-level-ui)) |
 | `body`        | object | no       | Body-region config (see [Card-level `body`](#card-level-body)) |
 | `seed`        | object | no       | What a new card of this kind starts with (see [Card-level `seed`](#card-level-seed)) |
@@ -985,7 +1002,7 @@ the `$kind` a document stores, so a title renames freely without invalidating
 stored documents.
 
 ```yaml
-card_kinds:
+schema:
   indorsement:
     title: Routing indorsement
     description: Chain of routing endorsements.
@@ -1021,7 +1038,7 @@ names the instance.
 When `false`, the card kind has no body/content area, and an editor should offer none. The authoring schema gives the kind no `body`. A document that provides body content for such a card anyway still renders without it: the plate receives no `$body`, and `quill.validate(doc)` warns with `validation::body_disabled`.
 
 ```yaml
-card_kinds:
+schema:
   page_break:
     body:
       enabled: false    # Card has fields only, no body/content area
@@ -1037,13 +1054,14 @@ Loading this draws `quill::bodiless_card_kind`, which asks whether the kind is a
 #### `body.description` and `body.example`
 
 ```yaml
-main:
-  body:
-    description: Plain paragraphs, numbered for you; a `-` item under one becomes a lettered subparagraph.
-    example: |
-      Each group reviews every office of record it owns by the suspense in the subject line.
+schema:
+  main:
+    body:
+      description: Plain paragraphs, numbered for you; a `-` item under one becomes a lettered subparagraph.
+      example: |
+        Each group reviews every office of record it owns by the suspense in the subject line.
 
-      - The file plan lists every series the office keeps.
+        - The file plan lists every series the office keeps.
 ```
 
 `schema()` carries both, the [example document](#example-document) commits the example as the body, and the authoring schema carries both on the body. An example is made up; starter text a new card keeps goes in its kind's [`seed`](#card-level-seed), and for the document in a template's own body.
@@ -1053,7 +1071,7 @@ main:
 `seed` is what `seed_card` writes into a new card of the kind: fields of the kind, plus an optional `$body`. It is the shape a document's `$seed.<kind>` takes, and a block copies unchanged between the two.
 
 ```yaml
-card_kinds:
+schema:
   indorsement:
     seed:
       signature_block:
@@ -1129,40 +1147,40 @@ quill:
   description: Monthly project status report
   author: Engineering Team
 
-main:
-  fields:
-    project_name:
-      type: text
+schema:
+  main:
+    fields:
+      project_name:
+        type: text
 
-    status:
-      type: enum
-      values: [on_track, at_risk, blocked]
+      status:
+        type: enum
+        values: [on_track, at_risk, blocked]
 
-    risk_description:
-      type: text
-      default: ""
-      description: Describe the risk or blocker. Only needed when status is not on_track.
+      risk_description:
+        type: text
+        default: ""
+        description: Describe the risk or blocker. Only needed when status is not on_track.
 
-    date:
-      type: date
+      date:
+        type: date
 
-    team:
-      type: object
-      properties:
-        members:
-          type: array
-          items:
-            type: text
-          default: []
+      team:
+        type: object
+        properties:
+          members:
+            type: array
+            items:
+              type: text
+            default: []
 
-    financials:
-      type: object
-      properties:
-        budget:
-          type: number
-          default: 0
+      financials:
+        type: object
+        properties:
+          budget:
+            type: number
+            default: 0
 
-card_kinds:
   milestone:
     description: A project milestone with target date and status.
     fields:

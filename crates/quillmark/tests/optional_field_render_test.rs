@@ -17,17 +17,18 @@ const QUILL_YAML: &str = r#"quill:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    quorum: { type: integer? }
-    attendees: { type: array?, items: { type: text } }
-    adjourned: { type: date? }
-    minutes: { type: richtext?, shape: blocks }
-    tally:
-      type: object
-      properties:
-        votes_for: { type: integer? }
-        votes_against: { type: integer }
+schema:
+  main:
+    fields:
+      quorum: { type: integer? }
+      attendees: { type: array?, items: { type: text } }
+      adjourned: { type: date? }
+      minutes: { type: richtext?, shape: blocks }
+      tally:
+        type: object
+        properties:
+          votes_for: { type: integer? }
+          votes_against: { type: integer }
 "#;
 
 fn render(plate: &str, fields: &str) -> Result<(), String> {

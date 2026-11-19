@@ -72,9 +72,16 @@ fn config_with_sections(sections: &str) -> Result<QuillConfig, Vec<Diagnostic>> 
     QuillConfig::from_yaml_with_warnings(&with_header(sections)).map(|(c, _)| c)
 }
 
+/// `card`, the keys of one card at a two-space indent, as the `schema:`
+/// block's `main`.
+fn main_section(card: &str) -> String {
+    let card: String = card.lines().map(|line| format!("  {line}\n")).collect();
+    format!("schema:\n  main:\n{card}")
+}
+
 /// A config declaring one `main` field, the shape most parse tests want.
 fn quill_with_field(field_yaml: &str) -> Result<QuillConfig, Vec<Diagnostic>> {
-    config_with_sections(&format!("main:\n  fields:\n{field_yaml}"))
+    config_with_sections(&main_section(&format!("  fields:\n{field_yaml}")))
 }
 
 /// Each diagnostic `quill` reports over `document`, as its code and path.
@@ -126,10 +133,10 @@ fn a_config_warning_rides_the_loaded_quill() {
     let quill = quill_from(&[(
         "Quill.yaml",
         br#"quill: { name: warn, version: "1.0.0", backend: typst, description: w }
-main:
-  fields:
-    title: { type: text }
-card_kinds:
+schema:
+  main:
+    fields:
+      title: { type: text }
   skills:
     body:
       enabled: false
@@ -224,14 +231,15 @@ quill:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    title:
-      description: Document title
-      type: text
-    author:
-      type: text
-      description: Document author
+schema:
+  main:
+    fields:
+      title:
+        description: Document title
+        type: text
+      author:
+        type: text
+        description: Document author
 "#;
 
     let config = QuillConfig::from_yaml(yaml_content).unwrap();
@@ -327,6 +335,63 @@ fn a_defective_quill_header_names_what_it_is_missing() {
     }
 }
 
+/// The `schema:` block holds `main` and each card kind as peers, and every
+/// diagnostic names a card as the author spelled it.
+#[test]
+fn the_schema_block_declares_main_and_each_card_kind_as_peers() {
+    let (config, warnings) = QuillConfig::from_yaml_with_warnings(&with_header(
+        "schema:\n  main:\n    fields:\n      title: { type: text }\n  \
+         note:\n    fields:\n      author: { type: text }\n",
+    ))
+    .expect("loads");
+    assert_eq!(codes(&warnings), [] as [&str; 0]);
+    assert!(config.main.fields.contains_key("title"));
+    assert!(config.card_kind("note").is_some());
+
+    let errors = config_with_sections("schema:\n  note:\n    feilds: {}\n").unwrap_err();
+    assert!(errors[0].message.contains("'schema.note'"), "{errors:?}");
+}
+
+/// A card key directly under `schema:` is a `main:` left out, and the hint
+/// says where the key belongs.
+#[test]
+fn a_card_key_under_schema_is_refused_toward_main() {
+    for key in super::config::SCHEMA_CARD_KEYS {
+        let errors = config_with_sections(&format!("schema:\n  {key}: {{}}\n")).unwrap_err();
+        let [diag] = errors.as_slice() else {
+            panic!("{key}: one diagnostic, got {errors:?}");
+        };
+        assert_eq!(diag.code.as_deref(), Some("quill::invalid_card_name"));
+        assert!(
+            diag.hint
+                .as_deref()
+                .is_some_and(|hint| hint.contains(&format!("schema.main.{key}"))),
+            "{diag:?}"
+        );
+    }
+}
+
+/// The top-level `main:` and `card_kinds:` sections are no sections of a
+/// quill, and each is named with where its content goes.
+#[test]
+fn the_top_level_card_sections_are_refused_by_name() {
+    for (section, moved) in [
+        ("main:\n  fields: {}\n", "`schema.main`"),
+        ("card_kinds:\n  note: {}\n", "`schema.<kind>`"),
+    ] {
+        let errors =
+            config_with_sections(&format!("schema:\n  main: {{}}\n{section}")).unwrap_err();
+        assert_eq!(codes(&errors), ["quill::unknown_section"], "{section}");
+        assert!(
+            errors[0]
+                .hint
+                .as_deref()
+                .is_some_and(|hint| hint.contains(moved)),
+            "{errors:?}"
+        );
+    }
+}
+
 /// snake_case is the one identifier grammar, whatever declares the name.
 #[test]
 fn test_quill_config_rejects_non_snake_case_identifiers() {
@@ -337,22 +402,20 @@ fn test_quill_config_rejects_non_snake_case_identifiers() {
             "quill::invalid_name",
         ),
         (
-            with_header("card_kinds:\n  BadCard:\n    fields:\n      title: { type: text }\n"),
+            with_header("schema:\n  BadCard:\n    fields:\n      title: { type: text }\n"),
             "quill::invalid_card_name",
         ),
-        // `$kind: main` never parses, so a `main` kind could hold no card.
+        // A card's key written one level too high, `main:` left out.
         (
-            with_header("card_kinds:\n  main:\n    fields:\n      title: { type: text }\n"),
+            with_header("schema:\n  fields:\n    title: { type: text }\n"),
             "quill::invalid_card_name",
         ),
         (
-            with_header("main:\n  fields:\n    BadField: { type: text }\n"),
+            with_header("schema:\n  main:\n    fields:\n      BadField: { type: text }\n"),
             "quill::invalid_field_name",
         ),
         (
-            with_header(
-                "card_kinds:\n  profile:\n    fields:\n      DisplayName: { type: text }\n",
-            ),
+            with_header("schema:\n  profile:\n    fields:\n      DisplayName: { type: text }\n"),
             "quill::invalid_field_name",
         ),
     ] {
@@ -361,7 +424,7 @@ fn test_quill_config_rejects_non_snake_case_identifiers() {
     }
     assert!(
         QuillConfig::from_yaml(&with_header(
-            "card_kinds:\n  _private_card:\n    fields:\n      title: { type: text }\n"
+            "schema:\n  _private_card:\n    fields:\n      title: { type: text }\n"
         ))
         .is_ok()
     );
@@ -371,8 +434,8 @@ fn test_quill_config_rejects_non_snake_case_identifiers() {
 #[test]
 fn a_field_named_body_is_refused() {
     for yaml in [
-        "main:\n  fields:\n    body: { type: text }\n",
-        "card_kinds:\n  note:\n    fields:\n      body: { type: richtext, shape: blocks }\n",
+        "schema:\n  main:\n    fields:\n      body: { type: text }\n",
+        "schema:\n  note:\n    fields:\n      body: { type: richtext, shape: blocks }\n",
     ] {
         let errs = QuillConfig::from_yaml_with_warnings(&with_header(yaml)).expect_err(yaml);
         assert!(
@@ -433,16 +496,17 @@ fn an_overlong_quill_name_hints_the_bound() {
 #[test]
 fn test_config_defaults_method() {
     let yaml_content = &with_header(
-        r#"main:
-  fields:
-    author:
-      type: text
-      default: Anonymous
-    status:
-      type: text
-      default: draft
-    title:
-      type: text
+        r#"schema:
+  main:
+    fields:
+      author:
+        type: text
+        default: Anonymous
+      status:
+        type: text
+        default: draft
+      title:
+        type: text
 "#,
     );
 
@@ -458,7 +522,7 @@ fn test_config_defaults_method() {
 #[test]
 fn test_parse_card_with_fields_in_yaml() {
     let yaml_content = &with_header(
-        r#"card_kinds:
+        r#"schema:
   endorsements:
     description: Chain of endorsements
     fields:
@@ -497,7 +561,7 @@ fn a_card_declaring_more_fields_than_a_block_carries_is_refused_at_load() {
             .collect();
         format!(
             "quill: {{ name: wide, version: \"1.0.0\", backend: typst, description: x }}\n\
-             card_kinds:\n  line_item:\n    fields:\n{fields}"
+             schema:\n  line_item:\n    fields:\n{fields}"
         )
     };
 
@@ -507,7 +571,7 @@ fn a_card_declaring_more_fields_than_a_block_carries_is_refused_at_load() {
         .find(|d| d.code.as_deref() == Some("quill::too_many_fields"))
         .unwrap_or_else(|| panic!("no field-count diagnostic in {errors:?}"));
     assert!(
-        diag.message.contains("card_kinds.line_item"),
+        diag.message.contains("schema.line_item"),
         "the diagnostic names the card the author wrote: {}",
         diag.message
     );
@@ -517,13 +581,13 @@ fn a_card_declaring_more_fields_than_a_block_carries_is_refused_at_load() {
 #[test]
 fn test_quill_config_allows_card_collision() {
     let yaml_content = &with_header(
-        r#"main:
-  fields:
-    conflict:
-      description: Field
-      type: text
+        r#"schema:
+  main:
+    fields:
+      conflict:
+        description: Field
+        type: text
 
-card_kinds:
   conflict:
     description: Card
 "#,
@@ -539,29 +603,30 @@ card_kinds:
 #[test]
 fn containers_nest_at_every_position() {
     let config = config_with_sections(
-        r#"main:
-  fields:
-    rows:
-      type: array
-      items:
+        r#"schema:
+  main:
+    fields:
+      rows:
+        type: array
+        items:
+          type: object
+          properties:
+            zulu: { type: number }
+            alpha:
+              type: object
+              properties:
+                inner: { type: text }
+      grid:
+        type: array
+        items:
+          type: array
+          items: { type: integer }
+      address:
         type: object
         properties:
-          zulu: { type: number }
-          alpha:
-            type: object
-            properties:
-              inner: { type: text }
-    grid:
-      type: array
-      items:
-        type: array
-        items: { type: integer }
-    address:
-      type: object
-      properties:
-        lines:
-          type: array
-          items: { type: text }
+          lines:
+            type: array
+            items: { type: text }
 "#,
     )
     .expect("loads");
@@ -630,14 +695,15 @@ fn a_malformed_container_declaration_is_refused_by_code() {
 fn group_registry_map_form_carries_title_override() {
     let yaml = r#"
 quill: { name: x, version: "1.0.0", backend: typst, description: x }
-main:
-  ui:
-    groups:
-      addressing: {}
-      letterhead: { title: "Letterhead & Seal" }
-  fields:
-    a: { type: text, ui: { group: addressing } }
-    l: { type: text, ui: { group: letterhead } }
+schema:
+  main:
+    ui:
+      groups:
+        addressing: {}
+        letterhead: { title: "Letterhead & Seal" }
+    fields:
+      a: { type: text, ui: { group: addressing } }
+      l: { type: text, ui: { group: letterhead } }
 "#;
     let config = QuillConfig::from_yaml(yaml).unwrap();
     let reg = &config.main.ui.as_ref().unwrap().groups.as_ref().unwrap().0;
@@ -672,7 +738,7 @@ fn a_bad_group_declaration_is_refused_by_code() {
             "quill::nested_group_not_supported",
         ),
     ] {
-        let err = config_with_sections(&format!("main:\n{main}")).expect_err(code);
+        let err = config_with_sections(&main_section(main)).expect_err(code);
         assert!(has_code(&err, code), "{code}: {err:?}");
     }
 }
@@ -680,23 +746,24 @@ fn a_bad_group_declaration_is_refused_by_code() {
 #[test]
 fn legacy_groups_settle_in_registry_order() {
     let legacy = r#"
-main:
-  ui:
-    groups:
-      addressing: {}
-      unused: {}
-      letterhead: { title: "Letterhead & Seal" }
-      quals: {}
-  fields:
-    subject: { type: text, ui: { group: addressing } }
-    letterhead_title: { type: text, ui: { group: letterhead } }
-    memo_for: { type: text, ui: { group: addressing } }
-    qualifications:
-      type: object
-      ui: { group: quals }
-      properties:
-        dco: { type: boolean }
-    notes: { type: text }
+schema:
+  main:
+    ui:
+      groups:
+        addressing: {}
+        unused: {}
+        letterhead: { title: "Letterhead & Seal" }
+        quals: {}
+    fields:
+      subject: { type: text, ui: { group: addressing } }
+      letterhead_title: { type: text, ui: { group: letterhead } }
+      memo_for: { type: text, ui: { group: addressing } }
+      qualifications:
+        type: object
+        ui: { group: quals }
+        properties:
+          dco: { type: boolean }
+      notes: { type: text }
 "#;
     let (config, warnings) = QuillConfig::from_yaml_with_warnings(&with_header(legacy)).unwrap();
     let codes: Vec<String> = warnings.iter().filter_map(|d| d.code.clone()).collect();
@@ -740,7 +807,7 @@ main:
 fn a_loose_field_after_a_top_level_object_warns() {
     let warned = |main: &str| {
         let (_, warnings) =
-            QuillConfig::from_yaml_with_warnings(&with_header(&format!("main:\n{main}"))).unwrap();
+            QuillConfig::from_yaml_with_warnings(&with_header(&main_section(main))).unwrap();
         warnings
             .into_iter()
             .filter(|d| d.code.as_deref() == Some("quill::field_after_object"))
@@ -775,7 +842,8 @@ fn a_loose_field_after_a_top_level_object_warns() {
 
 #[test]
 fn a_legacy_registry_naming_no_field_leaves_no_ui() {
-    let yaml = "main:\n  ui: { groups: [unused] }\n  fields:\n    a: { type: text }\n";
+    let yaml =
+        "schema:\n  main:\n    ui: { groups: [unused] }\n    fields:\n      a: { type: text }\n";
     let schema = config_with_sections(yaml).unwrap().schema();
     assert!(schema["main"].get("ui").is_none(), "{schema}");
 }
@@ -783,8 +851,8 @@ fn a_legacy_registry_naming_no_field_leaves_no_ui() {
 #[test]
 fn a_sections_block_is_refused_toward_top_level_objects() {
     for yaml in [
-        "main:\n  sections:\n    a:\n      fields:\n        s: { type: text }\n",
-        "card_kinds:\n  note:\n    sections:\n      a:\n        fields:\n          s: { type: text }\n",
+        "schema:\n  main:\n    sections:\n      a:\n        fields:\n          s: { type: text }\n",
+        "schema:\n  note:\n    sections:\n      a:\n        fields:\n          s: { type: text }\n",
     ] {
         let err = config_with_sections(yaml).expect_err(yaml);
         let [diag] = err.as_slice() else {
@@ -799,12 +867,13 @@ fn a_sections_block_is_refused_toward_top_level_objects() {
 fn group_registry_round_trips_through_serde_and_schema() {
     let yaml = r#"
 quill: { name: x, version: "1.0.0", backend: typst, description: x }
-main:
-  ui:
-    groups: [addressing, letterhead]
-  fields:
-    a: { type: text, ui: { group: addressing } }
-    l: { type: text, ui: { group: letterhead } }
+schema:
+  main:
+    ui:
+      groups: [addressing, letterhead]
+    fields:
+      a: { type: text, ui: { group: addressing } }
+      l: { type: text, ui: { group: letterhead } }
 "#;
     let config = QuillConfig::from_yaml(yaml).unwrap();
     let ui = config.main.ui.clone().unwrap();
@@ -949,7 +1018,7 @@ fn a_document_value_coerces_by_declared_type_or_names_where_it_could_not() {
 #[test]
 fn test_config_coerce_cards_item_wise() {
     let yaml_content = &with_header(
-        r#"card_kinds:
+        r#"schema:
   indorsement:
     fields:
       score: { type: number }
@@ -976,12 +1045,12 @@ fn test_config_coerce_cards_item_wise() {
 #[test]
 fn a_title_rides_its_field_or_card_kind_into_the_schema() {
     let config = config_with_sections(
-        r#"main:
-  title: Memorandum
-  fields:
-    contact: { type: text, title: Point of contact }
-    budget: { type: number, title: "Budget {FY26}" }
-card_kinds:
+        r#"schema:
+  main:
+    title: Memorandum
+    fields:
+      contact: { type: text, title: Point of contact }
+      budget: { type: number, title: "Budget {FY26}" }
   note:
     title: Marginal note
     fields:
@@ -997,35 +1066,35 @@ card_kinds:
         "Point of contact"
     );
     assert_eq!(schema["main"]["fields"]["budget"]["title"], "Budget {FY26}");
-    assert_eq!(schema["card_kinds"]["note"]["title"], "Marginal note");
-    assert!(schema["card_kinds"]["note"].get("ui").is_none());
+    assert_eq!(schema["note"]["title"], "Marginal note");
+    assert!(schema["note"].get("ui").is_none());
 }
 
 #[test]
 fn a_title_that_is_not_a_literal_label_is_refused_by_code() {
     for (sections, code) in [
         (
-            "main:\n  fields:\n    s: { type: text, ui: { title: Subject } }\n",
+            "schema:\n  main:\n    fields:\n      s: { type: text, ui: { title: Subject } }\n",
             "quill::field_parse_error",
         ),
         (
-            "main:\n  fields:\n    a:\n      type: object\n      properties:\n        s: { type: text, ui: { title: Street } }\n",
+            "schema:\n  main:\n    fields:\n      a:\n        type: object\n        properties:\n          s: { type: text, ui: { title: Street } }\n",
             "quill::field_parse_error",
         ),
         (
-            "card_kinds:\n  note:\n    ui: { title: Note, groups: [a] }\n    fields:\n      s: { type: text, ui: { group: a } }\n",
+            "schema:\n  note:\n    ui: { title: Note, groups: [a] }\n    fields:\n      s: { type: text, ui: { group: a } }\n",
             "quill::invalid_ui",
         ),
         (
-            "card_kinds:\n  section:\n    title: \"{heading}\"\n    fields:\n      heading: { type: text }\n",
+            "schema:\n  section:\n    title: \"{heading}\"\n    fields:\n      heading: { type: text }\n",
             "quill::title_template",
         ),
         (
-            "main:\n  fields:\n    s: { type: text, title: \"{Re} {s}\" }\n",
+            "schema:\n  main:\n    fields:\n      s: { type: text, title: \"{Re} {s}\" }\n",
             "quill::title_template",
         ),
         (
-            "main:\n  fields:\n    rows:\n      type: array\n      items:\n        type: object\n        title: Row\n        properties:\n          unit: { type: text }\n",
+            "schema:\n  main:\n    fields:\n      rows:\n        type: array\n        items:\n          type: object\n          title: Row\n          properties:\n            unit: { type: text }\n",
             "quill::title_on_items",
         ),
     ] {
@@ -1137,7 +1206,7 @@ fn test_root_level_fields_gets_targeted_hint() {
             .hint
             .as_deref()
             .unwrap_or("")
-            .contains("main.fields")
+            .contains("schema.main")
     );
 }
 
@@ -1151,12 +1220,13 @@ quill:
   description: Multi-error test
   platefile: foo.typ
 
-main:
-  fields:
-    BadFieldName:
-      type: text
-    legit:
-      description: Declares no type
+schema:
+  main:
+    fields:
+      BadFieldName:
+        type: text
+      legit:
+        description: Declares no type
 "#;
 
     let err = QuillConfig::from_yaml_with_warnings(yaml_content).unwrap_err();
@@ -1176,13 +1246,16 @@ fn main_refuses_every_shape_a_card_kind_refuses() {
     let cases = [
         (
             "misspelled fields",
-            "main:\n  feilds:\n    title:\n      type: text",
+            "schema:\n  main:\n    feilds:\n      title:\n        type: text",
         ),
-        ("unknown key", "main:\n  label: Memo"),
-        ("list-shaped fields", "main:\n  fields: [title, author]"),
-        ("non-mapping main", "main: [x]"),
-        ("scalar main", "main: 5"),
-        ("empty main", "main:"),
+        ("unknown key", "schema:\n  main:\n    label: Memo"),
+        (
+            "list-shaped fields",
+            "schema:\n  main:\n    fields: [title, author]",
+        ),
+        ("non-mapping main", "schema:\n  main: [x]"),
+        ("scalar main", "schema:\n  main: 5"),
+        ("empty main", "schema:\n  main:"),
     ];
 
     for (label, sections) in cases {
@@ -1200,7 +1273,8 @@ fn main_refuses_every_shape_a_card_kind_refuses() {
 /// The hint names every key the block admits, so a misspelling finds its fix.
 #[test]
 fn a_malformed_ui_or_body_block_reports_its_own_code_on_main_and_card_kinds() {
-    for (prefix, indent) in [("main:\n", "  "), ("card_kinds:\n  note:\n", "    ")] {
+    for prefix in ["schema:\n  main:\n", "schema:\n  note:\n"] {
+        let indent = "    ";
         let ui_err =
             config_with_sections(&format!("{prefix}{indent}ui:\n{indent}  bogus_key: nope"))
                 .expect_err("a malformed ui block");
@@ -1423,44 +1497,45 @@ fn a_bare_scalar_richtext_default_is_a_load_error() {
 #[test]
 fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
     let yaml = with_header(
-        r#"main:
-  fields:
-    top:
-      type: richtext
-      shape: blocks
-      default: "A **top** note"
-    dict:
-      type: object
-      properties:
-        note:
-          type: richtext
-          shape: blocks
-          default: "A **dict** note"
-    rows:
-      type: array
-      items:
+        r#"schema:
+  main:
+    fields:
+      top:
+        type: richtext
+        shape: blocks
+        default: "A **top** note"
+      dict:
         type: object
         properties:
           note:
             type: richtext
             shape: blocks
-            default: "A **row** note"
-    literal:
-      type: array
-      items:
-        type: text
-        shape: lines
-        default: "A *literal* line"
-    c:
-      type: enum
-      values: [CUI]
-      default: ""
-      variants:
-        CUI:
-          note:
-            type: richtext
-            shape: blocks
-            default: "A **variant** note"
+            default: "A **dict** note"
+      rows:
+        type: array
+        items:
+          type: object
+          properties:
+            note:
+              type: richtext
+              shape: blocks
+              default: "A **row** note"
+      literal:
+        type: array
+        items:
+          type: text
+          shape: lines
+          default: "A *literal* line"
+      c:
+        type: enum
+        values: [CUI]
+        default: ""
+        variants:
+          CUI:
+            note:
+              type: richtext
+              shape: blocks
+              default: "A **variant** note"
 "#,
     );
     let config = QuillConfig::from_yaml(&yaml).expect("nested defaults load");
@@ -1509,28 +1584,29 @@ fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
 #[test]
 fn a_content_default_inside_an_absent_container_reaches_the_plate_as_content() {
     let yaml = with_header(
-        r#"main:
-  fields:
-    dict:
-      type: object
-      properties:
-        note:
+        r#"schema:
+  main:
+    fields:
+      dict:
+        type: object
+        properties:
+          note:
+            type: richtext
+            shape: blocks
+            default: "A **dict** note"
+      rows:
+        type: array
+        default: ["A **row** note"]
+        items:
           type: richtext
           shape: blocks
-          default: "A **dict** note"
-    rows:
-      type: array
-      default: ["A **row** note"]
-      items:
-        type: richtext
-        shape: blocks
-    plain:
-      type: object
-      properties:
-        tag:
-          type: enum
-          values: [bare, dressed]
-          default: bare
+      plain:
+        type: object
+        properties:
+          tag:
+            type: enum
+            values: [bare, dressed]
+            default: bare
 "#,
     );
     let config = QuillConfig::from_yaml(&yaml).expect("container defaults load");
@@ -1749,8 +1825,8 @@ fn a_shape_past_one_line_survives_the_declaration_wire() {
 fn the_legacy_multiline_reads_as_the_shape_it_meant() {
     use crate::quill::Shape;
     let yaml = with_header(
-        "main:\n  fields:\n    a: { type: richtext, multiline: true }\n    \
-         b: { type: richtext, multiline: false }\n    c: { type: text, multiline: true }\n    \
+        "schema:\n  main:\n    fields:\n      a: { type: richtext, multiline: true }\n      \
+         b: { type: richtext, multiline: false }\n      c: { type: text, multiline: true }\n      \
          d: { type: text, multiline: false }\n",
     );
     let (config, warnings) = QuillConfig::from_yaml_with_warnings(&yaml).expect("loads");
@@ -1815,12 +1891,12 @@ fn enum_membership_is_validated_on_a_document_value() {
 #[test]
 fn a_bodiless_card_kind_warns_and_a_bodiless_main_does_not() {
     let (_, warnings) = QuillConfig::from_yaml_with_warnings(&with_header(
-        r#"main:
-  body:
-    enabled: false
-  fields:
-    title: { type: text }
-card_kinds:
+        r#"schema:
+  main:
+    body:
+      enabled: false
+    fields:
+      title: { type: text }
   itinerary:
     body:
       enabled: false
@@ -2027,16 +2103,17 @@ fn a_text_literal_longer_than_max_is_a_load_error() {
 #[test]
 fn an_over_long_text_warns_at_its_own_path() {
     let quill = quill_from_yaml(&with_header(
-        r#"main:
-  fields:
-    citation: { type: richtext, shape: blocks, max: 10 }
-    ssn: { type: text, max: 4 }
-    zip: { type: text, max: 5 }
-    code: { type: text, max: 3 }
-    statements:
-      type: array
-      max: 4
-      items: { type: text, max: 3 }
+        r#"schema:
+  main:
+    fields:
+      citation: { type: richtext, shape: blocks, max: 10 }
+      ssn: { type: text, max: 4 }
+      zip: { type: text, max: 5 }
+      code: { type: text, max: 3 }
+      statements:
+        type: array
+        max: 4
+        items: { type: text, max: 3 }
 "#,
     ));
     let doc = Document::parse(
@@ -2076,7 +2153,7 @@ fn an_over_long_text_warns_at_its_own_path() {
 #[test]
 fn a_stored_line_break_in_one_line_text_renders_folded_and_stays_stored() {
     let quill = quill_from_yaml(&with_header(
-        "main:\n  fields:\n    address: { type: text }\n    cc:\n      type: array\n      items: { type: text }\n",
+        "schema:\n  main:\n    fields:\n      address: { type: text }\n      cc:\n        type: array\n        items: { type: text }\n",
     ));
     let mut doc = Document::parse(
         "~~~\n$quill: q@1.0\n$kind: main\naddress: \"123 ABW/CC\\n100 Main St\"\ncc: [\"a\\nb\"]\n~~~\n",
@@ -2116,18 +2193,19 @@ fn a_stored_line_break_in_one_line_text_renders_folded_and_stays_stored() {
 #[test]
 fn an_over_filled_array_warns_at_its_own_path() {
     let quill = quill_from_yaml(&with_header(
-        r#"main:
-  fields:
-    rows:
-      type: array
-      max: 2
-      items:
-        type: object
-        properties:
-          tags:
-            type: array
-            max: 1
-            items: { type: text }
+        r#"schema:
+  main:
+    fields:
+      rows:
+        type: array
+        max: 2
+        items:
+          type: object
+          properties:
+            tags:
+              type: array
+              max: 1
+              items: { type: text }
 "#,
     ));
     let doc = Document::parse(

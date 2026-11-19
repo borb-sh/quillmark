@@ -55,7 +55,7 @@ fn a_text_value_inks_no_space_it_does_not_hold() {
     TypstBackend::default()
         .open(
             &quill(
-                &yaml("main:\n  fields:\n    name: { type: text }\n"),
+                &yaml("schema:\n  main:\n    fields:\n      name: { type: text }\n"),
                 r#"
 #import "@local/quillmark-helper:0.2.0" as qm
 #context assert.eq(measure[Dear #qm.ink(qm.data, "name"),], measure[Dear Mr. Babbage,])

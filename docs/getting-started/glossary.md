@@ -24,7 +24,7 @@ One `~~~` block of a document and the Markdown below it. The first card is the *
 
 ## card kind
 
-A kind of card a quill accepts, declared under `card_kinds` in `Quill.yaml` with its own fields. See [`card_kinds`](../quills/quill-yaml-reference.md#card_kinds-section).
+A kind of card a quill accepts, declared under `schema:` in `Quill.yaml`, beside `main`, with its own fields. See [Card kinds](../quills/quill-yaml-reference.md#card-kinds).
 
 ## default
 

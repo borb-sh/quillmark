@@ -2,43 +2,43 @@
 
 use crate::quill::{DeltaClass, QuillConfig, SchemaDelta};
 
-use super::config_with_sections;
+use super::{config_with_sections, main_section};
 
-const FROM: &str = r#"main:
-  fields:
-    name: { type: text }
-    summary: { type: text, shape: lines }
-    level: { type: enum, values: [junior, senior], default: junior }
-    years: { type: integer }
-    started: { type: date }
-    nickname: { type: text }
-    contact:
-      type: object
-      properties:
-        email: { type: text }
-        fax: { type: text }
-    skills:
-      type: array
-      items:
+const FROM: &str = r#"schema:
+  main:
+    fields:
+      name: { type: text }
+      summary: { type: text, shape: lines }
+      level: { type: enum, values: [junior, senior], default: junior }
+      years: { type: integer }
+      started: { type: date }
+      nickname: { type: text }
+      contact:
         type: object
         properties:
-          name: { type: text }
-          rating: { type: number }
-    status:
-      type: enum
-      values: [employed, student]
-      variants:
-        employed:
-          employer: { type: text }
-          since: { type: date }
-        student:
-          school: { type: text }
-    quals:
-      type: matrix
-      members: { cpr: CPR, pilot: Pilot }
-      properties:
-        expires: { type: date }
-card_kinds:
+          email: { type: text }
+          fax: { type: text }
+      skills:
+        type: array
+        items:
+          type: object
+          properties:
+            name: { type: text }
+            rating: { type: number }
+      status:
+        type: enum
+        values: [employed, student]
+        variants:
+          employed:
+            employer: { type: text }
+            since: { type: date }
+          student:
+            school: { type: text }
+      quals:
+        type: matrix
+        members: { cpr: CPR, pilot: Pilot }
+        properties:
+          expires: { type: date }
   job:
     fields:
       employer: { type: text }
@@ -48,42 +48,42 @@ card_kinds:
       who: { type: text }
 "#;
 
-const TO: &str = r#"main:
-  body: { enabled: false }
-  fields:
-    summary: { type: richtext, shape: lines }
-    name: { type: text, title: Full name, description: As printed, max: 40 }
-    level: { type: enum, values: [senior, junior, principal], default: senior }
-    years: { type: number }
-    started: { type: date? }
-    accent: { type: text }
-    contact:
-      type: object
-      properties:
-        email: { type: text, shape: lines }
-        phone: { type: text }
-    skills:
-      type: array
-      items:
+const TO: &str = r#"schema:
+  main:
+    body: { enabled: false }
+    fields:
+      summary: { type: richtext, shape: lines }
+      name: { type: text, title: Full name, description: As printed, max: 40 }
+      level: { type: enum, values: [senior, junior, principal], default: senior }
+      years: { type: number }
+      started: { type: date? }
+      accent: { type: text }
+      contact:
         type: object
         properties:
-          name: { type: text }
-          rating: { type: integer }
-    status:
-      type: enum
-      values: [employed, student]
-      variants:
-        employed:
-          employer: { type: text }
-        student:
-          school: { type: text }
-          since: { type: date }
-    quals:
-      type: matrix
-      members: { cpr: CPR }
-      properties:
-        expires: { type: date }
-card_kinds:
+          email: { type: text, shape: lines }
+          phone: { type: text }
+      skills:
+        type: array
+        items:
+          type: object
+          properties:
+            name: { type: text }
+            rating: { type: integer }
+      status:
+        type: enum
+        values: [employed, student]
+        variants:
+          employed:
+            employer: { type: text }
+          student:
+            school: { type: text }
+            since: { type: date }
+      quals:
+        type: matrix
+        members: { cpr: CPR }
+        properties:
+          expires: { type: date }
   job:
     fields:
       employer: { type: text }
@@ -232,9 +232,9 @@ fn only_what_a_document_observes_and_a_default_count_as_a_change() {
 fn a_matrix_is_one_slot_classed_by_its_members_and_columns() {
     use DeltaClass::*;
     let matrix = |members: &str, rest: &str| {
-        config_with_sections(&format!(
-            "main:\n  fields:\n    quals:\n      type: matrix\n      members: {members}\n{rest}"
-        ))
+        config_with_sections(&main_section(&format!(
+            "  fields:\n    quals:\n      type: matrix\n      members: {members}\n{rest}"
+        )))
         .unwrap()
     };
     let class = |from: &QuillConfig, to: &QuillConfig| {

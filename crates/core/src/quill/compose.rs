@@ -1536,11 +1536,11 @@ properties:
         let quill = crate::quill::quill_from_yaml(
             r#"
 quill: { name: dc, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    intro: { type: richtext, shape: blocks }
-    banner: { type: richtext, shape: blocks, default: "![logo](l.png)" }
-card_kinds:
+schema:
+  main:
+    fields:
+      intro: { type: richtext, shape: blocks }
+      banner: { type: richtext, shape: blocks, default: "![logo](l.png)" }
   note:
     fields:
       items:
@@ -1627,12 +1627,12 @@ card_kinds:
         let config = QuillConfig::from_yaml(
             r#"
 quill: { name: uc, version: 1.0.0, backend: typst, description: x }
-main:
-  body:
-    enabled: false
-  fields:
-    title: { type: text }
-card_kinds:
+schema:
+  main:
+    body:
+      enabled: false
+    fields:
+      title: { type: text }
   stamp:
     body:
       enabled: false
@@ -1684,34 +1684,34 @@ card_kinds:
         let config = QuillConfig::from_yaml(
             r#"
 quill: { name: uk, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    secretary: { type: text }
-    outcome:
-      type: enum
-      values: [motion, report]
-      variants:
-        motion:
-          moved_by: { type: text }
-        report:
-          presenter: { type: text }
-    address:
-      type: object
-      properties:
-        street: { type: text }
-    rows:
-      type: array
-      items:
+schema:
+  main:
+    fields:
+      secretary: { type: text }
+      outcome:
+        type: enum
+        values: [motion, report]
+        variants:
+          motion:
+            moved_by: { type: text }
+          report:
+            presenter: { type: text }
+      address:
         type: object
         properties:
-          name: { type: text }
-    quals:
-      type: matrix
-      members:
-        flight_cc: Flight CC
-      properties:
-        detail: { type: text, default: "" }
-card_kinds:
+          street: { type: text }
+      rows:
+        type: array
+        items:
+          type: object
+          properties:
+            name: { type: text }
+      quals:
+        type: matrix
+        members:
+          flight_cc: Flight CC
+        properties:
+          detail: { type: text, default: "" }
   item:
     fields:
       presenter: { type: text }
@@ -1773,12 +1773,13 @@ card_kinds:
         let plate = plate_of(
             r#"
 quill: { name: ev, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    title: { type: text }
-    classification:
-      type: enum
-      values: [UNCLASSIFIED, CUI, SECRET]
+schema:
+  main:
+    fields:
+      title: { type: text }
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, CUI, SECRET]
 "#,
             "~~~card-yaml\n$quill: ev@1.0.0\n$kind: main\ntitle: T\n~~~\n",
         );
@@ -1793,16 +1794,17 @@ main:
         let plate = plate_of(
             r#"
 quill: { name: env, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    title: { type: text }
-    marking:
-      type: object
-      properties:
-        level:
-          type: enum
-          values: [UNCLASSIFIED, CUI]
-        note: { type: text }
+schema:
+  main:
+    fields:
+      title: { type: text }
+      marking:
+        type: object
+        properties:
+          level:
+            type: enum
+            values: [UNCLASSIFIED, CUI]
+          note: { type: text }
 "#,
             "~~~card-yaml\n$quill: env@1.0.0\n$kind: main\ntitle: T\n~~~\n",
         );
@@ -1820,12 +1822,13 @@ main:
         let plate = plate_of(
             r#"
 quill: { name: eb, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    seal:
-      type: enum
-      values: [dow, dod]
-      default: dow
+schema:
+  main:
+    fields:
+      seal:
+        type: enum
+        values: [dow, dod]
+        default: dow
 "#,
             "~~~card-yaml\n$quill: eb@1.0.0\n$kind: main\nseal: \"\"\n~~~\n",
         );
@@ -1839,17 +1842,18 @@ main:
     fn an_absent_container_reaches_every_leaf_default() {
         const YAML: &str = r#"
 quill: { name: ac, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    contact:
-      type: object
-      properties:
-        name: { type: text }
-        email: { type: text, default: "hi@example.com" }
-        addr:
-          type: object
-          properties:
-            city: { type: text, default: Pgh }
+schema:
+  main:
+    fields:
+      contact:
+        type: object
+        properties:
+          name: { type: text }
+          email: { type: text, default: "hi@example.com" }
+          addr:
+            type: object
+            properties:
+              city: { type: text, default: Pgh }
 "#;
         let absent = plate_of(YAML, "~~~card-yaml\n$quill: ac@1.0.0\n$kind: main\n~~~\n");
         assert_eq!(
@@ -1874,16 +1878,17 @@ main:
     fn an_array_default_completes_its_elements_against_items() {
         const YAML: &str = r#"
 quill: { name: ad, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    rows:
-      type: array
-      default: [{ who: A }]
-      items:
-        type: object
-        properties:
-          who: { type: text }
-          role: { type: text, default: lead }
+schema:
+  main:
+    fields:
+      rows:
+        type: array
+        default: [{ who: A }]
+        items:
+          type: object
+          properties:
+            who: { type: text }
+            role: { type: text, default: lead }
 "#;
         let defaulted = plate_of(YAML, "~~~card-yaml\n$quill: ad@1.0.0\n$kind: main\n~~~\n");
         assert_eq!(
@@ -1943,14 +1948,15 @@ properties:
         let plate = plate_of(
             r#"
 quill: { name: dz, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    signed_on:
-      type: date
-      default: "2026-01-01"
-    subtitle:
-      type: text
-      default: "a default"
+schema:
+  main:
+    fields:
+      signed_on:
+        type: date
+        default: "2026-01-01"
+      subtitle:
+        type: text
+        default: "a default"
 "#,
             "~~~card-yaml\n$quill: dz@1.0.0\n$kind: main\nsigned_on: \"\"\nsubtitle: \"\"\n~~~\n",
         );

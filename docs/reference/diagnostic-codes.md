@@ -98,6 +98,7 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::invalid_matrix_member`
 - `quill::invalid_name`
 - `quill::invalid_requires`
+- `quill::invalid_schema`
 - `quill::invalid_ui`
 - `quill::invalid_utf8`
 - `quill::invalid_version`

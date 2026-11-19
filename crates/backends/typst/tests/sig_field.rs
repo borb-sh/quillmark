@@ -178,7 +178,9 @@ fn form_field_regions_key_on_bound_schema_field() {
 #qm.form-field("unbound", type: "text", value: "x")
 "#;
     let source = common::quill_with_plate(
-        &common::yaml("main:\n  fields:\n    f_txt: { type: text }\n    f_sig: { type: text }\n"),
+        &common::yaml(
+            "schema:\n  main:\n    fields:\n      f_txt: { type: text }\n      f_sig: { type: text }\n",
+        ),
         plate,
     );
     let session = TypstBackend::default()

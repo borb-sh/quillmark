@@ -26,69 +26,69 @@ quill:
   description: every position the nesting contract admits
 typst:
   plate_file: plate.typ
-main:
-  fields:
-    subject:
-      type: text
-    deadline:
-      type: date
-    tags:
-      type: array
-      items:
+schema:
+  main:
+    fields:
+      subject:
         type: text
-    refs:
-      type: array
-      items:
-        type: object
-        properties:
-          org: { type: text }
-          num: { type: text }
-          lead:
-            type: object
-            properties:
-              email: { type: text }
-    address:
-      type: object
-      properties:
-        city: { type: text }
-        street: { type: text }
-        geo:
-          type: object
-          properties:
-            lat: { type: number }
-        lines:
-          type: array
-          items:
-            type: text
-    grid:
-      type: array
-      items:
+      deadline:
+        type: date
+      tags:
         type: array
         items:
-          type: integer
-    classification:
-      type: enum
-      values: [UNCLASSIFIED, CUI]
-      default: ""
-      variants:
-        CUI:
-          poc: { type: text }
-          history:
-            type: array
-            items:
+          type: text
+      refs:
+        type: array
+        items:
+          type: object
+          properties:
+            org: { type: text }
+            num: { type: text }
+            lead:
               type: object
               properties:
-                when: { type: text }
-    quals:
-      type: matrix
-      members: { flight_cc: Flight CC }
-      properties:
-        detail: { type: text }
-    extra:
-      type: matrix
-      open: true
-      members: { flight_cc: Flight CC }
-card_kinds:
+                email: { type: text }
+      address:
+        type: object
+        properties:
+          city: { type: text }
+          street: { type: text }
+          geo:
+            type: object
+            properties:
+              lat: { type: number }
+          lines:
+            type: array
+            items:
+              type: text
+      grid:
+        type: array
+        items:
+          type: array
+          items:
+            type: integer
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, CUI]
+        default: ""
+        variants:
+          CUI:
+            poc: { type: text }
+            history:
+              type: array
+              items:
+                type: object
+                properties:
+                  when: { type: text }
+      quals:
+        type: matrix
+        members: { flight_cc: Flight CC }
+        properties:
+          detail: { type: text }
+      extra:
+        type: matrix
+        open: true
+        members: { flight_cc: Flight CC }
   endorsement:
     fields:
       from:

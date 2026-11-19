@@ -7,24 +7,24 @@ use quillmark_typst::TypstBackend;
 mod common;
 
 const SCHEMA: &str = r#"
-main:
-  fields:
-    quals:
-      type: matrix
-      open: true
-      members: { dco: DCO, cyber: Cyber }
-      properties:
-        detail: { type: text }
-    later:
-      type: matrix?
-      members: { dco: DCO }
-    rows:
-      type: array
-      items:
-        type: object
+schema:
+  main:
+    fields:
+      quals:
+        type: matrix
+        open: true
+        members: { dco: DCO, cyber: Cyber }
         properties:
-          quals: { type: matrix, members: { dco: DCO, cyber: Cyber } }
-card_kinds:
+          detail: { type: text }
+      later:
+        type: matrix?
+        members: { dco: DCO }
+      rows:
+        type: array
+        items:
+          type: object
+          properties:
+            quals: { type: matrix, members: { dco: DCO, cyber: Cyber } }
   entry:
     fields:
       quals: { type: matrix, members: { dco: DCO, cyber: Cyber } }

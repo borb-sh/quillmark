@@ -15,16 +15,17 @@ fn nested_nulls_blank_fill_in_the_plate_data() {
   backend: "typst"
   description: "Nested null blank-fill"
 
-main:
-  fields:
-    addr:
-      type: object
-      properties:
-        street: { type: text }
-        city: { type: text }
-    tags:
-      type: array
-      items: { type: text }
+schema:
+  main:
+    fields:
+      addr:
+        type: object
+        properties:
+          street: { type: text }
+          city: { type: text }
+      tags:
+        type: array
+        items: { type: text }
 "#;
     let quill = common::quill_from_files(&[
         ("Quill.yaml", quill_yaml),

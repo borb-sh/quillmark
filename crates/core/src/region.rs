@@ -725,30 +725,30 @@ quill:
   version: 0.1.0
   backend: typst
   description: coverage probe
-main:
-  fields:
-    name: { type: text }
-    count: { type: integer }
-    strata:
-      type: array
-      items:
-        type: object
+schema:
+  main:
+    fields:
+      name: { type: text }
+      count: { type: integer }
+      strata:
+        type: array
+        items:
+          type: object
+          properties:
+            year: { type: integer }
+            rank: { type: text }
+      quals:
+        type: matrix
+        members: { a: A, b: B }
         properties:
-          year: { type: integer }
-          rank: { type: text }
-    quals:
-      type: matrix
-      members: { a: A, b: B }
-      properties:
-        detail: { type: text }
-    level:
-      type: enum
-      values: [LOW, HIGH]
-      default: ""
-      variants:
-        HIGH:
-          poc: { type: text }
-card_kinds:
+          detail: { type: text }
+      level:
+        type: enum
+        values: [LOW, HIGH]
+        default: ""
+        variants:
+          HIGH:
+            poc: { type: text }
   note:
     fields:
       on: { type: date }

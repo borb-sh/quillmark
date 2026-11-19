@@ -43,7 +43,7 @@ fn content_fields_emit_frame_regions() {
     // Long enough to overflow page 0 and continue.
     let long = "This is a markdown paragraph that wraps across several lines. ".repeat(200);
     let session = open(
-        "main:\n  fields:\n    intro: { type: richtext, shape: blocks }\n    prose: { type: richtext, shape: blocks }\n",
+        "schema:\n  main:\n    fields:\n      intro: { type: richtext, shape: blocks }\n      prose: { type: richtext, shape: blocks }\n",
         PLATE,
         serde_json::json!({
             "intro": content("A **short** intro paragraph on the first page."),
@@ -94,7 +94,7 @@ fn field_placed_twice_surfaces_first_region_but_field_at_resolves_every_placemen
 #qm.data.intro
 "#;
     let session = open(
-        "main:\n  fields:\n    intro: { type: richtext, shape: blocks }\n",
+        "schema:\n  main:\n    fields:\n      intro: { type: richtext, shape: blocks }\n",
         PLATE,
         serde_json::json!({ "intro": content("The same intro, placed twice.") }),
     );
@@ -157,7 +157,7 @@ fn a_scalars_ink_regions_through_any_wrapper() {
         r#"#text(size: 9pt, qm.ink(qm.data, "count"))"#,
     ] {
         let session = open(
-            "main:\n  fields:\n    count: { type: integer }\n",
+            "schema:\n  main:\n    fields:\n      count: { type: integer }\n",
             &format!(
                 "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
                  #set page(width: 612pt, height: 792pt, margin: 72pt)\n{print}\n"
@@ -183,7 +183,7 @@ fn a_scalars_ink_regions_through_any_wrapper() {
 #[test]
 fn a_scalar_printed_in_an_imported_module_surfaces_a_region() {
     let q = common::quill(
-        &yaml("main:\n  fields:\n    count: { type: integer }\n"),
+        &yaml("schema:\n  main:\n    fields:\n      count: { type: integer }\n"),
         &[
             (
                 "plate.typ",
@@ -241,7 +241,7 @@ fn content_survives_a_rebuilding_show_rule() {
 }
 "#;
     let session = open(
-        "main:\n  fields:\n    prose: { type: richtext, shape: blocks }\n",
+        "schema:\n  main:\n    fields:\n      prose: { type: richtext, shape: blocks }\n",
         PLATE,
         serde_json::json!({ "prose": content("A body paragraph the package rebuilds.") }),
     );
@@ -263,7 +263,7 @@ fn markdown_array_elements_surface_indexed_regions() {
 }
 "#;
     let session = open(
-        "main:\n  fields:\n    refs:\n      type: array\n      items: { type: richtext, shape: blocks }\n",
+        "schema:\n  main:\n    fields:\n      refs:\n        type: array\n        items: { type: richtext, shape: blocks }\n",
         PLATE,
         serde_json::json!({ "refs": [content("First reference."), content("Second reference.")] }),
     );
@@ -285,10 +285,10 @@ fn card_regions_use_canonical_kind_ordinal_path() {
     // Interleaved alpha/beta/alpha: the ordinal is per kind, so the second alpha
     // is `.1` even though it is the third card overall.
     const SCHEMA: &str = "\
-main:
-  fields:
-    intro: { type: richtext, shape: blocks }
-card_kinds:
+schema:
+  main:
+    fields:
+      intro: { type: richtext, shape: blocks }
   alpha:
     fields:
       note: { type: richtext, shape: blocks }
@@ -356,7 +356,7 @@ fn date_field_display_surfaces_a_clickable_region() {
 #qm.ink(qm.data, "issued", "[day padding:none] [month repr:long] [year]")
 "#;
     let session = open(
-        "main:\n  fields:\n    issued: { type: date }\n",
+        "schema:\n  main:\n    fields:\n      issued: { type: date }\n",
         PLATE,
         serde_json::json!({ "issued": "2026-01-02" }),
     );
@@ -407,7 +407,7 @@ fn card_dates_surface_per_instance_regions_through_laundering() {
 }
 "#;
     let session = open(
-        "card_kinds:\n  stamp:\n    fields:\n      on: { type: date }\n",
+        "schema:\n  stamp:\n    fields:\n      on: { type: date }\n",
         PLATE,
         serde_json::json!({
             "$cards": [
@@ -455,7 +455,7 @@ fn failed_update_keeps_serving_last_good_regions() {
 #qm.data.intro
 "#;
     let mut session = open(
-        "main:\n  fields:\n    intro: { type: richtext, shape: blocks }\n    when: { type: date }\n",
+        "schema:\n  main:\n    fields:\n      intro: { type: richtext, shape: blocks }\n      when: { type: date }\n",
         PLATE,
         serde_json::json!({
             "intro": content("A stable paragraph the session keeps serving."),
@@ -498,7 +498,10 @@ fn form_field_path_rejected_when_address_tables_are_empty() {
 "#;
     let err = TypstBackend::default()
         .open(
-            &quill(&yaml("main:\n  body:\n    enabled: false\n"), PLATE),
+            &quill(
+                &yaml("schema:\n  main:\n    body:\n      enabled: false\n"),
+                PLATE,
+            ),
             &serde_json::json!({}),
             common::test_date(),
         )
@@ -541,7 +544,7 @@ fn adversarial_codegen_inputs_still_compile() {
     TypstBackend::default()
         .open(
             &quill(
-                &yaml("main:\n  fields:\n    prose: { type: richtext, shape: blocks }\n    overlap: { type: richtext, shape: blocks }\n"),
+                &yaml("schema:\n  main:\n    fields:\n      prose: { type: richtext, shape: blocks }\n      overlap: { type: richtext, shape: blocks }\n"),
                 PLATE,
             ),
             &serde_json::json!({
@@ -567,7 +570,7 @@ fn overlapping_widgets_resolve_field_at_by_paint_order_not_name() {
   qm.form-field("zzz", type: "text", field: "zzz_late", width: 40pt, height: 40pt))
 "#;
     let session = open(
-        "main:\n  fields:\n    aaa_early: { type: text }\n    zzz_late: { type: text }\n",
+        "schema:\n  main:\n    fields:\n      aaa_early: { type: text }\n      zzz_late: { type: text }\n",
         PLATE,
         serde_json::json!({}),
     );

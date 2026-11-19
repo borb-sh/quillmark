@@ -11,15 +11,16 @@ quill:
   backend: typst
   version: 1.0.0
   description: Base test quill
-main:
-  fields:
-    subject:
-      type: richtext
-    note:
-      type: text
-      shape: lines
-    on:
-      type: date
+schema:
+  main:
+    fields:
+      subject:
+        type: richtext
+      note:
+        type: text
+        shape: lines
+      on:
+        type: date
 ";
 
 fn config() -> QuillConfig {

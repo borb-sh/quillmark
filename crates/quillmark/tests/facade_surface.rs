@@ -19,12 +19,12 @@ quill:
   backend: typst
   description: Facade re-export surface test
 
-main:
-  fields:
-    subject:
-      type: richtext
+schema:
+  main:
+    fields:
+      subject:
+        type: richtext
 
-card_kinds:
   note:
     fields:
       prose:

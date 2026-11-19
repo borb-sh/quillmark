@@ -7,30 +7,30 @@ use quillmark_typst::TypstBackend;
 
 mod common;
 
-const SCHEMA: &str = r#"main:
-  fields:
-    approver:
-      type: text
-      description: Name of the approving official
-    bare:
-      type: text
-    classification:
-      type: enum
-      values: [UNCLASSIFIED, CUI]
-      default: ""
-      description: Banner marking
-      variants:
-        CUI:
-          poc:
-            type: text
-            description: CUI point of contact
-    quals:
-      type: matrix
-      description: Qualifications held
-      members: { dco: DCO }
-      properties:
-        detail: { type: text, description: Qualification detail }
-card_kinds:
+const SCHEMA: &str = r#"schema:
+  main:
+    fields:
+      approver:
+        type: text
+        description: Name of the approving official
+      bare:
+        type: text
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, CUI]
+        default: ""
+        description: Banner marking
+        variants:
+          CUI:
+            poc:
+              type: text
+              description: CUI point of contact
+      quals:
+        type: matrix
+        description: Qualifications held
+        members: { dco: DCO }
+        properties:
+          detail: { type: text, description: Qualification detail }
   endorsement:
     fields:
       office:

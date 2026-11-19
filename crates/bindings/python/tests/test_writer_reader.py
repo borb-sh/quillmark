@@ -341,33 +341,33 @@ ELEMENT_QUILL_YAML = """quill:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    recipients:
-      type: array
-      items:
-        type: text
-        shape: lines
-    paragraphs:
-      type: array
-      items:
-        type: richtext
-        shape: blocks
-    tags:
-      type: array
-      items:
-        type: enum
-        values: [x]
-    rows:
-      type: array
-      items:
-        type: object
-        properties:
-          notes:
-            type: richtext
-            shape: blocks
+schema:
+  main:
+    fields:
+      recipients:
+        type: array
+        items:
+          type: text
+          shape: lines
+      paragraphs:
+        type: array
+        items:
+          type: richtext
+          shape: blocks
+      tags:
+        type: array
+        items:
+          type: enum
+          values: [x]
+      rows:
+        type: array
+        items:
+          type: object
+          properties:
+            notes:
+              type: richtext
+              shape: blocks
 
-card_kinds:
   note:
     fields:
       lines:

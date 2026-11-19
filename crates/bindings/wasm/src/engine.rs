@@ -136,15 +136,13 @@ export interface QuillCardSchema {
 }
 
 /**
- * Document schema returned by `Quill.schema`: the user-fillable fields only.
- * The quill reference (`${metadata.name}@${metadata.version}`) and card-kind
- * discriminators are document-level metadata, not schema fields.
+ * Document schema returned by `Quill.schema`, shaped as the `schema:` block
+ * of `Quill.yaml` is: `main` and each card kind as peers keyed by kind name,
+ * `main` first and the kinds in declaration order. The user-fillable fields
+ * only: the quill reference (`${metadata.name}@${metadata.version}`) and
+ * card-kind discriminators are document-level metadata, not schema fields.
  */
-export interface QuillSchema {
-    main: QuillCardSchema;
-    /** Present only when the quill declares at least one named card kind. */
-    card_kinds?: Record<string, QuillCardSchema>;
-}
+export type QuillSchema = { main: QuillCardSchema } & Record<string, QuillCardSchema>;
 
 /**
  * How a slot of the quill a document moves to reads what the document wrote

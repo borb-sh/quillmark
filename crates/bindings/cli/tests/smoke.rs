@@ -99,11 +99,12 @@ fn a_failing_validate_prints_one_summary() {
   description: Names a plate that is not there
 typst:
   plate_file: absent.typ
-main:
-  fields:
-    title:
-      description: title of document
-      type: text
+schema:
+  main:
+    fields:
+      title:
+        description: title of document
+        type: text
 "#,
     );
 
@@ -136,12 +137,12 @@ fn validate_renders_the_empty_document_a_seeded_render_would_miss() {
   description: A plate that indexes a card the empty document does not carry
 typst:
   plate_file: plate.typ
-main:
-  fields:
-    title:
-      description: title of document
-      type: text
-card_kinds:
+schema:
+  main:
+    fields:
+      title:
+        description: title of document
+        type: text
   note:
     description: A note
     fields:
@@ -183,8 +184,8 @@ fn validate_fails_a_quill_whose_example_warns() {
     let config = |body: &str| {
         format!(
             "quill:\n  name: w\n  version: 0.1.0\n  backend: typst\n  description: w\n\
-             typst:\n  plate_file: plate.typ\nmain:\n{body}  fields:\n    \
-             title:\n      description: title of document\n      type: text\n"
+             typst:\n  plate_file: plate.typ\nschema:\n  main:\n{body}    fields:\n      \
+             title:\n        description: title of document\n        type: text\n"
         )
     };
     let dir = quill_with_config(&config(""));
@@ -205,7 +206,7 @@ fn validate_fails_a_quill_whose_example_warns() {
 
     std::fs::write(
         dir.path().join("Quill.yaml"),
-        config("  body:\n    example: \"![a](a.png)\"\n"),
+        config("    body:\n      example: \"![a](a.png)\"\n"),
     )
     .expect("write Quill.yaml");
 
@@ -486,8 +487,9 @@ fn a_long_page_renders_png_at_a_lower_ppi() {
   description: One page long on one axis
 typst:
   plate_file: plate.typ
-main:
-  fields: {}
+schema:
+  main:
+    fields: {}
 "#,
     );
     std::fs::write(
@@ -646,7 +648,7 @@ fn a_failed_render_still_names_unclaimed_input() {
   description: A plate that reads every card as a task
 typst:
   plate_file: plate.typ
-card_kinds:
+schema:
   task:
     description: A task
     fields:
@@ -727,11 +729,12 @@ fn version_names_the_typst_a_plate_compiles_against() {
   description: Asserts the Typst it compiles against
 typst:
   plate_file: plate.typ
-main:
-  fields:
-    title:
-      description: title of document
-      type: text
+schema:
+  main:
+    fields:
+      title:
+        description: title of document
+        type: text
 "#,
     );
     std::fs::write(
@@ -883,9 +886,10 @@ fn render_dates_a_today_field() {
   description: A field dated by the day it renders
 typst:
   plate_file: plate.typ
-main:
-  fields:
-    issued: { type: date, default: today }
+schema:
+  main:
+    fields:
+      issued: { type: date, default: today }
 "#,
     );
     std::fs::write(

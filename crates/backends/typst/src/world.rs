@@ -758,7 +758,7 @@ mod tests {
             FileTreeNode::File {
                 contents: b"quill:\n  name: warn\n  version: 0.1.0\n  backend: typst\n  \
                     description: load-warning probe\n\
-                    main:\n  fields:\n    title:\n      type: text\n      \
+                    schema:\n  main:\n    fields:\n      title:\n        type: text\n        \
                     description: title\n"
                     .to_vec(),
             },

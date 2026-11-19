@@ -7,17 +7,18 @@ use quillmark_typst::TypstBackend;
 mod common;
 
 const SCHEMA: &str = r#"
-main:
-  fields:
-    name: { type: enum, values: [Ada, Grace] }
-    title: { type: enum, values: [Roster, Register] }
-    stratifications:
-      type: array
-      items:
-        type: object
-        properties:
-          year: { type: integer }
-          rank: { type: enum, values: [Capt, Maj] }
+schema:
+  main:
+    fields:
+      name: { type: enum, values: [Ada, Grace] }
+      title: { type: enum, values: [Roster, Register] }
+      stratifications:
+        type: array
+        items:
+          type: object
+          properties:
+            year: { type: integer }
+            rank: { type: enum, values: [Capt, Maj] }
 "#;
 
 /// A claim built inside a closure over computed rows reaches its cell, a bare

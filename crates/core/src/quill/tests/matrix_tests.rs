@@ -11,7 +11,7 @@ use crate::quill::{Quill, QuillConfig, blank, build_transform_schema, quill_from
 use crate::value::QuillValue;
 use serde_json::json;
 
-use super::codes_of;
+use super::{codes_of, main_section};
 
 /// A four-member roster with one column.
 fn quill_yaml() -> &'static str {
@@ -25,28 +25,29 @@ quill:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    qualifications:
-      type: matrix
-      members:
-        sq_cc_candidate: Sq/CC Candidate
-        flight_cc: Flight CC
-        dodin_ops: DODIN Ops
-        cyber_200: Cyber 200
-      properties:
-        detail: { type: text, default: "" }
-    title:
-      type: text
-      default: ""
+schema:
+  main:
+    fields:
+      qualifications:
+        type: matrix
+        members:
+          sq_cc_candidate: Sq/CC Candidate
+          flight_cc: Flight CC
+          dodin_ops: DODIN Ops
+          cyber_200: Cyber 200
+        properties:
+          detail: { type: text, default: "" }
+      title:
+        type: text
+        default: ""
 "#
 }
 
 /// The probe with its roster open to added items.
 fn open_yaml() -> String {
     quill_yaml().replace(
-        "      type: matrix\n",
-        "      type: matrix\n      open: true\n",
+        "        type: matrix\n",
+        "        type: matrix\n        open: true\n",
     )
 }
 
@@ -85,7 +86,8 @@ fn codes(document: &Document) -> Vec<(String, String)> {
 fn load_error(backend: &str, fields: &str) -> String {
     let yaml = format!(
         "quill:\n  name: bad\n  version: \"0.1.0\"\n  backend: {backend}\n  description: bad\n\
-         main:\n  fields:\n{fields}\n"
+         {}",
+        main_section(&format!("  fields:\n{fields}\n"))
     );
     format!(
         "{:?}",
@@ -160,15 +162,15 @@ fn a_stored_tick_is_refused() {
 fn a_stored_tick_is_refused_at_every_depth() {
     let yaml = r#"
 quill: { name: deep, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    rows:
-      type: array
-      items:
-        type: object
-        properties:
-          quals: { type: matrix, members: { flight_cc: Flight CC } }
-card_kinds:
+schema:
+  main:
+    fields:
+      rows:
+        type: array
+        items:
+          type: object
+          properties:
+            quals: { type: matrix, members: { flight_cc: Flight CC } }
   entry:
     fields:
       quals: { type: matrix, members: { flight_cc: Flight CC } }
@@ -194,15 +196,15 @@ card_kinds:
 
     for (literal, code) in [
         (
-            "      default: [ { quals: { flight_cc: { held: false } } } ]\n",
+            "        default: [ { quals: { flight_cc: { held: false } } } ]\n",
             "quill::default_held_stored",
         ),
         ("", "quill::seed_held_stored"),
     ] {
         let bad = yaml
             .replace(
-                "      type: array\n",
-                &format!("      type: array\n{literal}"),
+                "        type: array\n",
+                &format!("        type: array\n{literal}"),
             )
             .replace(
                 "  entry:\n",
@@ -407,8 +409,8 @@ fn a_matrix_is_a_cell_with_a_default_and_a_question_mark() {
     );
 
     let defaulted = quill_yaml().replace(
-        "      properties:\n",
-        "      default: { flight_cc: { detail: \"*Flt* CC\" }, cyber_200: true }\n      properties:\n",
+        "        properties:\n",
+        "        default: { flight_cc: { detail: \"*Flt* CC\" }, cyber_200: true }\n        properties:\n",
     );
     let wire = plate_of(&defaulted, &doc("title: T\n"));
     assert_eq!(
@@ -422,7 +424,7 @@ fn a_matrix_is_a_cell_with_a_default_and_a_question_mark() {
         json!({})
     );
 
-    let optional = quill_yaml().replace("      type: matrix\n", "      type: matrix?\n");
+    let optional = quill_yaml().replace("        type: matrix\n", "        type: matrix?\n");
     assert_eq!(
         plate_of(&optional, &doc("title: T\n")),
         serde_json::Value::Null

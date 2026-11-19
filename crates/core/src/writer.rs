@@ -570,13 +570,13 @@ quill:
   backend: typst
   version: 1.0.0
   description: Editor test quill
-main:
-  fields:
-    subject:
-      type: richtext
-    qty:
-      type: integer
-card_kinds:
+schema:
+  main:
+    fields:
+      subject:
+        type: richtext
+      qty:
+        type: integer
   note:
     fields:
       prose:
@@ -850,8 +850,8 @@ card_kinds:
     #[test]
     fn a_field_of_lines_keeps_its_lines_and_reads_block_syntax_as_text() {
         let config = QuillConfig::from_yaml(&QUILL_YAML.replace(
-            "    qty:\n",
-            "    memo_for:\n      type: richtext\n      shape: lines\n    qty:\n",
+            "      qty:\n",
+            "      memo_for:\n        type: richtext\n        shape: lines\n      qty:\n",
         ))
         .unwrap();
         let memo_for = |doc: &Document| {
@@ -923,8 +923,8 @@ card_kinds:
     #[test]
     fn a_field_of_lines_refuses_a_stored_block() {
         let config = QuillConfig::from_yaml(&QUILL_YAML.replace(
-            "    qty:\n",
-            "    memo_for:\n      type: richtext\n      shape: lines\n    qty:\n",
+            "      qty:\n",
+            "      memo_for:\n        type: richtext\n        shape: lines\n      qty:\n",
         ))
         .unwrap();
         let list = quillmark_content::markdown::from_markdown("- one\n- two")
@@ -950,9 +950,10 @@ card_kinds:
 
     #[test]
     fn set_drops_a_single_line_text_value_s_trailing_whitespace() {
-        let config = QuillConfig::from_yaml(
-            &QUILL_YAML.replace("    qty:\n", "    pti:\n      type: text\n    qty:\n"),
-        )
+        let config = QuillConfig::from_yaml(&QUILL_YAML.replace(
+            "      qty:\n",
+            "      pti:\n        type: text\n      qty:\n",
+        ))
         .unwrap();
         let mut doc = blank_doc();
         let mut ed = TypedWriter::new(&config, &mut doc);
@@ -1133,29 +1134,30 @@ quill:
   backend: typst
   version: 1.0.0
   description: Member test quill
-main:
-  fields:
-    signer:
-      type: object
-      properties:
-        name:
-          type: text
-        rank:
-          type: text
-    classification:
-      type: enum
-      values: [UNCLASSIFIED, CUI]
-      variants:
-        CUI:
-          controlled_by:
-            type: text
-    signers:
-      type: array
-      items:
+schema:
+  main:
+    fields:
+      signer:
         type: object
         properties:
           name:
             type: text
+          rank:
+            type: text
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, CUI]
+        variants:
+          CUI:
+            controlled_by:
+              type: text
+      signers:
+        type: array
+        items:
+          type: object
+          properties:
+            name:
+              type: text
 ";
 
     fn members() -> QuillConfig {

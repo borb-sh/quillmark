@@ -63,18 +63,19 @@ quill:
   description: A one-page letter with a date, a subject line and optional P.S. notes
 ```
 
-`name`, `version`, `backend` and `description` are all required, and `name` is `snake_case`. The first line points an editor at the [schema of `Quill.yaml`](quill-yaml-reference.md#editor-support), so it completes keys and flags a typo as you type. Under `main.fields` are the fields of the document itself. The first two are plain text:
+`name`, `version`, `backend` and `description` are all required, and `name` is `snake_case`. The first line points an editor at the [schema of `Quill.yaml`](quill-yaml-reference.md#editor-support), so it completes keys and flags a typo as you type. The `schema:` block declares what a document holds. `main` is the document itself, and under `main.fields` are its fields. The first two are plain text:
 
 ```yaml
-main:
-  description: A letter from one person to another.
-  fields:
-    sender:
-      type: text
-      description: Your name, as it appears in the letterhead and the signature.
-    recipient:
-      type: text
-      description: Who the letter is addressed to.
+schema:
+  main:
+    description: A letter from one person to another.
+    fields:
+      sender:
+        type: text
+        description: Your name, as it appears in the letterhead and the signature.
+      recipient:
+        type: text
+        description: Who the letter is addressed to.
 ```
 
 `plate.typ` prints them:
@@ -141,10 +142,12 @@ List only real choices in `values`. Quillmark supplies the blank itself, and dec
 
 ## 6. A card
 
-A **card** is a repeatable part of a document, such as a P.S. note. `Quill.yaml` declares each kind of card under `card_kinds`:
+A **card** is a repeatable part of a document, such as a P.S. note. `Quill.yaml` declares each kind of card under `schema:`, beside `main`:
 
 ```yaml
-card_kinds:
+schema:
+  main:
+    # ...
   postscript:
     title: P.S.
     description: A short note after the signature.
@@ -169,17 +172,17 @@ The plate loops over the document's cards:
 }
 ```
 
-A card kind can declare fields of its own. See [Body, arrays, and cards](typst-backend.md#body-arrays-and-cards) and [`card_kinds`](quill-yaml-reference.md#card_kinds-section).
+A card kind can declare fields of its own. See [Body, arrays, and cards](typst-backend.md#body-arrays-and-cards) and [Card kinds](quill-yaml-reference.md#card-kinds).
 
 ## 7. Add a field
 
-Now change the quill. Add a title to print under the signature. In `Quill.yaml`, under `main.fields`:
+Now change the quill. Add a title to print under the signature. In `Quill.yaml`, under `schema.main.fields`:
 
 ```yaml
-    signer_title:
-      type: text
-      default: ""
-      description: Your title, printed under your name. Leave blank for none.
+      signer_title:
+        type: text
+        default: ""
+        description: Your title, printed under your name. Leave blank for none.
 ```
 
 At the end of the signature in `plate.typ`, after `#qm.ink(qm.data, "sender")`:
@@ -249,7 +252,7 @@ Three things it adds to the letter:
 ## Next steps
 
 - [quillkit & studio](quillkit.md): the authoring loop, the gate, and publishing a quiver as a site
-- [Quill.yaml Reference](quill-yaml-reference.md): every field type, UI hint, `card_kinds`, and the `typst` section
+- [Quill.yaml Reference](quill-yaml-reference.md): every field type, UI hint, card kinds, and the `typst` section
 - [Typst Backend](typst-backend.md): reading data, card loops, and the helper package
 - [Quill Versioning](versioning.md): when a change needs a new version directory
 - [Typst's tutorial](https://typst.app/docs/tutorial/): the language a plate is written in

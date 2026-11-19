@@ -106,11 +106,11 @@ describe('@quillmark/wasm: Quill.compare (moving a document between quills)', ()
     )
   const plain = quillOf(
     'resume',
-    'main:\n  fields:\n    name: { type: text }\n    level: { type: enum, values: [junior] }\n    fax: { type: text }\n',
+    'schema:\n  main:\n    fields:\n      name: { type: text }\n      level: { type: enum, values: [junior] }\n      fax: { type: text }\n',
   )
   const modern = quillOf(
     'resume_modern',
-    'main:\n  fields:\n    name: { type: text, default: Ada }\n    level: { type: enum, values: [junior, senior] }\n    accent: { type: text }\n',
+    'schema:\n  main:\n    fields:\n      name: { type: text, default: Ada }\n      level: { type: enum, values: [junior, senior] }\n      accent: { type: text }\n',
   )
   const changed = (delta) =>
     delta.entries
@@ -150,16 +150,16 @@ describe('@quillmark/wasm: DocumentWriter / CardWriter (bind the quill once)', (
   backend: typst
   description: Typed writer sugar test
 
-main:
-  fields:
-    subject:
-      type: richtext
-    qty:
-      type: integer
-    memo:
-      type: text
+schema:
+  main:
+    fields:
+      subject:
+        type: richtext
+      qty:
+        type: integer
+      memo:
+        type: text
 
-card_kinds:
   note:
     fields:
       prose:
@@ -426,47 +426,47 @@ describe('@quillmark/wasm: DocumentReader (the schema-plane read)', () => {
   backend: typst
   description: Typed reader sugar test
 
-main:
-  fields:
-    subject:
-      type: richtext
-    note:
-      type: text
-      shape: lines
-    qty:
-      type: integer
-    recipients:
-      type: array
-      items:
+schema:
+  main:
+    fields:
+      subject:
+        type: richtext
+      note:
         type: text
         shape: lines
-    paragraphs:
-      type: array
-      items:
-        type: richtext
-        shape: blocks
-    tags:
-      type: array
-      items:
-        type: text
-    letterhead:
-      type: object
-      properties:
-        motto:
+      qty:
+        type: integer
+      recipients:
+        type: array
+        items:
+          type: text
+          shape: lines
+      paragraphs:
+        type: array
+        items:
           type: richtext
           shape: blocks
-        code:
+      tags:
+        type: array
+        items:
           type: text
-    rows:
-      type: array
-      items:
+      letterhead:
         type: object
         properties:
-          notes:
+          motto:
             type: richtext
             shape: blocks
+          code:
+            type: text
+      rows:
+        type: array
+        items:
+          type: object
+          properties:
+            notes:
+              type: richtext
+              shape: blocks
 
-card_kinds:
   note:
     fields:
       prose:
@@ -628,21 +628,21 @@ describe('@quillmark/wasm: reader.resolve (the resolved-value view)', () => {
   backend: typst
   description: Resolved-field view coverage
 
-main:
-  fields:
-    title:
-      type: text
-    status:
-      type: text
-      default: draft
-    notes:
-      type: text
-    count:
-      type: integer
-    author:
-      type: text
+schema:
+  main:
+    fields:
+      title:
+        type: text
+      status:
+        type: text
+        default: draft
+      notes:
+        type: text
+      count:
+        type: integer
+      author:
+        type: text
 
-card_kinds:
   note:
     fields:
       label:
@@ -1063,10 +1063,11 @@ A single line of body ink.`
   version: "1.0.0"
   backend: doesnotexist
   description: no backend registered
-main:
-  fields:
-    title:
-      type: text
+schema:
+  main:
+    fields:
+      title:
+        type: text
 `
     const quill = Quill.fromTree(new Map([['Quill.yaml', new TextEncoder().encode(yaml)]]))
     const doc = quill.seedDocument()
@@ -1517,9 +1518,10 @@ describe('@quillmark/wasm: today (the render date a host supplies)', () => {
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    issued: { type: date, default: today }
+schema:
+  main:
+    fields:
+      issued: { type: date, default: today }
 `
   const PLATE = `#import "@local/quillmark-helper:0.2.0" as qm
 #assert.eq(qm.data.issued, datetime.today())
