@@ -961,3 +961,37 @@ fn a_place_after_a_table_that_fills_its_page_adds_no_page_break() {
     assert!(!next.page_break_before);
     assert!(w.body().iter().all(|p| !p.page_break_before));
 }
+
+/// The text a header or footer part shows, in its paragraphs and text
+/// boxes.
+fn chrome_text(w: &word::Word, part: &str) -> String {
+    w.part_paragraphs(part)
+        .iter()
+        .map(|p| {
+            p.text.clone()
+                + &p.drawings
+                    .iter()
+                    .map(|d| d.text.clone())
+                    .collect::<String>()
+        })
+        .collect()
+}
+
+#[test]
+fn a_section_with_no_footer_writes_an_empty_one_rather_than_inherit() {
+    let w = render(&format!(
+        "{PAGE}#set page(footer: [Foot A])\nFirst page.\n#pagebreak()\nSecond page.\n\
+         #set page(footer: none)\nThird page, with no footer.\n"
+    ));
+    let sections = w.sections();
+    assert_eq!(sections.len(), 2);
+    let text = |part: &str| chrome_text(&w, part);
+    let first: Vec<String> = sections[0].footers.iter().map(|(_, p)| text(p)).collect();
+    assert_eq!(first, ["Foot A"]);
+    let [(kind, part)] = &sections[1].footers[..] else {
+        panic!("{:?}", sections[1].footers)
+    };
+    assert_eq!(kind, "default");
+    assert_eq!(text(part), "");
+    assert_eq!(sections[1].start.as_deref(), Some("nextPage"));
+}

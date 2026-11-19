@@ -87,6 +87,8 @@ pub struct Section {
     /// `(type, part)` of each header reference.
     pub headers: Vec<(String, String)>,
     pub footers: Vec<(String, String)>,
+    /// The `w:type` of how it starts, when it names one.
+    pub start: Option<String>,
 }
 
 /// Renders `plate`, with the helper imported as `qm`, to DOCX.
@@ -223,6 +225,9 @@ impl Word {
                     margin_left: num(child("pgMar"), "left").unwrap_or_default(),
                     headers: refs("headerReference"),
                     footers: refs("footerReference"),
+                    start: child("type")
+                        .and_then(|n| n.attribute((W, "val")))
+                        .map(str::to_string),
                 }
             })
             .collect()

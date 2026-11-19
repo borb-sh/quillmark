@@ -57,6 +57,20 @@ fn tw(pt: f64) -> Twips {
     (pt * 20.0).round() as Twips
 }
 
+/// Gives each reference of `refs` that an earlier section made (`had`, for
+/// the default and the first page) an empty part of `parts` when it has
+/// none, since a Word section with no reference of a type shows the one
+/// before it.
+fn fill_inherited(refs: &mut HeaderRefs, had: &mut [bool; 2], parts: &mut Vec<Blocks>) {
+    for (slot, had) in [&mut refs.default, &mut refs.first].into_iter().zip(had) {
+        if slot.is_none() && *had {
+            parts.push(Blocks::from_paragraphs(vec![spacer(20)]));
+            *slot = Some(parts.len() - 1);
+        }
+        *had |= slot.is_some();
+    }
+}
+
 /// An empty paragraph `height` twips tall, at least one.
 fn spacer(height: Twips) -> Paragraph {
     Paragraph {
@@ -422,11 +436,16 @@ impl Lower<'_> {
         }
         let mut headers = Vec::new();
         let mut footers = Vec::new();
+        let mut had = [[false; 2]; 2];
         let mut prev_number: Option<u64> = None;
         for (pages, body) in groups.iter().zip(bodies) {
             let first = &doc.pages[pages[0]];
             let s = first.setup;
-            let (header, footer, title_page) = self.chrome(pages, &mut headers, &mut footers);
+            let (mut header, mut footer, title_page) =
+                self.chrome(pages, &mut headers, &mut footers);
+            let [had_header, had_footer] = &mut had;
+            fill_inherited(&mut header, had_header, &mut headers);
+            fill_inherited(&mut footer, had_footer, &mut footers);
             let format = printed_number(first).map(|p| p.format);
             let restart = match prev_number {
                 Some(p) => p + 1 != first.number,
