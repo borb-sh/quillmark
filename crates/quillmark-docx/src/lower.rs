@@ -199,6 +199,14 @@ enum Prev {
     Bottom(u32, f64),
 }
 
+impl Prev {
+    fn page(self) -> u32 {
+        match self {
+            Prev::Baseline(p, _) | Prev::Bottom(p, _) => p,
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 struct Ctx {
     align: Option<HAlign>,
@@ -1214,11 +1222,7 @@ impl Lower<'_> {
         if ctx.nested {
             return;
         }
-        let page_of_prev = match self.prev {
-            Some(Prev::Baseline(p, _) | Prev::Bottom(p, _)) => Some(p),
-            None => None,
-        };
-        if self.break_pending && page_of_prev.is_some_and(|q| q < page) {
+        if self.break_pending && self.prev.is_some_and(|q| q.page() < page) {
             p.props.page_break_before = true;
         }
         self.break_pending = false;
@@ -1249,10 +1253,7 @@ impl Lower<'_> {
         if ctx.nested || before.is_some_and(|q| q <= page) {
             return;
         }
-        let prev = match self.prev {
-            Some(Prev::Baseline(p, _) | Prev::Bottom(p, _)) => Some(p),
-            None => None,
-        };
+        let prev = self.prev.map(Prev::page);
         if prev == Some(page) && matches!(out.last(), Some(Block::Paragraph(_))) {
             self.attach_pending(out);
             return;
@@ -2753,7 +2754,7 @@ impl Lower<'_> {
         let forced = self.break_pending
             && !ctx.nested
             && match (self.prev, top) {
-                (Some(Prev::Baseline(p, _) | Prev::Bottom(p, _)), Some((q, _))) => p < q,
+                (Some(p), Some((q, _))) => p.page() < q,
                 _ => false,
             };
         self.break_pending = false;
