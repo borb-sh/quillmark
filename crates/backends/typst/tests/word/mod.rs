@@ -50,6 +50,8 @@ pub struct Drawing {
     pub text: String,
     /// The text of each paragraph of a text box.
     pub lines: Vec<String>,
+    /// The instructions of the fields a text box holds.
+    pub fields: Vec<String>,
     pub x: Option<(String, i64)>,
     pub y: Option<(String, i64)>,
     pub z: Option<i64>,
@@ -308,6 +310,12 @@ fn drawing(d: roxmltree::Node) -> Drawing {
                     .filter_map(|n| n.text())
                     .collect()
             })
+            .collect(),
+        fields: d
+            .descendants()
+            .filter(|n| n.has_tag_name((W, "instrText")))
+            .filter_map(|n| n.text())
+            .map(|t| t.trim().to_string())
             .collect(),
         x: pos("H"),
         y: pos("V"),

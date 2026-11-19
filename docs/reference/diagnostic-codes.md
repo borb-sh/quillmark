@@ -239,6 +239,7 @@ A Word export. Each warns that the Word file carries less than the PDF shows; no
 - `docx::hint_unclosed`: a hint bracket is still open where its element ends, so it closes there.
 - `docx::hint_unknown`: a hint names a kind the Word export does not know, so it is ignored.
 - `docx::ink_dropped`: text or an image that no paragraph, table, text box or picture holds is left out.
+- `docx::page_number_frozen`: a page number that chrome prints is not literal text around a number Word can count in one of its formats, so it stays as printed text and does not follow the page.
 - `docx::place_anchored`: placed content is a text box anchored to the page, so it does not move with the text around it.
 - `docx::probes_disabled`: the probed compile did not lay out the document's ink, so the Word file is read without its probes.
 - `docx::rasterized`: a curve, a gradient or pattern paint, an image that is neither PNG nor JPEG, or a rotated, skewed, unevenly scaled or clipped group is carried as a 300 dpi picture of its ink.

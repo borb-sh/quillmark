@@ -11,8 +11,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::layout::{
     ArtifactKind, BracketHint, Child, Geometry, HAlign, HintLevel, ImageFormat, ItemKind, ItemRef,
-    LayoutDoc, LineEnd, Marker, NodeId, NodeKind, Notice, NumberFormat, ParStyle, PointHint, Rect,
-    Rgb, VAlign,
+    LayoutDoc, LineEnd, Marker, NodeId, NodeKind, Notice, NumberFormat, Page, ParStyle, PointHint,
+    Rect, Rgb, VAlign,
 };
 use crate::model::{
     AbstractNum, Align, Anchor, Block, Blocks, Border, Borders, BreakKind, Cell, CellMargins,
@@ -32,6 +32,7 @@ pub const CODE_LABEL_MISMATCH: &str = "docx::label_mismatch";
 pub const CODE_TOC_FROZEN: &str = "docx::toc_frozen";
 pub const CODE_HINT_UNCHECKED: &str = "docx::hint_unchecked";
 pub const CODE_UNSTRUCTURED_TEXT: &str = "docx::unstructured_text";
+pub const CODE_PAGE_NUMBER_FROZEN: &str = "docx::page_number_frozen";
 
 /// Families whose metric-compatible Word face a Word machine has.
 const WORD_CLONES: &[(&str, &str)] = &[
@@ -97,7 +98,11 @@ pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
         mismatches: 0,
         untabbed: 0,
         unstructured: 0,
+        numbered: HashSet::new(),
+        frozen_numbers: 0,
     };
+    l.chrome_places = l.find_chrome_places();
+    l.numbered = l.numbered_runs();
     let document = l.document();
     let mut notices = doc.notices.clone();
     notices.extend(l.notices());
@@ -120,7 +125,8 @@ struct Ctx {
     /// Inside a cell, text box or footnote: no space above the first line
     /// and no page breaks.
     nested: bool,
-    page_number: Option<String>,
+    /// The page whose number chrome text prints.
+    page_number: Option<usize>,
     list: Option<(u32, u8)>,
     /// The `list` hint around: its scheme, its `w:num`, and whether it is
     /// the scheme's first instance.
@@ -187,6 +193,10 @@ struct Lower<'a> {
     mismatches: usize,
     untabbed: usize,
     unstructured: usize,
+    /// The text around a page number that chrome prints on more than one
+    /// number, which makes a chrome run holding the number a page number.
+    numbered: HashSet<(String, String)>,
+    frozen_numbers: usize,
 }
 
 /// A role's or a scheme's level's style id: its name without spaces or
@@ -278,7 +288,7 @@ impl Lower<'_> {
 
     fn document(&mut self) -> Document {
         let doc = self.doc;
-        let groups = section_pages(doc);
+        let groups = self.section_pages();
         let mut sections: Vec<Section> = Vec::new();
         let mut bodies: Vec<Vec<Block>> = vec![Vec::new(); groups.len()];
         let section_of = |page: u32| {
@@ -327,13 +337,15 @@ impl Lower<'_> {
         let mut headers = Vec::new();
         let mut footers = Vec::new();
         let mut prev_number: Option<u64> = None;
-        for (i, (pages, body)) in groups.iter().zip(bodies).enumerate() {
+        for (pages, body) in groups.iter().zip(bodies) {
             let first = &doc.pages[pages[0]];
             let s = first.setup;
             let (header, footer, title_page) = self.chrome(pages, &mut headers, &mut footers);
-            let format = first.number_text.as_deref().and_then(number_format);
-            let restart = prev_number.is_none_or(|p| p + 1 != first.number) && first.number != 1
-                || prev_number.is_some_and(|p| p + 1 != first.number);
+            let format = printed_number(first).map(|p| p.format);
+            let restart = match prev_number {
+                Some(p) => p + 1 != first.number,
+                None => first.number != 1,
+            };
             let page_numbers = format.map(|format| PageNumbers {
                 format,
                 start: restart.then_some(first.number as u32),
@@ -344,11 +356,7 @@ impl Lower<'_> {
                 props: SectionProps {
                     header,
                     footer,
-                    start: if i == 0 {
-                        SectionStart::NextPage
-                    } else {
-                        SectionStart::NextPage
-                    },
+                    start: SectionStart::NextPage,
                     page_width: tw(first.size[0]),
                     page_height: tw(first.size[1]),
                     landscape: s.flipped,
@@ -504,6 +512,16 @@ impl Lower<'_> {
                     "{} paragraph number(s) are not the number Word would count, so they stay as \
                      printed text",
                     self.mismatches
+                ),
+            });
+        }
+        if self.frozen_numbers > 0 {
+            out.push(Notice {
+                code: CODE_PAGE_NUMBER_FROZEN.into(),
+                message: format!(
+                    "{} printed page number(s) are not literal text around a number Word can \
+                     count, so they stay as printed text",
+                    self.frozen_numbers
                 ),
             });
         }
@@ -846,13 +864,7 @@ impl Lower<'_> {
                 self.children(n, &ctx)
             }
             NodeKind::Place { float, valign } => {
-                let chrome = self
-                    .doc
-                    .ancestor(n, |k| matches!(k, NodeKind::Hint(BracketHint::Chrome)))
-                    .is_some();
-                if let (true, Some(v), Some(page)) = (chrome, valign, self.first_page(n)) {
-                    self.chrome_places
-                        .push((page as usize, n, v == VAlign::Bottom));
+                if self.chrome_places.iter().any(|c| c.1 == n) {
                     return Vec::new();
                 }
                 if float && valign == Some(VAlign::Bottom) && self.first_page(n) == Some(0) {
@@ -1635,10 +1647,15 @@ impl Lower<'_> {
                                 || is_roman(s, true);
                             self.toc_prefixed |= !numeral;
                         }
-                        let mut text = t.text.clone();
-                        if chain.iter().any(|k| matches!(k, NodeKind::NoBreak)) {
-                            text = text.replace(' ', "\u{a0}").replace('-', "\u{2011}");
-                        }
+                        let nobreak = chain.iter().any(|k| matches!(k, NodeKind::NoBreak));
+                        let shaped = |s: &str| {
+                            if nobreak {
+                                s.replace(' ', "\u{a0}").replace('-', "\u{2011}")
+                            } else {
+                                s.to_string()
+                            }
+                        };
+                        let mut text = shaped(&t.text);
                         if Some(i) == last_text && line.end == LineEnd::Hyphenated {
                             text = text.trim_end_matches('\u{ad}').to_string();
                         }
@@ -1647,27 +1664,45 @@ impl Lower<'_> {
                             NodeKind::Link { url } => Some(url.clone()),
                             _ => None,
                         });
-                        let is_number = ctx
-                            .page_number
-                            .as_deref()
-                            .is_some_and(|s| !s.is_empty() && text.trim() == s);
-                        let inline = if is_number {
-                            Inline::Field(Field {
-                                instruction: "PAGE".into(),
+                        let number = ctx.page_number.and_then(|p| {
+                            let (a, b) = self.number_in(&t.text, p)?;
+                            let found = printed_number(&self.doc.pages[p]);
+                            if found.is_none() {
+                                self.frozen_numbers += 1;
+                            }
+                            Some((a, b, found?))
+                        });
+                        if let Some((a, b, found)) = number {
+                            let run = |text: String| Run {
                                 props: props.clone(),
-                                result: vec![Run {
-                                    props,
-                                    content: vec![RunContent::Text(text.trim().to_string())],
-                                }],
-                                locked: false,
-                            })
-                        } else {
+                                content: vec![RunContent::Text(text)],
+                            };
+                            let before = shaped(&format!("{}{}", &t.text[..a], found.before));
+                            let after = shaped(&format!("{}{}", found.after, &t.text[b..]));
+                            if !before.is_empty() {
+                                out.push((link.clone(), Inline::Run(run(before))));
+                            }
+                            out.push((
+                                link.clone(),
+                                Inline::Field(Field {
+                                    instruction: "PAGE".into(),
+                                    props: props.clone(),
+                                    result: vec![run(found.digits.clone())],
+                                    locked: false,
+                                }),
+                            ));
+                            if !after.is_empty() {
+                                out.push((link, Inline::Run(run(after))));
+                            }
+                            continue;
+                        }
+                        out.push((
+                            link,
                             Inline::Run(Run {
                                 props,
                                 content: vec![RunContent::Text(text)],
-                            })
-                        };
-                        out.push((link, inline));
+                            }),
+                        ));
                     }
                     ItemKind::Raster { image, rect } => {
                         let drawing = self.picture(*image, *rect, None, Placement::Inline);
@@ -2374,7 +2409,7 @@ impl Lower<'_> {
             left: x,
             width,
             align: ctx.align,
-            page_number: ctx.page_number.clone(),
+            page_number: ctx.page_number,
             list: None,
             hint_list: None,
             toc: None,
@@ -2450,60 +2485,30 @@ impl Lower<'_> {
         headers: &mut Vec<Blocks>,
         footers: &mut Vec<Blocks>,
     ) -> (HeaderRefs, HeaderRefs, bool) {
-        let artifacts: Vec<(usize, NodeId, bool)> = self.doc.nodes[0]
-            .children
-            .iter()
-            .filter_map(|c| match c {
-                Child::Node(n) => match self.kind(*n) {
-                    NodeKind::Artifact { kind } => {
-                        let page = self.first_page(*n)? as usize;
-                        pages.contains(&page).then_some((
-                            page,
-                            *n,
-                            matches!(kind, ArtifactKind::Footer | ArtifactKind::PageNumber),
-                        ))
-                    }
-                    _ => None,
-                },
-                Child::Item(_) => None,
-            })
-            .chain(
-                self.chrome_places
-                    .iter()
-                    .filter(|c| pages.contains(&c.0))
-                    .copied(),
-            )
-            .collect();
         let mut title_page = false;
         let mut refs = [HeaderRefs::default(), HeaderRefs::default()];
         for (part, footer) in [(0, false), (1, true)] {
-            let of = |p: usize| -> Vec<NodeId> {
-                artifacts
-                    .iter()
-                    .filter(|a| a.0 == p && a.2 == footer)
-                    .map(|a| a.1)
-                    .collect()
-            };
+            let of = |l: &Self, p: usize| l.chrome_of(p, footer);
             let floats: Vec<NodeId> = if footer && pages.first() == Some(&0) {
                 std::mem::take(&mut self.footer_floats)
             } else {
                 Vec::new()
             };
-            if floats.is_empty() && pages.iter().all(|&p| of(p).is_empty()) {
+            if floats.is_empty() && pages.iter().all(|&p| of(self, p).is_empty()) {
                 continue;
             }
-            let sig = |l: &Self, p: usize| l.signature(&of(p), p);
+            let sig = |l: &Self, p: usize| l.signature(&of(l, p), p);
             let first = pages[0];
             let second = pages.get(1).copied();
             let differs =
                 !floats.is_empty() || second.is_some_and(|s| sig(self, first) != sig(self, s));
             let mut make = |l: &mut Self, p: usize, floats: &[NodeId]| -> usize {
                 let ctx = Ctx {
-                    page_number: l.doc.pages[p].number_text.clone(),
+                    page_number: Some(p),
                     ..Ctx::default()
                 };
                 let mut drawings = Vec::new();
-                for n in of(p) {
+                for n in of(l, p) {
                     drawings.extend(l.text_box(n, &ctx));
                 }
                 let mut line = 20;
@@ -2523,7 +2528,7 @@ impl Lower<'_> {
                 let target = sig(l, p);
                 for &q in pages {
                     if q != p && sig(l, q) == target {
-                        for n in of(q) {
+                        for n in of(l, q) {
                             l.consume_subtree(n);
                         }
                     }
@@ -2568,17 +2573,25 @@ impl Lower<'_> {
         (h, f, title_page)
     }
 
-    /// What a page's chrome shows, its number's text and x left out.
+    /// What a page's chrome shows, with its page number as the literal text
+    /// and format it is printed in, and that run's x left out.
     fn signature(&self, nodes: &[NodeId], page: usize) -> Vec<(i64, String)> {
-        let number = self.doc.pages[page].number_text.clone().unwrap_or_default();
+        let shown = printed_number(&self.doc.pages[page]).map_or_else(
+            || "#".into(),
+            |p| format!("{}#{:?}{}", p.before, p.format, p.after),
+        );
         let mut out = Vec::new();
         for &n in nodes {
             for m in self.doc.subtree(n) {
                 for c in &self.doc.nodes[m].children {
                     if let Child::Item(r) = c {
                         match &self.doc.item(*r).kind {
-                            ItemKind::Text(t) if !number.is_empty() && t.text.trim() == number => {
-                                out.push(((t.origin[1] * 10.0).round() as i64, "#".into()))
+                            ItemKind::Text(t) if self.number_in(&t.text, page).is_some() => {
+                                let (a, b) = self.number_in(&t.text, page).expect("a number");
+                                out.push((
+                                    (t.origin[1] * 10.0).round() as i64,
+                                    format!("{}{shown}{}", &t.text[..a], &t.text[b..]),
+                                ))
                             }
                             ItemKind::Text(t) => out.push((
                                 (t.origin[1] * 10.0).round() as i64,
@@ -2597,55 +2610,264 @@ impl Lower<'_> {
         }
         out
     }
+
+    /// Runs of consecutive pages one Word section holds: one page setup, one
+    /// way of printing the page number, a count that runs on, and chrome
+    /// that is the same on every page but the first.
+    fn section_pages(&self) -> Vec<Vec<usize>> {
+        let doc = self.doc;
+        let setup = |i: usize| {
+            let p = &doc.pages[i];
+            let m = p.setup.margins;
+            (
+                tw(p.size[0]),
+                tw(p.size[1]),
+                [tw(m.top), tw(m.right), tw(m.bottom), tw(m.left)],
+                p.setup.columns,
+                p.setup.flipped,
+            )
+        };
+        let numbering = |i: usize| {
+            let p = &doc.pages[i];
+            p.number_text
+                .as_deref()
+                .map(str::trim)
+                .filter(|t| !t.is_empty())?;
+            Some(printed_number(p).map(|p| (p.before, p.format, p.after)))
+        };
+        let chrome =
+            |i: usize| [false, true].map(|footer| self.signature(&self.chrome_of(i, footer), i));
+        let mut out: Vec<Vec<usize>> = Vec::new();
+        for i in 0..doc.pages.len() {
+            match out.last_mut() {
+                Some(g)
+                    if setup(g[0]) == setup(i)
+                        && numbering(g[0]) == numbering(i)
+                        && doc.pages[i].number == doc.pages[i - 1].number + 1
+                        && g.get(1).is_none_or(|&d| chrome(d) == chrome(i)) =>
+                {
+                    g.push(i)
+                }
+                _ => out.push(vec![i]),
+            }
+        }
+        if out.is_empty() {
+            out.push(Vec::new());
+        }
+        out
+    }
+
+    /// The chrome on `page`: its header or footer artifacts and the places a
+    /// `chrome` hint sends there.
+    fn chrome_of(&self, page: usize, footer: bool) -> Vec<NodeId> {
+        self.doc.nodes[0]
+            .children
+            .iter()
+            .filter_map(|c| match c {
+                Child::Node(n) => match self.kind(*n) {
+                    NodeKind::Artifact { kind } => {
+                        let at = self.first_page(*n)? as usize;
+                        let low = matches!(kind, ArtifactKind::Footer | ArtifactKind::PageNumber);
+                        (at == page && low == footer).then_some(*n)
+                    }
+                    _ => None,
+                },
+                Child::Item(_) => None,
+            })
+            .chain(
+                self.chrome_places
+                    .iter()
+                    .filter(|c| c.0 == page && c.2 == footer)
+                    .map(|c| c.1),
+            )
+            .collect()
+    }
+
+    /// The places a `chrome` hint holds, each with its page and whether it
+    /// sits at the foot, outside any other place.
+    fn find_chrome_places(&self) -> Vec<(usize, NodeId, bool)> {
+        let mut out = Vec::new();
+        for n in 0..self.doc.nodes.len() {
+            let NodeKind::Place {
+                valign: Some(v), ..
+            } = *self.kind(n)
+            else {
+                continue;
+            };
+            let chrome = self
+                .doc
+                .ancestor(n, |k| matches!(k, NodeKind::Hint(BracketHint::Chrome)))
+                .is_some();
+            let nested = self.doc.nodes[n].parent.is_some_and(|p| {
+                self.doc
+                    .ancestor(p, |k| matches!(k, NodeKind::Place { .. }))
+                    .is_some()
+            });
+            if let (true, false, Some(page)) = (chrome, nested, self.first_page(n)) {
+                out.push((page as usize, n, v == VAlign::Bottom));
+            }
+        }
+        out
+    }
+
+    /// The text around each page number chrome prints that recurs around two
+    /// or more different numbers.
+    fn numbered_runs(&self) -> HashSet<(String, String)> {
+        let mut seen: HashMap<(String, String), BTreeSet<String>> = HashMap::new();
+        for page in 0..self.doc.pages.len() {
+            let Some(number) = self.doc.pages[page]
+                .number_text
+                .as_deref()
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+            else {
+                continue;
+            };
+            for footer in [false, true] {
+                for n in self.chrome_of(page, footer) {
+                    for m in self.doc.subtree(n) {
+                        for c in &self.doc.nodes[m].children {
+                            let Child::Item(r) = c else { continue };
+                            let ItemKind::Text(t) = &self.doc.item(*r).kind else {
+                                continue;
+                            };
+                            if let Some(i) = token_at(&t.text, number, char::is_alphanumeric) {
+                                let around = (
+                                    t.text[..i].to_string(),
+                                    t.text[i + number.len()..].to_string(),
+                                );
+                                seen.entry(around).or_default().insert(number.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        seen.into_iter()
+            .filter(|(_, numbers)| numbers.len() >= 2)
+            .map(|(around, _)| around)
+            .collect()
+    }
+
+    /// Where `page`'s printed number stands in a chrome text run, when the
+    /// run is the number alone or text that recurs around other numbers.
+    fn number_in(&self, text: &str, page: usize) -> Option<(usize, usize)> {
+        let number = self.doc.pages[page]
+            .number_text
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())?;
+        let i = token_at(text, number, char::is_alphanumeric)?;
+        let end = i + number.len();
+        let (before, after) = (&text[..i], &text[end..]);
+        let alone = before.trim().is_empty() && after.trim().is_empty();
+        (alone
+            || self
+                .numbered
+                .contains(&(before.to_string(), after.to_string())))
+        .then_some((i, end))
+    }
 }
 
-/// Runs of consecutive pages with one page setup.
-fn section_pages(doc: &LayoutDoc) -> Vec<Vec<usize>> {
-    let key = |i: usize| {
-        let p = &doc.pages[i];
-        let m = p.setup.margins;
-        (
-            tw(p.size[0]),
-            tw(p.size[1]),
-            [tw(m.top), tw(m.right), tw(m.bottom), tw(m.left)],
-            p.setup.columns,
-            p.setup.flipped,
-        )
+/// A printed page number as Word prints it: literal text around Word's
+/// format of the page's count.
+struct Printed {
+    before: String,
+    format: NumFormat,
+    digits: String,
+    after: String,
+}
+
+/// How `page` prints its number, when that is literal text around one of
+/// Word's formats of its count; the count's last occurrence is the number.
+fn printed_number(page: &Page) -> Option<Printed> {
+    let text = page.number_text.as_deref()?.trim();
+    let n = page.number;
+    [
+        NumFormat::Decimal,
+        NumFormat::LowerRoman,
+        NumFormat::UpperRoman,
+        NumFormat::LowerLetter,
+        NumFormat::UpperLetter,
+    ]
+    .into_iter()
+    .filter_map(|format| {
+        let digits = word_number(n, format)?;
+        let joins: fn(char) -> bool = if format == NumFormat::Decimal {
+            |c| c.is_ascii_digit()
+        } else {
+            char::is_alphabetic
+        };
+        let i = token_at(text, &digits, joins)?;
+        Some(Printed {
+            before: text[..i].to_string(),
+            after: text[i + digits.len()..].to_string(),
+            format,
+            digits,
+        })
+    })
+    .max_by_key(|p| text.len() - p.after.len())
+}
+
+/// `n` in one of Word's page number formats, where Word counts it the way
+/// Typst does.
+fn word_number(n: u64, format: NumFormat) -> Option<String> {
+    let letter = |base: u8| {
+        (1..=26)
+            .contains(&n)
+            .then(|| char::from(base + n as u8 - 1).to_string())
     };
-    let mut out: Vec<Vec<usize>> = Vec::new();
-    for i in 0..doc.pages.len() {
-        match out.last_mut() {
-            Some(g) if key(g[0]) == key(i) => g.push(i),
-            _ => out.push(vec![i]),
+    match format {
+        NumFormat::Decimal => Some(n.to_string()),
+        NumFormat::LowerRoman => roman(n).map(|r| r.to_lowercase()),
+        NumFormat::UpperRoman => roman(n),
+        NumFormat::LowerLetter => letter(b'a'),
+        NumFormat::UpperLetter => letter(b'A'),
+        _ => None,
+    }
+}
+
+fn roman(mut n: u64) -> Option<String> {
+    if !(1..4000).contains(&n) {
+        return None;
+    }
+    let mut out = String::new();
+    for (v, s) in [
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    ] {
+        while n >= v {
+            out.push_str(s);
+            n -= v;
         }
     }
-    if out.is_empty() {
-        out.push(Vec::new());
-    }
-    out
+    Some(out)
+}
+
+/// The last place `token` stands in `text` with no `joins` character on
+/// either side.
+fn token_at(text: &str, token: &str, joins: fn(char) -> bool) -> Option<usize> {
+    text.rmatch_indices(token).map(|(i, _)| i).find(|&i| {
+        let before = text[..i].chars().next_back();
+        let after = text[i + token.len()..].chars().next();
+        !before.is_some_and(joins) && !after.is_some_and(joins)
+    })
 }
 
 fn is_roman(s: &str, upper: bool) -> bool {
     let set = if upper { "IVXLCDM" } else { "ivxlcdm" };
     !s.is_empty() && s.chars().all(|c| set.contains(c))
-}
-
-/// The Word format of a displayed page number.
-fn number_format(text: &str) -> Option<NumFormat> {
-    let t = text.trim();
-    if !t.is_empty() && t.chars().all(|c| c.is_ascii_digit()) {
-        Some(NumFormat::Decimal)
-    } else if is_roman(t, false) {
-        Some(NumFormat::LowerRoman)
-    } else if is_roman(t, true) {
-        Some(NumFormat::UpperRoman)
-    } else if t.chars().count() == 1 && t.chars().all(|c| c.is_ascii_lowercase()) {
-        Some(NumFormat::LowerLetter)
-    } else if t.chars().count() == 1 && t.chars().all(|c| c.is_ascii_uppercase()) {
-        Some(NumFormat::UpperLetter)
-    } else {
-        None
-    }
 }
 
 /// A list level's format, `lvlText` and start from the list's marker.
@@ -2750,8 +2972,36 @@ fn merge(items: Vec<(Option<String>, Inline)>) -> Vec<Inline> {
 mod properties {
     use proptest::prelude::*;
 
-    use super::number_format;
+    use super::printed_number;
+    use crate::layout::{Page, PageSetup, Sides};
     use crate::model::NumFormat;
+
+    fn page(number: u64, text: &str) -> Page {
+        Page {
+            size: [612.0, 792.0],
+            setup: PageSetup {
+                margins: Sides {
+                    top: 72.0,
+                    right: 72.0,
+                    bottom: 72.0,
+                    left: 72.0,
+                },
+                columns: 1,
+                gutter: 0.0,
+                flipped: false,
+                header_ascent: 0.0,
+                footer_descent: 0.0,
+            },
+            number,
+            number_text: Some(text.into()),
+            items: Vec::new(),
+        }
+    }
+
+    /// The literal text before, the format and the literal text after.
+    fn split(number: u64, text: &str) -> Option<(String, NumFormat, String)> {
+        printed_number(&page(number, text)).map(|p| (p.before, p.format, p.after))
+    }
 
     fn roman(mut n: u32) -> String {
         let table = [
@@ -2783,13 +3033,33 @@ mod properties {
         #[test]
         fn a_roman_page_number_has_a_roman_format(n in 1u32..4000) {
             let r = roman(n);
-            prop_assert_eq!(number_format(&r), Some(NumFormat::LowerRoman));
-            prop_assert_eq!(number_format(&r.to_uppercase()), Some(NumFormat::UpperRoman));
+            prop_assert_eq!(split(n as u64, &r), Some((String::new(), NumFormat::LowerRoman, String::new())));
+            prop_assert_eq!(
+                split(n as u64, &r.to_uppercase()),
+                Some((String::new(), NumFormat::UpperRoman, String::new()))
+            );
         }
 
         #[test]
         fn a_decimal_page_number_is_decimal(n in 0u64..100000) {
-            prop_assert_eq!(number_format(&n.to_string()), Some(NumFormat::Decimal));
+            prop_assert_eq!(split(n, &n.to_string()), Some((String::new(), NumFormat::Decimal, String::new())));
+        }
+
+        #[test]
+        fn a_prefixed_page_number_keeps_its_prefix_as_text(n in 1u64..1000, chapter in 1u64..30) {
+            prop_assert_eq!(
+                split(n, &format!("{chapter}-{n}")),
+                Some((format!("{chapter}-"), NumFormat::Decimal, String::new()))
+            );
+            prop_assert_eq!(
+                split(n, &format!("A-{n}")),
+                Some(("A-".to_string(), NumFormat::Decimal, String::new()))
+            );
+        }
+
+        #[test]
+        fn a_number_that_is_not_its_count_is_not_split(n in 1u64..1000) {
+            prop_assert_eq!(split(n, &(n + 1).to_string()), None);
         }
     }
 }

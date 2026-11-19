@@ -98,3 +98,131 @@ fn a_heading_whose_show_rule_breaks_the_page_keeps_its_style() {
         ]
     );
 }
+
+/// Each section's number format and restart, and what its default footer
+/// prints: each text box's lines and fields.
+fn numbering(w: &word::Word) -> Vec<(Option<String>, Option<i64>, Vec<String>, Vec<String>)> {
+    w.sections()
+        .into_iter()
+        .map(|s| {
+            let footer = s
+                .footers
+                .iter()
+                .find(|(kind, _)| kind == "default")
+                .map(|(_, part)| w.part_paragraphs(part))
+                .unwrap_or_default();
+            let boxes: Vec<_> = footer.iter().flat_map(|p| p.drawings.clone()).collect();
+            (
+                s.number_format,
+                s.number_start,
+                boxes.iter().flat_map(|d| d.lines.clone()).collect(),
+                boxes.iter().flat_map(|d| d.fields.clone()).collect(),
+            )
+        })
+        .collect()
+}
+
+fn strings(v: &[&str]) -> Vec<String> {
+    v.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn roman_front_matter_and_an_arabic_body_are_two_sections() {
+    let w = render(
+        "#set page(width: 300pt, height: 300pt, margin: 30pt, numbering: \"i\")\n\
+         Front one.\n#pagebreak()\nFront two.\n\
+         #set page(numbering: \"1\")\n#counter(page).update(1)\n\
+         Body one.\n#pagebreak()\nBody two.\n",
+    );
+    assert_eq!(
+        numbering(&w),
+        [
+            (
+                Some("lowerRoman".into()),
+                None,
+                strings(&["i"]),
+                strings(&["PAGE"])
+            ),
+            (
+                Some("decimal".into()),
+                Some(1),
+                strings(&["1"]),
+                strings(&["PAGE"])
+            ),
+        ]
+    );
+    let ends: Vec<(String, bool)> = w
+        .body()
+        .into_iter()
+        .map(|p| (p.text, p.ends_section))
+        .collect();
+    assert_eq!(
+        ends,
+        [
+            ("Front one.".into(), false),
+            ("Front two.".into(), true),
+            ("Body one.".into(), false),
+            ("Body two.".into(), false),
+        ]
+    );
+}
+
+#[test]
+fn chapter_numbers_restart_a_section_each_with_its_prefix_as_text() {
+    let w = render(
+        "#set page(width: 300pt, height: 300pt, margin: 30pt)\n\
+         #let chapter(c) = (..n) => str(c) + \"-\" + str(n.pos().first())\n\
+         #set page(numbering: chapter(1))\n\
+         One A.\n#pagebreak()\nOne B.\n\
+         #set page(numbering: chapter(2))\n#counter(page).update(1)\n\
+         Two A.\n#pagebreak()\nTwo B.\n",
+    );
+    assert_eq!(
+        numbering(&w),
+        [
+            (
+                Some("decimal".into()),
+                None,
+                strings(&["1-1"]),
+                strings(&["PAGE"])
+            ),
+            (
+                Some("decimal".into()),
+                Some(1),
+                strings(&["2-1"]),
+                strings(&["PAGE"])
+            ),
+        ]
+    );
+    assert!(!w.has("docx::page_number_frozen"), "{:?}", w.codes);
+}
+
+#[test]
+fn an_appendix_number_is_its_letter_and_a_page_field() {
+    let w = render(
+        "#set page(width: 300pt, height: 300pt, margin: 30pt, \
+         numbering: (..n) => \"A-\" + str(n.pos().first()))\n\
+         Appendix page.\n#pagebreak()\nAnother.\n",
+    );
+    assert_eq!(
+        numbering(&w),
+        [(
+            Some("decimal".into()),
+            None,
+            strings(&["A-1"]),
+            strings(&["PAGE"])
+        )]
+    );
+}
+
+#[test]
+fn a_number_word_cannot_count_stays_text_and_is_reported() {
+    let w = render(
+        "#set page(width: 300pt, height: 300pt, margin: 30pt, numbering: \"α\")\n\
+         One.\n#pagebreak()\nTwo.\n",
+    );
+    let sections = numbering(&w);
+    assert_eq!(sections.len(), 1);
+    assert!(sections[0].3.is_empty(), "{sections:?}");
+    assert!(w.has("docx::page_number_frozen"), "{:?}", w.codes);
+}
