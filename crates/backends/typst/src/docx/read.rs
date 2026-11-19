@@ -193,7 +193,7 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
         r.notice(
             CODE_RASTERIZED,
             format!(
-                "{n} curve(s), gradient(s), vector image(s), or rotated or clipped group(s) \
+                "{n} curve(s), gradient(s), vector image(s), or rotated, mirrored or clipped group(s) \
                  are carried as pictures"
             ),
         );
