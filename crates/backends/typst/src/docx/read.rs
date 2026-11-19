@@ -690,6 +690,18 @@ impl Reader<'_> {
         {
             self.internal_links += 1;
         }
+        if elem.is::<RawLine>() {
+            let in_raw = self
+                .stack
+                .iter()
+                .filter_map(|o| o.node)
+                .any(|n| matches!(self.out.nodes[n].kind, NodeKind::Raw));
+            if in_raw && self.top().is_some() {
+                let node = self.add_node(NodeKind::RawLine);
+                self.push(Key::Elem(loc), Some(node), false);
+            }
+            return;
+        }
         let list = self.list_kind(elem);
         let Some(kind) = list.or_else(|| node_kind(elem)) else {
             return;
@@ -1191,8 +1203,6 @@ fn node_kind(elem: &Content) -> Option<NodeKind> {
         .is_some_and(|r| r.block.get(styles))
     {
         NodeKind::Raw
-    } else if elem.is::<RawLine>() {
-        NodeKind::RawLine
     } else if elem.is::<FigureElem>() {
         NodeKind::Figure
     } else if elem.is::<FigureCaption>() {

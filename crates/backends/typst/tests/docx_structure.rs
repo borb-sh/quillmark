@@ -615,6 +615,12 @@ fn a_raw_block_is_a_paragraph_per_line_with_proofing_off() {
 }
 
 #[test]
+fn inline_raw_text_stays_in_its_paragraph() {
+    let w = render(&format!("{PAGE}Run `code` inline.\n"));
+    assert_eq!(w.texts(), ["Run code inline."]);
+}
+
+#[test]
 fn a_block_quote_and_a_caption_take_words_own_styles() {
     let w = render(&format!(
         "{PAGE}#quote(block: true, attribution: [Someone])[Quoted words.]\n\n\
