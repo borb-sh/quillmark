@@ -1675,13 +1675,7 @@ impl Lower<'_> {
             word.push(Level {
                 start: 1,
                 format: if l.visible {
-                    match l.format {
-                        NumberFormat::Decimal => NumFormat::Decimal,
-                        NumberFormat::LowerLetter => NumFormat::LowerLetter,
-                        NumberFormat::UpperLetter => NumFormat::UpperLetter,
-                        NumberFormat::LowerRoman => NumFormat::LowerRoman,
-                        NumberFormat::UpperRoman => NumFormat::UpperRoman,
-                    }
+                    num_format(l.format)
                 } else {
                     NumFormat::None
                 },
@@ -3547,6 +3541,16 @@ fn is_roman(s: &str, upper: bool) -> bool {
     !s.is_empty() && s.chars().all(|c| set.contains(c))
 }
 
+fn num_format(f: NumberFormat) -> NumFormat {
+    match f {
+        NumberFormat::Decimal => NumFormat::Decimal,
+        NumberFormat::LowerLetter => NumFormat::LowerLetter,
+        NumberFormat::UpperLetter => NumFormat::UpperLetter,
+        NumberFormat::LowerRoman => NumFormat::LowerRoman,
+        NumberFormat::UpperRoman => NumFormat::UpperRoman,
+    }
+}
+
 /// A list level's format, `lvlText` and start from the list's marker.
 fn level_of(marker: &Marker, level: u8) -> (NumFormat, String, u32) {
     match marker {
@@ -3563,13 +3567,9 @@ fn level_of(marker: &Marker, level: u8) -> (NumFormat, String, u32) {
                 text.push_str(&format!("%{}", first + i + 1));
             }
             text.push_str(suffix);
-            let format = match counters.last().map(|c| c.1) {
-                Some(NumberFormat::LowerLetter) => NumFormat::LowerLetter,
-                Some(NumberFormat::UpperLetter) => NumFormat::UpperLetter,
-                Some(NumberFormat::LowerRoman) => NumFormat::LowerRoman,
-                Some(NumberFormat::UpperRoman) => NumFormat::UpperRoman,
-                _ => NumFormat::Decimal,
-            };
+            let format = counters
+                .last()
+                .map_or(NumFormat::Decimal, |c| num_format(c.1));
             (format, text, (*start).clamp(0, u32::MAX as u64) as u32)
         }
         Marker::Printed => (NumFormat::None, String::new(), 1),
