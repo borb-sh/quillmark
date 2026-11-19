@@ -56,6 +56,21 @@ const HINT: &str = "__qm_hint__";
 /// Typst's text size where nothing sets one.
 const DEFAULT_TEXT_SIZE: f64 = 11.0;
 
+/// The setup of a page with no page probe: 1 in margins.
+const ASSUMED_SETUP: PageSetup = PageSetup {
+    margins: Sides {
+        top: 72.0,
+        right: 72.0,
+        bottom: 72.0,
+        left: 72.0,
+    },
+    columns: 1,
+    gutter: 0.0,
+    flipped: false,
+    header_ascent: 0.3 * 72.0,
+    footer_descent: 0.3 * 72.0,
+};
+
 /// The page probe's record in `frame`.
 fn page_probe(frame: &Frame) -> Option<Dict> {
     frame.items().find_map(|(_, item)| match item {
@@ -171,14 +186,7 @@ pub(crate) fn read(
         let size = [page.frame.width().to_pt(), page.frame.height().to_pt()];
         r.out.pages.push(Page {
             size,
-            setup: PageSetup {
-                margins: Sides::default(),
-                columns: 1,
-                gutter: 0.0,
-                flipped: false,
-                header_ascent: 0.0,
-                footer_descent: 0.0,
-            },
+            setup: ASSUMED_SETUP,
             number: page.number as u64,
             number_text: None,
             items: Vec::new(),
@@ -189,19 +197,7 @@ pub(crate) fn read(
             assumed += 1;
         }
         let p = &mut r.out.pages[i];
-        p.setup = setup.unwrap_or(PageSetup {
-            margins: Sides {
-                top: 72.0,
-                right: 72.0,
-                bottom: 72.0,
-                left: 72.0,
-            },
-            columns: 1,
-            gutter: 0.0,
-            flipped: false,
-            header_ascent: 0.3 * 72.0,
-            footer_descent: 0.3 * 72.0,
-        });
+        p.setup = setup.unwrap_or(ASSUMED_SETUP);
         p.number_text = r.number_text.take();
     }
     if assumed > 0 {
@@ -356,9 +352,12 @@ impl Reader<'_> {
     }
 
     fn ink_under(&mut self, node: NodeId, kind: ItemKind) {
-        if self.in_raster > 0 {
-            return;
+        if self.in_raster == 0 {
+            self.add_item(node, kind);
         }
+    }
+
+    fn add_item(&mut self, node: NodeId, kind: ItemKind) {
         let page = &mut self.out.pages[self.page as usize];
         let at = ItemRef {
             page: self.page,
@@ -501,18 +500,12 @@ impl Reader<'_> {
     }
 
     /// Places the held picture of a display equation in the innermost open
-    /// node.
+    /// node. The walk is inside that picture then, so the raster guard of
+    /// [`Self::ink_under`] does not apply.
     fn place_held(&mut self) {
-        let (Some(kind), Some(node)) = (self.held.take(), self.top()) else {
-            return;
-        };
-        let page = &mut self.out.pages[self.page as usize];
-        let at = ItemRef {
-            page: self.page,
-            index: page.items.len() as u32,
-        };
-        page.items.push(Item { node, kind });
-        self.out.nodes[node].children.push(Child::Item(at));
+        if let (Some(kind), Some(node)) = (self.held.take(), self.top()) {
+            self.add_item(node, kind);
+        }
     }
 
     fn walk(&mut self, frame: &Frame, ts: Transform) {
