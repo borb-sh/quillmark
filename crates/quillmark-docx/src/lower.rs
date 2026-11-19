@@ -2802,11 +2802,7 @@ impl<'a> Lower<'a> {
                         nested: true,
                         left: columns.get(c).copied().unwrap_or(ctx.left) + inset.left,
                         width: grid.iter().skip(c).take(span as usize).sum::<i32>() as f64 / 20.0,
-                        align: None,
-                        page_number: None,
-                        list: None,
-                        hint_list: None,
-                        toc: None,
+                        ..Ctx::default()
                     };
                     self.prev = None;
                     let mut blocks = self.children(m, &inner);
@@ -3018,9 +3014,7 @@ impl<'a> Lower<'a> {
             width,
             align: ctx.align,
             page_number: ctx.page_number,
-            list: None,
-            hint_list: None,
-            toc: None,
+            ..Ctx::default()
         };
         let blocks = match self.kind(n) {
             NodeKind::Place { .. } | NodeKind::Artifact { .. } => self.children(n, &inner),
