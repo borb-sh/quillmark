@@ -1133,3 +1133,56 @@ fn a_break_to_an_odd_or_even_page_starts_a_section_of_that_parity() {
     assert!(!w.xml("word/document.xml").contains("pageBreakBefore"));
     assert_eq!(w.par("Three.").space_before, Some(0));
 }
+
+/// The paragraph before the first one whose text is `text`.
+fn before(w: &word::Word, text: &str) -> word::Par {
+    let body = w.body();
+    let at = body
+        .iter()
+        .position(|p| p.text == text)
+        .unwrap_or_else(|| panic!("{text:?} in {:?}", w.texts()));
+    body[at.checked_sub(1).expect("a paragraph before it")].clone()
+}
+
+#[test]
+fn a_keep_or_a_tables_gap_in_a_list_or_contents_goes_to_the_block_right_before_it() {
+    let w = render(&format!(
+        "{PAGE}Before.\n\n- one\n- #qm.hints.keep-with-next[two]\n- three\n\n  \
+         #table(columns: 1, [T1])\n  #table(columns: 1, [T2])\n- four\n"
+    ));
+    assert!(w.par("two").keep_next);
+    assert!(!w.par("Before.").keep_next);
+    assert_eq!(w.par("Before.").space_after, None);
+    assert!(w.par("three").space_after.is_some(), "the gap above T1");
+    let spacer = before(&w, "T2");
+    assert!(spacer.text.is_empty() && !spacer.in_table, "{spacer:?}");
+    assert!(!w.xml("word/document.xml").contains("</w:tbl><w:tbl>"));
+
+    let w = render(&format!(
+        "{PAGE}#show outline: it => {{ it; table(columns: 1, [T]) }}\n\
+         Before.\n#outline()\n= A\n"
+    ));
+    assert_eq!(w.par("Before.").space_after, None);
+    let spacer = before(&w, "T");
+    assert!(
+        spacer.text.is_empty() && spacer.line.is_some(),
+        "{spacer:?}"
+    );
+}
+
+#[test]
+fn a_keep_opening_a_footnote_cell_or_text_box_keeps_nothing_outside_it() {
+    let keep = "#qm.hints.hint-point(\"keep\")";
+    let w = render(&format!(
+        "{PAGE}First.\n\nSecond.#footnote[{keep}The note.]\n\n\
+         #table(columns: 1, [A], [{keep}Cell text.])\n\n\
+         Third #place(top + right)[{keep}P]\n\nNext.\n"
+    ));
+    let kept: Vec<String> = w
+        .body()
+        .into_iter()
+        .filter(|p| p.keep_next)
+        .map(|p| p.text)
+        .collect();
+    assert!(kept.is_empty(), "{kept:?}");
+}

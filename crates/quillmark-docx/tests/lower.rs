@@ -6,7 +6,7 @@ use quillmark_docx::layout::{
     PageSetup, Rgb, Sides, TextRun,
 };
 use quillmark_docx::lower::lower;
-use quillmark_docx::model::{Block, Inline, RunContent};
+use quillmark_docx::model::{Block, Inline, Paragraph, RunContent, Twips};
 
 fn page() -> Page {
     Page {
@@ -83,7 +83,7 @@ fn paragraph(family: &str, lines: &[(&str, LineEnd)]) -> LayoutDoc {
     doc
 }
 
-fn texts(blocks: &[Block], last: &quillmark_docx::model::Paragraph) -> Vec<String> {
+fn texts(blocks: &[Block], last: &Paragraph) -> Vec<String> {
     blocks
         .iter()
         .filter_map(|b| match b {
@@ -208,4 +208,88 @@ fn text_no_element_tags_is_a_paragraph_per_line_and_reported() {
     );
     let codes: Vec<&str> = notices.iter().map(|n| n.code.as_str()).collect();
     assert_eq!(codes, ["docx::unstructured_text"]);
+}
+
+/// A one-line paragraph of `text` under `parent`, on the first page with its
+/// baseline at `baseline`.
+fn line_under(doc: &mut LayoutDoc, parent: usize, text: &str, baseline: f64) -> usize {
+    let par = push_node(
+        doc,
+        parent,
+        NodeKind::Par {
+            justify: false,
+            first_line: 0.0,
+            hanging: 0.0,
+            style: None,
+            left: None,
+        },
+    );
+    let r = ItemRef {
+        page: 0,
+        index: doc.pages[0].items.len() as u32,
+    };
+    let width = 6.0 * text.len() as f64;
+    doc.pages[0].items.push(Item {
+        node: par,
+        kind: ItemKind::Text(TextRun {
+            origin: [72.0, baseline],
+            text: text.into(),
+            font: 0,
+            size: 12.0,
+            fill: Rgb(0, 0, 0),
+            width,
+            natural: width,
+        }),
+    });
+    doc.nodes[par].children.push(Child::Item(r));
+    doc.nodes[par].lines.push(Line {
+        page: 0,
+        baseline,
+        x0: 72.0,
+        x1: 72.0 + width,
+        items: vec![r],
+        end: LineEnd::Last,
+    });
+    par
+}
+
+fn push_node(doc: &mut LayoutDoc, parent: usize, kind: NodeKind) -> usize {
+    doc.nodes.push(Node::new(Some(parent), kind));
+    let id = doc.nodes.len() - 1;
+    doc.nodes[parent].children.push(Child::Node(id));
+    id
+}
+
+#[test]
+fn a_contents_entry_is_spaced_from_the_entry_before_it_past_what_sits_between() {
+    let mut doc = paragraph("TeX Gyre Termes", &[("Before", LineEnd::Last)]);
+    let toc = push_node(&mut doc, 0, NodeKind::Toc { depth: None });
+    let a = push_node(&mut doc, toc, NodeKind::TocEntry { level: 1 });
+    line_under(&mut doc, a, "Alpha", 130.0);
+    line_under(&mut doc, toc, "Between", 150.0);
+    let b = push_node(&mut doc, toc, NodeKind::TocEntry { level: 1 });
+    line_under(&mut doc, b, "Beta", 170.0);
+    let (word, _) = lower(&doc);
+    let body = &word.sections[0].body;
+    let Some(Block::Toc(contents)) = body.blocks.get(1) else {
+        panic!("contents second: {:?}", body.blocks);
+    };
+    let entries: Vec<String> = contents
+        .entries
+        .iter()
+        .map(|p| texts(&[], p).remove(0))
+        .collect();
+    assert_eq!(entries, ["Alpha", "Beta"]);
+    let before = |p: &Paragraph| p.props.spacing.and_then(|s| s.before);
+    assert_eq!(
+        before(&contents.entries[1]),
+        Some(((170.0 - 130.0 - 14.4) * 20.0f64).round() as Twips),
+        "from Alpha, which Word sets it after"
+    );
+    assert_eq!(texts(&[], &body.last), ["Between"]);
+    assert_eq!(
+        before(&body.last),
+        Some(0),
+        "Word sets it after Beta, which is below it"
+    );
 }
