@@ -7,6 +7,7 @@ use crate::model::{
     LinkTarget, NumRef, Paragraph, Placement, Run, RunContent, RunProps, TabKind, TabLeader,
     TabStop, VertAlign,
 };
+use crate::notice::Code;
 
 use super::sections::is_roman;
 use super::space::Prev;
@@ -283,7 +284,7 @@ impl<'a> Lower<'a> {
             self.inline_shapes(n);
             for place in self.inline_places(n) {
                 let drawings = self.text_box(place, ctx);
-                self.placed += 1;
+                self.tally.count(Code::PlaceAnchored, "", 1);
                 self.pending
                     .extend(drawings.into_iter().map(|d| (first.page, d)));
             }
@@ -296,7 +297,7 @@ impl<'a> Lower<'a> {
                 let counts = self.counters.entry(num).or_insert([0; 9]);
                 let next = counts[l] + 1;
                 if value.is_some_and(|v| v != next) {
-                    self.mismatches += 1;
+                    self.tally.count(Code::LabelMismatch, "", 1);
                 } else {
                     counts[l] = next;
                     for d in counts.iter_mut().skip(l + 1) {
@@ -524,7 +525,7 @@ impl<'a> Lower<'a> {
                             let (a, b) = self.pages.number_in(&t.text, p)?;
                             let found = self.pages.printed(p);
                             if found.is_none() {
-                                self.frozen_numbers += 1;
+                                self.tally.count(Code::PageNumberFrozen, "", 1);
                             }
                             Some((a, b, found?))
                         });
@@ -652,7 +653,7 @@ impl<'a> Lower<'a> {
     pub(super) fn font(&mut self, family: &str, monospace: bool) -> String {
         let name = word_font(family);
         if name == family {
-            self.unmapped.insert(family.to_string());
+            self.tally.count(Code::FontNotEmbedded, family, 1);
         }
         self.fonts.entry(name.clone()).or_insert_with(|| FontDecl {
             name: name.clone(),

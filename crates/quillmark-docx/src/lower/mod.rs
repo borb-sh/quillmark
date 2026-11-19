@@ -28,24 +28,25 @@ use crate::model::{
     RunProps, Section, SectionProps, SectionStart, Settings, Spacing, Style, Toc, Twips, VertAlign,
     Wrap,
 };
+use crate::notice::{Code, Tally};
 
 use lists::Scheme;
 use sections::{Pages, fill_inherited};
 use space::{Prev, SpaceKey, Strides, drop_opening_break};
 use tables::tabbed_hint;
 
-pub const CODE_FONT_NOT_EMBEDDED: &str = "docx::font_not_embedded";
-pub const CODE_PLACE_ANCHORED: &str = "docx::place_anchored";
-pub const CODE_SHAPE_DROPPED: &str = "docx::shape_dropped";
-pub const CODE_INK_DROPPED: &str = "docx::ink_dropped";
-pub const CODE_LABEL_MISMATCH: &str = "docx::label_mismatch";
-pub const CODE_TOC_FROZEN: &str = "docx::toc_frozen";
-pub const CODE_HINT_UNCHECKED: &str = "docx::hint_unchecked";
-pub const CODE_COLUMNS_FLATTENED: &str = "docx::columns_flattened";
-pub const CODE_DIRECTION_DROPPED: &str = "docx::direction_dropped";
-pub const CODE_UNSTRUCTURED_TEXT: &str = "docx::unstructured_text";
-pub const CODE_PAGE_NUMBER_FROZEN: &str = "docx::page_number_frozen";
-pub const CODE_LINK_SCRIPT: &str = "docx::link_script";
+pub const CODE_FONT_NOT_EMBEDDED: &str = Code::FontNotEmbedded.as_str();
+pub const CODE_PLACE_ANCHORED: &str = Code::PlaceAnchored.as_str();
+pub const CODE_SHAPE_DROPPED: &str = Code::ShapeDropped.as_str();
+pub const CODE_INK_DROPPED: &str = Code::InkDropped.as_str();
+pub const CODE_LABEL_MISMATCH: &str = Code::LabelMismatch.as_str();
+pub const CODE_TOC_FROZEN: &str = Code::TocFrozen.as_str();
+pub const CODE_HINT_UNCHECKED: &str = Code::HintMisused.as_str();
+pub const CODE_COLUMNS_FLATTENED: &str = Code::ColumnsFlattened.as_str();
+pub const CODE_DIRECTION_DROPPED: &str = Code::DirectionDropped.as_str();
+pub const CODE_UNSTRUCTURED_TEXT: &str = Code::UnstructuredText.as_str();
+pub const CODE_PAGE_NUMBER_FROZEN: &str = Code::PageNumberFrozen.as_str();
+pub const CODE_LINK_SCRIPT: &str = Code::LinkScript.as_str();
 
 fn tw(pt: f64) -> Twips {
     (pt * 20.0).round() as Twips
@@ -112,7 +113,6 @@ impl<'a> Lower<'a> {
             strides,
             consumed: HashSet::new(),
             fonts: BTreeMap::new(),
-            unmapped: BTreeSet::new(),
             numbering: Default::default(),
             footnotes: Vec::new(),
             notes: HashMap::new(),
@@ -122,13 +122,11 @@ impl<'a> Lower<'a> {
             z: 0,
             break_pending: false,
             prev: None,
-            placed: 0,
             headings: BTreeSet::new(),
             unlisted: BTreeSet::new(),
             builtin: BTreeSet::new(),
             toc_levels: BTreeSet::new(),
             toc_prefixed: false,
-            frozen: 0,
             label_prefix: None,
             prev_bottom: None,
             table_gap: None,
@@ -140,11 +138,7 @@ impl<'a> Lower<'a> {
             roles: BTreeMap::new(),
             alt_names: BTreeMap::new(),
             keep: false,
-            mismatches: 0,
-            untabbed: 0,
-            flattened: 0,
-            unstructured: 0,
-            frozen_numbers: 0,
+            tally: Tally::default(),
             measured: HashMap::new(),
             usual,
         }
@@ -177,7 +171,6 @@ struct Lower<'a> {
     strides: &'a Strides<'a>,
     consumed: HashSet<ItemRef>,
     fonts: BTreeMap<String, FontDecl>,
-    unmapped: BTreeSet<String>,
     numbering: crate::model::Numbering,
     footnotes: Vec<Footnote>,
     notes: HashMap<NodeId, usize>,
@@ -187,7 +180,6 @@ struct Lower<'a> {
     z: u32,
     break_pending: bool,
     prev: Option<Prev>,
-    placed: usize,
     headings: BTreeSet<u8>,
     unlisted: BTreeSet<u8>,
     /// Word's own paragraph styles in use, by id and name.
@@ -196,7 +188,6 @@ struct Lower<'a> {
     /// An entry of the table of contents being lowered prints a page number
     /// that is no plain numeral.
     toc_prefixed: bool,
-    frozen: usize,
     /// A printed list number the next paragraph opens with.
     label_prefix: Option<String>,
     /// Where the last body paragraph's last line box ends.
@@ -219,12 +210,7 @@ struct Lower<'a> {
     alt_names: BTreeMap<String, String>,
     /// A `keep` the paragraph before it has yet to take.
     keep: bool,
-    mismatches: usize,
-    untabbed: usize,
-    /// In-flow column blocks written as one column.
-    flattened: usize,
-    unstructured: usize,
-    frozen_numbers: usize,
+    tally: Tally,
     /// The space above each paragraph that follows a paragraph on its page.
     measured: HashMap<SpaceKey, Vec<f64>>,
     /// The median of `measured`, from a first lowering.
@@ -488,7 +474,7 @@ impl<'a> Lower<'a> {
         let kind = self.kind(n).clone();
         if kind == NodeKind::Unstructured && !self.doc.nodes[n].lines.is_empty() {
             let lines = self.doc.nodes[n].lines.clone();
-            self.unstructured += lines.len();
+            self.tally.count(Code::UnstructuredText, "", lines.len());
             return lines
                 .into_iter()
                 .filter_map(|line| {
@@ -521,7 +507,7 @@ impl<'a> Lower<'a> {
                 match self.tabbed(n, ctx) {
                     Some(blocks) => blocks,
                     None => {
-                        self.untabbed += 1;
+                        self.tally.count(Code::GridUntabbed, "", 1);
                         vec![Block::Table(self.table(n, ctx))]
                     }
                 }
@@ -556,14 +542,14 @@ impl<'a> Lower<'a> {
                 self.children(n, &ctx)
             }
             NodeKind::Columns { count, .. } if count > 1 => {
-                self.flattened += 1;
+                self.tally.count(Code::ColumnsFlattened, "", 1);
                 self.children(n, ctx)
             }
             NodeKind::Artifact {
                 kind: ArtifactKind::Other,
             } if self.doc.nodes[n].parent == Some(0) => {
                 let drawings = self.text_box(n, ctx);
-                self.placed += drawings.len();
+                self.tally.count(Code::PlaceAnchored, "", drawings.len());
                 let page = self.first_page(n).unwrap_or_default();
                 self.pending.extend(drawings.into_iter().map(|d| (page, d)));
                 Vec::new()
@@ -584,7 +570,7 @@ impl<'a> Lower<'a> {
                         a.wrap = Wrap::TopAndBottom;
                     }
                 } else {
-                    self.placed += 1;
+                    self.tally.count(Code::PlaceAnchored, "", 1);
                 }
                 let page = self.first_page(n).unwrap_or_default();
                 self.pending.extend(drawings.into_iter().map(|d| (page, d)));
@@ -644,7 +630,7 @@ impl<'a> Lower<'a> {
             return before;
         }
         let locked = self.toc_prefixed;
-        self.frozen += locked as usize;
+        self.tally.count(Code::TocFrozen, "", locked as usize);
         before.push(Block::Toc(Toc {
             instruction: format!(
                 "TOC \\o \"1-{}\" \\h \\z \\u",

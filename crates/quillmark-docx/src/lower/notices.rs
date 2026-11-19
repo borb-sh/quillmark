@@ -4,139 +4,22 @@ use crate::layout::{BracketHint, ItemKind, ItemRef, LayoutDoc, NodeId, NodeKind,
 
 use super::tables::tabbed_hint;
 
+use super::Lower;
 use super::paragraph::runs_script;
-use super::{
-    CODE_COLUMNS_FLATTENED, CODE_DIRECTION_DROPPED, CODE_FONT_NOT_EMBEDDED, CODE_HINT_UNCHECKED,
-    CODE_INK_DROPPED, CODE_LABEL_MISMATCH, CODE_LINK_SCRIPT, CODE_PAGE_NUMBER_FROZEN,
-    CODE_PLACE_ANCHORED, CODE_SHAPE_DROPPED, CODE_TOC_FROZEN, CODE_UNSTRUCTURED_TEXT, Lower,
-};
+use crate::notice::Code;
 
 impl<'a> Lower<'a> {
-    pub(super) fn notices(&self) -> Vec<Notice> {
-        let mut out = Vec::new();
-        if self.frozen > 0 {
-            out.push(Notice {
-                code: CODE_TOC_FROZEN.into(),
-                message: format!(
-                    "{} table(s) of contents print page numbers Word's PAGE field cannot, so \
-                     they are locked against an update",
-                    self.frozen
-                ),
-            });
-        }
-        if self.mismatches > 0 {
-            out.push(Notice {
-                code: CODE_LABEL_MISMATCH.into(),
-                message: format!(
-                    "{} paragraph number(s) are not the number Word would count, so they stay as \
-                     printed text",
-                    self.mismatches
-                ),
-            });
-        }
-        if self.frozen_numbers > 0 {
-            out.push(Notice {
-                code: CODE_PAGE_NUMBER_FROZEN.into(),
-                message: format!(
-                    "{} printed page number(s) are not literal text around a number Word can \
-                     count, so they stay as printed text",
-                    self.frozen_numbers
-                ),
-            });
-        }
-        let scripts = script_links(self.doc);
-        if scripts > 0 {
-            out.push(Notice {
-                code: CODE_LINK_SCRIPT.into(),
-                message: format!("{scripts} link(s) that run script are carried as plain text"),
-            });
-        }
-        if self.unstructured > 0 {
-            out.push(Notice {
-                code: CODE_UNSTRUCTURED_TEXT.into(),
-                message: format!(
-                    "{} line(s) of text that no element tags are set as a paragraph each, as \
-                     printed",
-                    self.unstructured
-                ),
-            });
-        }
-        if self.untabbed > 0 {
-            out.push(Notice {
-                code: CODE_HINT_UNCHECKED.into(),
-                message: format!(
-                    "{} grid(s) marked as tabbed lines wrap a cell before the last or hold a \
-                     table, so they stay tables",
-                    self.untabbed
-                ),
-            });
-        }
-        if self.flattened > 0 {
-            out.push(Notice {
-                code: CODE_COLUMNS_FLATTENED.into(),
-                message: format!(
-                    "{} block(s) set in columns within the flow are written as one column",
-                    self.flattened
-                ),
-            });
-        }
-        let rtl = right_to_left(self.doc);
-        if rtl > 0 {
-            out.push(Notice {
-                code: CODE_DIRECTION_DROPPED.into(),
-                message: format!(
-                    "{rtl} paragraph(s) hold right-to-left text, which the Word file sets with \
-                     no text direction"
-                ),
-            });
-        }
-        let misused = misused_hints(self.doc);
-        if misused > 0 {
-            out.push(Notice {
-                code: CODE_HINT_UNCHECKED.into(),
-                message: format!(
-                    "{misused} hint(s) mark what they cannot apply to: a label outside any list, \
-                     a layout around no grid, or chrome around no place, so the export ignores \
-                     them"
-                ),
-            });
-        }
-        for family in &self.unmapped {
-            out.push(Notice {
-                code: CODE_FONT_NOT_EMBEDDED.into(),
-                message: format!(
-                    "the Word file names the font {family} without embedding it, so Word \
-                     substitutes another where it is not installed"
-                ),
-            });
-        }
-        if self.placed > 0 {
-            out.push(Notice {
-                code: CODE_PLACE_ANCHORED.into(),
-                message: format!(
-                    "{} placed object(s) are anchored to the page beside the paragraph that \
-                     follows them, so they do not move with the text",
-                    self.placed
-                ),
-            });
-        }
-        let (shapes, ink) = dropped(self.doc, &self.consumed);
-        if shapes > 0 {
-            out.push(Notice {
-                code: CODE_SHAPE_DROPPED.into(),
-                message: format!(
-                    "{shapes} drawn line(s) or box(es) that no table or decoration explains \
-                     are left out of the Word file"
-                ),
-            });
-        }
-        if ink > 0 {
-            out.push(Notice {
-                code: CODE_INK_DROPPED.into(),
-                message: format!("{ink} piece(s) of text or image are left out of the Word file"),
-            });
-        }
-        out
+    /// What this lowering found, then what the tree as a whole shows.
+    pub(super) fn notices(&mut self) -> Vec<Notice> {
+        let doc = self.doc;
+        let (shapes, ink) = dropped(doc, &self.consumed);
+        let t = &mut self.tally;
+        t.count(Code::LinkScript, "", script_links(doc));
+        t.count(Code::DirectionDropped, "", right_to_left(doc));
+        t.count(Code::HintMisused, "", misused_hints(doc));
+        t.count(Code::ShapeDropped, "", shapes);
+        t.count(Code::InkDropped, "", ink);
+        t.notices()
     }
 }
 

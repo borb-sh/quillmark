@@ -643,7 +643,10 @@ pub mod testing {
         world.set_today(today);
         world.inject_helper_package(json_data, &meta)?;
         let probed_world = world.probed().ok_or_else(|| {
-            RenderError::coded("docx::probes_disabled", "the probes did not evaluate")
+            RenderError::coded(
+                quillmark_docx::notice::Code::ProbesDisabled.as_str(),
+                "the probes did not evaluate",
+            )
         })?;
         let (plain, plain_warnings) = compile::compile_document(&world)?;
         let (probed, probed_warnings) = compile::compile_document(&probed_world)?;

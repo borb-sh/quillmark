@@ -17,9 +17,10 @@ use std::collections::HashMap;
 use quillmark_docx::layout::{
     ArtifactKind, BracketHint, Child, DocInfo, FontFace, FontId, Geometry, HAlign, HintLevel,
     ImageData, ImageFormat, ImageId, Item, ItemKind, ItemRef, LayoutDoc, Line, LineEnd, Marker,
-    Node, NodeId, NodeKind, Notice, NumberFormat, Page, PageSetup, ParStyle, Parity, PointHint,
-    Rect, Rgb, Shape, Sides, TextRun, VAlign,
+    Node, NodeId, NodeKind, NumberFormat, Page, PageSetup, ParStyle, Parity, PointHint, Rect, Rgb,
+    Shape, Sides, TextRun, VAlign,
 };
+use quillmark_docx::notice::{Code, Tally};
 use typst::World;
 use typst::foundations::{Content, Dict, Packed, Smart, StyleChain, Value};
 use typst::introspection::{Location, Tag};
@@ -43,14 +44,6 @@ use typst_layout::{PagedDocument, PagedIntrospector};
 
 use crate::tags::{marker, relocated};
 
-pub(crate) const CODE_MARGINS_ASSUMED: &str = "docx::margins_assumed";
-pub(crate) const CODE_RASTERIZED: &str = "docx::rasterized";
-pub(crate) const CODE_PICTURE_FAILED: &str = "docx::picture_failed";
-pub(crate) const CODE_LINK_INTERNAL: &str = "docx::link_internal";
-pub(crate) const CODE_EQUATION_TEXT: &str = "docx::equation_text";
-pub(crate) const CODE_HINT_UNKNOWN: &str = "docx::hint_unknown";
-pub(crate) const CODE_HINT_UNCLOSED: &str = "docx::hint_unclosed";
-pub(crate) const CODE_LIST_MARKER_REPLACED: &str = "docx::list_marker_replaced";
 const HINT: &str = "__qm_hint__";
 
 /// Typst's text size where nothing sets one.
@@ -109,7 +102,6 @@ struct Reader<'a> {
     page: u32,
     probe: Option<Dict>,
     number_text: Option<String>,
-    rasters: usize,
     /// A par or block node's text edges, resolved against the face of its
     /// first text.
     edges: HashMap<NodeId, (Value, Value)>,
@@ -124,18 +116,11 @@ struct Reader<'a> {
     /// The text size the page probe records for the page being read, which
     /// it paints last.
     page_text: f64,
-    /// Groups that needed a picture and got none, whose ink is read as laid
-    /// out.
-    unpictured: usize,
-    /// Links to a place in the document, whose text is kept without the link.
-    internal_links: usize,
     /// The equations carried as pictures whose end tag is still to come.
     equations: Vec<Location>,
-    /// Equations whose ink is read as text, since their end tag lies in
-    /// another frame.
-    equation_texts: usize,
     /// A display equation's picture, until the block that shows it opens.
     held: Option<ItemKind>,
+    tally: Tally,
 }
 
 /// The Layout IR of `document`, compiled from `world`'s sources.
@@ -163,19 +148,15 @@ pub(crate) fn read(
         page: 0,
         probe: None,
         number_text: None,
-        rasters: 0,
         edges: HashMap::new(),
         sizings: HashMap::new(),
         in_raster: 0,
         toc_led: None,
         page_text: DEFAULT_TEXT_SIZE,
-        unpictured: 0,
-        internal_links: 0,
         equations: Vec::new(),
-        equation_texts: 0,
         held: None,
+        tally: Tally::default(),
     };
-    let mut assumed = 0;
     for (i, page) in document.pages().iter().enumerate() {
         r.page = i as u32;
         r.probe = None;
@@ -194,55 +175,13 @@ pub(crate) fn read(
         r.walk(&page.frame, Transform::identity());
         let setup = r.probe.as_ref().and_then(|d| page_setup(d, size));
         if setup.is_none() {
-            assumed += 1;
+            r.tally.count(Code::MarginsAssumed, "", 1);
         }
         let p = &mut r.out.pages[i];
         p.setup = setup.unwrap_or(ASSUMED_SETUP);
         p.number_text = r.number_text.take();
     }
-    if assumed > 0 {
-        r.notice(
-            CODE_MARGINS_ASSUMED,
-            format!("{assumed} page(s) carry no page probe, so their margins are taken as 1 in"),
-        );
-    }
-    if r.rasters > 0 {
-        let n = r.rasters;
-        r.notice(
-            CODE_RASTERIZED,
-            format!(
-                "{n} equation(s), curve(s), gradient(s), vector image(s), or rotated, mirrored or \
-                 clipped group(s) are carried as pictures"
-            ),
-        );
-    }
-    if r.unpictured > 0 {
-        let n = r.unpictured;
-        r.notice(
-            CODE_PICTURE_FAILED,
-            format!(
-                "{n} rotated, clipped or drawn group(s) on the page could not be carried as \
-                 pictures, so their ink is read as it is laid out, unrotated and unclipped"
-            ),
-        );
-    }
-    if r.equation_texts > 0 {
-        let n = r.equation_texts;
-        r.notice(
-            CODE_EQUATION_TEXT,
-            format!(
-                "{n} equation(s) that wrap across lines or frames are carried as their glyphs' \
-                 text, not as pictures"
-            ),
-        );
-    }
-    if r.internal_links > 0 {
-        let n = r.internal_links;
-        r.notice(
-            CODE_LINK_INTERNAL,
-            format!("{n} link(s) to a place in the document are carried as plain text"),
-        );
-    }
+    r.out.notices = r.tally.notices();
     let mut out = r.out;
     let origins = r.origins;
     let sizings = std::mem::take(&mut r.sizings);
@@ -255,13 +194,6 @@ pub(crate) fn read(
 }
 
 impl Reader<'_> {
-    fn notice(&mut self, code: &str, message: String) {
-        self.out.notices.push(Notice {
-            code: code.to_string(),
-            message,
-        });
-    }
-
     fn top(&self) -> Option<NodeId> {
         match self.stack.last() {
             Some(o) => o.node,
@@ -296,12 +228,8 @@ impl Reader<'_> {
                 .iter()
                 .filter(|o| matches!(o.key, Key::Bracket(k) if QUILL_BRACKETS.contains(&k)))
                 .count();
-            for _ in 0..open {
-                self.notice(
-                    CODE_HINT_UNCLOSED,
-                    "a hint bracket is still open where its element ends, so it closes there"
-                        .into(),
-                );
+            if open > 0 {
+                self.tally.raise(Code::HintUnclosed, "");
             }
             self.stack.truncate(i);
         }
@@ -436,7 +364,7 @@ impl Reader<'_> {
             return Some(None);
         };
         let image = self.image(ImageFormat::Png, &png);
-        self.rasters += 1;
+        self.tally.count(Code::Rasterized, "", 1);
         Some(Some(ItemKind::Raster { image, rect, alt }))
     }
 
@@ -460,7 +388,7 @@ impl Reader<'_> {
             .iter()
             .position(|(_, item)| matches!(item, FrameItem::Tag(Tag::End(l, ..)) if *l == loc));
         let Some(end) = end else {
-            self.equation_texts += 1;
+            self.tally.count(Code::EquationText, "", 1);
             return;
         };
         let mut inner = Frame::soft(Size::zero());
@@ -494,7 +422,7 @@ impl Reader<'_> {
                 self.in_raster += 1;
                 self.equations.push(loc);
             }
-            Some(None) => self.unpictured += 1,
+            Some(None) => self.tally.count(Code::PictureFailed, "", 1),
             None => {}
         }
     }
@@ -517,7 +445,7 @@ impl Reader<'_> {
                         && needs_raster(group, ts)
                         && match self.raster(item, *pos, ts) {
                             Some(false) => {
-                                self.unpictured += 1;
+                                self.tally.count(Code::PictureFailed, "", 1);
                                 false
                             }
                             _ => true,
@@ -829,7 +757,7 @@ impl Reader<'_> {
             && !self.hidden()
             && self.toc_entry().is_none()
         {
-            self.internal_links += 1;
+            self.tally.count(Code::LinkInternal, "", 1);
         }
         if elem.is::<RawLine>() {
             let in_raw = self
@@ -963,10 +891,7 @@ impl Reader<'_> {
                 _ => Default::default(),
             };
             let glyph = if glyph.trim().is_empty() {
-                self.notice(
-                    CODE_LIST_MARKER_REPLACED,
-                    "a list's marker is not text, so its items carry a bullet".into(),
-                );
+                self.tally.raise(Code::BulletReplaced, "");
                 "\u{2022}".to_string()
             } else {
                 glyph.trim().to_string()
@@ -1015,12 +940,7 @@ impl Reader<'_> {
             _ => Marker::Printed,
         };
         if marker == Marker::Printed {
-            self.notice(
-                CODE_LIST_MARKER_REPLACED,
-                "a numbered list's numbering is not a pattern Word can count, so its numbers \
-                 are kept as printed"
-                    .into(),
-            );
+            self.tally.raise(Code::NumbersPrinted, "");
         }
         Some(NodeKind::List {
             marker,
@@ -1206,13 +1126,7 @@ impl Reader<'_> {
                     None => self.push(key, None, false),
                 }
             }
-            _ => self.notice(
-                CODE_HINT_UNKNOWN,
-                format!(
-                    "the hint {:?} is not one the Word export knows, so it is ignored",
-                    hint.as_str()
-                ),
-            ),
+            _ => self.tally.raise(Code::HintUnknown, hint.as_str()),
         }
     }
 }
