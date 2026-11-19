@@ -737,6 +737,19 @@ fn a_content_sized_column_is_as_wide_as_its_unkerned_text() {
 }
 
 #[test]
+fn a_content_sized_column_with_room_past_its_text_keeps_its_width() {
+    let w = word::render_hosted(&format!(
+        "{PAGE}#set text(font: \"TeX Gyre Termes\", size: 12pt)\n\
+         #grid(columns: 2, column-gutter: 1fr, [123 OG/CC], [])\n"
+    ));
+    let grid = grid_of(&w.xml("word/document.xml"), "123 OG/CC");
+    assert_eq!(
+        grid[0], 4800,
+        "the column and the gutter it holds: {grid:?}"
+    );
+}
+
+#[test]
 fn a_tabbed_label_has_room_for_its_unkerned_text() {
     let plate = "#set page(width: 612pt, height: 792pt, margin: 72pt)\n\
          #set text(font: \"TeX Gyre Termes\", size: 12pt)\n\

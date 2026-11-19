@@ -1813,9 +1813,11 @@ impl Lower<'_> {
     }
 
     /// How many twips wider than Typst's kerned ink each content-sized
-    /// column of table `n` is in the face's own advances, as Word sets it,
-    /// with a twip for each character after the first, which covers a
-    /// layout that rounds each advance up to a whole twip.
+    /// column of table `n` must be for its widest line in the face's own
+    /// advances, as Word sets it, with a twip for each character after the
+    /// first, which covers a layout that rounds each advance up to a whole
+    /// twip. Room the column already has past a line, such as a gutter it
+    /// took in, counts against it.
     fn slack(&self, n: NodeId) -> Vec<Twips> {
         let NodeKind::Table {
             columns,
@@ -1827,7 +1829,13 @@ impl Lower<'_> {
         };
         let mut out = vec![0.0f64; columns.len().saturating_sub(1)];
         for m in self.doc.subtree(n) {
-            let NodeKind::Cell { col, colspan, .. } = *self.kind(m) else {
+            let NodeKind::Cell {
+                col,
+                colspan,
+                inset,
+                ..
+            } = *self.kind(m)
+            else {
                 continue;
             };
             let col = col as usize;
@@ -1856,7 +1864,9 @@ impl Lower<'_> {
                             _ => None,
                         })
                         .fold((0.0, 0), |(e, g), (de, dg)| (e + de, g + dg));
-                    out[col] = out[col].max(extra + glyphs.saturating_sub(1) as f64 / 20.0);
+                    let spare = (columns[col + 1] - inset.right - line.x1).max(0.0);
+                    let need = extra + glyphs.saturating_sub(1) as f64 / 20.0 - spare;
+                    out[col] = out[col].max(need);
                 }
             }
         }
