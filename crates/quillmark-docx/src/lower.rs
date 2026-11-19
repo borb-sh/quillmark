@@ -11,8 +11,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::layout::{
     ArtifactKind, BracketHint, Child, Geometry, HAlign, HintLevel, ImageFormat, ItemKind, ItemRef,
-    LayoutDoc, LineEnd, Marker, NodeId, NodeKind, Notice, NumberFormat, Page, ParStyle, PointHint,
-    Rect, Rgb, VAlign,
+    LayoutDoc, LineEnd, Marker, NodeId, NodeKind, Notice, NumberFormat, Page, ParStyle, Parity,
+    PointHint, Rect, Rgb, VAlign,
 };
 use crate::model::{
     AbstractNum, Align, Anchor, Block, Blocks, Border, Borders, BreakKind, Cell, CellMargins,
@@ -57,6 +57,25 @@ const CLOSING: Twips = 20;
 
 fn tw(pt: f64) -> Twips {
     (pt * 20.0).round() as Twips
+}
+
+/// Clears the page break before the first paragraph `blocks` set, in a
+/// table's first cell when they open with a table, and whether they open
+/// with anything.
+fn drop_opening_break(blocks: &mut [Block]) -> bool {
+    match blocks.first_mut() {
+        Some(Block::Paragraph(p)) => p.props.page_break_before = false,
+        Some(Block::Table(t)) => {
+            if let Some(cell) = t.rows.first_mut().and_then(|r| r.cells.first_mut())
+                && !drop_opening_break(&mut cell.body.blocks)
+            {
+                cell.body.last.props.page_break_before = false;
+            }
+        }
+        Some(Block::Toc(_)) => {}
+        None => return false,
+    }
+    true
 }
 
 /// Gives each reference of `refs` that an earlier section made (`had`, for
@@ -444,6 +463,11 @@ impl Lower<'_> {
                 ..Ctx::default()
             };
             self.flush_pending(None, &mut bodies[s], &ctx);
+        }
+        for (body, start) in bodies.iter_mut().zip(&starts) {
+            if matches!(start, SectionStart::OddPage | SectionStart::EvenPage) {
+                drop_opening_break(body);
+            }
         }
         let roles = self.role_styles(&mut bodies);
         self.extra_styles.extend(roles);
@@ -3233,10 +3257,10 @@ impl Lower<'_> {
         )
     }
 
-    /// How section `s` of `groups` starts: on the same page when only its
-    /// chrome or numbering changes and Typst broke the page where it was
-    /// full, else on a new page. A page Typst broke to carries a break
-    /// mark before its first text outside chrome.
+    /// How section `s` of `groups` starts: on the next odd or even page
+    /// when Typst broke to one, on the same page when only its chrome or
+    /// numbering changes and Typst broke the page where it was full, else
+    /// on a new page.
     fn section_start(&self, groups: &[Vec<usize>], s: usize) -> SectionStart {
         let (Some(&first), Some(&before)) = (
             groups[s].first(),
@@ -3244,30 +3268,39 @@ impl Lower<'_> {
         ) else {
             return SectionStart::NextPage;
         };
+        match self.opening_break(first) {
+            Some(Some(Parity::Odd)) => SectionStart::OddPage,
+            Some(Some(Parity::Even)) => SectionStart::EvenPage,
+            Some(None) => SectionStart::NextPage,
+            None if self.setup_key(first) != self.setup_key(before) => SectionStart::NextPage,
+            None => SectionStart::Continuous,
+        }
+    }
+
+    /// The parity a page Typst broke to was asked for, when it was broken
+    /// to: such a page carries a break mark before its first text outside
+    /// chrome.
+    fn opening_break(&self, page: usize) -> Option<Option<Parity>> {
         let chrome = |n: NodeId| {
             self.doc
                 .ancestor(n, |k| matches!(k, NodeKind::Artifact { .. }))
                 .is_some()
         };
-        let forced = self.doc.pages[first]
+        self.doc.pages[page]
             .items
             .iter()
             .find_map(|i| match i.kind {
-                ItemKind::Mark(PointHint::Break { .. }) => Some(true),
-                ItemKind::Text(_) if !chrome(i.node) => Some(false),
+                ItemKind::Mark(PointHint::Break { to, .. }) => Some(Some(to)),
+                ItemKind::Text(_) if !chrome(i.node) => Some(None),
                 _ => None,
             })
-            .unwrap_or(false);
-        if forced || self.setup_key(first) != self.setup_key(before) {
-            SectionStart::NextPage
-        } else {
-            SectionStart::Continuous
-        }
+            .flatten()
     }
 
     /// Runs of consecutive pages one Word section holds: one page setup, one
-    /// way of printing the page number, a count that runs on, and chrome
-    /// that is the same on every page but the first.
+    /// way of printing the page number, a count that runs on, chrome that
+    /// is the same on every page but the first, and no break to an odd or
+    /// even page after the first.
     fn section_pages(&self) -> Vec<Vec<usize>> {
         let doc = self.doc;
         let setup = |i: usize| self.setup_key(i);
@@ -3288,7 +3321,8 @@ impl Lower<'_> {
                     if setup(g[0]) == setup(i)
                         && numbering(g[0]) == numbering(i)
                         && doc.pages[i].number == doc.pages[i - 1].number + 1
-                        && g.get(1).is_none_or(|&d| chrome(d) == chrome(i)) =>
+                        && g.get(1).is_none_or(|&d| chrome(d) == chrome(i))
+                        && !matches!(self.opening_break(i), Some(Some(_))) =>
                 {
                     g.push(i)
                 }

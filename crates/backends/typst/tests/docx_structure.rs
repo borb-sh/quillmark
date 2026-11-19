@@ -1072,3 +1072,22 @@ fn right_to_left_text_is_reported() {
         !word::render_hosted(&format!("{PAGE}Left to right.\n")).has("docx::direction_dropped")
     );
 }
+
+#[test]
+fn a_break_to_an_odd_or_even_page_starts_a_section_of_that_parity() {
+    let w = render(&format!(
+        "{PAGE}One.\n#pagebreak(to: \"odd\")\nThree.\n#pagebreak(to: \"even\")\n\
+         #table(columns: 2)[A][B]\n"
+    ));
+    let starts: Vec<Option<String>> = w.sections().into_iter().map(|s| s.start).collect();
+    assert_eq!(
+        starts,
+        [
+            Some("nextPage".to_string()),
+            Some("oddPage".to_string()),
+            Some("evenPage".to_string())
+        ]
+    );
+    assert!(!w.xml("word/document.xml").contains("pageBreakBefore"));
+    assert_eq!(w.par("Three.").space_before, Some(0));
+}
