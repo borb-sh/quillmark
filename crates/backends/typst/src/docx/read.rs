@@ -77,7 +77,48 @@ fn page_probe(frame: &Frame) -> Option<Dict> {
 #[derive(Clone, Copy, PartialEq)]
 enum Key {
     Elem(Location),
-    Bracket(&'static str),
+    Bracket(Bracket),
+}
+
+/// A bracket a hint or probe opens and closes by name.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Bracket {
+    List,
+    Label,
+    Role,
+    Layout,
+    Chrome,
+    Repeat,
+    Block,
+    Align,
+    Columns,
+    Box,
+}
+
+impl Bracket {
+    fn named(name: &str) -> Option<Bracket> {
+        Some(match name {
+            "list" => Bracket::List,
+            "label" => Bracket::Label,
+            "role" => Bracket::Role,
+            "layout" => Bracket::Layout,
+            "chrome" => Bracket::Chrome,
+            "repeat" => Bracket::Repeat,
+            "block" => Bracket::Block,
+            "align" => Bracket::Align,
+            "columns" => Bracket::Columns,
+            "box" => Bracket::Box,
+            _ => return None,
+        })
+    }
+
+    /// A quill's own hint, which closes only under the element it opened in.
+    fn quill(self) -> bool {
+        matches!(
+            self,
+            Bracket::List | Bracket::Label | Bracket::Role | Bracket::Layout | Bracket::Chrome
+        )
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -249,7 +290,7 @@ impl Reader<'_> {
         if let Some(i) = self.stack.iter().rposition(|o| o.key == key) {
             let open = self.stack[i + 1..]
                 .iter()
-                .filter(|o| matches!(o.key, Key::Bracket(k) if QUILL_BRACKETS.contains(&k)))
+                .filter(|o| matches!(o.key, Key::Bracket(k) if k.quill()))
                 .count();
             if open > 0 {
                 self.tally.raise(Code::HintUnclosed, "");
@@ -260,7 +301,7 @@ impl Reader<'_> {
 
     /// Closes the quill bracket `kind` opened under the innermost open
     /// element; a close with no such open is dropped.
-    fn close_hint(&mut self, kind: &'static str) {
+    fn close_hint(&mut self, kind: Bracket) {
         for i in (0..self.stack.len()).rev() {
             match self.stack[i].key {
                 Key::Bracket(k) if k == kind => {
@@ -775,7 +816,7 @@ impl Reader<'_> {
         }
         let label = match self.stack.last() {
             Some(Open {
-                key: Key::Bracket("label"),
+                key: Key::Bracket(Bracket::Label),
                 node: Some(n),
                 ..
             }) if matches!(kind, NodeKind::Par { .. })
@@ -970,11 +1011,7 @@ impl Reader<'_> {
                 }
             }
             "list" | "label" | "role" | "layout" | "chrome" => {
-                let kind = QUILL_BRACKETS
-                    .iter()
-                    .copied()
-                    .find(|k| *k == hint.as_str())
-                    .expect("a quill bracket");
+                let kind = Bracket::named(hint.as_str()).expect("a quill bracket");
                 if close {
                     self.close_hint(kind);
                     return;
@@ -985,7 +1022,7 @@ impl Reader<'_> {
                     _ => None,
                 };
                 let bracket = match kind {
-                    "list" => BracketHint::List {
+                    Bracket::List => BracketHint::List {
                         name: text(get("name")).unwrap_or_else(|| "List".into()),
                         levels: match get("levels") {
                             Value::Array(a) => {
@@ -994,7 +1031,7 @@ impl Reader<'_> {
                             _ => Vec::new(),
                         },
                     },
-                    "label" => BracketHint::Label {
+                    Bracket::Label => BracketHint::Label {
                         level: match get("level") {
                             Value::Int(n) => n.clamp(1, 9) as u8,
                             _ => 1,
@@ -1004,11 +1041,11 @@ impl Reader<'_> {
                             _ => None,
                         },
                     },
-                    "role" => BracketHint::Role {
+                    Bracket::Role => BracketHint::Role {
                         name: text(get("name")).unwrap_or_default(),
                         next: text(get("next")),
                     },
-                    "layout" => BracketHint::Tabbed,
+                    Bracket::Layout => BracketHint::Tabbed,
                     _ => BracketHint::Chrome,
                 };
                 match self.top() {
@@ -1057,7 +1094,7 @@ impl Reader<'_> {
             "repeat" => {
                 let entry = self.toc_entry();
                 if close {
-                    self.close(Key::Bracket("repeat"));
+                    self.close(Key::Bracket(Bracket::Repeat));
                     self.toc_led = entry.map(|e| (e, None));
                     return;
                 }
@@ -1065,15 +1102,10 @@ impl Reader<'_> {
                     (Some(_), Some(_)) => Some(self.add_node(NodeKind::TocFill)),
                     _ => None,
                 };
-                self.push(Key::Bracket("repeat"), node, false);
+                self.push(Key::Bracket(Bracket::Repeat), node, false);
             }
             "block" | "align" | "columns" | "box" => {
-                let key = Key::Bracket(match hint.as_str() {
-                    "block" => "block",
-                    "align" => "align",
-                    "columns" => "columns",
-                    _ => "box",
-                });
+                let key = Key::Bracket(Bracket::named(hint.as_str()).expect("a probe bracket"));
                 if close {
                     self.close(key);
                     return;
@@ -1126,7 +1158,6 @@ impl Reader<'_> {
 }
 
 /// The brackets a quill emits, as against the probes'.
-const QUILL_BRACKETS: [&str; 5] = ["list", "label", "role", "layout", "chrome"];
 
 /// One level of a `list` hint; an `em` indent resolves at `size`.
 fn hint_level(v: &Value, size: f64) -> Option<HintLevel> {
