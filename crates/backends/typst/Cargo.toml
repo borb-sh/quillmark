@@ -40,6 +40,8 @@ proptest = { workspace = true }
 lopdf = { workspace = true }
 # SVG output is checked with a strict XML parser.
 roxmltree = { workspace = true }
+# DOCX output is read back part by part.
+miniz_oxide = { workspace = true }
 quillmark-fixtures = { workspace = true }
 # Path-only: `quillmark` depends on this crate, so a versioned dev-dep here is
 # an unpublishable cycle; cargo strips path-only dev-deps at packaging. Tests

@@ -193,6 +193,16 @@ fn style_id(name: &str) -> String {
     if id.is_empty() { "Role".into() } else { id }
 }
 
+/// A child a paragraph's lines read into: an inline element, or a bracket
+/// the reader found the paragraph reads through.
+fn read_into(k: &NodeKind) -> bool {
+    k.is_inline()
+        || matches!(
+            k,
+            NodeKind::Block { .. } | NodeKind::Align { .. } | NodeKind::Hint(_)
+        )
+}
+
 type StrideKey = (usize, i64, i64);
 
 /// The style a paragraph-forming node's probes resolved: its own, else its
@@ -1000,7 +1010,11 @@ impl Lower<'_> {
             }
         }
         let justify = matches!(kind, NodeKind::Par { justify: true, .. });
-        let align = ctx.align.or(style.map(|s| s.align)).unwrap_or_default();
+        let align = self
+            .read_align(n)
+            .or(ctx.align)
+            .or(style.map(|s| s.align))
+            .unwrap_or_default();
         props.align = match (align, justify) {
             (HAlign::Center, _) => Some(Align::Center),
             (HAlign::End, _) => Some(Align::End),
@@ -1504,12 +1518,32 @@ impl Lower<'_> {
             if let Child::Node(m) = c {
                 match self.kind(*m) {
                     NodeKind::Place { .. } => out.push(*m),
-                    k if k.is_inline() => out.extend(self.inline_places(*m)),
+                    k if read_into(k) => out.extend(self.inline_places(*m)),
                     _ => {}
                 }
             }
         }
         out
+    }
+
+    /// The alignment of the Align bracket a paragraph reads all its content
+    /// through.
+    fn read_align(&self, n: NodeId) -> Option<HAlign> {
+        let mut at = n;
+        loop {
+            let mut nodes = self.doc.nodes[at].children.iter().filter(|c| match c {
+                Child::Node(_) => true,
+                Child::Item(r) => matches!(self.doc.item(*r).kind, ItemKind::Text(_)),
+            });
+            let (Some(Child::Node(m)), None) = (nodes.next(), nodes.next()) else {
+                return None;
+            };
+            match self.kind(*m) {
+                NodeKind::Align { h } => return Some(*h),
+                NodeKind::Block { .. } | NodeKind::Hint(_) => at = *m,
+                _ => return None,
+            }
+        }
     }
 
     /// The runs of `n`'s lines, joined into running text.
@@ -2242,7 +2276,7 @@ impl Lower<'_> {
                 Child::Item(r) if matches!(self.doc.item(r).kind, ItemKind::Shape(_)) => {
                     self.loose_item(r, &Ctx::default());
                 }
-                Child::Node(m) if self.kind(m).is_inline() => self.inline_shapes(m),
+                Child::Node(m) if read_into(self.kind(m)) => self.inline_shapes(m),
                 _ => {}
             }
         }

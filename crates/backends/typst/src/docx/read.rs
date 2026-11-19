@@ -1332,16 +1332,63 @@ fn page_setup(d: &Dict, size: [f64; 2]) -> Option<PageSetup> {
     })
 }
 
-/// A Block bracket around inline content only, which a paragraph reads
-/// through.
+/// A bracket around inline content only, which a paragraph reads through:
+/// a quill hint anywhere, and a Block or Align only as the one bracket of
+/// that kind inside an element that already forms a paragraph, since
+/// elsewhere each block starts a paragraph of its own.
 fn transparent(doc: &LayoutDoc, id: NodeId) -> bool {
-    matches!(
-        doc.nodes[id].kind,
-        NodeKind::Block { .. } | NodeKind::Align { .. } | NodeKind::Hint(_)
-    ) && doc.nodes[id].children.iter().all(|c| match c {
-        Child::Item(r) => inline_item(doc, *r),
-        Child::Node(n) => inline_node(doc, *n),
-    })
+    let reads_through = match doc.nodes[id].kind {
+        NodeKind::Hint(_) => true,
+        NodeKind::Block { .. } | NodeKind::Align { .. } => {
+            in_paragraph(doc, id) && only_bracket(doc, id)
+        }
+        _ => false,
+    };
+    reads_through
+        && doc.nodes[id].children.iter().all(|c| match c {
+            Child::Item(r) => inline_item(doc, *r),
+            Child::Node(n) => inline_node(doc, *n),
+        })
+}
+
+/// Whether the nearest element above `id`, past brackets and inline
+/// elements, is one Typst lays out as a paragraph.
+fn in_paragraph(doc: &LayoutDoc, id: NodeId) -> bool {
+    let mut at = doc.nodes[id].parent;
+    while let Some(p) = at {
+        match &doc.nodes[p].kind {
+            NodeKind::Par { .. }
+            | NodeKind::Heading { .. }
+            | NodeKind::ListBody
+            | NodeKind::Caption
+            | NodeKind::TocEntry { .. }
+            | NodeKind::InlineRun { .. }
+            | NodeKind::Unstructured => return true,
+            NodeKind::Block { .. } | NodeKind::Align { .. } | NodeKind::Hint(_) => {}
+            k if k.is_inline() => {}
+            _ => return false,
+        }
+        at = doc.nodes[p].parent;
+    }
+    false
+}
+
+/// Whether `id` is its parent's only Block or Align child.
+fn only_bracket(doc: &LayoutDoc, id: NodeId) -> bool {
+    let Some(parent) = doc.nodes[id].parent else {
+        return false;
+    };
+    doc.nodes[parent]
+        .children
+        .iter()
+        .filter(|c| {
+            matches!(c, Child::Node(n) if matches!(
+                doc.nodes[*n].kind,
+                NodeKind::Block { .. } | NodeKind::Align { .. }
+            ))
+        })
+        .count()
+        == 1
 }
 
 fn inline_item(doc: &LayoutDoc, r: ItemRef) -> bool {
@@ -1387,6 +1434,11 @@ fn form_paragraphs(doc: &mut LayoutDoc) {
                 NodeKind::Root | NodeKind::Artifact { .. } => NodeKind::Unstructured,
                 _ => NodeKind::InlineRun { style },
             };
+            let inline: Vec<bool> = doc.nodes[id]
+                .children
+                .iter()
+                .map(|c| inline_child(doc, c))
+                .collect();
             let children = std::mem::take(&mut doc.nodes[id].children);
             let mut out = Vec::new();
             let mut run: Vec<Child> = Vec::new();
@@ -1422,8 +1474,8 @@ fn form_paragraphs(doc: &mut LayoutDoc) {
                 doc.nodes.push(node);
                 out.push(Child::Node(n));
             };
-            for c in children {
-                if inline_child(doc, &c) {
+            for (c, inline) in children.into_iter().zip(inline) {
+                if inline {
                     run.push(c);
                 } else {
                     flush(doc, &mut run, &mut out);

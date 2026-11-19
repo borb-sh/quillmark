@@ -2661,6 +2661,7 @@ dependencies = [
  "comemo",
  "getrandom 0.4.3",
  "lopdf",
+ "miniz_oxide",
  "proptest",
  "quillmark",
  "quillmark-content",
