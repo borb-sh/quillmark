@@ -1965,16 +1965,7 @@ fn measure_tables(
         if !matches!(doc.nodes[id].kind, NodeKind::Table { .. }) {
             continue;
         }
-        let cells: Vec<NodeId> = doc
-            .subtree(id)
-            .into_iter()
-            .filter(|&n| {
-                matches!(doc.nodes[n].kind, NodeKind::Cell { .. })
-                    && doc.ancestor(doc.nodes[n].parent.unwrap_or(0), |k| {
-                        matches!(k, NodeKind::Table { .. })
-                    }) == Some(id)
-            })
-            .collect();
+        let cells = doc.cells_of(id);
         let (sizing, size) = sizings.get(&id).cloned().unwrap_or_default();
         let mut starts: HashMap<u32, f64> = HashMap::new();
         let mut tops: HashMap<u32, (u32, f64)> = HashMap::new();

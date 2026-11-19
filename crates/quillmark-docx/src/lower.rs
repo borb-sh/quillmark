@@ -1843,7 +1843,7 @@ impl Lower<'_> {
             return Vec::new();
         };
         let mut out = vec![0.0f64; columns.len().saturating_sub(1)];
-        for m in self.doc.subtree(n) {
+        for m in self.doc.cells_of(n) {
             let NodeKind::Cell {
                 col,
                 colspan,
@@ -1854,16 +1854,7 @@ impl Lower<'_> {
                 continue;
             };
             let col = col as usize;
-            let own = self
-                .doc
-                .ancestor(self.doc.nodes[m].parent.unwrap_or(0), |k| {
-                    matches!(k, NodeKind::Table { .. })
-                })
-                == Some(n);
-            if !own
-                || colspan != 1
-                || col >= out.len()
-                || !content_sized.get(col).copied().unwrap_or(false)
+            if colspan != 1 || col >= out.len() || !content_sized.get(col).copied().unwrap_or(false)
             {
                 continue;
             }
@@ -1908,17 +1899,9 @@ impl Lower<'_> {
             return None;
         };
         let mut rows: BTreeMap<u32, Vec<(u32, NodeId)>> = BTreeMap::new();
-        for m in self.doc.subtree(n) {
+        for m in self.doc.cells_of(n) {
             if let NodeKind::Cell { col, row, .. } = *self.kind(m) {
-                if self
-                    .doc
-                    .ancestor(self.doc.nodes[m].parent.unwrap_or(0), |k| {
-                        matches!(k, NodeKind::Table { .. })
-                    })
-                    == Some(n)
-                {
-                    rows.entry(row).or_default().push((col, m));
-                }
+                rows.entry(row).or_default().push((col, m));
             }
         }
         for cells in rows.values_mut() {
@@ -2725,24 +2708,11 @@ impl Lower<'_> {
         else {
             unreachable!("a table node")
         };
-        let mut cells: Vec<NodeId> = Vec::new();
+        let cells = self.doc.cells_of(n);
         for m in self.doc.subtree(n) {
             let owner = self.doc.ancestor(m, |k| {
                 matches!(k, NodeKind::Table { .. } | NodeKind::Cell { .. })
             });
-            match self.kind(m) {
-                NodeKind::Cell { .. }
-                    if self
-                        .doc
-                        .ancestor(self.doc.nodes[m].parent.unwrap_or(0), |k| {
-                            matches!(k, NodeKind::Table { .. })
-                        })
-                        == Some(n) =>
-                {
-                    cells.push(m)
-                }
-                _ => {}
-            }
             if owner != Some(n) {
                 continue;
             }
