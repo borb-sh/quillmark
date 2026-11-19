@@ -193,6 +193,29 @@ pub(crate) fn read(
     out
 }
 
+/// The `Cell` node of a table or grid cell, whose elements share these
+/// fields.
+macro_rules! cell_kind {
+    ($cell:expr, $header:expr, $size:expr) => {{
+        let (fill, inset, borders) = cell_style(
+            $cell.inset.get(StyleChain::default()),
+            $cell.fill.get_ref(StyleChain::default()),
+            &$cell.stroke.get_cloned(StyleChain::default()),
+            $size,
+        );
+        NodeKind::Cell {
+            col: smart_index($cell.x.get(StyleChain::default())),
+            row: smart_index($cell.y.get(StyleChain::default())),
+            colspan: $cell.colspan.get(StyleChain::default()).get() as u32,
+            rowspan: $cell.rowspan.get(StyleChain::default()).get() as u32,
+            header: $header,
+            fill,
+            inset,
+            borders,
+        }
+    }};
+}
+
 impl Reader<'_> {
     fn top(&self) -> Option<NodeId> {
         match self.stack.last() {
@@ -648,6 +671,13 @@ impl Reader<'_> {
         }
     }
 
+    fn add_cell(&mut self, kind: NodeKind, loc: Location, at: Point) {
+        let node = self.add_node(kind);
+        self.origins.insert(node, (self.page, at));
+        self.by_loc.insert(loc, node);
+        self.push(Key::Elem(loc), Some(node), false);
+    }
+
     fn start(&mut self, elem: &Content, at: Point) {
         if let Some(d) = marker(elem, HINT) {
             if !self.hidden() {
@@ -693,49 +723,13 @@ impl Reader<'_> {
                 cell.kind.get(StyleChain::default()),
                 typst::foundations::Smart::Custom(TableCellKind::Header(..))
             );
-            let size = self.text_size();
-            let (fill, inset, borders) = cell_style(
-                cell.inset.get(StyleChain::default()),
-                cell.fill.get_ref(StyleChain::default()),
-                &cell.stroke.get_cloned(StyleChain::default()),
-                size,
-            );
-            let node = self.add_node(NodeKind::Cell {
-                col: smart_index(cell.x.get(StyleChain::default())),
-                row: smart_index(cell.y.get(StyleChain::default())),
-                colspan: cell.colspan.get(StyleChain::default()).get() as u32,
-                rowspan: cell.rowspan.get(StyleChain::default()).get() as u32,
-                header,
-                fill,
-                inset,
-                borders,
-            });
-            self.origins.insert(node, (self.page, at));
-            self.by_loc.insert(loc, node);
-            self.push(Key::Elem(loc), Some(node), false);
+            let kind = cell_kind!(cell, header, self.text_size());
+            self.add_cell(kind, loc, at);
             return;
         }
         if let Some(cell) = elem.to_packed::<GridCell>() {
-            let size = self.text_size();
-            let (fill, inset, borders) = cell_style(
-                cell.inset.get(StyleChain::default()),
-                cell.fill.get_ref(StyleChain::default()),
-                &cell.stroke.get_cloned(StyleChain::default()),
-                size,
-            );
-            let node = self.add_node(NodeKind::Cell {
-                col: smart_index(cell.x.get(StyleChain::default())),
-                row: smart_index(cell.y.get(StyleChain::default())),
-                colspan: cell.colspan.get(StyleChain::default()).get() as u32,
-                rowspan: cell.rowspan.get(StyleChain::default()).get() as u32,
-                header: false,
-                fill,
-                inset,
-                borders,
-            });
-            self.origins.insert(node, (self.page, at));
-            self.by_loc.insert(loc, node);
-            self.push(Key::Elem(loc), Some(node), false);
+            let kind = cell_kind!(cell, false, self.text_size());
+            self.add_cell(kind, loc, at);
             return;
         }
         if let Some(m) = elem.to_packed::<PdfMarkerTag>() {
