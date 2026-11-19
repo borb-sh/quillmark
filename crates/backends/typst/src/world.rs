@@ -273,6 +273,14 @@ impl QuillWorld {
         })
     }
 
+    /// This world with the helper `lib.typ` as `source` holds it: the sources
+    /// a served compile was built from, which a failed update leaves behind.
+    pub(crate) fn with_helper(&self, source: &Source) -> Self {
+        let mut world = self.clone();
+        world.set_source(Self::helper_fid("lib.typ"), source.text());
+        world
+    }
+
     pub(crate) fn set_today(&mut self, today: CalendarDate) {
         self.today = Some(today);
     }

@@ -385,3 +385,51 @@ fn an_em_column_with_no_block_around_it_resolves_at_the_text_size() {
     let columns = grid_columns(&w);
     assert_eq!(columns.last(), Some(&2000), "{columns:?}");
 }
+
+#[test]
+fn a_failed_update_leaves_the_word_export_of_the_served_document() {
+    use quillmark_core::backend::Backend;
+    use quillmark_core::types::{OutputFormat, RenderOptions};
+    let quill = common::quill_with_plate(
+        &common::yaml("main:\n  fields:\n    title: { type: text }\n"),
+        "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
+         #set page(width: 300pt, height: 300pt, margin: 30pt)\n\
+         #if qm.data.title == \"boom\" { panic(\"boom\") }\n\
+         #block[Title #qm.data.title]\n#block[Second block.]\n",
+    );
+    let mut session = quillmark_typst::TypstBackend::default()
+        .open(
+            &quill,
+            &serde_json::json!({ "title": "ok" }),
+            common::test_date(),
+        )
+        .expect("open");
+    let docx = RenderOptions::default().with_output_format(OutputFormat::Docx);
+    let before = session.render(&docx).expect("render");
+    assert!(
+        session
+            .update_data(&serde_json::json!({ "title": "boom" }))
+            .is_err()
+    );
+    let after = session.render(&docx).expect("render");
+    let codes = |r: &quillmark_core::error::RenderResult| -> Vec<Option<String>> {
+        r.warnings.iter().map(|w| w.code.clone()).collect()
+    };
+    assert_eq!(codes(&after), codes(&before));
+    let texts = |r: &quillmark_core::error::RenderResult| {
+        word::paragraphs(
+            &String::from_utf8(
+                word::unzip(&r.artifacts[0].bytes)
+                    .into_iter()
+                    .find(|(n, _)| n == "word/document.xml")
+                    .expect("document")
+                    .1,
+            )
+            .expect("utf-8"),
+        )
+        .into_iter()
+        .map(|p| p.text)
+        .collect::<Vec<_>>()
+    };
+    assert_eq!(texts(&after), ["Title ok", "Second block."]);
+}

@@ -349,12 +349,16 @@ pub(crate) fn page_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
 
 impl SessionHandle for TypstSession {
     fn render(&self, opts: &RenderOptions) -> Result<RenderResult, RenderError> {
+        let world = match opts.output_format {
+            Some(OutputFormat::Docx) => &self.world.with_helper(&self.live.helper_source),
+            _ => &self.world,
+        };
         compile::render_document_pages(
             &self.live.document,
             opts,
             &self.live.field_specs,
             &self.fallback_title,
-            &self.world,
+            world,
         )
     }
 
