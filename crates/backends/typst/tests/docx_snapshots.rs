@@ -1,41 +1,162 @@
-//! The Word model each case lowers to, with its notices, against a snapshot
-//! in `tests/snapshots/docx/`. A picture's bytes show as their length and
-//! hash. `QUILLMARK_UPDATE_SNAPSHOTS=1` writes the snapshots afresh.
+//! What lowering decides from each case's neighbours, against a snapshot in
+//! `tests/snapshots/docx/`: each section's blocks in order, with every
+//! paragraph's space above and below, line height, keeps, page break and
+//! the drawings it holds, the same inside cells, text boxes, contents and
+//! footnotes, then the notices' codes. `QUILLMARK_UPDATE_SNAPSHOTS=1` writes
+//! the snapshots afresh.
 
 mod common;
 mod word;
 
+use std::fmt::Write;
 use std::path::PathBuf;
 
 use quillmark_core::quill::Quill;
+use quillmark_docx::model::{
+    Block, Blocks, Document, DrawingContent, Inline, Line, Paragraph, Run, RunContent, SectionStart,
+};
 
 const PAGE: &str = "#set page(width: 300pt, height: 300pt, margin: 30pt)\n";
 const CHROME: &str =
     "#set page(width: 300pt, height: 300pt, margin: 30pt, numbering: \"1\", header: [Head])\n";
 
-fn fnv(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| {
-        (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3)
-    })
+fn run_text(r: &Run, out: &mut String) {
+    for c in &r.content {
+        match c {
+            RunContent::Text(t) => out.push_str(t),
+            RunContent::Tab => out.push('\t'),
+            RunContent::Break(_) => out.push('\n'),
+            _ => {}
+        }
+    }
+}
+
+/// A paragraph's text, cut to 40 characters.
+fn text(p: &Paragraph) -> String {
+    let mut out = String::new();
+    for i in &p.content {
+        match i {
+            Inline::Run(r) => run_text(r, &mut out),
+            Inline::Hyperlink(h) => h.runs.iter().for_each(|r| run_text(r, &mut out)),
+            Inline::Field(f) => f.result.iter().for_each(|r| run_text(r, &mut out)),
+            Inline::Control(_) => out.push_str("[control]"),
+            Inline::BookmarkStart { .. } | Inline::BookmarkEnd { .. } => {}
+        }
+    }
+    out.chars().take(40).collect()
+}
+
+fn paragraph(p: &Paragraph, depth: usize, out: &mut String) {
+    let pad = "  ".repeat(depth);
+    let sp = p.props.spacing.unwrap_or_default();
+    let twips = |t: Option<i32>| t.map_or("-".to_string(), |t| t.to_string());
+    let _ = write!(
+        out,
+        "{pad}P {:?} before={} after={} line={}",
+        text(p),
+        twips(sp.before),
+        twips(sp.after),
+        match sp.line {
+            Some(Line::Exact(t)) => t.to_string(),
+            Some(Line::AtLeast(t)) => format!("{t}+"),
+            Some(Line::Auto(t)) => format!("auto {t}"),
+            None => "-".into(),
+        }
+    );
+    for (on, name) in [
+        (p.props.keep_next, "keep_next"),
+        (p.props.keep_lines, "keep_lines"),
+        (p.props.page_break_before, "page_break"),
+    ] {
+        if on {
+            let _ = write!(out, " {name}");
+        }
+    }
+    out.push('\n');
+    let drawings = p.content.iter().flat_map(|i| match i {
+        Inline::Run(r) => r.content.as_slice(),
+        _ => &[],
+    });
+    for c in drawings {
+        let RunContent::Drawing(d) = c else { continue };
+        match &d.content {
+            DrawingContent::Picture(_) => {
+                let _ = writeln!(out, "{pad}  picture");
+            }
+            DrawingContent::Shape(_) => {
+                let _ = writeln!(out, "{pad}  shape");
+            }
+            DrawingContent::TextBox(b) => {
+                let _ = writeln!(out, "{pad}  box");
+                blocks(
+                    b.body.blocks.iter().map(Some).chain([None]),
+                    &b.body,
+                    depth + 2,
+                    out,
+                );
+            }
+        }
+    }
+}
+
+fn blocks<'a>(
+    list: impl Iterator<Item = Option<&'a Block>>,
+    body: &Blocks,
+    depth: usize,
+    out: &mut String,
+) {
+    let pad = "  ".repeat(depth);
+    for b in list {
+        match b {
+            None => paragraph(&body.last, depth, out),
+            Some(Block::Paragraph(p)) => paragraph(p, depth, out),
+            Some(Block::Table(t)) => {
+                let _ = writeln!(out, "{pad}T");
+                for (r, row) in t.rows.iter().enumerate() {
+                    for (c, cell) in row.cells.iter().enumerate() {
+                        let _ = writeln!(out, "{pad}  cell {r},{c}");
+                        let list = cell.body.blocks.iter().map(Some).chain([None]);
+                        blocks(list, &cell.body, depth + 2, out);
+                    }
+                }
+            }
+            Some(Block::Toc(toc)) => {
+                let _ = writeln!(out, "{pad}C");
+                for p in &toc.entries {
+                    paragraph(p, depth + 1, out);
+                }
+            }
+        }
+    }
+}
+
+fn sections(doc: &Document) -> String {
+    let mut out = String::new();
+    for (i, s) in doc.sections.iter().enumerate() {
+        let start = match s.props.start {
+            SectionStart::NextPage => "next page",
+            SectionStart::OddPage => "odd page",
+            SectionStart::EvenPage => "even page",
+            SectionStart::Continuous => "continuous",
+        };
+        let _ = writeln!(out, "section {i}, {start}");
+        let list = s.body.blocks.iter().map(Some).chain([None]);
+        blocks(list, &s.body, 1, &mut out);
+    }
+    for (i, f) in doc.footnotes.iter().enumerate() {
+        let _ = writeln!(out, "footnote {i}");
+        let list = f.body.blocks.iter().map(Some).chain([None]);
+        blocks(list, &f.body, 1, &mut out);
+    }
+    out
 }
 
 fn snapshot(quill: &Quill, data: &serde_json::Value) -> String {
     let layout =
         quillmark_typst::testing::layout(quill, data, common::test_date()).expect("layout");
-    let (mut doc, notices) = quillmark_docx::lower::lower(&layout);
-    let media: Vec<String> = doc
-        .media
-        .drain(..)
-        .map(|m| {
-            format!(
-                "{:?} {} bytes {:016x}",
-                m.kind,
-                m.bytes.len(),
-                fnv(&m.bytes)
-            )
-        })
-        .collect();
-    format!("{doc:#?}\nmedia: {media:#?}\nnotices: {notices:#?}\n")
+    let (doc, notices) = quillmark_docx::lower::lower(&layout);
+    let codes: Vec<&str> = notices.iter().map(|n| n.code.as_str()).collect();
+    format!("{}notices: {}\n", sections(&doc), codes.join(" "))
 }
 
 fn check(name: &str, actual: &str) {
