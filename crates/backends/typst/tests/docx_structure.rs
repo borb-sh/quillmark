@@ -723,9 +723,9 @@ fn grid_of(xml: &str, text: &str) -> Vec<i64> {
 fn a_content_sized_column_is_as_wide_as_its_unkerned_text() {
     let w = word::render_hosted(HEADING_STACK);
     let xml = w.xml("word/document.xml");
-    // Times' own advances at 12 pt: "FROM:" 37.34 pt, "SUBJECT:" 54.01 pt;
-    // Typst kerns them to 36.80 and 52.93.
-    for (label, unkerned) in [("FROM:", 747), ("SUBJECT:", 1081)] {
+    // Times' own advances at 12 pt, each rounded up to a whole twip: "FROM:"
+    // 750, "SUBJECT:" 1085. Typst kerns them to 36.80 and 52.93 pt.
+    for (label, unkerned) in [("FROM:", 750), ("SUBJECT:", 1085)] {
         let grid = grid_of(&xml, label);
         assert!(grid[0] >= unkerned, "{label} column {grid:?}");
         assert_eq!(
@@ -751,7 +751,7 @@ fn a_tabbed_label_has_room_for_its_unkerned_text() {
         .map(|g| g.split('"').next().unwrap().parse().unwrap())
         .collect();
     assert_eq!(stops.len(), 2, "{xml}");
-    assert!(stops[0] >= 1081, "{stops:?}");
+    assert!(stops[0] >= 1085, "{stops:?}");
     assert!(stops[1] > stops[0], "two stops share a position: {stops:?}");
     let hanging = xml
         .split("w:hanging=\"")

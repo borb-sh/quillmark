@@ -1812,9 +1812,10 @@ impl Lower<'_> {
         self.tabbed_hint(n).is_some()
     }
 
-    /// The paragraph-forming nodes of `cell`, in reading order.
     /// How many twips wider than Typst's kerned ink each content-sized
-    /// column of table `n` is in the face's own advances, as Word sets it.
+    /// column of table `n` is in the face's own advances, as Word sets it,
+    /// with a twip for each character after the first, which covers a
+    /// layout that rounds each advance up to a whole twip.
     fn slack(&self, n: NodeId) -> Vec<Twips> {
         let NodeKind::Table {
             columns,
@@ -1845,15 +1846,17 @@ impl Lower<'_> {
             }
             for p in self.doc.subtree(m) {
                 for line in &self.doc.nodes[p].lines {
-                    let extra: f64 = line
+                    let (extra, glyphs) = line
                         .items
                         .iter()
                         .filter_map(|r| match &self.doc.item(*r).kind {
-                            ItemKind::Text(t) => Some(t.natural - t.width),
+                            ItemKind::Text(t) => {
+                                Some((t.natural - t.width, t.text.trim_end().chars().count()))
+                            }
                             _ => None,
                         })
-                        .sum();
-                    out[col] = out[col].max(extra);
+                        .fold((0.0, 0), |(e, g), (de, dg)| (e + de, g + dg));
+                    out[col] = out[col].max(extra + glyphs.saturating_sub(1) as f64 / 20.0);
                 }
             }
         }
@@ -1862,6 +1865,7 @@ impl Lower<'_> {
             .collect()
     }
 
+    /// The paragraph-forming nodes of `cell`, in reading order.
     fn cell_paragraphs(&self, cell: NodeId) -> Vec<NodeId> {
         self.doc
             .subtree(cell)
