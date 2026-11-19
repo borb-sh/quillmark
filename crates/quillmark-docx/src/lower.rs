@@ -915,8 +915,9 @@ impl Lower<'_> {
         let mut after = Vec::new();
         self.toc_prefixed = false;
         for c in self.doc.nodes[n].children.clone() {
-            let entry =
-                matches!(c, Child::Node(m) if matches!(self.kind(m), NodeKind::TocEntry { .. }));
+            let entry = matches!(c, Child::Node(m) if self.doc.subtree(m).iter().any(|&e| {
+                matches!(self.kind(e), NodeKind::TocEntry { .. })
+            }));
             let blocks = self.child(&c, ctx);
             if entry {
                 entries.extend(blocks.into_iter().filter_map(|b| match b {
@@ -1698,11 +1699,16 @@ impl Lower<'_> {
                         if fill || (tabbed && !page && t.text.trim().is_empty()) {
                             continue;
                         }
+                        let shown = t
+                            .text
+                            .trim_matches(|c: char| c.is_whitespace() || c == '\u{2060}');
+                        if page && shown.is_empty() {
+                            continue;
+                        }
                         if page {
-                            let s = t.text.trim();
-                            let numeral = s.chars().all(|c| c.is_ascii_digit())
-                                || is_roman(s, false)
-                                || is_roman(s, true);
+                            let numeral = shown.chars().all(|c| c.is_ascii_digit())
+                                || is_roman(shown, false)
+                                || is_roman(shown, true);
                             self.toc_prefixed |= !numeral;
                         }
                         let nobreak = chain.iter().any(|k| matches!(k, NodeKind::NoBreak));
@@ -1713,7 +1719,7 @@ impl Lower<'_> {
                                 s.to_string()
                             }
                         };
-                        let mut text = shaped(&t.text);
+                        let mut text = shaped(if page { shown } else { &t.text });
                         if Some(i) == last_text && line.end == LineEnd::Hyphenated {
                             text = text.trim_end_matches('\u{ad}').to_string();
                         }

@@ -11,7 +11,9 @@ use typst::foundations::{
     Transformation,
 };
 use typst::introspection::EmptyIntrospector;
-use typst::layout::{AlignElem, BlockElem, BoxElem, ColumnsElem, PageElem, PagebreakElem};
+use typst::layout::{
+    AlignElem, BlockElem, BoxElem, ColumnsElem, PageElem, PagebreakElem, RepeatElem,
+};
 use typst::model::ParElem;
 use typst::routines::SpanMode;
 use typst::syntax::{Span, SyntaxMode};
@@ -38,6 +40,7 @@ const PRELUDE: &str = r#"{
       h(hint: "block", edge: "close")
     },
     box: it => { h(hint: "box", edge: "open"); it; h(hint: "box", edge: "close") },
+    repeat: it => { h(hint: "repeat", edge: "open"); it; h(hint: "repeat", edge: "close") },
     par: it => {
       context h(hint: "par", a: align.alignment, size: text.size, tracking: text.tracking,
         leading: par.leading, spacing: par.spacing, top: text.top-edge, bottom: text.bottom-edge)
@@ -55,7 +58,7 @@ const PRELUDE: &str = r#"{
   )
 }"#;
 
-fn rules() -> [(&'static str, Element); 7] {
+fn rules() -> [(&'static str, Element); 8] {
     [
         ("pagebreak", PagebreakElem::ELEM),
         ("linebreak", LinebreakElem::ELEM),
@@ -63,6 +66,7 @@ fn rules() -> [(&'static str, Element); 7] {
         ("columns", ColumnsElem::ELEM),
         ("block", BlockElem::ELEM),
         ("box", BoxElem::ELEM),
+        ("repeat", RepeatElem::ELEM),
         ("par", ParElem::ELEM),
     ]
 }

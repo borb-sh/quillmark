@@ -81,6 +81,9 @@ struct Reader<'a> {
     /// Inside ink already carried as a picture: tags still open and close
     /// nodes, and nothing else is read.
     in_raster: u32,
+    /// The outline entry whose leader has closed, and the node holding the
+    /// page number after it.
+    toc_led: Option<(NodeId, Option<NodeId>)>,
 }
 
 /// The Layout IR of `document`.
@@ -107,6 +110,7 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
         edges: HashMap::new(),
         sizings: HashMap::new(),
         in_raster: 0,
+        toc_led: None,
     };
     let mut assumed = 0;
     for (i, page) in document.pages().iter().enumerate() {
@@ -244,30 +248,28 @@ impl Reader<'_> {
         }
     }
 
-    fn in_toc_entry(&self) -> bool {
+    fn toc_entry(&self) -> Option<NodeId> {
         self.stack
             .iter()
             .rev()
             .filter_map(|o| o.node)
-            .any(|n| matches!(self.out.nodes[n].kind, NodeKind::TocEntry { .. }))
+            .find(|&n| matches!(self.out.nodes[n].kind, NodeKind::TocEntry { .. }))
     }
 
-    /// A page-number node under the innermost open node; the last box before
-    /// it there is the entry's fill.
-    fn toc_page(&mut self) -> NodeId {
-        let top = self.top().unwrap_or(0);
-        let fill = self.out.nodes[top]
-            .children
-            .iter()
-            .rev()
-            .find_map(|c| match c {
-                Child::Node(m) if matches!(self.out.nodes[*m].kind, NodeKind::NoBreak) => Some(*m),
-                _ => None,
-            });
-        if let Some(m) = fill {
-            self.out.nodes[m].kind = NodeKind::TocFill;
+    /// The node an outline entry's page number goes in: everything the entry
+    /// prints after its leader closes.
+    fn toc_page(&mut self) -> Option<NodeId> {
+        let (entry, page) = self.toc_led?;
+        if self.toc_entry() != Some(entry) {
+            self.toc_led = None;
+            return None;
         }
-        self.add_node_under(top, NodeKind::TocPage)
+        if let Some(page) = page {
+            return Some(page);
+        }
+        let page = self.add_node_under(self.top()?, NodeKind::TocPage);
+        self.toc_led = Some((entry, Some(page)));
+        Some(page)
     }
 
     fn ink(&mut self, kind: ItemKind) {
@@ -432,47 +434,17 @@ impl Reader<'_> {
                         .sum::<f64>()
                         * scale;
                     let origin = pos.transform(ts);
-                    let run = |text_: &str, dx: f64, width: f64| {
-                        ItemKind::Text(TextRun {
-                            origin: [origin.x.to_pt() + dx, origin.y.to_pt()],
-                            text: text_.to_string(),
-                            font,
-                            size,
-                            fill: rgb(&text.fill),
-                            width,
-                        })
-                    };
-                    // Typst sets a word joiner between an outline entry's
-                    // fill and its page number.
-                    let joiner = text.text.rfind('\u{2060}').filter(|_| self.in_toc_entry());
-                    let Some(j) = joiner else {
-                        self.ink(run(&text.text, 0.0, width));
-                        continue;
-                    };
-                    let advance = |from: usize, to: usize| {
-                        text.glyphs
-                            .iter()
-                            .filter(|g| (from..to).contains(&(g.range.start as usize)))
-                            .map(|g| g.x_advance.at(text.size).to_pt())
-                            .sum::<f64>()
-                            * scale
-                    };
-                    let page_at = j + '\u{2060}'.len_utf8();
-                    let lead = advance(0, j);
-                    if j > 0 {
-                        self.ink(run(&text.text[..j], 0.0, lead));
-                    }
-                    if page_at < text.text.len() {
-                        let start = lead + advance(j, page_at);
-                        let page = self.toc_page();
-                        self.ink_under(
-                            page,
-                            run(
-                                &text.text[page_at..],
-                                start,
-                                advance(page_at, text.text.len()),
-                            ),
-                        );
+                    let run = ItemKind::Text(TextRun {
+                        origin: [origin.x.to_pt(), origin.y.to_pt()],
+                        text: text.text.to_string(),
+                        font,
+                        size,
+                        fill: rgb(&text.fill),
+                        width,
+                    });
+                    match self.toc_page() {
+                        Some(page) => self.ink_under(page, run),
+                        None => self.ink(run),
                     }
                 }
                 FrameItem::Shape(shape, _) => {
@@ -934,6 +906,19 @@ impl Reader<'_> {
                         self.edges.insert(n, (get("top"), get("bottom")));
                     }
                 }
+            }
+            "repeat" => {
+                let entry = self.toc_entry();
+                if close {
+                    self.close(Key::Bracket("repeat"));
+                    self.toc_led = entry.map(|e| (e, None));
+                    return;
+                }
+                let node = match (entry, self.top()) {
+                    (Some(_), Some(_)) => Some(self.add_node(NodeKind::TocFill)),
+                    _ => None,
+                };
+                self.push(Key::Bracket("repeat"), node, false);
             }
             "block" | "align" | "columns" | "box" => {
                 let key = Key::Bracket(match hint.as_str() {

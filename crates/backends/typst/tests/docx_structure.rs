@@ -311,3 +311,30 @@ fn a_fixed_cover_ends_its_own_section_before_new_margins() {
     let margins: Vec<i64> = w.sections().iter().map(|s| s.margin_top).collect();
     assert_eq!(margins, [600, 1200]);
 }
+
+#[test]
+fn a_custom_outline_entry_leads_to_its_prefixed_number_and_is_locked() {
+    let w = render(
+        "#set page(width: 300pt, height: 300pt, margin: 30pt, \
+         numbering: (..n) => \"1-\" + str(n.pos().first()))\n\
+         #show outline.entry: it => block(link(it.element.location(), \
+         [#it.body() #box(width: 1fr, repeat[.]) #it.page()]))\n\
+         #outline()\n= Intro\nText.\n#pagebreak()\n= Second\n",
+    );
+    let entries: Vec<(String, Option<String>)> = w
+        .body()
+        .into_iter()
+        .filter(|p| p.style.as_deref().is_some_and(|s| s.starts_with("TOC")))
+        .map(|p| (p.text, p.style))
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            ("Intro\t1-1".to_string(), Some("TOC1".to_string())),
+            ("Second\t1-2".to_string(), Some("TOC1".to_string())),
+        ]
+    );
+    let xml = w.xml("word/document.xml");
+    assert!(xml.contains("w:fldLock=\"1\""));
+    assert!(w.has("docx::toc_frozen"), "{:?}", w.codes);
+}

@@ -54,8 +54,11 @@ fn every_probe_records_where_its_element_is_laid_out() {
 #block(sticky: true)[kept]
 one #box[two three] \ four
 #columns(2)[left #colbreak() right]
+#outline()
+#show outline.entry: it => [#it.body() #box(width: 1fr, repeat[.]) #it.page()]
+#outline(title: none)
 #pagebreak(to: "odd")
-last
+= last
 "#;
     let quill = common::quill_with_plate(&common::yaml(""), plate);
     let check = probe_check(&quill, &serde_json::json!({}), common::test_date()).expect("compiles");
@@ -64,7 +67,7 @@ last
     assert_eq!(
         hints,
         [
-            "align", "block", "box", "br", "break", "columns", "page", "par", "pnum"
+            "align", "block", "box", "br", "break", "columns", "page", "par", "pnum", "repeat"
         ]
     );
 }
