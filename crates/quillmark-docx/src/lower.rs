@@ -780,6 +780,7 @@ impl Lower<'_> {
                     after: Some(0),
                     line: None,
                 }),
+                widow_control: Some(true),
                 ..ParProps::default()
             },
             styles,

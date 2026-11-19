@@ -919,3 +919,26 @@ fn a_list_item_at_a_page_top_keeps_its_siblings_space_before() {
     let mid = w.par("Item 3").space_before;
     assert_eq!(w.par(&top).space_before, mid, "{top}");
 }
+
+#[test]
+fn widow_and_orphan_control_is_on_for_every_paragraph() {
+    let w = render(&format!("{PAGE}A paragraph.\n"));
+    let xml = w.xml("word/styles.xml");
+    let doc = roxmltree::Document::parse(&xml).expect("well-formed");
+    let control = doc
+        .descendants()
+        .find(|n| n.tag_name().name() == "pPrDefault")
+        .and_then(|d| {
+            d.descendants()
+                .find(|n| n.tag_name().name() == "widowControl")
+        })
+        .expect("a default widowControl");
+    let main = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    assert!(
+        control
+            .attribute((main, "val"))
+            .is_none_or(|v| v != "0" && v != "false"),
+        "{xml}"
+    );
+    assert!(!w.xml("word/document.xml").contains("w:widowControl"));
+}
