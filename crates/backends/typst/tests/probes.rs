@@ -71,3 +71,20 @@ one #box[two three] \ four
         ]
     );
 }
+
+#[test]
+fn a_space_before_a_line_break_collapses_as_it_does_without_the_probes() {
+    let plate = r#"#set page(width: 300pt, height: 200pt, margin: 20pt)
+#set text(font: "TeX Gyre Termes")
+A #strong[Bold] \ next #upper[up] \ after
+#("a b", "c d").join("\n")
+"#;
+    let quill = common::host_with_plate(plate);
+    let check = probe_check(&quill, &serde_json::json!({}), common::test_date()).expect("compiles");
+    assert_eq!(
+        check.plain_hashes, check.probed_hashes,
+        "the probes moved ink"
+    );
+    assert!(check.plain_pdf == check.probed_pdf);
+    assert!(check.probed_hints.contains("br"));
+}

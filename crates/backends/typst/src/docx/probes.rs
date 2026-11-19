@@ -1,7 +1,8 @@
 //! The export compile's probes: show and set rules in the library's base
 //! styles that record, as labelled metadata, what Typst lays out without
-//! tagging it. Each rule returns its element unchanged, so the probed
-//! document's ink is the live one's, which [`export`](super::export) checks.
+//! tagging it. Each rule returns its element unchanged, or for a `\n` the
+//! line break Typst lays it out as, so the probed document's ink is the live
+//! one's, which [`export`](super::export) checks.
 
 use typst::Library;
 use typst::comemo::Track;
@@ -22,13 +23,15 @@ use typst::utils::LazyHash;
 
 /// One rule per element key, `newline` for a line break a string spells as
 /// `\n`, and `page`, the foreground every page carries. Values pass typed,
-/// never as `repr` strings.
+/// never as `repr` strings. A regex rule also matches every `linebreak` as a
+/// `\n` and hands it over as text, before which a space no longer collapses;
+/// `newline` returns a `linebreak` again, which the `linebreak` rule marks.
 const PRELUDE: &str = r#"{
   let h(..d) = [#metadata((kind: "__qm_hint__", ..d.named()))<__qm_hint__>]
   (
     pagebreak: it => { it; h(hint: "break", weak: it.weak, to: it.to) },
     linebreak: it => { h(hint: "br"); it },
-    newline: it => { h(hint: "br"); it },
+    newline: it => linebreak(),
     align: it => { h(hint: "align", edge: "open", a: it.alignment); it; h(hint: "align", edge: "close") },
     columns: it => { h(hint: "columns", edge: "open", count: it.count, gutter: it.gutter); it; h(hint: "columns", edge: "close") },
     block: it => {
