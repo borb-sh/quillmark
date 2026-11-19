@@ -1455,7 +1455,7 @@ fn hoist_breaks(doc: &mut LayoutDoc) {
 
 /// Every run of inline children of a node that does not form a paragraph by
 /// itself, or that holds a non-inline child, becomes an `InlineRun` (an
-/// `Unstructured` run at the root and in out-of-flow containers).
+/// `Unstructured` run at the root and in an artifact that is not chrome).
 fn form_paragraphs(doc: &mut LayoutDoc) {
     let mut id = 0;
     while id < doc.nodes.len() {
@@ -1473,7 +1473,10 @@ fn form_paragraphs(doc: &mut LayoutDoc) {
                     _ => None,
                 });
             let run_kind = match kind {
-                NodeKind::Root | NodeKind::Artifact { .. } => NodeKind::Unstructured,
+                NodeKind::Root
+                | NodeKind::Artifact {
+                    kind: ArtifactKind::Other,
+                } => NodeKind::Unstructured,
                 _ => NodeKind::InlineRun { style },
             };
             let inline: Vec<bool> = doc.nodes[id]

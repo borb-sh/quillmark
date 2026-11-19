@@ -244,6 +244,7 @@ A Word export. Each warns that the Word file carries less than the PDF shows; no
 - `docx::rasterized`: a curve, a gradient or pattern paint, an image that is neither PNG nor JPEG, or a rotated, skewed, unevenly scaled or clipped group is carried as a 300 dpi picture of its ink.
 - `docx::shape_dropped`: a drawn line or box that no table border or text decoration explains is left out.
 - `docx::toc_frozen`: a table of contents prints page numbers with a prefix Word's `PAGE` field cannot print, so its field is locked against an update.
+- `docx::unstructured_text`: text that no element tags, so nothing says where its paragraphs begin, is set as one paragraph per printed line.
 
 ## `acroform::`
 

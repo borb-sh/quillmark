@@ -31,6 +31,7 @@ pub const CODE_INK_DROPPED: &str = "docx::ink_dropped";
 pub const CODE_LABEL_MISMATCH: &str = "docx::label_mismatch";
 pub const CODE_TOC_FROZEN: &str = "docx::toc_frozen";
 pub const CODE_HINT_UNCHECKED: &str = "docx::hint_unchecked";
+pub const CODE_UNSTRUCTURED_TEXT: &str = "docx::unstructured_text";
 
 /// Families whose metric-compatible Word face a Word machine has.
 const WORD_CLONES: &[(&str, &str)] = &[
@@ -95,6 +96,7 @@ pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
         keep: false,
         mismatches: 0,
         untabbed: 0,
+        unstructured: 0,
     };
     let document = l.document();
     let mut notices = doc.notices.clone();
@@ -184,6 +186,7 @@ struct Lower<'a> {
     keep: bool,
     mismatches: usize,
     untabbed: usize,
+    unstructured: usize,
 }
 
 /// A role's or a scheme's level's style id: its name without spaces or
@@ -504,6 +507,16 @@ impl Lower<'_> {
                 ),
             });
         }
+        if self.unstructured > 0 {
+            out.push(Notice {
+                code: CODE_UNSTRUCTURED_TEXT.into(),
+                message: format!(
+                    "{} line(s) of text that no element tags are set as a paragraph each, as \
+                     printed",
+                    self.unstructured
+                ),
+            });
+        }
         if self.untabbed > 0 {
             out.push(Notice {
                 code: CODE_HINT_UNCHECKED.into(),
@@ -765,6 +778,21 @@ impl Lower<'_> {
 
     fn node(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Block> {
         let kind = self.kind(n).clone();
+        if kind == NodeKind::Unstructured && !self.doc.nodes[n].lines.is_empty() {
+            let lines = self.doc.nodes[n].lines.clone();
+            self.unstructured += lines.len();
+            return lines
+                .into_iter()
+                .filter_map(|line| {
+                    let line = crate::layout::Line {
+                        end: LineEnd::Last,
+                        ..line
+                    };
+                    self.paragraph_of(n, vec![line], ctx)
+                })
+                .map(Block::Paragraph)
+                .collect();
+        }
         if kind.forms_paragraph() && !self.doc.nodes[n].lines.is_empty() {
             return self
                 .paragraph(n, ctx)
@@ -984,9 +1012,22 @@ impl Lower<'_> {
     }
 
     fn paragraph(&mut self, n: NodeId, ctx: &Ctx) -> Option<Paragraph> {
+        let lines = self.doc.nodes[n].lines.clone();
+        self.paragraph_of(n, lines, ctx)
+    }
+
+    /// One Word paragraph of some of `n`'s lines: all of them, or one line
+    /// of text no element tags. The objects and number the node holds go
+    /// with its first line.
+    fn paragraph_of(
+        &mut self,
+        n: NodeId,
+        lines: Vec<crate::layout::Line>,
+        ctx: &Ctx,
+    ) -> Option<Paragraph> {
         let node = &self.doc.nodes[n];
-        let lines = node.lines.clone();
         let first = lines.first()?;
+        let opens = node.lines.first().is_some_and(|l| l.items == first.items);
         let first_x = first.x0;
         let kind = node.kind.clone();
         let style = match &kind {
@@ -1085,13 +1126,15 @@ impl Lower<'_> {
         if let Some((num, level)) = ctx.list {
             props.numbering = Some(NumRef { level, num });
         }
-        self.inline_shapes(n);
-        for place in self.inline_places(n) {
-            let drawings = self.text_box(place, ctx);
-            self.placed += 1;
-            self.pending.extend(drawings);
+        if opens {
+            self.inline_shapes(n);
+            for place in self.inline_places(n) {
+                let drawings = self.text_box(place, ctx);
+                self.placed += 1;
+                self.pending.extend(drawings);
+            }
         }
-        let label = self.label_in(n);
+        let label = self.label_in(n).filter(|_| opens);
         let mut numbered = None;
         if let (Some(lab), Some((scheme, num, first))) = (label, ctx.hint_list) {
             if let NodeKind::Hint(BracketHint::Label { level, value }) = self.kind(lab).clone() {

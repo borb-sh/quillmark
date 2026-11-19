@@ -218,6 +218,10 @@ fn the_inline_run_of_a_block_without_a_paragraph_becomes_one() {
     ));
     let runs: Vec<Vec<String>> = find(&doc, |k| matches!(k, NodeKind::InlineRun { .. }))
         .into_iter()
+        .filter(|&n| {
+            doc.ancestor(n, |k| matches!(k, NodeKind::Artifact { .. }))
+                .is_none()
+        })
         .map(|n| lines(&doc, n))
         .collect();
     assert_eq!(runs, [["inner"]]);

@@ -167,3 +167,23 @@ fn ink_no_node_places_is_counted_as_dropped() {
     let codes: Vec<&str> = notices.iter().map(|n| n.code.as_str()).collect();
     assert_eq!(codes, ["docx::ink_dropped"]);
 }
+
+#[test]
+fn text_no_element_tags_is_a_paragraph_per_line_and_reported() {
+    let mut doc = paragraph(
+        "TeX Gyre Termes",
+        &[
+            ("Two lines ", LineEnd::Soft { ate_space: true }),
+            ("of loose text", LineEnd::Last),
+        ],
+    );
+    doc.nodes[1].kind = NodeKind::Unstructured;
+    let (word, notices) = lower(&doc);
+    let body = &word.sections[0].body;
+    assert_eq!(
+        texts(&body.blocks, &body.last),
+        ["Two lines ", "of loose text"]
+    );
+    let codes: Vec<&str> = notices.iter().map(|n| n.code.as_str()).collect();
+    assert_eq!(codes, ["docx::unstructured_text"]);
+}
