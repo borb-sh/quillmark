@@ -1783,20 +1783,6 @@ fn inline_items(doc: &LayoutDoc, id: NodeId, out: &mut Vec<ItemRef>) {
     }
 }
 
-/// Whether `node` lies in a superscript or subscript inside `par`.
-fn raised(doc: &LayoutDoc, mut node: NodeId, par: NodeId) -> bool {
-    while node != par {
-        if matches!(doc.nodes[node].kind, NodeKind::Super | NodeKind::Sub) {
-            return true;
-        }
-        match doc.nodes[node].parent {
-            Some(p) => node = p,
-            None => return false,
-        }
-    }
-    false
-}
-
 fn form_lines(doc: &mut LayoutDoc) {
     for id in 0..doc.nodes.len() {
         if !doc.nodes[id].kind.forms_paragraph()
@@ -1813,7 +1799,7 @@ fn form_lines(doc: &mut LayoutDoc) {
         for r in items {
             match &doc.item(r).kind {
                 ItemKind::Text(t) => {
-                    let raised = raised(doc, doc.item(r).node, id);
+                    let raised = doc.raised(doc.item(r).node, id);
                     let y = t.origin[1];
                     // A raised or lowered item joins the line it follows,
                     // within an em of its baseline.

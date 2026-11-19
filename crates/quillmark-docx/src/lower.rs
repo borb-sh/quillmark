@@ -392,7 +392,7 @@ fn strides(doc: &LayoutDoc) -> HashMap<StrideKey, f64> {
         .collect()
 }
 
-impl Lower<'_> {
+impl<'a> Lower<'a> {
     fn kind(&self, n: NodeId) -> &NodeKind {
         &self.doc.nodes[n].kind
     }
@@ -2113,7 +2113,9 @@ impl Lower<'_> {
             let main = texts
                 .iter()
                 .filter_map(|r| match &self.doc.item(*r).kind {
-                    ItemKind::Text(t) if !self.raised(self.doc.item(*r).node, n) => Some(t.size),
+                    ItemKind::Text(t) if !self.doc.raised(self.doc.item(*r).node, n) => {
+                        Some(t.size)
+                    }
                     _ => None,
                 })
                 .reduce(f64::max);
@@ -2266,18 +2268,11 @@ impl Lower<'_> {
     }
 
     /// The kinds from `item_node` up to and including `top`.
-    /// Whether `node` lies in a superscript or subscript inside `top`.
-    fn raised(&self, node: NodeId, top: NodeId) -> bool {
-        self.chain(node, top)
-            .iter()
-            .any(|k| matches!(k, NodeKind::Super | NodeKind::Sub))
-    }
-
-    fn chain(&self, item_node: NodeId, top: NodeId) -> Vec<NodeKind> {
+    fn chain(&self, item_node: NodeId, top: NodeId) -> Vec<&'a NodeKind> {
         let mut out = Vec::new();
         let mut at = Some(item_node);
         while let Some(n) = at {
-            out.push(self.doc.nodes[n].kind.clone());
+            out.push(&self.doc.nodes[n].kind);
             if n == top {
                 break;
             }
@@ -2286,10 +2281,10 @@ impl Lower<'_> {
         out
     }
 
-    fn run_props(&mut self, t: &crate::layout::TextRun, chain: &[NodeKind]) -> RunProps {
+    fn run_props(&mut self, t: &crate::layout::TextRun, chain: &[&NodeKind]) -> RunProps {
         let face = &self.doc.fonts[t.font];
         let font = self.font(&face.family, face.monospace);
-        let has = |f: fn(&NodeKind) -> bool| chain.iter().any(f);
+        let has = |f: fn(&NodeKind) -> bool| chain.iter().any(|k| f(k));
         RunProps {
             font: Some(font),
             bold: face.bold.then_some(true),
