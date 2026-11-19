@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::layout::{
     ArtifactKind, Child, Geometry, HAlign, ImageFormat, ItemKind, ItemRef, LayoutDoc, LineEnd,
-    Marker, NodeId, NodeKind, Notice, NumberFormat, ParStyle, PointHint, Rect, Rgb,
+    Marker, NodeId, NodeKind, Notice, NumberFormat, ParStyle, PointHint, Rect, Rgb, VAlign,
 };
 use crate::model::{
     AbstractNum, Align, Anchor, Block, Blocks, Border, Borders, BreakKind, Cell, CellMargins,
@@ -73,6 +73,10 @@ pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
         placed: 0,
         headings: BTreeSet::new(),
         label_prefix: None,
+        strides: strides(doc),
+        prev_bottom: None,
+        table_gap: None,
+        footer_floats: Vec::new(),
     };
     let document = l.document();
     let mut notices = doc.notices.clone();
@@ -118,6 +122,70 @@ struct Lower<'a> {
     headings: BTreeSet<u8>,
     /// A printed list number the next paragraph opens with.
     label_prefix: Option<String>,
+    /// The usual baseline stride of paragraphs of one face, size and leading.
+    strides: HashMap<StrideKey, f64>,
+    /// Where the last body paragraph's last line box ends.
+    prev_bottom: Option<(u32, f64)>,
+    /// The space a table just lowered needs above it, which the paragraph
+    /// before it carries as space after.
+    table_gap: Option<Twips>,
+    /// Bottom floats of the first page, which its footer holds and reserves.
+    footer_floats: Vec<NodeId>,
+}
+
+type StrideKey = (usize, i64, i64);
+
+/// The style a paragraph-forming node's probes resolved: its own, else its
+/// nearest block's.
+fn style_of(doc: &LayoutDoc, n: NodeId) -> Option<ParStyle> {
+    match &doc.nodes[n].kind {
+        NodeKind::Par { style: Some(s), .. } | NodeKind::InlineRun { style: Some(s) } => Some(*s),
+        _ => doc
+            .ancestor(n, |k| matches!(k, NodeKind::Block { .. }))
+            .and_then(|b| match doc.nodes[b].kind {
+                NodeKind::Block { style, .. } => Some(style),
+                _ => None,
+            }),
+    }
+}
+
+/// The face, size and leading a paragraph's first text is set in.
+fn stride_key(doc: &LayoutDoc, n: NodeId) -> Option<StrideKey> {
+    let t = doc.nodes[n]
+        .lines
+        .iter()
+        .flat_map(|l| &l.items)
+        .find_map(|r| match &doc.item(*r).kind {
+            ItemKind::Text(t) => Some(t),
+            _ => None,
+        })?;
+    let leading = style_of(doc, n).map_or(0.0, |s| s.leading);
+    Some((t.font, (t.size * 100.0).round() as i64, (leading * 100.0).round() as i64))
+}
+
+/// The median baseline stride per face, size and leading, over the
+/// paragraphs with two or more lines on one page.
+fn strides(doc: &LayoutDoc) -> HashMap<StrideKey, f64> {
+    let mut all: HashMap<StrideKey, Vec<f64>> = HashMap::new();
+    for n in 0..doc.nodes.len() {
+        if !doc.nodes[n].kind.forms_paragraph() {
+            continue;
+        }
+        let Some(key) = stride_key(doc, n) else {
+            continue;
+        };
+        for w in doc.nodes[n].lines.windows(2) {
+            if w[0].page == w[1].page {
+                all.entry(key).or_default().push(w[1].baseline - w[0].baseline);
+            }
+        }
+    }
+    all.into_iter()
+        .map(|(k, mut v)| {
+            v.sort_by(f64::total_cmp);
+            (k, v[v.len() / 2])
+        })
+        .collect()
 }
 
 impl Lower<'_> {
@@ -142,6 +210,7 @@ impl Lower<'_> {
         };
         let root = doc.nodes[0].children.clone();
         let mut current = 0;
+        let mut root_late = false;
         for c in root {
             let page = match c {
                 Child::Node(n) => {
@@ -161,6 +230,7 @@ impl Lower<'_> {
                 ..Ctx::default()
             };
             let blocks = self.child(&c, &ctx);
+            self.settle(&mut bodies[current], &mut root_late);
             bodies[current].extend(blocks);
         }
         if !self.pending.is_empty() {
@@ -201,8 +271,8 @@ impl Lower<'_> {
                         right: tw(s.margins.right),
                         bottom: tw(s.margins.bottom),
                         left: tw(s.margins.left),
-                        header: tw((s.margins.top / 2.0).min(36.0)),
-                        footer: tw((s.margins.bottom / 2.0).min(36.0)),
+                        header: tw((s.margins.top - s.header_ascent - 1.0).max(0.0)),
+                        footer: tw((s.margins.bottom - s.footer_descent - 1.0).max(0.0)),
                     },
                     page_numbers,
                     columns: (s.columns > 1).then_some(Columns {
@@ -353,10 +423,31 @@ impl Lower<'_> {
     fn children(&mut self, n: NodeId, ctx: &Ctx) -> Vec<Block> {
         let kids = self.doc.nodes[n].children.clone();
         let mut out = Vec::new();
+        let mut late = false;
         for c in &kids {
-            out.extend(self.child(c, ctx));
+            let blocks = self.child(c, ctx);
+            self.settle(&mut out, &mut late);
+            out.extend(blocks);
         }
         out
+    }
+
+    /// What the child just lowered asks of the paragraph before it: the
+    /// space a table needs above it, as that paragraph's space after. When
+    /// no paragraph comes before it at this level, the request is `late`
+    /// and belongs to the level above.
+    fn settle(&mut self, before: &mut [Block], late: &mut bool) {
+        if *late || self.table_gap.is_none() {
+            return;
+        }
+        match before.last_mut() {
+            Some(Block::Paragraph(p)) => {
+                let gap = self.table_gap.take();
+                p.props.spacing.get_or_insert_with(Spacing::default).after = gap;
+            }
+            Some(_) => self.table_gap = None,
+            None => *late = true,
+        }
     }
 
     fn loose_item(&mut self, r: ItemRef, ctx: &Ctx) -> Vec<Block> {
@@ -443,9 +534,19 @@ impl Lower<'_> {
                 };
                 self.children(n, &ctx)
             }
-            NodeKind::Place { .. } => {
-                let drawings = self.text_box(n, ctx);
-                self.placed += 1;
+            NodeKind::Place { float, valign } => {
+                if float && valign == Some(VAlign::Bottom) && self.first_page(n) == Some(0) {
+                    self.footer_floats.push(n);
+                    return Vec::new();
+                }
+                let mut drawings = self.text_box(n, ctx);
+                if float {
+                    if let Some(Placement::Anchor(a)) = drawings.first_mut().map(|d| &mut d.placement) {
+                        a.wrap = Wrap::TopAndBottom;
+                    }
+                } else {
+                    self.placed += 1;
+                }
                 self.pending.extend(drawings);
                 Vec::new()
             }
@@ -569,8 +670,14 @@ impl Lower<'_> {
             .map(|w| w[1].baseline - w[0].baseline)
             .collect();
         let pitch = if strides.is_empty() {
-            let leading = style.map_or(0.65 * size, |s| s.leading);
-            0.7 * size + leading
+            stride_key(self.doc, n)
+                .and_then(|k| self.strides.get(&k).copied())
+                .or_else(|| {
+                    style
+                        .filter(|s| s.top_edge + s.bottom_edge > 0.0)
+                        .map(|s| s.leading + s.top_edge + s.bottom_edge)
+                })
+                .unwrap_or(1.2 * size)
         } else {
             let mut s = strides.clone();
             s.sort_by(f64::total_cmp);
@@ -659,6 +766,9 @@ impl Lower<'_> {
         self.apply_break(&mut para, first.page, ctx);
         let last = lines.last().expect("a line");
         self.prev = Some(Prev::Baseline(last.page, last.baseline));
+        if !ctx.nested {
+            self.prev_bottom = Some((last.page, last.baseline + 0.2 * pitch));
+        }
         Some(para)
     }
 
@@ -1103,33 +1213,36 @@ impl Lower<'_> {
     fn table(&mut self, n: NodeId, ctx: &Ctx) -> Table {
         let NodeKind::Table {
             columns,
+            content_sized,
+            rows: tops,
             header_rows,
             ..
         } = self.kind(n).clone()
         else {
             unreachable!("a table node")
         };
-        let mine = |l: &Self, m: NodeId| {
-            l.doc.ancestor(l.doc.nodes[m].parent.unwrap_or(0), |k| {
-                matches!(k, NodeKind::Table { .. })
-            }) == Some(n)
-        };
         let mut cells: Vec<NodeId> = Vec::new();
-        let mut stroke: Option<(f64, Rgb)> = None;
         for m in self.doc.subtree(n) {
-            if m != n && !mine(self, m) {
-                continue;
+            let owner = self
+                .doc
+                .ancestor(m, |k| matches!(k, NodeKind::Table { .. } | NodeKind::Cell { .. }));
+            match self.kind(m) {
+                NodeKind::Cell { .. }
+                    if self.doc.ancestor(self.doc.nodes[m].parent.unwrap_or(0), |k| {
+                        matches!(k, NodeKind::Table { .. })
+                    }) == Some(n) =>
+                {
+                    cells.push(m)
+                }
+                _ => {}
             }
-            if matches!(self.kind(m), NodeKind::Cell { .. }) {
-                cells.push(m);
+            if owner != Some(n) {
+                continue;
             }
             for c in self.doc.nodes[m].children.clone() {
                 if let Child::Item(r) = c {
-                    if let ItemKind::Shape(s) = &self.doc.item(r).kind {
-                        if matches!(s.geometry, Geometry::Line { .. }) {
-                            stroke = stroke.or(s.stroke);
-                            self.consumed.insert(r);
-                        }
+                    if matches!(self.doc.item(r).kind, ItemKind::Shape(_)) {
+                        self.consumed.insert(r);
                     }
                 }
             }
@@ -1151,22 +1264,26 @@ impl Lower<'_> {
             })
             .max()
             .unwrap_or(0) as usize;
-        let inset = cells
-            .iter()
-            .find_map(|&c| {
-                let col = match self.kind(c) {
-                    NodeKind::Cell { col, .. } => *col as usize,
-                    _ => return None,
-                };
-                let x = self
-                    .doc
-                    .subtree(c)
-                    .into_iter()
-                    .find_map(|m| self.doc.nodes[m].lines.first().map(|l| l.x0))?;
-                columns.get(col).map(|c0| (x - c0).clamp(0.0, 20.0))
-            })
-            .unwrap_or(5.0);
+        let top = tops.first().copied();
+        if let (Some((page, y)), Some((p, bottom))) = (top, self.prev_bottom) {
+            if p == page && !ctx.nested {
+                self.table_gap = Some(tw((y - bottom).max(0.0)));
+            }
+        }
+        let forced = self.break_pending
+            && !ctx.nested
+            && match (self.prev, top) {
+                (Some(Prev::Baseline(p, _) | Prev::Bottom(p, _)), Some((q, _))) => p < q,
+                _ => false,
+            };
+        self.break_pending = false;
         let saved = self.prev;
+        let border = |b: Option<(f64, Rgb)>| {
+            b.map(|(w, c)| Border {
+                size: ((w * 8.0).round() as u32).clamp(2, 96),
+                color: hex(c),
+            })
+        };
         let mut rows = Vec::new();
         for r in 0..nrows {
             let mut row_cells = Vec::new();
@@ -1179,94 +1296,115 @@ impl Lower<'_> {
                     matches!(self.kind(m), NodeKind::Cell { col, row, rowspan, .. }
                         if *col as usize == c && (*row as usize) < r && (*row + *rowspan) as usize > r)
                 });
-                let (span, body, merge) = match (here, covering) {
-                    (Some(m), _) => {
-                        let NodeKind::Cell {
-                            colspan, rowspan, ..
-                        } = *self.kind(m)
-                        else {
-                            unreachable!()
-                        };
-                        let inner = Ctx {
-                            nested: true,
-                            left: columns.get(c).copied().unwrap_or(ctx.left) + inset,
-                            width: grid.iter().skip(c).take(colspan as usize).sum::<i32>() as f64
-                                / 20.0,
-                            align: None,
-                            page_number: None,
-                            list: None,
-                        };
-                        self.prev = None;
-                        let blocks = self.children(m, &inner);
-                        (
-                            colspan,
-                            Blocks::from_blocks(blocks),
-                            (rowspan > 1).then_some(VMerge::Restart),
-                        )
-                    }
-                    (None, Some(m)) => {
-                        let colspan = match self.kind(m) {
-                            NodeKind::Cell { colspan, .. } => *colspan,
-                            _ => 1,
-                        };
-                        (colspan, Blocks::default(), Some(VMerge::Continue))
-                    }
-                    (None, None) => (1, Blocks::default(), None),
+                let Some(m) = here.or(covering) else {
+                    row_cells.push(Cell {
+                        props: CellProps {
+                            width: grid.get(c).copied(),
+                            span: 1,
+                            ..CellProps::default()
+                        },
+                        body: Blocks::default(),
+                    });
+                    c += 1;
+                    continue;
                 };
-                let span = span.max(1).min((ncols - c) as u32);
+                let NodeKind::Cell {
+                    colspan,
+                    rowspan,
+                    fill,
+                    inset,
+                    borders,
+                    ..
+                } = self.kind(m).clone()
+                else {
+                    unreachable!()
+                };
+                let span = colspan.max(1).min((ncols - c) as u32);
+                let (body, merge) = if here.is_some() {
+                    let inner = Ctx {
+                        nested: true,
+                        left: columns.get(c).copied().unwrap_or(ctx.left) + inset.left,
+                        width: grid.iter().skip(c).take(span as usize).sum::<i32>() as f64 / 20.0,
+                        align: None,
+                        page_number: None,
+                        list: None,
+                    };
+                    self.prev = None;
+                    let mut blocks = self.children(m, &inner);
+                    let header = (r as u32) < header_rows;
+                    for b in &mut blocks {
+                        if let Block::Paragraph(p) = b {
+                            p.props.keep_next |= header;
+                        }
+                    }
+                    if forced && r == 0 && c == 0 {
+                        if let Some(Block::Paragraph(p)) = blocks.first_mut() {
+                            p.props.page_break_before = true;
+                        }
+                    }
+                    (
+                        Blocks::from_blocks(blocks),
+                        (rowspan > 1).then_some(VMerge::Restart),
+                    )
+                } else {
+                    (Blocks::default(), Some(VMerge::Continue))
+                };
+                let [t, rt, b, l] = borders;
                 row_cells.push(Cell {
                     props: CellProps {
                         width: Some(grid.iter().skip(c).take(span as usize).sum()),
                         span,
                         merge,
-                        ..CellProps::default()
+                        borders: Some(Borders {
+                            top: border(t),
+                            left: border(l),
+                            bottom: border(b),
+                            right: border(rt),
+                            inside_h: None,
+                            inside_v: None,
+                        }),
+                        fill: fill.map(hex),
+                        no_wrap: span == 1 && content_sized.get(c).copied().unwrap_or(false),
+                        margins: Some(CellMargins {
+                            top: tw(inset.top),
+                            left: tw(inset.left),
+                            bottom: tw(inset.bottom),
+                            right: tw(inset.right),
+                        }),
+                        valign: None,
                     },
                     body,
                 });
                 c += span as usize;
             }
+            let height = match (tops.get(r), tops.get(r + 1)) {
+                (Some((p, a)), Some((q, b))) if p == q => Some(tw(b - a)),
+                _ => None,
+            };
             rows.push(Row {
                 props: RowProps {
-                    cant_split: false,
+                    cant_split: true,
                     header: (r as u32) < header_rows,
-                    min_height: None,
+                    min_height: height,
                 },
                 cells: row_cells,
             });
         }
         self.prev = saved;
-        let border = stroke.map(|(w, c)| Border {
-            size: ((w * 8.0).round() as u32).clamp(2, 96),
-            color: hex(c),
-        });
-        let frame = self.doc.nodes[n].frames.clone();
-        let first_page = frame.first().map_or(0, |f| f.0);
-        if let Some(&(p, f)) = frame.last() {
+        if let Some(&(p, f)) = self.doc.nodes[n].frames.last() {
             self.prev = Some(Prev::Bottom(p, f.y1));
+            if !ctx.nested {
+                self.prev_bottom = Some((p, f.y1));
+            }
         }
-        let _ = first_page;
-        self.break_pending = false;
-        let i = tw(inset);
         Table {
             props: TableProps {
                 style: None,
                 width: Some(grid.iter().sum()),
                 indent: columns.first().map(|x| tw(x - ctx.left)),
-                borders: border.map(|b| Borders {
-                    top: Some(b.clone()),
-                    left: Some(b.clone()),
-                    bottom: Some(b.clone()),
-                    right: Some(b.clone()),
-                    inside_h: Some(b.clone()),
-                    inside_v: Some(b),
-                }),
+                borders: None,
                 fixed: true,
-                cell_margins: Some(CellMargins {
-                    top: i,
-                    left: i,
-                    bottom: i,
-                    right: i,
-                }),
+                cell_margins: None,
             },
             grid,
             rows,
@@ -1495,14 +1633,20 @@ impl Lower<'_> {
                     .map(|a| a.1)
                     .collect()
             };
-            if pages.iter().all(|&p| of(p).is_empty()) {
+            let floats: Vec<NodeId> = if footer && pages.first() == Some(&0) {
+                std::mem::take(&mut self.footer_floats)
+            } else {
+                Vec::new()
+            };
+            if floats.is_empty() && pages.iter().all(|&p| of(p).is_empty()) {
                 continue;
             }
             let sig = |l: &Self, p: usize| l.signature(&of(p), p);
             let first = pages[0];
             let second = pages.get(1).copied();
-            let differs = second.is_some_and(|s| sig(self, first) != sig(self, s));
-            let mut make = |l: &mut Self, p: usize| -> usize {
+            let differs =
+                !floats.is_empty() || second.is_some_and(|s| sig(self, first) != sig(self, s));
+            let mut make = |l: &mut Self, p: usize, floats: &[NodeId]| -> usize {
                 let ctx = Ctx {
                     page_number: l.doc.pages[p].number_text.clone(),
                     ..Ctx::default()
@@ -1510,6 +1654,19 @@ impl Lower<'_> {
                 let mut drawings = Vec::new();
                 for n in of(p) {
                     drawings.extend(l.text_box(n, &ctx));
+                }
+                let mut line = 20;
+                if let Some(band) = floats
+                    .iter()
+                    .filter_map(|&f| l.doc.nodes[f].frames.first().map(|r| r.1.y0))
+                    .reduce(f64::min)
+                {
+                    let page = &l.doc.pages[p];
+                    let distance = (page.setup.margins.bottom - page.setup.footer_descent - 1.0).max(0.0);
+                    line = tw((page.size[1] - distance - band).max(1.0));
+                    for &f in floats {
+                        drawings.extend(l.text_box(f, &Ctx::default()));
+                    }
                 }
                 let target = sig(l, p);
                 for &q in pages {
@@ -1524,7 +1681,7 @@ impl Lower<'_> {
                         spacing: Some(Spacing {
                             before: Some(0),
                             after: Some(0),
-                            line: Some(Line::Exact(20)),
+                            line: Some(Line::Exact(line)),
                         }),
                         ..ParProps::default()
                     },
@@ -1539,10 +1696,13 @@ impl Lower<'_> {
             };
             if differs {
                 title_page = true;
-                refs[part].first = Some(make(self, first));
-                refs[part].default = Some(make(self, second.expect("a second page")));
+                refs[part].first = Some(make(self, first, &floats));
+                refs[part].default = match second {
+                    Some(second) => Some(make(self, second, &[])),
+                    None => None,
+                };
             } else {
-                refs[part].default = Some(make(self, first));
+                refs[part].default = Some(make(self, first, &[]));
             }
         }
         if title_page {

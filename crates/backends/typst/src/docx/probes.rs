@@ -33,7 +33,7 @@ const PRELUDE: &str = r#"{
       context h(hint: "block", edge: "open", a: align.alignment, size: text.size,
         sticky: it.at("sticky", default: false), breakable: it.at("breakable", default: true),
         above: it.at("above", default: auto), below: it.at("below", default: auto),
-        leading: par.leading, spacing: par.spacing)
+        leading: par.leading, spacing: par.spacing, top: text.top-edge, bottom: text.bottom-edge)
       it
       h(hint: "block", edge: "close")
     },
@@ -45,7 +45,8 @@ const PRELUDE: &str = r#"{
     },
     page: context {
       h(hint: "page", margin: page.margin, columns: page.columns, w: page.width, h: page.height,
-        flipped: page.flipped, n: counter(page).get().first(), size: text.size)
+        flipped: page.flipped, n: counter(page).get().first(), size: text.size,
+        ascent: page.header-ascent, descent: page.footer-descent, gutter: columns.gutter)
       {
         show text: it => h(hint: "pnum", s: it.text)
         counter(page).display()

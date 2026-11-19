@@ -21,6 +21,8 @@ fn page() -> Page {
             columns: 1,
             gutter: 0.0,
             flipped: false,
+            header_ascent: 21.6,
+            footer_descent: 21.6,
         },
         number: 1,
         number_text: Some("1".into()),

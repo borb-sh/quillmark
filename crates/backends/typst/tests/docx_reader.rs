@@ -131,6 +131,7 @@ fn headings_lists_and_tables_keep_their_structure() {
         columns,
         header_rows,
         grid,
+        ..
     } = &doc.nodes[table].kind
     else {
         unreachable!()
@@ -349,4 +350,41 @@ fn ink_the_tree_cannot_hold_is_a_picture_and_a_highlight_keeps_its_fill() {
         })
         .expect("the bold run");
     assert!(doc.fonts[heavy].bold, "a weight on a variable face is bold");
+}
+
+#[test]
+fn a_tables_columns_close_at_their_own_size_and_cells_carry_their_fields() {
+    let doc = read(&format!(
+        "{PAGE}Above.\n#table(columns: (60pt, 1fr), inset: 4pt, fill: (x, y) => if y == 0 {{ gray }},\n\
+         stroke: 0.5pt + red, [a], [b], [c], [d])\n#table(columns: (auto, auto), [wide cell], [x])\n"
+    ));
+    let tables = find(&doc, |k| matches!(k, NodeKind::Table { .. }));
+    let NodeKind::Table { columns, content_sized, rows, .. } = &doc.nodes[tables[0]].kind else {
+        unreachable!()
+    };
+    assert_eq!(columns, &[30.0, 90.0, 270.0], "a fixed column and a fraction to the margin");
+    assert_eq!(content_sized, &[false, false]);
+    assert_eq!(rows.len(), 2);
+    assert!(rows[0].1 < rows[1].1);
+    let cells: Vec<NodeKind> = doc
+        .subtree(tables[0])
+        .into_iter()
+        .filter(|&n| matches!(doc.nodes[n].kind, NodeKind::Cell { .. }))
+        .map(|n| doc.nodes[n].kind.clone())
+        .collect();
+    let NodeKind::Cell { fill, inset, borders, .. } = &cells[0] else { unreachable!() };
+    assert_eq!(*fill, Some(quillmark_docx::layout::Rgb(170, 170, 170)));
+    assert_eq!((inset.top, inset.left), (4.0, 4.0));
+    assert_eq!(borders[0], Some((0.5, quillmark_docx::layout::Rgb(255, 65, 54))));
+    assert!(matches!(&cells[2], NodeKind::Cell { fill: None, .. }));
+    let NodeKind::Table { columns, content_sized, .. } = &doc.nodes[tables[1]].kind else {
+        unreachable!()
+    };
+    assert_eq!(content_sized, &[true, true]);
+    let wide = paragraphs(&doc)
+        .into_iter()
+        .find(|&p| text(&doc, p) == "wide cell")
+        .unwrap();
+    let ink = doc.nodes[wide].frames[0].1.x1;
+    assert!((columns[1] - (ink + 5.0)).abs() < 0.5, "{columns:?} {ink}");
 }

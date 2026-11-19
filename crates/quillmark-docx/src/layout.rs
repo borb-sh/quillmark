@@ -164,6 +164,10 @@ pub struct PageSetup {
     pub columns: u32,
     pub gutter: f64,
     pub flipped: bool,
+    /// How far the header's bottom sits above the top margin.
+    pub header_ascent: f64,
+    /// How far the footer's top sits below the bottom margin.
+    pub footer_descent: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -321,6 +325,17 @@ pub struct ParStyle {
     pub size: f64,
     pub leading: f64,
     pub spacing: f64,
+    /// How far a line's box reaches above and below its baseline, from the
+    /// text edges in force and the face; zero when they are not known.
+    pub top_edge: f64,
+    pub bottom_edge: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VAlign {
+    Top,
+    Horizon,
+    Bottom,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -409,18 +424,26 @@ pub enum NodeKind {
         gutter: f64,
     },
     Figure,
-    /// `columns` holds the n + 1 column boundaries.
+    /// `columns` holds the n + 1 column boundaries; `content_sized` says
+    /// which columns are as wide as their content; `rows` holds each row's
+    /// page and top.
     Table {
         columns: Vec<f64>,
+        content_sized: Vec<bool>,
+        rows: Vec<(u32, f64)>,
         header_rows: u32,
         grid: bool,
     },
+    /// A cell's `borders` are its top, right, bottom and left strokes.
     Cell {
         col: u32,
         row: u32,
         colspan: u32,
         rowspan: u32,
         header: bool,
+        fill: Option<Rgb>,
+        inset: Sides,
+        borders: [Option<(f64, Rgb)>; 4],
     },
     List {
         marker: Marker,
@@ -432,6 +455,7 @@ pub enum NodeKind {
     ListLabel,
     Place {
         float: bool,
+        valign: Option<VAlign>,
     },
     Artifact {
         kind: ArtifactKind,

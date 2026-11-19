@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use quillmark_docx::layout::{
     ArtifactKind, Child, DocInfo, FontFace, FontId, Geometry, HAlign, ImageData, ImageFormat,
     ImageId, Item, ItemKind, ItemRef, LayoutDoc, Line, LineEnd, Marker, Node, NodeId, NodeKind,
-    Notice, NumberFormat, Page, PageSetup, ParStyle, Parity, PointHint, Rect, Rgb, Shape, Sides, TextRun,
+    Notice, NumberFormat, VAlign, Page, PageSetup, ParStyle, Parity, PointHint, Rect, Rgb, Shape, Sides, TextRun,
 };
 use typst::foundations::{Content, Dict, Smart, StyleChain, Value};
 use typst::introspection::{Location, Tag};
@@ -25,7 +25,7 @@ use typst::layout::{
     Abs, Alignment, Frame, FrameItem, GroupItem, HAlignment, Length, Point, Sides as TSides, Size,
     Transform,
 };
-use typst::layout::{GridCell, GridElem, HideElem, PlaceElem};
+use typst::layout::{GridCell, GridElem, HideElem, PlaceElem, Sizing, VAlignment};
 use typst::model::{
     Destination, EmphElem, EnumElem, FigureCaption, FigureElem, FootnoteElem, HeadingElem,
     LinkElem, LinkTarget, ListElem, ListMarker, Numbering, ParElem, StrongElem, TableCell, TableElem,
@@ -69,6 +69,11 @@ struct Reader<'a> {
     probe: Option<Dict>,
     number_text: Option<String>,
     rasters: usize,
+    /// A par or block node's text edges, resolved against the face of its
+    /// first text.
+    edges: HashMap<NodeId, (Value, Value)>,
+    /// A table node's column sizes and the text size an `em` resolves at.
+    sizings: HashMap<NodeId, (Vec<Sizing>, f64)>,
     /// Inside ink already carried as a picture: tags still open and close
     /// nodes, and nothing else is read.
     in_raster: u32,
@@ -95,6 +100,8 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
         probe: None,
         number_text: None,
         rasters: 0,
+        edges: HashMap::new(),
+        sizings: HashMap::new(),
         in_raster: 0,
     };
     let mut assumed = 0;
@@ -110,6 +117,8 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
                 columns: 1,
                 gutter: 0.0,
                 flipped: false,
+                header_ascent: 0.0,
+                footer_descent: 0.0,
             },
             number: page.number as u64,
             number_text: None,
@@ -131,6 +140,8 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
             columns: 1,
             gutter: 0.0,
             flipped: false,
+            header_ascent: 0.3 * 72.0,
+            footer_descent: 0.3 * 72.0,
         });
         p.number_text = r.number_text.take();
     }
@@ -152,10 +163,11 @@ pub(crate) fn read(document: &PagedDocument, title: Option<String>) -> LayoutDoc
     }
     let mut out = r.out;
     let origins = r.origins;
+    let sizings = std::mem::take(&mut r.sizings);
     form_paragraphs(&mut out);
     form_lines(&mut out);
     measure_frames(&mut out);
-    measure_tables(&mut out, &origins);
+    measure_tables(&mut out, &origins, &sizings);
     out
 }
 
@@ -348,6 +360,9 @@ impl Reader<'_> {
                             monospace,
                         });
                     }
+                    if !self.edges.is_empty() {
+                        self.resolve_edges(text);
+                    }
                     let scale = ts.sy.get().abs();
                     let size = text.size.to_pt() * scale;
                     let width: f64 = text
@@ -478,12 +493,22 @@ impl Reader<'_> {
                 cell.kind.get(StyleChain::default()),
                 typst::foundations::Smart::Custom(TableCellKind::Header(..))
             );
+            let size = self.text_size();
+            let (fill, inset, borders) = cell_style(
+                cell.inset.get(StyleChain::default()),
+                cell.fill.get_ref(StyleChain::default()),
+                &cell.stroke.get_cloned(StyleChain::default()),
+                size,
+            );
             let node = self.add_node(NodeKind::Cell {
                 col: smart_index(cell.x.get(StyleChain::default())),
                 row: smart_index(cell.y.get(StyleChain::default())),
                 colspan: cell.colspan.get(StyleChain::default()).get() as u32,
                 rowspan: cell.rowspan.get(StyleChain::default()).get() as u32,
                 header,
+                fill,
+                inset,
+                borders,
             });
             self.origins.insert(node, (self.page, at));
             self.by_loc.insert(loc, node);
@@ -491,12 +516,22 @@ impl Reader<'_> {
             return;
         }
         if let Some(cell) = elem.to_packed::<GridCell>() {
+            let size = self.text_size();
+            let (fill, inset, borders) = cell_style(
+                cell.inset.get(StyleChain::default()),
+                cell.fill.get_ref(StyleChain::default()),
+                &cell.stroke.get_cloned(StyleChain::default()),
+                size,
+            );
             let node = self.add_node(NodeKind::Cell {
                 col: smart_index(cell.x.get(StyleChain::default())),
                 row: smart_index(cell.y.get(StyleChain::default())),
                 colspan: cell.colspan.get(StyleChain::default()).get() as u32,
                 rowspan: cell.rowspan.get(StyleChain::default()).get() as u32,
                 header: false,
+                fill,
+                inset,
+                borders,
             });
             self.origins.insert(node, (self.page, at));
             self.by_loc.insert(loc, node);
@@ -523,8 +558,67 @@ impl Reader<'_> {
             return;
         }
         let node = self.add_node(kind);
+        let sizing = elem
+            .to_packed::<TableElem>()
+            .map(|t| t.columns.get_ref(StyleChain::default()).0.to_vec())
+            .or_else(|| {
+                elem.to_packed::<GridElem>()
+                    .map(|g| g.columns.get_ref(StyleChain::default()).0.to_vec())
+            });
+        if let Some(sizing) = sizing {
+            let size = self.text_size();
+            self.sizings.insert(node, (sizing, size));
+        }
         self.by_loc.insert(loc, node);
         self.push(Key::Elem(loc), Some(node), false);
+    }
+
+    /// The text size the innermost block or paragraph probe recorded.
+    fn text_size(&self) -> f64 {
+        self.stack
+            .iter()
+            .rev()
+            .filter_map(|o| o.node)
+            .find_map(|n| match &self.out.nodes[n].kind {
+                NodeKind::Block { style, .. } => Some(style.size),
+                NodeKind::Par { style: Some(s), .. } => Some(s.size),
+                _ => None,
+            })
+            .unwrap_or(0.0)
+    }
+
+    /// The text edges of the open par and block nodes still waiting for a
+    /// face, from `text`'s.
+    fn resolve_edges(&mut self, text: &typst::text::TextItem) {
+        let open: Vec<NodeId> = self.stack.iter().filter_map(|o| o.node).collect();
+        for n in open {
+            let Some((top, bottom)) = self.edges.remove(&n) else {
+                continue;
+            };
+            let m = text.font.metrics();
+            let size = text.size.to_pt();
+            let edge = |v: &Value, above: bool| -> f64 {
+                let em = |e: typst::layout::Em| e.get() * size;
+                match v {
+                    Value::Str(s) => match s.as_str() {
+                        "ascender" | "bounds" if above => em(m.ascender),
+                        "cap-height" => em(m.cap_height),
+                        "x-height" => em(m.x_height),
+                        "descender" | "bounds" => -em(m.descender),
+                        _ => 0.0,
+                    },
+                    v => length(v, size).unwrap_or(0.0),
+                }
+            };
+            let (t, b) = (edge(&top, true), edge(&bottom, false));
+            match &mut self.out.nodes[n].kind {
+                NodeKind::Par { style: Some(s), .. } | NodeKind::Block { style: s, .. } => {
+                    s.top_edge = t;
+                    s.bottom_edge = b;
+                }
+                _ => {}
+            }
+        }
     }
 
     /// How many lists of the kind `pred` accepts enclose the walk.
@@ -645,6 +739,8 @@ impl Reader<'_> {
                     size,
                     leading: length(&get("leading"), size).unwrap_or(0.65 * size),
                     spacing: length(&get("spacing"), size).unwrap_or(1.2 * size),
+                    top_edge: 0.0,
+                    bottom_edge: 0.0,
                 };
                 let par = self.stack.iter().rev().find_map(|o| {
                     o.node
@@ -656,6 +752,7 @@ impl Reader<'_> {
                     } = &mut self.out.nodes[n].kind
                     {
                         *s = Some(style);
+                        self.edges.insert(n, (get("top"), get("bottom")));
                     }
                 }
             }
@@ -683,6 +780,8 @@ impl Reader<'_> {
                                 size,
                                 leading: length(&get("leading"), size).unwrap_or(0.65 * size),
                                 spacing,
+                                top_edge: 0.0,
+                                bottom_edge: 0.0,
                             },
                         }
                     }
@@ -700,7 +799,11 @@ impl Reader<'_> {
                 };
                 match self.top() {
                     Some(_) => {
+                        let block = matches!(kind, NodeKind::Block { .. });
                         let node = self.add_node(kind);
+                        if block {
+                            self.edges.insert(node, (get("top"), get("bottom")));
+                        }
                         self.push(key, Some(node), false);
                     }
                     None => self.push(key, None, false),
@@ -753,8 +856,18 @@ fn node_kind(elem: &Content) -> Option<NodeKind> {
         };
     }
     if let Some(place) = elem.to_packed::<PlaceElem>() {
+        let valign = match place.alignment.get(styles) {
+            typst::foundations::Smart::Custom(a) => match a.y() {
+                Some(VAlignment::Top) => Some(VAlign::Top),
+                Some(VAlignment::Horizon) => Some(VAlign::Horizon),
+                Some(VAlignment::Bottom) => Some(VAlign::Bottom),
+                None => None,
+            },
+            typst::foundations::Smart::Auto => None,
+        };
         return Some(NodeKind::Place {
             float: place.float.get(styles),
+            valign,
         });
     }
     let kind = if elem.is::<StrongElem>() {
@@ -776,6 +889,8 @@ fn node_kind(elem: &Content) -> Option<NodeKind> {
     } else if elem.is::<TableElem>() || elem.is::<GridElem>() {
         NodeKind::Table {
             columns: Vec::new(),
+            content_sized: Vec::new(),
+            rows: Vec::new(),
             header_rows: 0,
             grid: elem.is::<GridElem>(),
         }
@@ -979,11 +1094,14 @@ fn page_setup(d: &Dict, size: [f64; 2]) -> Option<PageSetup> {
         Value::Int(n) => n.max(1) as u32,
         _ => 1,
     };
+    let body = size[0] - margins.left - margins.right;
     Some(PageSetup {
         margins,
         columns,
-        gutter: 0.04 * size[0],
+        gutter: margin_side(&get("gutter"), body, short, text)?,
         flipped: matches!(get("flipped"), Value::Bool(true)),
+        header_ascent: margin_side(&get("ascent"), margins.top, short, text)?,
+        footer_descent: margin_side(&get("descent"), margins.bottom, short, text)?,
     })
 }
 
@@ -1233,9 +1351,16 @@ fn measure_frames(doc: &mut LayoutDoc) {
     }
 }
 
-/// A table's column boundaries are its cells' origins, closed by the
-/// table's right edge; its header rows are the rows of its header cells.
-fn measure_tables(doc: &mut LayoutDoc, origins: &HashMap<NodeId, (u32, Point)>) {
+/// A table's column boundaries are its cells' origins, the last one closed
+/// by the column's own size: a fixed or relative width, the container's
+/// edge for a fraction, or the widest content plus its inset for `auto`.
+/// Its rows' tops are its cells' origins; its header rows are the rows of
+/// its header cells.
+fn measure_tables(
+    doc: &mut LayoutDoc,
+    origins: &HashMap<NodeId, (u32, Point)>,
+    sizings: &HashMap<NodeId, (Vec<Sizing>, f64)>,
+) {
     for id in 0..doc.nodes.len() {
         if !matches!(doc.nodes[id].kind, NodeKind::Table { .. }) {
             continue;
@@ -1245,12 +1370,16 @@ fn measure_tables(doc: &mut LayoutDoc, origins: &HashMap<NodeId, (u32, Point)>) 
             .into_iter()
             .filter(|&n| {
                 matches!(doc.nodes[n].kind, NodeKind::Cell { .. })
-                    && doc.ancestor(n, |k| matches!(k, NodeKind::Table { .. })) == Some(id)
+                    && doc.ancestor(doc.nodes[n].parent.unwrap_or(0), |k| {
+                        matches!(k, NodeKind::Table { .. })
+                    }) == Some(id)
             })
             .collect();
+        let (sizing, size) = sizings.get(&id).cloned().unwrap_or_default();
         let mut starts: HashMap<u32, f64> = HashMap::new();
+        let mut tops: HashMap<u32, (u32, f64)> = HashMap::new();
         let mut header = 0;
-        let mut count = 0;
+        let mut count = sizing.len() as u32;
         for &c in &cells {
             if let NodeKind::Cell {
                 col,
@@ -1261,37 +1390,148 @@ fn measure_tables(doc: &mut LayoutDoc, origins: &HashMap<NodeId, (u32, Point)>) 
             } = doc.nodes[c].kind
             {
                 count = count.max(col + colspan);
-                if let Some((_, at)) = origins.get(&c) {
+                if let Some(&(page, at)) = origins.get(&c) {
                     let x = at.x.to_pt();
                     starts.entry(col).and_modify(|v| *v = v.min(x)).or_insert(x);
+                    let y = at.y.to_pt();
+                    tops.entry(row)
+                        .and_modify(|v| {
+                            if (page, y) < *v {
+                                *v = (page, y)
+                            }
+                        })
+                        .or_insert((page, y));
                 }
                 if h {
                     header = header.max(row + 1);
                 }
             }
         }
-        let right = doc.nodes[id]
-            .frames
-            .first()
-            .map(|f| f.1.x1)
-            .unwrap_or_default();
+        let (left, right) = container(doc, id);
+        let last = count.saturating_sub(1);
+        let last_start = starts.get(&last).copied().unwrap_or(left);
+        let em = |l: Length| l.abs.to_pt() + l.em.get() * size;
+        let end = match sizing.get(last as usize).or(sizing.last()) {
+            Some(Sizing::Rel(r)) => last_start + r.rel.get() * (right - left) + em(r.abs),
+            Some(Sizing::Fr(_)) => right,
+            _ => cells
+                .iter()
+                .filter_map(|&c| match doc.nodes[c].kind {
+                    NodeKind::Cell {
+                        col,
+                        colspan,
+                        inset,
+                        ..
+                    } if col + colspan == count => {
+                        Some(doc.nodes[c].frames.first().map_or(last_start, |f| f.1.x1) + inset.right)
+                    }
+                    _ => None,
+                })
+                .fold(last_start, f64::max),
+        };
         let mut columns: Vec<f64> = (0..count)
             .map(|c| starts.get(&c).copied().unwrap_or(f64::NAN))
             .collect();
-        columns.push(right);
+        columns.push(end);
         for i in (0..count as usize).rev() {
             if columns[i].is_nan() {
                 columns[i] = columns[i + 1];
             }
         }
+        let content_sized: Vec<bool> = (0..count as usize)
+            .map(|c| matches!(sizing.get(c).or(sizing.last()), Some(Sizing::Auto) | None))
+            .collect();
+        let mut rows: Vec<(u32, u32, f64)> = tops.into_iter().map(|(r, (p, y))| (r, p, y)).collect();
+        rows.sort_by_key(|r| r.0);
         if let NodeKind::Table {
             columns: c,
+            content_sized: cs,
+            rows: rs,
             header_rows,
             ..
         } = &mut doc.nodes[id].kind
         {
             *c = columns;
+            *cs = content_sized;
+            *rs = rows.into_iter().map(|(_, p, y)| (p, y)).collect();
             *header_rows = header;
         }
     }
+}
+
+/// The left and right edges a table at `id` lays out in: the inside of the
+/// cell it sits in, else its page's text area.
+fn container(doc: &LayoutDoc, id: NodeId) -> (f64, f64) {
+    let outer = doc.nodes[id]
+        .parent
+        .and_then(|p| doc.ancestor(p, |k| matches!(k, NodeKind::Cell { .. })));
+    if let Some(cell) = outer {
+        if let NodeKind::Cell {
+            col,
+            colspan,
+            inset,
+            ..
+        } = doc.nodes[cell].kind
+        {
+            let table = doc.ancestor(cell, |k| matches!(k, NodeKind::Table { .. }));
+            if let Some(NodeKind::Table { columns, .. }) = table.map(|t| &doc.nodes[t].kind) {
+                if let (Some(a), Some(b)) =
+                    (columns.get(col as usize), columns.get((col + colspan) as usize))
+                {
+                    return (a + inset.left, b - inset.right);
+                }
+            }
+        }
+    }
+    let page = doc.nodes[id].frames.first().map_or(0, |f| f.0) as usize;
+    let p = &doc.pages[page];
+    (p.setup.margins.left, p.size[0] - p.setup.margins.right)
+}
+
+/// A cell's fill, inset and strokes from its resolved fields; an `em`
+/// resolves at `size`.
+fn cell_style(
+    inset: Smart<TSides<Option<typst::layout::Rel<Length>>>>,
+    fill: &Smart<Option<Paint>>,
+    stroke: &TSides<Option<Option<std::sync::Arc<typst::visualize::Stroke>>>>,
+    size: f64,
+) -> (Option<Rgb>, Sides, [Option<(f64, Rgb)>; 4]) {
+    let len = |l: Length| l.abs.to_pt() + l.em.get() * size;
+    let inset = match inset {
+        Smart::Custom(i) => {
+            let side = |v: Option<typst::layout::Rel<Length>>| v.map_or(0.0, |r| len(r.abs));
+            Sides {
+                top: side(i.top),
+                right: side(i.right),
+                bottom: side(i.bottom),
+                left: side(i.left),
+            }
+        }
+        Smart::Auto => Sides::default(),
+    };
+    let fill = match fill {
+        Smart::Custom(Some(p)) => Some(rgb(p)),
+        _ => None,
+    };
+    let side = |v: &Option<Option<std::sync::Arc<typst::visualize::Stroke>>>| match v {
+        Some(Some(s)) => {
+            let width = match s.thickness {
+                Smart::Custom(l) => len(l),
+                Smart::Auto => 1.0,
+            };
+            let color = match &s.paint {
+                Smart::Custom(p) => rgb(p),
+                Smart::Auto => Rgb(0, 0, 0),
+            };
+            Some((width, color))
+        }
+        _ => None,
+    };
+    let borders = [
+        side(&stroke.top),
+        side(&stroke.right),
+        side(&stroke.bottom),
+        side(&stroke.left),
+    ];
+    (fill, inset, borders)
 }

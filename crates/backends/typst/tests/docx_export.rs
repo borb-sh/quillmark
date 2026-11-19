@@ -210,3 +210,50 @@ fn a_highlight_rule_and_picture_keep_their_ink() {
     assert!(codes.iter().any(|c| c == "docx::rasterized"), "{codes:?}");
     assert!(!codes.iter().any(|c| c == "docx::ink_dropped" || c == "docx::shape_dropped"), "{codes:?}");
 }
+
+#[test]
+fn measured_pitch_distances_tables_and_a_first_page_float() {
+    let (parts, codes) = render(&format!(
+        "{PAGE}A paragraph with words enough that it wraps onto a second line of text here.\n\n\
+         One line.\n\n\
+         #table(columns: (auto, 1fr), fill: (x, y) => if y == 0 {{ gray }}, stroke: 0.5pt + red,\n\
+         [Key], [Value])\n\
+         #place(bottom, float: true)[Reserved band]\n"
+    ));
+    let xml = part(&parts, "word/document.xml");
+    let doc = roxmltree::Document::parse(&xml).unwrap();
+    let lines: std::collections::BTreeSet<&str> = doc
+        .descendants()
+        .filter(|n| n.tag_name().name() == "spacing" && n.parent().unwrap().parent().unwrap().parent().unwrap().tag_name().name() == "body")
+        .filter_map(|n| n.attributes().find(|a| a.name() == "line").map(|a| a.value()))
+        .collect();
+    assert_eq!(lines.len(), 1, "a one-line paragraph takes the stride of its face: {lines:?}");
+    assert!(xml.contains("w:header=\"400\""), "the header sits at the margin less its ascent");
+    let before_table = paragraphs(&xml)
+        .into_iter()
+        .find(|p| p.0 == "One line.")
+        .map(|p| p.1)
+        .unwrap();
+    let spacing = doc
+        .get_node(before_table)
+        .unwrap()
+        .descendants()
+        .find(|n| n.tag_name().name() == "spacing")
+        .unwrap();
+    assert!(spacing.attribute((NS_W, "after")).is_some_and(|v| v.parse::<i32>().unwrap() > 0));
+    assert!(xml.contains("w:fill=\"AAAAAA\""), "the header row's fill");
+    assert!(xml.contains("<w:tcBorders><w:top w:val=\"single\" w:sz=\"4\""), "{xml}");
+    assert_eq!(xml.matches("<w:noWrap/>").count(), 1, "the auto column does not wrap");
+    assert!(xml.contains("<w:cantSplit/>"));
+    assert!(xml.contains("<w:titlePg/>"));
+    let footers: String = parts
+        .iter()
+        .filter(|(n, _)| n.starts_with("word/footer"))
+        .map(|(_, b)| String::from_utf8_lossy(b).to_string())
+        .collect();
+    assert!(footers.contains("Reserved band"), "the float sits in the first-page footer");
+    assert!(!xml.contains("Reserved band"));
+    assert!(!codes.iter().any(|c| c == "docx::ink_dropped" || c == "docx::shape_dropped"), "{codes:?}");
+}
+
+const NS_W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
