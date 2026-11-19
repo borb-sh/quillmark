@@ -516,7 +516,7 @@ What is known to differ, with no warning:
 - **A text box does not wrap.** Placed content is a text box exactly as wide as the PDF's ink, so a face Word sets wider than the PDF's runs past its edge or is cut off.
 - **Chinese, Japanese and Korean text is set in a face Word picks.** A run names its face for Latin and complex-script text only.
 - **A figure's table is not kept with the caption below it,** so Word can set the caption at the top of the next page.
-- **One line that a `set align` rule centres, in a block with no paragraph break,** keeps its place as a left indent, so it does not stay centred as it is edited.
+- **One line in a block with no paragraph break keeps its place as a left indent.** Typst marks no paragraph there, so nothing says where its lines start: a line a `set align` rule centres does not stay centred as it is edited, and a line Typst starts past the margin wraps under its first word rather than at the margin.
 
 #### Hints
 
