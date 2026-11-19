@@ -98,6 +98,8 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::invalid_matrix_member`
 - `quill::invalid_name`
 - `quill::invalid_requires`
+- `quill::invalid_root`
+- `quill::invalid_schema_section`
 - `quill::invalid_ui`
 - `quill::invalid_utf8`
 - `quill::invalid_version`
@@ -121,6 +123,14 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::reserved_field_name`
 - `quill::richtext_default_import`
 - `quill::richtext_example_import`
+- `quill::root_chain`
+- `quill::root_contract_key`
+- `quill::root_field_collision`
+- `quill::root_invalid`
+- `quill::root_mismatch`
+- `quill::root_missing`
+- `quill::root_unknown_field`
+- `quill::schema_and_sections`
 - `quill::seed_cardinality`
 - `quill::seed_enum_violation`
 - `quill::seed_format_violation`

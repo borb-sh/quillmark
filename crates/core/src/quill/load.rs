@@ -36,7 +36,19 @@ impl Quill {
             )]
         })?;
 
-        let (config, warnings) = QuillConfig::from_yaml_with_warnings(&quill_yaml_content)?;
+        let root_yaml = root
+            .get_file(super::ROOT_COPY_PATH)
+            .map(|bytes| {
+                std::str::from_utf8(bytes).map_err(|e| {
+                    vec![diag(
+                        format!("{} is not valid UTF-8: {}", super::ROOT_COPY_PATH, e),
+                        "quill::invalid_utf8",
+                    )]
+                })
+            })
+            .transpose()?;
+
+        let (config, warnings) = QuillConfig::from_yaml_with_root(&quill_yaml_content, root_yaml)?;
 
         Ok(Quill {
             config,

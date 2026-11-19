@@ -11,7 +11,8 @@ use crate::value::QuillValue;
 
 use super::types::{BODY_CARD_SCHEMA_KEYS, Shape, UI_CARD_SCHEMA_KEYS, VARIANT_DISCRIMINANT_KEY};
 use super::{
-    BodyCardSchema, CardSchema, FieldLayout, FieldSchema, FieldType, GroupRegistry, UiCardSchema,
+    BodyCardSchema, CardSchema, FieldLayout, FieldSchema, FieldType, GroupRegistry, QuillRoot,
+    UiCardSchema,
 };
 
 /// Where a field sits in the type tree. Every type nests at every depth; this
@@ -164,6 +165,9 @@ pub struct QuillConfig {
     /// The top-level YAML section whose key matches `backend`.
     #[serde(default)]
     pub backend_config: HashMap<String, QuillValue>,
+    /// The root a derived quill resolves its schema over: `quill.root`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root: Option<QuillRoot>,
 }
 
 impl QuillConfig {
@@ -187,6 +191,7 @@ impl QuillConfig {
             license: None,
             homepage: None,
             backend_config: HashMap::new(),
+            root: None,
         }
     }
 }
@@ -266,6 +271,7 @@ pub(crate) const QUILL_SECTION_KEYS: &[&str] = &[
     "homepage",
     "ui",
     "requires",
+    "root",
 ];
 
 /// The coercion `target` a one-line `text` refusal names, distinct from the
@@ -2385,12 +2391,22 @@ impl QuillConfig {
     pub fn from_yaml_with_warnings(
         yaml_content: &str,
     ) -> Result<(Self, Vec<Diagnostic>), Vec<Diagnostic>> {
+        Self::from_yaml_with_root(yaml_content, None)
+    }
+
+    /// [`Self::from_yaml_with_warnings`] for a quill that may name a root:
+    /// `root_yaml` is the root's `Quill.yaml`, as the quill's tree holds it at
+    /// [`ROOT_COPY_PATH`](super::ROOT_COPY_PATH).
+    pub fn from_yaml_with_root(
+        yaml_content: &str,
+        root_yaml: Option<&str>,
+    ) -> Result<(Self, Vec<Diagnostic>), Vec<Diagnostic>> {
         let mut warnings: Vec<Diagnostic> = Vec::new();
         let mut errors: Vec<Diagnostic> = Vec::new();
 
         // Declaration order survives this only under serde_json's
         // `preserve_order`, which the ordering contract rides end to end.
-        let quill_yaml_val: serde_json::Value = match crate::value::parse_yaml(yaml_content) {
+        let mut quill_yaml_val: serde_json::Value = match crate::value::parse_yaml(yaml_content) {
             Ok(v) => v,
             Err(e) => {
                 // Through `YamlError` so this shares the one saphyr adapter:
@@ -2402,6 +2418,9 @@ impl QuillConfig {
                 ]);
             }
         };
+
+        super::root::lift_schema(&mut quill_yaml_val, &mut errors);
+        let root = super::root::resolve(&mut quill_yaml_val, root_yaml, &mut errors);
 
         // Everything below reads this section, so its absence is fatal here.
         let quill_section = match quill_yaml_val.get("quill") {
@@ -2642,7 +2661,7 @@ impl QuillConfig {
                     )
                 } else {
                     diag.with_hint(format!(
-                        "Valid top-level sections are: quill, main, card_kinds{}",
+                        "Valid top-level sections are: quill, schema, main, card_kinds{}",
                         if backend.is_empty() {
                             String::new()
                         } else {
@@ -2938,6 +2957,7 @@ impl QuillConfig {
                 license,
                 homepage,
                 backend_config,
+                root,
             },
             warnings,
         ))

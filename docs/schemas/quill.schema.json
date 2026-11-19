@@ -27,6 +27,16 @@
         "$ref": "#/definitions/card_kind"
       }
     },
+    "schema": {
+      "description": "The document's schema: `main` and each card kind, as peers. Exclusive with the top-level `main` and `card_kinds` sections.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "propertyNames": {
+        "pattern": "^[a-z_][a-z0-9_]*$"
+      }
+    },
     "typst": {
       "description": "The typst backend's settings.",
       "type": [
@@ -99,6 +109,46 @@
           "typst": false
         }
       }
+    },
+    {
+      "if": {
+        "required": [
+          "schema"
+        ]
+      },
+      "then": {
+        "properties": {
+          "main": false,
+          "card_kinds": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "quill": {
+            "not": {
+              "required": [
+                "root"
+              ]
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "schema": {
+            "properties": {
+              "main": {
+                "$ref": "#/definitions/main"
+              }
+            },
+            "additionalProperties": {
+              "$ref": "#/definitions/card_kind"
+            }
+          }
+        }
+      }
     }
   ],
   "definitions": {
@@ -157,6 +207,11 @@
           "description": "The oldest Quillmark this quill loads on, quoted: \">=MAJOR.MINOR\" or \">=MAJOR.MINOR.PATCH\".",
           "type": "string",
           "pattern": "^>=[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+        },
+        "root": {
+          "description": "The quill this one takes the base of its schema from, one exact version: `name@MAJOR.MINOR.PATCH`. Under it, a field of `schema:` that declares no `type` refines the root's field of that name.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*@[0-9]+\\.[0-9]+\\.[0-9]+$"
         }
       },
       "additionalProperties": false

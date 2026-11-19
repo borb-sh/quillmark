@@ -7,12 +7,17 @@ use std::path::{Path, PathBuf};
 
 use quillmark_core::{
     error::RenderError,
-    quill::{BUNDLE_EXTENSION, FileTreeNode, Quill, QuillIgnore},
+    quill::{BUNDLE_EXTENSION, FileTreeNode, Quill, QuillIgnore, ROOT_COPY_PATH, root_reference},
 };
 
 /// Load a quill from a filesystem directory, skipping what [`QuillIgnore`]
 /// excludes, or from a `.quill` bundle file, read whole as
 /// [`Quill::from_bundle`] reads it.
+///
+/// A directory quill that names a root takes the root's `Quill.yaml` from the
+/// quiver source layout it sits in, `<name>/<x.y.z>/` beside its own
+/// `<name>/`, into the tree at [`ROOT_COPY_PATH`], so a bundle packed from the
+/// load carries it. A tree with no such sibling keeps the copy it holds.
 ///
 /// A pure config load: the declared backend is resolved later, at render time.
 /// For an in-memory tree, call [`Quill::from_tree`]. Advisory diagnostics ride
@@ -26,8 +31,23 @@ pub fn quill_from_path<P: AsRef<Path>>(path: P) -> Result<Quill, RenderError> {
         let bytes = std::fs::read(path).map_err(|e| load_failed(&e))?;
         return Quill::from_bundle(&bytes).map_err(RenderError::new);
     }
-    let tree = tree_from_path(path).map_err(|e| load_failed(&e))?;
+    let mut tree = tree_from_path(path).map_err(|e| load_failed(&e))?;
+    if let Some(contents) = sibling_root(path, &tree) {
+        tree.insert(ROOT_COPY_PATH, FileTreeNode::File { contents })
+            .map_err(|e| load_failed(&e))?;
+    }
     Quill::from_tree(tree).map_err(RenderError::new)
+}
+
+fn sibling_root(path: &Path, tree: &FileTreeNode) -> Option<Vec<u8>> {
+    let quill_yaml = std::str::from_utf8(tree.get_file("Quill.yaml")?).ok()?;
+    let (name, version) = root_reference(quill_yaml)?;
+    let quills = path.canonicalize().ok()?.parent()?.parent()?.to_path_buf();
+    let root = quills.join(name).join(version).join("Quill.yaml");
+    let meta = std::fs::symlink_metadata(&root).ok()?;
+    (meta.is_file() && meta.len() <= MAX_QUILL_FILE_SIZE)
+        .then(|| std::fs::read(&root).ok())
+        .flatten()
 }
 
 fn is_bundle_file(path: &Path) -> bool {

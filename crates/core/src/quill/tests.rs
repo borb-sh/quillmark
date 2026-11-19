@@ -5,6 +5,7 @@ mod optional_tests;
 mod package_meta_tests;
 mod properties;
 mod requires_tests;
+mod root_tests;
 mod today_tests;
 mod variant_tests;
 mod yaml_schema_tests;

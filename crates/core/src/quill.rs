@@ -5,6 +5,7 @@ mod bundle;
 pub(crate) mod compose;
 mod config;
 pub(crate) mod conform;
+mod contract;
 mod example;
 mod fill;
 mod formats;
@@ -12,6 +13,7 @@ mod ignore;
 mod load;
 mod package_meta;
 mod resolved;
+mod root;
 mod schema;
 mod schema_yaml;
 mod seed;
@@ -25,11 +27,13 @@ pub use compose::PLATE_PATH_KEY;
 pub use config::{CoercionError, QuillConfig};
 pub(crate) use config::{Leniency, RICHTEXT_SINGLE_LINE_TARGET, TEXT_SINGLE_LINE_TARGET};
 pub use conform::BoundParseError;
+pub use contract::{BODY_PATH, DeltaClass, DeltaEntry, SchemaDelta};
 pub use fill::blank;
 pub use formats::{CalendarDate, ParseDateError, TODAY, parse_date, parse_datetime};
 pub use ignore::QuillIgnore;
 pub(crate) use resolved::resolve_document;
 pub use resolved::{FieldSource, Resolved, ResolvedCard, ResolvedField, ResolvedMain};
+pub use root::{QuillRoot, ROOT_COPY_PATH, root_reference};
 pub use schema::{
     AUTHORING_KIND_KEY, CONTENT_MEDIA_TYPE, MARKDOWN_MEDIA_TYPE, QUILLMARK_MAX_ITEMS_KEY,
     QUILLMARK_MAX_LENGTH_KEY, QUILLMARK_MULTILINE_KEY, QUILLMARK_ROSTER_KEY, QUILLMARK_SHAPE_KEY,
