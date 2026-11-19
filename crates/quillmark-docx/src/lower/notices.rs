@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
-use crate::layout::{BracketHint, ItemKind, ItemRef, NodeId, NodeKind, Notice};
+use crate::layout::{BracketHint, ItemKind, ItemRef, LayoutDoc, NodeId, NodeKind, Notice};
+
+use super::tables::tabbed_hint;
 
 use super::paragraph::runs_script;
 use super::{
@@ -42,12 +44,7 @@ impl<'a> Lower<'a> {
                 ),
             });
         }
-        let scripts = self
-            .doc
-            .nodes
-            .iter()
-            .filter(|n| matches!(&n.kind, NodeKind::Link { url } if runs_script(url)))
-            .count();
+        let scripts = script_links(self.doc);
         if scripts > 0 {
             out.push(Notice {
                 code: CODE_LINK_SCRIPT.into(),
@@ -83,7 +80,7 @@ impl<'a> Lower<'a> {
                 ),
             });
         }
-        let rtl = self.right_to_left();
+        let rtl = right_to_left(self.doc);
         if rtl > 0 {
             out.push(Notice {
                 code: CODE_DIRECTION_DROPPED.into(),
@@ -93,7 +90,7 @@ impl<'a> Lower<'a> {
                 ),
             });
         }
-        let misused = self.misused_hints();
+        let misused = misused_hints(self.doc);
         if misused > 0 {
             out.push(Notice {
                 code: CODE_HINT_UNCHECKED.into(),
@@ -123,26 +120,7 @@ impl<'a> Lower<'a> {
                 ),
             });
         }
-        let mut shapes = 0;
-        let mut ink = 0;
-        for (p, page) in self.doc.pages.iter().enumerate() {
-            for (i, item) in page.items.iter().enumerate() {
-                let r = ItemRef {
-                    page: p as u32,
-                    index: i as u32,
-                };
-                if self.consumed.contains(&r) {
-                    continue;
-                }
-                match item.kind {
-                    ItemKind::Text(_) | ItemKind::Image { .. } | ItemKind::Raster { .. } => {
-                        ink += 1
-                    }
-                    ItemKind::Shape(_) => shapes += 1,
-                    ItemKind::Mark(_) => {}
-                }
-            }
-        }
+        let (shapes, ink) = dropped(self.doc, &self.consumed);
         if shapes > 0 {
             out.push(Notice {
                 code: CODE_SHAPE_DROPPED.into(),
@@ -160,48 +138,77 @@ impl<'a> Lower<'a> {
         }
         out
     }
+}
 
-    /// The paragraphs whose text holds a right-to-left letter.
-    pub(super) fn right_to_left(&self) -> usize {
-        let rtl = |c: char| {
-            matches!(c as u32,
-                0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFC | 0x10800..=0x10FFF
-                    | 0x1E800..=0x1EFFF)
-        };
-        self.doc
-            .nodes
-            .iter()
-            .filter(|n| {
-                n.lines.iter().flat_map(|l| &l.items).any(|r| {
-                    matches!(&self.doc.item(*r).kind, ItemKind::Text(t) if t.text.chars().any(rtl))
-                })
-            })
-            .count()
-    }
+/// The links that run script.
+fn script_links(doc: &LayoutDoc) -> usize {
+    doc.nodes
+        .iter()
+        .filter(|n| matches!(&n.kind, NodeKind::Link { url } if runs_script(url)))
+        .count()
+}
 
-    /// The `label` hints outside any `list`, and the `layout` and `chrome`
-    /// hints that hold no grid or no place.
-    pub(super) fn misused_hints(&self) -> usize {
-        let hint =
-            |k: &NodeKind, of: fn(&BracketHint) -> bool| matches!(k, NodeKind::Hint(h) if of(h));
-        let tabbed: HashSet<NodeId> = (0..self.doc.nodes.len())
-            .filter(|&n| matches!(self.kind(n), NodeKind::Table { .. }))
-            .filter_map(|n| self.tabbed_hint(n))
-            .collect();
-        (0..self.doc.nodes.len())
-            .filter(|&n| match self.kind(n) {
-                NodeKind::Hint(BracketHint::Label { .. }) => self
-                    .doc
-                    .ancestor(n, |k| hint(k, |h| matches!(h, BracketHint::List { .. })))
-                    .is_none(),
-                NodeKind::Hint(BracketHint::Tabbed) => !tabbed.contains(&n),
-                NodeKind::Hint(BracketHint::Chrome) => !self
-                    .doc
-                    .subtree(n)
-                    .iter()
-                    .any(|&m| matches!(self.kind(m), NodeKind::Place { .. })),
-                _ => false,
-            })
-            .count()
+/// The shapes, and the text and images, that lowering did not `consume`.
+fn dropped(doc: &LayoutDoc, consumed: &HashSet<ItemRef>) -> (usize, usize) {
+    let mut shapes = 0;
+    let mut ink = 0;
+    for (p, page) in doc.pages.iter().enumerate() {
+        for (i, item) in page.items.iter().enumerate() {
+            let r = ItemRef {
+                page: p as u32,
+                index: i as u32,
+            };
+            if consumed.contains(&r) {
+                continue;
+            }
+            match item.kind {
+                ItemKind::Text(_) | ItemKind::Image { .. } | ItemKind::Raster { .. } => ink += 1,
+                ItemKind::Shape(_) => shapes += 1,
+                ItemKind::Mark(_) => {}
+            }
+        }
     }
+    (shapes, ink)
+}
+
+/// The paragraphs whose text holds a right-to-left letter.
+fn right_to_left(doc: &LayoutDoc) -> usize {
+    let rtl = |c: char| {
+        matches!(c as u32,
+            0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFC | 0x10800..=0x10FFF
+                | 0x1E800..=0x1EFFF)
+    };
+    doc.nodes
+        .iter()
+        .filter(|n| {
+            n.lines
+                .iter()
+                .flat_map(|l| &l.items)
+                .any(|r| matches!(&doc.item(*r).kind, ItemKind::Text(t) if t.text.chars().any(rtl)))
+        })
+        .count()
+}
+
+/// The `label` hints outside any `list`, and the `layout` and `chrome` hints
+/// that hold no grid or no place.
+fn misused_hints(doc: &LayoutDoc) -> usize {
+    let hint = |k: &NodeKind, of: fn(&BracketHint) -> bool| matches!(k, NodeKind::Hint(h) if of(h));
+    let kind = |n: NodeId| &doc.nodes[n].kind;
+    let tabbed: HashSet<NodeId> = (0..doc.nodes.len())
+        .filter(|&n| matches!(kind(n), NodeKind::Table { .. }))
+        .filter_map(|n| tabbed_hint(doc, n))
+        .collect();
+    (0..doc.nodes.len())
+        .filter(|&n| match kind(n) {
+            NodeKind::Hint(BracketHint::Label { .. }) => doc
+                .ancestor(n, |k| hint(k, |h| matches!(h, BracketHint::List { .. })))
+                .is_none(),
+            NodeKind::Hint(BracketHint::Tabbed) => !tabbed.contains(&n),
+            NodeKind::Hint(BracketHint::Chrome) => !doc
+                .subtree(n)
+                .iter()
+                .any(|&m| matches!(kind(m), NodeKind::Place { .. })),
+            _ => false,
+        })
+        .count()
 }

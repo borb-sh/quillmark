@@ -39,7 +39,7 @@ impl Prev {
     }
 }
 
-pub(super) type StrideKey = (usize, i64, i64);
+type StrideKey = (usize, i64, i64);
 
 /// What makes paragraphs alike in the space Typst sets above them: the list
 /// level they are numbered at, or else their heading level, their style's
@@ -48,7 +48,7 @@ pub(super) type StrideKey = (usize, i64, i64);
 pub(super) type SpaceKey = (Option<(u32, u8)>, Option<u8>, [i64; 5]);
 
 /// The face, size and leading a paragraph's first text is set in.
-pub(super) fn stride_key(doc: &LayoutDoc, n: NodeId) -> Option<StrideKey> {
+fn stride_key(doc: &LayoutDoc, n: NodeId) -> Option<StrideKey> {
     let t = doc.nodes[n]
         .lines
         .iter()
@@ -68,10 +68,7 @@ pub(super) fn stride_key(doc: &LayoutDoc, n: NodeId) -> Option<StrideKey> {
 /// The baseline strides between consecutive `lines` on one page that can be
 /// a line pitch for text `size` tall: a stride under half the size is one
 /// line read as two.
-pub(super) fn line_strides(
-    lines: &[crate::layout::Line],
-    size: f64,
-) -> impl Iterator<Item = f64> + '_ {
+fn line_strides(lines: &[crate::layout::Line], size: f64) -> impl Iterator<Item = f64> + '_ {
     lines
         .windows(2)
         .filter(|w| w[0].page == w[1].page)
@@ -79,29 +76,72 @@ pub(super) fn line_strides(
         .filter(move |s| *s >= 0.5 * size)
 }
 
-/// The median baseline stride per face, size and leading, over the
-/// paragraphs with two or more lines on one page.
-pub(super) fn strides(doc: &LayoutDoc) -> HashMap<StrideKey, f64> {
-    let mut all: HashMap<StrideKey, Vec<f64>> = HashMap::new();
-    for n in 0..doc.nodes.len() {
-        if !doc.nodes[n].kind.forms_paragraph() {
-            continue;
+/// The usual baseline stride of paragraphs of one face, size and leading,
+/// which sets the pitch of a paragraph that has no stride of its own.
+pub(super) struct Strides<'a> {
+    doc: &'a LayoutDoc,
+    usual: HashMap<StrideKey, f64>,
+}
+
+impl<'a> Strides<'a> {
+    /// The median stride per face, size and leading, over the paragraphs
+    /// with two or more lines on one page.
+    pub(super) fn new(doc: &'a LayoutDoc) -> Self {
+        let mut all: HashMap<StrideKey, Vec<f64>> = HashMap::new();
+        for n in 0..doc.nodes.len() {
+            if !doc.nodes[n].kind.forms_paragraph() {
+                continue;
+            }
+            let Some(key) = stride_key(doc, n) else {
+                continue;
+            };
+            let size = key.1 as f64 / 100.0;
+            all.entry(key)
+                .or_default()
+                .extend(line_strides(&doc.nodes[n].lines, size));
         }
-        let Some(key) = stride_key(doc, n) else {
-            continue;
-        };
-        let size = key.1 as f64 / 100.0;
-        all.entry(key)
-            .or_default()
-            .extend(line_strides(&doc.nodes[n].lines, size));
+        let usual = all
+            .into_iter()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(k, mut v)| {
+                v.sort_by(f64::total_cmp);
+                (k, v[v.len() / 2])
+            })
+            .collect();
+        Strides { doc, usual }
     }
-    all.into_iter()
-        .filter(|(_, v)| !v.is_empty())
-        .map(|(k, mut v)| {
-            v.sort_by(f64::total_cmp);
-            (k, v[v.len() / 2])
-        })
-        .collect()
+
+    /// A paragraph's exact line height: its own median stride, else the
+    /// stride of paragraphs of its face, size and leading, else its style's
+    /// leading plus its line box.
+    pub(super) fn pitch(
+        &self,
+        n: NodeId,
+        lines: &[crate::layout::Line],
+        style: Option<ParStyle>,
+    ) -> f64 {
+        let size = lines
+            .iter()
+            .flat_map(|l| &l.items)
+            .find_map(|r| match &self.doc.item(*r).kind {
+                ItemKind::Text(t) => Some(t.size),
+                _ => None,
+            })
+            .unwrap_or(11.0);
+        let mut strides: Vec<f64> = line_strides(lines, size).collect();
+        if !strides.is_empty() {
+            strides.sort_by(f64::total_cmp);
+            return strides[strides.len() / 2];
+        }
+        stride_key(self.doc, n)
+            .and_then(|k| self.usual.get(&k).copied())
+            .or_else(|| {
+                style
+                    .filter(|s| s.top_edge + s.bottom_edge > 0.0)
+                    .map(|s| s.leading + s.top_edge + s.bottom_edge)
+            })
+            .unwrap_or(1.2 * size)
+    }
 }
 
 impl<'a> Lower<'a> {
@@ -299,37 +339,5 @@ impl<'a> Lower<'a> {
                 block.map_or(-1, |b| c(b.1)),
             ],
         )
-    }
-
-    /// A paragraph's exact line height: its own median stride, else the
-    /// stride of paragraphs of its face, size and leading, else its style's
-    /// leading plus its line box.
-    pub(super) fn pitch(
-        &self,
-        n: NodeId,
-        lines: &[crate::layout::Line],
-        style: Option<ParStyle>,
-    ) -> f64 {
-        let size = lines
-            .iter()
-            .flat_map(|l| &l.items)
-            .find_map(|r| match &self.doc.item(*r).kind {
-                ItemKind::Text(t) => Some(t.size),
-                _ => None,
-            })
-            .unwrap_or(11.0);
-        let mut strides: Vec<f64> = line_strides(lines, size).collect();
-        if !strides.is_empty() {
-            strides.sort_by(f64::total_cmp);
-            return strides[strides.len() / 2];
-        }
-        stride_key(self.doc, n)
-            .and_then(|k| self.strides.get(&k).copied())
-            .or_else(|| {
-                style
-                    .filter(|s| s.top_edge + s.bottom_edge > 0.0)
-                    .map(|s| s.leading + s.top_edge + s.bottom_edge)
-            })
-            .unwrap_or(1.2 * size)
     }
 }

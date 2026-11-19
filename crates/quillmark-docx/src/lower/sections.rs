@@ -1,7 +1,8 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::layout::{
-    ArtifactKind, BracketHint, Child, ItemKind, NodeId, NodeKind, Page, Parity, PointHint, VAlign,
+    ArtifactKind, BracketHint, Child, ItemKind, LayoutDoc, NodeId, NodeKind, Page, Parity,
+    PointHint, VAlign,
 };
 use crate::model::{
     Blocks, HeaderRefs, Inline, NumFormat, Paragraph, Run, RunContent, RunProps, SectionStart,
@@ -221,6 +222,317 @@ mod properties {
     }
 }
 
+/// What a section holds once for all its pages: size, margins, columns and
+/// orientation.
+type SetupKey = (Twips, Twips, [Twips; 4], u32, bool);
+
+/// What a page's header or footer shows, its page number as the literal text
+/// and format it is printed in.
+type Signature = Vec<(i64, String)>;
+
+/// The pages as Word sections see them, read once before the walk: the runs
+/// of pages each section holds and how each starts, and each page's chrome
+/// and printed number.
+pub(super) struct Pages<'a> {
+    doc: &'a LayoutDoc,
+    /// Per page, the text its number displays as, trimmed, when not empty.
+    number: Vec<Option<&'a str>>,
+    printed: Vec<Option<Printed>>,
+    /// The places a `chrome` hint holds.
+    places: Vec<NodeId>,
+    /// Per page, its header and its footer chrome.
+    chrome: Vec<[Vec<NodeId>; 2]>,
+    signatures: Vec<[Signature; 2]>,
+    /// The text around a page number that chrome prints on more than one
+    /// number, which makes a chrome run holding the number a page number.
+    numbered: HashSet<(String, String)>,
+    pub(super) groups: Vec<Vec<usize>>,
+    pub(super) starts: Vec<SectionStart>,
+}
+
+impl<'a> Pages<'a> {
+    pub(super) fn new(doc: &'a LayoutDoc) -> Self {
+        let places = chrome_places(doc);
+        let chrome = (0..doc.pages.len())
+            .map(|p| [false, true].map(|footer| chrome_on(doc, &places, p, footer)))
+            .collect();
+        let mut pages = Pages {
+            doc,
+            number: doc
+                .pages
+                .iter()
+                .map(|p| {
+                    p.number_text
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|t| !t.is_empty())
+                })
+                .collect(),
+            printed: doc.pages.iter().map(printed_number).collect(),
+            places: places.into_iter().map(|c| c.1).collect(),
+            chrome,
+            signatures: Vec::new(),
+            numbered: HashSet::new(),
+            groups: Vec::new(),
+            starts: Vec::new(),
+        };
+        pages.numbered = pages.numbered_runs();
+        pages.signatures = (0..doc.pages.len())
+            .map(|p| [0, 1].map(|f| pages.signature(&pages.chrome[p][f], p)))
+            .collect();
+        pages.groups = pages.section_pages();
+        pages.starts = (0..pages.groups.len())
+            .map(|s| pages.section_start(s))
+            .collect();
+        pages
+    }
+
+    /// The header (`footer` false) or footer chrome on `page`: its artifacts
+    /// and the places a `chrome` hint sends there.
+    pub(super) fn chrome_of(&self, page: usize, footer: bool) -> &[NodeId] {
+        &self.chrome[page][footer as usize]
+    }
+
+    fn signature_of(&self, page: usize, footer: bool) -> &Signature {
+        &self.signatures[page][footer as usize]
+    }
+
+    /// How `page` prints its number, when Word can print it.
+    pub(super) fn printed(&self, page: usize) -> Option<&Printed> {
+        self.printed[page].as_ref()
+    }
+
+    pub(super) fn is_chrome_place(&self, n: NodeId) -> bool {
+        self.places.contains(&n)
+    }
+
+    /// What `nodes`' chrome shows on `page`, with that run's x left out.
+    fn signature(&self, nodes: &[NodeId], page: usize) -> Signature {
+        let shown = self.printed(page).map_or_else(
+            || "#".into(),
+            |p| format!("{}#{:?}{}", p.before, p.format, p.after),
+        );
+        let mut out = Vec::new();
+        for &n in nodes {
+            for m in self.doc.subtree(n) {
+                for c in &self.doc.nodes[m].children {
+                    if let Child::Item(r) = c {
+                        match &self.doc.item(*r).kind {
+                            ItemKind::Text(t) if self.number_in(&t.text, page).is_some() => {
+                                let (a, b) = self.number_in(&t.text, page).expect("a number");
+                                out.push((
+                                    (t.origin[1] * 10.0).round() as i64,
+                                    format!("{}{shown}{}", &t.text[..a], &t.text[b..]),
+                                ))
+                            }
+                            ItemKind::Text(t) => out.push((
+                                (t.origin[1] * 10.0).round() as i64,
+                                format!("{}@{}", t.text, (t.origin[0] * 10.0).round()),
+                            )),
+                            ItemKind::Image { rect, image, .. }
+                            | ItemKind::Raster { rect, image, .. } => out.push((
+                                (rect.y0 * 10.0).round() as i64,
+                                format!("img{image}@{}", (rect.x0 * 10.0).round()),
+                            )),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    fn setup_key(&self, i: usize) -> SetupKey {
+        let p = &self.doc.pages[i];
+        let m = p.setup.margins;
+        (
+            tw(p.size[0]),
+            tw(p.size[1]),
+            [tw(m.top), tw(m.right), tw(m.bottom), tw(m.left)],
+            p.setup.columns,
+            p.setup.flipped,
+        )
+    }
+
+    /// How section `s` starts: on the next odd or even page when Typst broke
+    /// to one, on the same page when only its chrome or numbering changes
+    /// and Typst broke the page where it was full, else on a new page.
+    fn section_start(&self, s: usize) -> SectionStart {
+        let groups = &self.groups;
+        let (Some(&first), Some(&before)) = (
+            groups[s].first(),
+            s.checked_sub(1).and_then(|p| groups[p].last()),
+        ) else {
+            return SectionStart::NextPage;
+        };
+        match self.opening_break(first) {
+            Some(Some(Parity::Odd)) => SectionStart::OddPage,
+            Some(Some(Parity::Even)) => SectionStart::EvenPage,
+            Some(None) => SectionStart::NextPage,
+            None if self.setup_key(first) != self.setup_key(before) => SectionStart::NextPage,
+            None => SectionStart::Continuous,
+        }
+    }
+
+    /// The parity a page Typst broke to was asked for, when it was broken
+    /// to: such a page carries a break mark before its first text outside
+    /// chrome.
+    fn opening_break(&self, page: usize) -> Option<Option<Parity>> {
+        let chrome = |n: NodeId| {
+            self.doc
+                .ancestor(n, |k| matches!(k, NodeKind::Artifact { .. }))
+                .is_some()
+        };
+        self.doc.pages[page]
+            .items
+            .iter()
+            .find_map(|i| match i.kind {
+                ItemKind::Mark(PointHint::Break { to, .. }) => Some(Some(to)),
+                ItemKind::Text(_) if !chrome(i.node) => Some(None),
+                _ => None,
+            })
+            .flatten()
+    }
+
+    /// Runs of consecutive pages one Word section holds: one page setup, one
+    /// way of printing the page number, a count that runs on, chrome that
+    /// is the same on every page but the first, and no break to an odd or
+    /// even page after the first.
+    fn section_pages(&self) -> Vec<Vec<usize>> {
+        let doc = self.doc;
+        let numbering = |i: usize| {
+            self.number[i]?;
+            Some(self.printed(i).map(|p| (&p.before, p.format, &p.after)))
+        };
+        let chrome = |i: usize| [false, true].map(|footer| self.signature_of(i, footer));
+        let mut out: Vec<Vec<usize>> = Vec::new();
+        for i in 0..doc.pages.len() {
+            match out.last_mut() {
+                Some(g)
+                    if self.setup_key(g[0]) == self.setup_key(i)
+                        && numbering(g[0]) == numbering(i)
+                        && doc.pages[i].number == doc.pages[i - 1].number + 1
+                        && g.get(1).is_none_or(|&d| chrome(d) == chrome(i))
+                        && !matches!(self.opening_break(i), Some(Some(_))) =>
+                {
+                    g.push(i)
+                }
+                _ => out.push(vec![i]),
+            }
+        }
+        if out.is_empty() {
+            out.push(Vec::new());
+        }
+        out
+    }
+
+    /// The text around each page number chrome prints that recurs around two
+    /// or more different numbers.
+    fn numbered_runs(&self) -> HashSet<(String, String)> {
+        let mut seen: HashMap<(String, String), BTreeSet<String>> = HashMap::new();
+        for page in 0..self.doc.pages.len() {
+            let Some(number) = self.number[page] else {
+                continue;
+            };
+            for footer in [false, true] {
+                for &n in self.chrome_of(page, footer) {
+                    for m in self.doc.subtree(n) {
+                        for c in &self.doc.nodes[m].children {
+                            let Child::Item(r) = c else { continue };
+                            let ItemKind::Text(t) = &self.doc.item(*r).kind else {
+                                continue;
+                            };
+                            if let Some(i) = token_at(&t.text, number, char::is_alphanumeric) {
+                                let around = (
+                                    t.text[..i].to_string(),
+                                    t.text[i + number.len()..].to_string(),
+                                );
+                                seen.entry(around).or_default().insert(number.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        seen.into_iter()
+            .filter(|(_, numbers)| numbers.len() >= 2)
+            .map(|(around, _)| around)
+            .collect()
+    }
+
+    /// Where `page`'s printed number stands in a chrome text run, when the
+    /// run is the number alone or text that recurs around other numbers.
+    pub(super) fn number_in(&self, text: &str, page: usize) -> Option<(usize, usize)> {
+        let number = self.number[page]?;
+        let i = token_at(text, number, char::is_alphanumeric)?;
+        let end = i + number.len();
+        let (before, after) = (&text[..i], &text[end..]);
+        let alone = before.trim().is_empty() && after.trim().is_empty();
+        (alone
+            || self
+                .numbered
+                .contains(&(before.to_string(), after.to_string())))
+        .then_some((i, end))
+    }
+}
+
+/// The places a `chrome` hint holds, each with its page and whether it sits
+/// at the foot, outside any other place.
+fn chrome_places(doc: &LayoutDoc) -> Vec<(usize, NodeId, bool)> {
+    let mut out = Vec::new();
+    for n in 0..doc.nodes.len() {
+        let NodeKind::Place {
+            valign: Some(v), ..
+        } = doc.nodes[n].kind
+        else {
+            continue;
+        };
+        let chrome = doc
+            .ancestor(n, |k| matches!(k, NodeKind::Hint(BracketHint::Chrome)))
+            .is_some();
+        let nested = doc.nodes[n].parent.is_some_and(|p| {
+            doc.ancestor(p, |k| matches!(k, NodeKind::Place { .. }))
+                .is_some()
+        });
+        let page = doc.nodes[n].frames.first().map(|f| f.0);
+        if let (true, false, Some(page)) = (chrome, nested, page) {
+            out.push((page as usize, n, v == VAlign::Bottom));
+        }
+    }
+    out
+}
+
+/// The header or footer artifacts on `page`, then the `places` there.
+fn chrome_on(
+    doc: &LayoutDoc,
+    places: &[(usize, NodeId, bool)],
+    page: usize,
+    footer: bool,
+) -> Vec<NodeId> {
+    doc.nodes[0]
+        .children
+        .iter()
+        .filter_map(|c| match c {
+            Child::Node(n) => match &doc.nodes[*n].kind {
+                NodeKind::Artifact { kind } if *kind != ArtifactKind::Other => {
+                    let at = doc.nodes[*n].frames.first()?.0 as usize;
+                    let low = matches!(kind, ArtifactKind::Footer | ArtifactKind::PageNumber);
+                    (at == page && low == footer).then_some(*n)
+                }
+                _ => None,
+            },
+            Child::Item(_) => None,
+        })
+        .chain(
+            places
+                .iter()
+                .filter(|c| c.0 == page && c.2 == footer)
+                .map(|c| c.1),
+        )
+        .collect()
+}
+
 impl<'a> Lower<'a> {
     /// The header and footer parts of the section of `pages`.
     pub(super) fn chrome(
@@ -229,30 +541,30 @@ impl<'a> Lower<'a> {
         headers: &mut Vec<Blocks>,
         footers: &mut Vec<Blocks>,
     ) -> (HeaderRefs, HeaderRefs, bool) {
+        let plan = self.pages;
         let mut title_page = false;
         let mut refs = [HeaderRefs::default(), HeaderRefs::default()];
         for (part, footer) in [(0, false), (1, true)] {
-            let of = |l: &Self, p: usize| l.chrome_of(p, footer);
+            let of = |p: usize| plan.chrome_of(p, footer);
+            let sig = |p: usize| plan.signature_of(p, footer);
             let floats: Vec<NodeId> = if footer && pages.first() == Some(&0) {
                 std::mem::take(&mut self.footer_floats)
             } else {
                 Vec::new()
             };
-            if floats.is_empty() && pages.iter().all(|&p| of(self, p).is_empty()) {
+            if floats.is_empty() && pages.iter().all(|&p| of(p).is_empty()) {
                 continue;
             }
-            let sig = |l: &Self, p: usize| l.signature(&of(l, p), p);
             let first = pages[0];
             let second = pages.get(1).copied();
-            let differs =
-                !floats.is_empty() || second.is_some_and(|s| sig(self, first) != sig(self, s));
+            let differs = !floats.is_empty() || second.is_some_and(|s| sig(first) != sig(s));
             let mut make = |l: &mut Self, p: usize, floats: &[NodeId]| -> usize {
                 let ctx = Ctx {
                     page_number: Some(p),
                     ..Ctx::default()
                 };
                 let mut drawings = Vec::new();
-                for n in of(l, p) {
+                for &n in of(p) {
                     drawings.extend(l.text_box(n, &ctx));
                 }
                 let mut line = 20;
@@ -269,10 +581,9 @@ impl<'a> Lower<'a> {
                         drawings.extend(l.text_box(f, &Ctx::default()));
                     }
                 }
-                let target = sig(l, p);
                 for &q in pages {
-                    if q != p && sig(l, q) == target {
-                        for n in of(l, q) {
+                    if q != p && sig(q) == sig(p) {
+                        for &n in of(q) {
                             l.consume_subtree(n);
                         }
                     }
@@ -308,246 +619,5 @@ impl<'a> Lower<'a> {
         }
         let [h, f] = refs;
         (h, f, title_page)
-    }
-
-    /// What a page's chrome shows, with its page number as the literal text
-    /// and format it is printed in, and that run's x left out.
-    pub(super) fn signature(&self, nodes: &[NodeId], page: usize) -> Vec<(i64, String)> {
-        let shown = printed_number(&self.doc.pages[page]).map_or_else(
-            || "#".into(),
-            |p| format!("{}#{:?}{}", p.before, p.format, p.after),
-        );
-        let mut out = Vec::new();
-        for &n in nodes {
-            for m in self.doc.subtree(n) {
-                for c in &self.doc.nodes[m].children {
-                    if let Child::Item(r) = c {
-                        match &self.doc.item(*r).kind {
-                            ItemKind::Text(t) if self.number_in(&t.text, page).is_some() => {
-                                let (a, b) = self.number_in(&t.text, page).expect("a number");
-                                out.push((
-                                    (t.origin[1] * 10.0).round() as i64,
-                                    format!("{}{shown}{}", &t.text[..a], &t.text[b..]),
-                                ))
-                            }
-                            ItemKind::Text(t) => out.push((
-                                (t.origin[1] * 10.0).round() as i64,
-                                format!("{}@{}", t.text, (t.origin[0] * 10.0).round()),
-                            )),
-                            ItemKind::Image { rect, image, .. }
-                            | ItemKind::Raster { rect, image, .. } => out.push((
-                                (rect.y0 * 10.0).round() as i64,
-                                format!("img{image}@{}", (rect.x0 * 10.0).round()),
-                            )),
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-        out
-    }
-
-    /// What a Word section holds once for all its pages: size, margins,
-    /// columns and orientation.
-    pub(super) fn setup_key(&self, i: usize) -> (Twips, Twips, [Twips; 4], u32, bool) {
-        let p = &self.doc.pages[i];
-        let m = p.setup.margins;
-        (
-            tw(p.size[0]),
-            tw(p.size[1]),
-            [tw(m.top), tw(m.right), tw(m.bottom), tw(m.left)],
-            p.setup.columns,
-            p.setup.flipped,
-        )
-    }
-
-    /// How section `s` of `groups` starts: on the next odd or even page
-    /// when Typst broke to one, on the same page when only its chrome or
-    /// numbering changes and Typst broke the page where it was full, else
-    /// on a new page.
-    pub(super) fn section_start(&self, groups: &[Vec<usize>], s: usize) -> SectionStart {
-        let (Some(&first), Some(&before)) = (
-            groups[s].first(),
-            s.checked_sub(1).and_then(|p| groups[p].last()),
-        ) else {
-            return SectionStart::NextPage;
-        };
-        match self.opening_break(first) {
-            Some(Some(Parity::Odd)) => SectionStart::OddPage,
-            Some(Some(Parity::Even)) => SectionStart::EvenPage,
-            Some(None) => SectionStart::NextPage,
-            None if self.setup_key(first) != self.setup_key(before) => SectionStart::NextPage,
-            None => SectionStart::Continuous,
-        }
-    }
-
-    /// The parity a page Typst broke to was asked for, when it was broken
-    /// to: such a page carries a break mark before its first text outside
-    /// chrome.
-    pub(super) fn opening_break(&self, page: usize) -> Option<Option<Parity>> {
-        let chrome = |n: NodeId| {
-            self.doc
-                .ancestor(n, |k| matches!(k, NodeKind::Artifact { .. }))
-                .is_some()
-        };
-        self.doc.pages[page]
-            .items
-            .iter()
-            .find_map(|i| match i.kind {
-                ItemKind::Mark(PointHint::Break { to, .. }) => Some(Some(to)),
-                ItemKind::Text(_) if !chrome(i.node) => Some(None),
-                _ => None,
-            })
-            .flatten()
-    }
-
-    /// Runs of consecutive pages one Word section holds: one page setup, one
-    /// way of printing the page number, a count that runs on, chrome that
-    /// is the same on every page but the first, and no break to an odd or
-    /// even page after the first.
-    pub(super) fn section_pages(&self) -> Vec<Vec<usize>> {
-        let doc = self.doc;
-        let setup = |i: usize| self.setup_key(i);
-        let numbering = |i: usize| {
-            let p = &doc.pages[i];
-            p.number_text
-                .as_deref()
-                .map(str::trim)
-                .filter(|t| !t.is_empty())?;
-            Some(printed_number(p).map(|p| (p.before, p.format, p.after)))
-        };
-        let chrome =
-            |i: usize| [false, true].map(|footer| self.signature(&self.chrome_of(i, footer), i));
-        let mut out: Vec<Vec<usize>> = Vec::new();
-        for i in 0..doc.pages.len() {
-            match out.last_mut() {
-                Some(g)
-                    if setup(g[0]) == setup(i)
-                        && numbering(g[0]) == numbering(i)
-                        && doc.pages[i].number == doc.pages[i - 1].number + 1
-                        && g.get(1).is_none_or(|&d| chrome(d) == chrome(i))
-                        && !matches!(self.opening_break(i), Some(Some(_))) =>
-                {
-                    g.push(i)
-                }
-                _ => out.push(vec![i]),
-            }
-        }
-        if out.is_empty() {
-            out.push(Vec::new());
-        }
-        out
-    }
-
-    /// The chrome on `page`: its header or footer artifacts and the places a
-    /// `chrome` hint sends there.
-    pub(super) fn chrome_of(&self, page: usize, footer: bool) -> Vec<NodeId> {
-        self.doc.nodes[0]
-            .children
-            .iter()
-            .filter_map(|c| match c {
-                Child::Node(n) => match self.kind(*n) {
-                    NodeKind::Artifact { kind } if *kind != ArtifactKind::Other => {
-                        let at = self.first_page(*n)? as usize;
-                        let low = matches!(kind, ArtifactKind::Footer | ArtifactKind::PageNumber);
-                        (at == page && low == footer).then_some(*n)
-                    }
-                    _ => None,
-                },
-                Child::Item(_) => None,
-            })
-            .chain(
-                self.chrome_places
-                    .iter()
-                    .filter(|c| c.0 == page && c.2 == footer)
-                    .map(|c| c.1),
-            )
-            .collect()
-    }
-
-    /// The places a `chrome` hint holds, each with its page and whether it
-    /// sits at the foot, outside any other place.
-    pub(super) fn find_chrome_places(&self) -> Vec<(usize, NodeId, bool)> {
-        let mut out = Vec::new();
-        for n in 0..self.doc.nodes.len() {
-            let NodeKind::Place {
-                valign: Some(v), ..
-            } = *self.kind(n)
-            else {
-                continue;
-            };
-            let chrome = self
-                .doc
-                .ancestor(n, |k| matches!(k, NodeKind::Hint(BracketHint::Chrome)))
-                .is_some();
-            let nested = self.doc.nodes[n].parent.is_some_and(|p| {
-                self.doc
-                    .ancestor(p, |k| matches!(k, NodeKind::Place { .. }))
-                    .is_some()
-            });
-            if let (true, false, Some(page)) = (chrome, nested, self.first_page(n)) {
-                out.push((page as usize, n, v == VAlign::Bottom));
-            }
-        }
-        out
-    }
-
-    /// The text around each page number chrome prints that recurs around two
-    /// or more different numbers.
-    pub(super) fn numbered_runs(&self) -> HashSet<(String, String)> {
-        let mut seen: HashMap<(String, String), BTreeSet<String>> = HashMap::new();
-        for page in 0..self.doc.pages.len() {
-            let Some(number) = self.doc.pages[page]
-                .number_text
-                .as_deref()
-                .map(str::trim)
-                .filter(|t| !t.is_empty())
-            else {
-                continue;
-            };
-            for footer in [false, true] {
-                for n in self.chrome_of(page, footer) {
-                    for m in self.doc.subtree(n) {
-                        for c in &self.doc.nodes[m].children {
-                            let Child::Item(r) = c else { continue };
-                            let ItemKind::Text(t) = &self.doc.item(*r).kind else {
-                                continue;
-                            };
-                            if let Some(i) = token_at(&t.text, number, char::is_alphanumeric) {
-                                let around = (
-                                    t.text[..i].to_string(),
-                                    t.text[i + number.len()..].to_string(),
-                                );
-                                seen.entry(around).or_default().insert(number.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        seen.into_iter()
-            .filter(|(_, numbers)| numbers.len() >= 2)
-            .map(|(around, _)| around)
-            .collect()
-    }
-
-    /// Where `page`'s printed number stands in a chrome text run, when the
-    /// run is the number alone or text that recurs around other numbers.
-    pub(super) fn number_in(&self, text: &str, page: usize) -> Option<(usize, usize)> {
-        let number = self.doc.pages[page]
-            .number_text
-            .as_deref()
-            .map(str::trim)
-            .filter(|t| !t.is_empty())?;
-        let i = token_at(text, number, char::is_alphanumeric)?;
-        let end = i + number.len();
-        let (before, after) = (&text[..i], &text[end..]);
-        let alone = before.trim().is_empty() && after.trim().is_empty();
-        (alone
-            || self
-                .numbered
-                .contains(&(before.to_string(), after.to_string())))
-        .then_some((i, end))
     }
 }

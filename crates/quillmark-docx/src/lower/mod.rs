@@ -30,8 +30,9 @@ use crate::model::{
 };
 
 use lists::Scheme;
-use sections::{fill_inherited, printed_number};
-use space::{Prev, SpaceKey, StrideKey, drop_opening_break, strides};
+use sections::{Pages, fill_inherited};
+use space::{Prev, SpaceKey, Strides, drop_opening_break};
+use tables::tabbed_hint;
 
 pub const CODE_FONT_NOT_EMBEDDED: &str = "docx::font_not_embedded";
 pub const CODE_PLACE_ANCHORED: &str = "docx::place_anchored";
@@ -71,7 +72,9 @@ fn hex(c: Rgb) -> String {
 
 /// The Word document for `doc` and what the export carries less of.
 pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
-    let mut first = Lower::new(doc, HashMap::new());
+    let pages = Pages::new(doc);
+    let strides = Strides::new(doc);
+    let mut first = Lower::new(doc, &pages, &strides, HashMap::new());
     first.document();
     let usual = first
         .measured
@@ -81,7 +84,7 @@ pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
             (k, v[v.len() / 2])
         })
         .collect();
-    let mut l = Lower::new(doc, usual);
+    let mut l = Lower::new(doc, &pages, &strides, usual);
     let document = l.document();
     let mut seen = HashSet::new();
     let notices = doc
@@ -97,9 +100,16 @@ pub fn lower(doc: &LayoutDoc) -> (Document, Vec<Notice>) {
 impl<'a> Lower<'a> {
     /// A lowering of `doc` that gives a paragraph Typst put at a page top
     /// the `usual` space above paragraphs like it.
-    fn new(doc: &'a LayoutDoc, usual: HashMap<SpaceKey, f64>) -> Self {
-        let mut l = Lower {
+    fn new(
+        doc: &'a LayoutDoc,
+        pages: &'a Pages<'a>,
+        strides: &'a Strides<'a>,
+        usual: HashMap<SpaceKey, f64>,
+    ) -> Self {
+        Lower {
             doc,
+            pages,
+            strides,
             consumed: HashSet::new(),
             fonts: BTreeMap::new(),
             unmapped: BTreeSet::new(),
@@ -120,7 +130,6 @@ impl<'a> Lower<'a> {
             toc_prefixed: false,
             frozen: 0,
             label_prefix: None,
-            strides: strides(doc),
             prev_bottom: None,
             table_gap: None,
             footer_floats: Vec::new(),
@@ -129,21 +138,16 @@ impl<'a> Lower<'a> {
             counters: HashMap::new(),
             extra_styles: Vec::new(),
             roles: BTreeMap::new(),
-            chrome_places: Vec::new(),
             alt_names: BTreeMap::new(),
             keep: false,
             mismatches: 0,
             untabbed: 0,
             flattened: 0,
             unstructured: 0,
-            numbered: HashSet::new(),
             frozen_numbers: 0,
             measured: HashMap::new(),
             usual,
-        };
-        l.chrome_places = l.find_chrome_places();
-        l.numbered = l.numbered_runs();
-        l
+        }
     }
 }
 
@@ -169,6 +173,8 @@ struct Ctx {
 
 struct Lower<'a> {
     doc: &'a LayoutDoc,
+    pages: &'a Pages<'a>,
+    strides: &'a Strides<'a>,
     consumed: HashSet<ItemRef>,
     fonts: BTreeMap<String, FontDecl>,
     unmapped: BTreeSet<String>,
@@ -193,8 +199,6 @@ struct Lower<'a> {
     frozen: usize,
     /// A printed list number the next paragraph opens with.
     label_prefix: Option<String>,
-    /// The usual baseline stride of paragraphs of one face, size and leading.
-    strides: HashMap<StrideKey, f64>,
     /// Where the last body paragraph's last line box ends.
     prev_bottom: Option<(u32, f64)>,
     /// The space a table just lowered needs above it, which the paragraph
@@ -211,8 +215,6 @@ struct Lower<'a> {
     extra_styles: Vec<Style>,
     /// Role style id to its name and the role after it.
     roles: BTreeMap<String, (String, Option<String>)>,
-    /// Placed objects a `chrome` hint gives to a page: page, node, footer.
-    chrome_places: Vec<(usize, NodeId, bool)>,
     /// A face's name for readers without it, from the quill's `font` hint.
     alt_names: BTreeMap<String, String>,
     /// A `keep` the paragraph before it has yet to take.
@@ -222,9 +224,6 @@ struct Lower<'a> {
     /// In-flow column blocks written as one column.
     flattened: usize,
     unstructured: usize,
-    /// The text around a page number that chrome prints on more than one
-    /// number, which makes a chrome run holding the number a page number.
-    numbered: HashSet<(String, String)>,
     frozen_numbers: usize,
     /// The space above each paragraph that follows a paragraph on its page.
     measured: HashMap<SpaceKey, Vec<f64>>,
@@ -243,10 +242,8 @@ impl<'a> Lower<'a> {
 
     fn document(&mut self) -> Document {
         let doc = self.doc;
-        let groups = self.section_pages();
-        let starts: Vec<SectionStart> = (0..groups.len())
-            .map(|s| self.section_start(&groups, s))
-            .collect();
+        let groups = &self.pages.groups;
+        let starts = &self.pages.starts;
         let mut sections: Vec<Section> = Vec::new();
         let mut bodies: Vec<Vec<Block>> = vec![Vec::new(); groups.len()];
         let section_of = |page: u32| {
@@ -316,7 +313,7 @@ impl<'a> Lower<'a> {
             };
             self.flush_pending(None, &mut bodies[s], &ctx);
         }
-        for (body, start) in bodies.iter_mut().zip(&starts) {
+        for (body, start) in bodies.iter_mut().zip(starts) {
             if matches!(start, SectionStart::OddPage | SectionStart::EvenPage) {
                 drop_opening_break(body);
             }
@@ -332,7 +329,7 @@ impl<'a> Lower<'a> {
         let mut footers = Vec::new();
         let mut had = [[false; 2]; 2];
         let mut prev_number: Option<u64> = None;
-        for ((pages, body), start) in groups.iter().zip(bodies).zip(starts) {
+        for ((pages, body), &start) in groups.iter().zip(bodies).zip(starts) {
             let first = &doc.pages[pages[0]];
             let s = first.setup;
             let (mut header, mut footer, title_page) =
@@ -340,7 +337,7 @@ impl<'a> Lower<'a> {
             let [had_header, had_footer] = &mut had;
             fill_inherited(&mut header, had_header, &mut headers);
             fill_inherited(&mut footer, had_footer, &mut footers);
-            let format = printed_number(first).map(|p| p.format);
+            let format = self.pages.printed(pages[0]).map(|p| p.format);
             let restart = match prev_number {
                 Some(p) => p + 1 != first.number,
                 None => first.number != 1,
@@ -520,13 +517,15 @@ impl<'a> Lower<'a> {
                 };
                 self.children(n, &ctx)
             }
-            NodeKind::Table { .. } if self.tabbed_grid(n) => match self.tabbed(n, ctx) {
-                Some(blocks) => blocks,
-                None => {
-                    self.untabbed += 1;
-                    vec![Block::Table(self.table(n, ctx))]
+            NodeKind::Table { .. } if tabbed_hint(self.doc, n).is_some() => {
+                match self.tabbed(n, ctx) {
+                    Some(blocks) => blocks,
+                    None => {
+                        self.untabbed += 1;
+                        vec![Block::Table(self.table(n, ctx))]
+                    }
                 }
-            },
+            }
             NodeKind::Table { .. } => vec![Block::Table(self.table(n, ctx))],
             NodeKind::List { .. } => self.list(n, ctx),
             NodeKind::Block {
@@ -570,7 +569,7 @@ impl<'a> Lower<'a> {
                 Vec::new()
             }
             NodeKind::Place { float, valign } => {
-                if self.chrome_places.iter().any(|c| c.1 == n) {
+                if self.pages.is_chrome_place(n) {
                     return Vec::new();
                 }
                 if float && valign == Some(VAlign::Bottom) && self.first_page(n) == Some(0) {

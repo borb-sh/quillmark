@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
-use crate::layout::{BracketHint, Child, HAlign, ItemKind, NodeId, NodeKind, Rgb};
+use crate::layout::{BracketHint, Child, HAlign, ItemKind, LayoutDoc, NodeId, NodeKind, Rgb};
 use crate::model::{
     Block, Blocks, Border, Borders, BreakKind, Cell, CellMargins, CellProps, FirstLine, Indent,
     Inline, Paragraph, Row, RowProps, Run, RunContent, RunProps, TabKind, TabLeader, TabStop,
@@ -16,27 +16,21 @@ use super::{Ctx, Lower, hex, spacer, tw};
 /// which Word requires and draws a line tall unless told otherwise.
 pub(super) const CLOSING: Twips = 20;
 
-impl<'a> Lower<'a> {
-    /// The `layout(form: "tabbed")` hint that holds the grid `n`, through
-    /// probe brackets only.
-    pub(super) fn tabbed_hint(&self, n: NodeId) -> Option<NodeId> {
-        let mut at = self.doc.nodes[n].parent;
-        while let Some(m) = at {
-            match self.kind(m) {
-                NodeKind::Hint(BracketHint::Tabbed) => return Some(m),
-                NodeKind::Block { .. } | NodeKind::Align { .. } => at = self.doc.nodes[m].parent,
-                _ => return None,
-            }
+/// The `layout(form: "tabbed")` hint that holds the grid `n`, through probe
+/// brackets only.
+pub(super) fn tabbed_hint(doc: &LayoutDoc, n: NodeId) -> Option<NodeId> {
+    let mut at = doc.nodes[n].parent;
+    while let Some(m) = at {
+        match doc.nodes[m].kind {
+            NodeKind::Hint(BracketHint::Tabbed) => return Some(m),
+            NodeKind::Block { .. } | NodeKind::Align { .. } => at = doc.nodes[m].parent,
+            _ => return None,
         }
-        None
     }
+    None
+}
 
-    /// Whether a `layout(form: "tabbed")` hint holds the grid `n`, through
-    /// probe brackets only.
-    pub(super) fn tabbed_grid(&self, n: NodeId) -> bool {
-        self.tabbed_hint(n).is_some()
-    }
-
+impl<'a> Lower<'a> {
     /// How many twips wider than Typst's kerned ink each content-sized
     /// column of table `n` must be for its widest line in the face's own
     /// advances, as Word sets it, with a twip for each character after the
@@ -168,7 +162,7 @@ impl<'a> Lower<'a> {
                 .clone();
             let style = style_of(self.doc, lead);
             let lead_lines = self.doc.nodes[lead].lines.clone();
-            let pitch = self.pitch(lead, &lead_lines, style);
+            let pitch = self.strides.pitch(lead, &lead_lines, style);
             let mut props = self.par_frame(
                 ctx,
                 Some(lead),
@@ -318,7 +312,7 @@ impl<'a> Lower<'a> {
                         .filter_map(|m| {
                             let lines = &self.doc.nodes[m].lines;
                             let last = lines.last().filter(|l| l.page == page)?;
-                            let pitch = self.pitch(m, lines, self.par_style(m));
+                            let pitch = self.strides.pitch(m, lines, self.par_style(m));
                             Some(last.baseline + 0.2 * pitch)
                         })
                         .reduce(f64::max)?;
@@ -397,7 +391,7 @@ impl<'a> Lower<'a> {
                     .first_line_in_row(&cells, 0, page)
                     .map_or(y, |(m, inset)| {
                         let lines = self.doc.nodes[m].lines.clone();
-                        let pitch = self.pitch(m, &lines, self.par_style(m));
+                        let pitch = self.strides.pitch(m, &lines, self.par_style(m));
                         lines[0].baseline - 0.8 * pitch - inset
                     });
                 self.table_gap = Some(tw((first - bottom).max(0.0)));

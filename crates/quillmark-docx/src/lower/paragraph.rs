@@ -8,7 +8,7 @@ use crate::model::{
     TabStop, VertAlign,
 };
 
-use super::sections::{is_roman, printed_number};
+use super::sections::is_roman;
 use super::space::Prev;
 use super::styles::style_id;
 use super::{Ctx, Lower, hex, tw};
@@ -166,7 +166,7 @@ impl<'a> Lower<'a> {
         let first_x = first.x0;
         let kind = node.kind.clone();
         let style = self.par_style(n);
-        let pitch = self.pitch(n, &lines, style);
+        let pitch = self.strides.pitch(n, &lines, style);
         let tall = lines.iter().flat_map(|l| &l.items).any(|r| {
             matches!(&self.doc.item(*r).kind, ItemKind::Raster { rect, .. } if rect.height() > pitch)
         });
@@ -521,8 +521,8 @@ impl<'a> Lower<'a> {
                             _ => None,
                         });
                         let number = ctx.page_number.and_then(|p| {
-                            let (a, b) = self.number_in(&t.text, p)?;
-                            let found = printed_number(&self.doc.pages[p]);
+                            let (a, b) = self.pages.number_in(&t.text, p)?;
+                            let found = self.pages.printed(p);
                             if found.is_none() {
                                 self.frozen_numbers += 1;
                             }
