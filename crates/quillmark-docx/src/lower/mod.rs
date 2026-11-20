@@ -107,6 +107,7 @@ impl<'a> Lower<'a> {
             media: Vec::new(),
             media_of: HashMap::new(),
             z: 0,
+            boxed: 0,
             headings: BTreeSet::new(),
             unlisted: BTreeSet::new(),
             builtin: BTreeSet::new(),
@@ -164,6 +165,9 @@ struct Lower<'a> {
     media: Vec<Media>,
     media_of: HashMap<usize, usize>,
     z: u32,
+    /// The text boxes being lowered around the current node. A shape inside
+    /// one moves with its box, which answers for it.
+    boxed: u32,
     headings: BTreeSet<u8>,
     unlisted: BTreeSet<u8>,
     /// Word's own paragraph styles in use, by id and name.
@@ -373,6 +377,9 @@ impl<'a> Lower<'a> {
                 );
                 if decoration {
                     return Vec::new();
+                }
+                if self.boxed == 0 {
+                    self.tally.count(Code::ShapeAnchored, "", 1);
                 }
                 vec![Entry::Drawing(r.page, self.shape(shape))]
             }

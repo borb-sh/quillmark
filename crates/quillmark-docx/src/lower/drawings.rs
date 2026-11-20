@@ -135,10 +135,12 @@ impl<'a> Lower<'a> {
             page_number: ctx.page_number,
             ..Ctx::default()
         };
+        self.boxed += 1;
         let entries = match self.kind(n) {
             NodeKind::Place { .. } | NodeKind::Artifact { .. } => self.children(n, &inner),
             _ => self.node(n, &inner),
         };
+        self.boxed -= 1;
         let (blocks, inner) = space::nested(entries, None);
         let inner_boxes: Vec<Drawing> = inner.into_iter().map(|(_, d)| d).collect();
         let has_content = blocks.iter().any(|b| match b {

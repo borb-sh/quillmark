@@ -29,6 +29,7 @@ pub enum Code {
     HintMisused,
     FontNotEmbedded,
     PlaceAnchored,
+    ShapeAnchored,
     ShapeDropped,
     InkDropped,
     ProbesDisabled,
@@ -56,7 +57,7 @@ impl Code {
             Code::ColumnsFlattened => "docx::columns_flattened",
             Code::DirectionDropped => "docx::direction_dropped",
             Code::FontNotEmbedded => "docx::font_not_embedded",
-            Code::PlaceAnchored => "docx::place_anchored",
+            Code::PlaceAnchored | Code::ShapeAnchored => "docx::place_anchored",
             Code::ShapeDropped => "docx::shape_dropped",
             Code::InkDropped => "docx::ink_dropped",
             Code::ProbesDisabled => "docx::probes_disabled",
@@ -136,6 +137,10 @@ impl Code {
             Code::PlaceAnchored => format!(
                 "{n} placed object(s) are anchored to the page beside the paragraph that follows \
                  them, so they do not move with the text"
+            ),
+            Code::ShapeAnchored => format!(
+                "{n} drawn line(s) or box(es) are anchored to the page beside the paragraph that \
+                 follows them, so they do not move with the text"
             ),
             Code::ShapeDropped => format!(
                 "{n} drawn line(s) or box(es) that no table or decoration explains are left out \

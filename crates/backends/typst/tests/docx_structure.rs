@@ -9,6 +9,23 @@ use word::render;
 const PAGE: &str = "#set page(width: 300pt, height: 300pt, margin: 30pt)\n";
 
 #[test]
+fn a_drawn_rule_or_filled_block_is_reported_anchored_and_a_border_or_decoration_is_not() {
+    for plate in [
+        "= Experience\n#line(length: 100%)\nSome text.\n",
+        "#block(fill: luma(230), inset: 6pt)[A callout.]\n",
+    ] {
+        let w = render(&format!("{PAGE}{plate}"));
+        assert!(w.has("docx::place_anchored"), "{plate}: {:?}", w.codes);
+    }
+    let w = render(&format!(
+        "{PAGE}#underline[under] #strike[struck] #highlight[lit]\n\
+         #table(columns: 2, [a], [b])\n"
+    ));
+    assert!(!w.has("docx::place_anchored"), "{:?}", w.codes);
+    assert!(!w.has("docx::shape_dropped"), "{:?}", w.codes);
+}
+
+#[test]
 fn a_page_that_sets_one_of_foreground_and_background_keeps_its_margins() {
     let fg = "foreground: place(top + right, dx: -5pt, dy: 5pt)[DRAFT]";
     let bg = "background: rect(width: 100%, height: 100%, fill: luma(240))";
