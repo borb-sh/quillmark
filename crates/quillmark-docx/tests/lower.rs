@@ -101,6 +101,7 @@ fn texts(blocks: &[Block], last: &Paragraph) -> Vec<String> {
                 .map(|c| match c {
                     RunContent::Text(t) => t,
                     RunContent::Break(_) => "\n".into(),
+                    RunContent::Tab => "\t".into(),
                     _ => String::new(),
                 })
                 .collect()
@@ -113,7 +114,7 @@ fn a_paragraphs_lines_join_into_one_run_and_only_a_forced_end_breaks() {
     let doc = paragraph(
         "TeX Gyre Termes",
         &[
-            ("A wrapped ", LineEnd::Soft { ate_space: true }),
+            ("A wrapped ", LineEnd::Soft),
             ("hyphen\u{ad}", LineEnd::Hyphenated),
             ("ated line", LineEnd::Forced),
             ("after", LineEnd::Last),
@@ -136,14 +137,50 @@ fn a_paragraphs_lines_join_into_one_run_and_only_a_forced_end_breaks() {
     );
 }
 
+/// `paragraph` with its lines set as one line: each run starts at its x,
+/// 6pt to a character at 12pt.
+fn one_line(runs: &[(&str, f64)]) -> LayoutDoc {
+    let ends: Vec<(&str, LineEnd)> = runs.iter().map(|(t, _)| (*t, LineEnd::Last)).collect();
+    let mut doc = paragraph("TeX Gyre Termes", &ends);
+    for (i, (_, x)) in runs.iter().enumerate() {
+        if let ItemKind::Text(t) = &mut doc.pages[0].items[i].kind {
+            t.origin = [*x, 100.0];
+        }
+    }
+    let line = Line {
+        baseline: 100.0,
+        x0: runs[0].1,
+        items: doc.nodes[1]
+            .lines
+            .iter()
+            .flat_map(|l| l.items.clone())
+            .collect(),
+        ..doc.nodes[1].lines.last().expect("a line").clone()
+    };
+    doc.nodes[1].lines = vec![line];
+    doc
+}
+
+#[test]
+fn a_gap_no_glyph_sets_is_a_space_when_word_sized_and_a_tab_to_the_next_run_when_wider() {
+    let (word, _) = lower(&one_line(&[
+        ("Bold", 72.0),
+        ("italic", 96.0 + 3.0),
+        (" plain", 135.0),
+        ("x", 171.0 + 0.5),
+        ("Dated", 250.0),
+    ]));
+    let last = &word.sections[0].body.last;
+    assert_eq!(texts(&[], last), ["Bold italic plainx\tDated"]);
+    let stops: Vec<Twips> = last.props.tabs.iter().map(|t| t.pos).collect();
+    assert_eq!(stops, [(250.0 - 72.0) as Twips * 20], "from the margin");
+}
+
 #[test]
 fn lines_closer_than_half_their_size_give_no_pitch() {
     let mut doc = paragraph(
         "TeX Gyre Termes",
-        &[
-            ("one line ", LineEnd::Soft { ate_space: true }),
-            ("read as two", LineEnd::Last),
-        ],
+        &[("one line ", LineEnd::Soft), ("read as two", LineEnd::Last)],
     );
     doc.nodes[1].lines[1].baseline = 96.0;
     let (word, _) = lower(&doc);
@@ -195,7 +232,7 @@ fn text_no_element_tags_is_a_paragraph_per_line_and_reported() {
     let mut doc = paragraph(
         "TeX Gyre Termes",
         &[
-            ("Two lines ", LineEnd::Soft { ate_space: true }),
+            ("Two lines ", LineEnd::Soft),
             ("of loose text", LineEnd::Last),
         ],
     );
