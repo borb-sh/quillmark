@@ -1,0 +1,12 @@
+section 0, next page
+  P "Body text." before=0 after=121 line=299
+  T
+    cell 0,0
+      P "Left name" before=1120 after=- line=299
+      P "Left title" before=121 after=- line=299
+    cell 0,1
+      P "Above the gap" before=0 after=- line=299
+      P "Right name" before=961 after=- line=299
+      P "Right title" before=121 after=- line=299
+  P "" before=- after=- line=-
+notices: docx::font_not_embedded

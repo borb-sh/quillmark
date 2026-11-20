@@ -2,7 +2,7 @@ section 0, next page
   P "2 February 2026" before=1016 after=279 line=279
     box
       P "DEPARTMENT OF THE AIR FORCE" before=0 after=- line=288
-      P "HEADQUARTERS 123D EXAMPLE WING" before=0 after=- line=252
+      P "HEADQUARTERS 123D EXAMPLE WING" before=35 after=- line=252
     box
       P "" before=0 after=- line=- keep_lines
         picture
