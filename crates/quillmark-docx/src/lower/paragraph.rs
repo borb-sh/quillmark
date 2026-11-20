@@ -648,6 +648,11 @@ impl<'a> Lower<'a> {
                 None
             },
             no_proof: has(|k| matches!(k, NodeKind::RawLine)),
+            lang: t.lang.clone().filter(|l| Some(l) != self.language.as_ref()),
+            spacing: t
+                .tracking
+                .map(|pt| (pt * 20.0).round() as crate::model::Twips)
+                .filter(|&tw| tw != 0),
             ..RunProps::default()
         }
     }

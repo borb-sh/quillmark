@@ -9,6 +9,90 @@ use word::render;
 const PAGE: &str = "#set page(width: 300pt, height: 300pt, margin: 30pt)\n";
 
 #[test]
+fn the_document_language_is_the_default_and_a_run_in_another_states_its_own() {
+    let w = render(&format!(
+        "{PAGE}#set text(lang: \"de\")\nGuten Tag, ihr alle zusammen. \
+         #text(lang: \"fr\", region: \"ca\")[Bonjour] und tschüss.\n"
+    ));
+    let styles = w.xml("word/styles.xml");
+    let defaults = &styles[..styles.find("</w:docDefaults>").expect("defaults")];
+    assert!(defaults.contains(r#"<w:lang w:val="de"/>"#), "{defaults}");
+    assert!(
+        w.xml("docProps/core.xml")
+            .contains("<dc:language>de</dc:language>")
+    );
+    let doc = w.xml("word/document.xml");
+    let langs: Vec<&str> = doc
+        .match_indices(r#"<w:lang w:val=""#)
+        .map(|(i, m)| &doc[i + m.len()..][..doc[i + m.len()..].find('"').unwrap()])
+        .collect();
+    assert_eq!(langs, ["fr-CA"]);
+    let run = &doc[..doc.find("Bonjour").expect("the French run")];
+    assert!(run.rfind("<w:r>").unwrap() < run.rfind(r#"w:val="fr-CA""#).unwrap());
+}
+
+#[test]
+fn letter_spacing_is_carried_and_kerning_is_not_read_as_it() {
+    let w = render(&format!(
+        "{PAGE}#text(tracking: 3pt)[SPACED OUT] normal AVATAR WAVE.\n"
+    ));
+    let doc = w.xml("word/document.xml");
+    let spacing = |text: &str| {
+        let run = &doc[..doc.find(text).expect(text)];
+        let run = &run[run.rfind("<w:r>").expect("a run")..];
+        run.find(r#"<w:spacing w:val=""#)
+            .map(|i| run[i + 18..].split('"').next().unwrap().to_string())
+    };
+    assert_eq!(spacing("SPACED OUT").as_deref(), Some("60"));
+    assert_eq!(spacing("normal"), None);
+}
+
+#[test]
+fn a_drawn_rule_or_filled_block_is_reported_anchored_and_a_border_or_decoration_is_not() {
+    for plate in [
+        "= Experience\n#line(length: 100%)\nSome text.\n",
+        "#block(fill: luma(230), inset: 6pt)[A callout.]\n",
+    ] {
+        let w = render(&format!("{PAGE}{plate}"));
+        assert!(w.has("docx::place_anchored"), "{plate}: {:?}", w.codes);
+    }
+    let w = render(&format!(
+        "{PAGE}#underline[under] #strike[struck] #highlight[lit]\n\
+         #table(columns: 2, [a], [b])\n"
+    ));
+    assert!(!w.has("docx::place_anchored"), "{:?}", w.codes);
+    assert!(!w.has("docx::shape_dropped"), "{:?}", w.codes);
+}
+
+#[test]
+fn a_page_that_sets_one_of_foreground_and_background_keeps_its_margins() {
+    let fg = "foreground: place(top + right, dx: -5pt, dy: 5pt)[DRAFT]";
+    let bg = "background: rect(width: 100%, height: 100%, fill: luma(240))";
+    for (sets, margin) in [
+        (fg.to_string(), 400),
+        (bg.to_string(), 400),
+        (format!("{fg}, {bg}"), 1440),
+    ] {
+        let w = render(&format!(
+            "#set page(width: 300pt, height: 300pt, margin: 20pt, {sets})\n\
+             Body text.\n\n#pad(left: 20pt)[Indented text.]\n"
+        ));
+        let s = &w.sections()[0];
+        assert_eq!((s.margin_top, s.margin_left), (margin, margin), "{sets}");
+        assert_eq!(
+            w.has("docx::margins_assumed"),
+            margin == 1440,
+            "{sets}: {:?}",
+            w.codes
+        );
+        if margin == 400 {
+            assert_eq!(w.par("Body text.").ind_left, None, "{sets}");
+            assert_eq!(w.par("Indented text.").ind_left, Some(400), "{sets}");
+        }
+    }
+}
+
+#[test]
 fn sibling_blocks_are_paragraphs_of_their_own() {
     let w = render(&format!(
         "{PAGE}#block[First paragraph in its own block.]\n\

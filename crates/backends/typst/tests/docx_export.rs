@@ -570,3 +570,19 @@ fn an_outline_whose_page_numbers_carry_a_prefix_is_locked() {
     assert!(texts.contains(&"IntroA-1".to_string()), "{texts:?}");
     assert!(codes.iter().any(|c| c == "docx::toc_frozen"), "{codes:?}");
 }
+
+#[test]
+fn a_document_the_probes_would_move_is_read_without_them_and_keeps_its_text() {
+    let w = word::render(
+        "#set page(width: 300pt, height: 300pt, margin: 30pt)\n\
+         = Heading\n\
+         One two three four five #linebreak(justify: true) six seven.\n\n\
+         A second paragraph.\n",
+    );
+    assert!(w.has("docx::probes_disabled"), "{:?}", w.codes);
+    assert!(w.has("docx::margins_assumed"), "{:?}", w.codes);
+    assert!(!w.has("docx::ink_dropped"), "{:?}", w.codes);
+    let body = w.body();
+    assert_eq!(body.len(), 3, "{:?}", word::texts(&body));
+    assert_eq!(body[0].style.as_deref(), Some("Heading1"));
+}
