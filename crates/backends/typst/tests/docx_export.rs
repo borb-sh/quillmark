@@ -408,9 +408,14 @@ fn hints_number_paragraphs_live_and_name_their_roles_tabs_chrome_keep_and_font()
             .any(|n| n.tag_name().name() == "keepNext")
     );
     let fonts = part(&parts, "word/fontTable.xml");
-    assert!(fonts.contains("<w:altName w:val=\"Arial\"/>"), "{fonts}");
+    assert!(
+        fonts.contains("<w:font w:name=\"Arial\"><w:altName w:val=\"Roboto\"/>"),
+        "a hinted face with no clone is named as its alt: {fonts}"
+    );
+    assert!(!xml.contains("w:ascii=\"Roboto\""), "the runs name the alt");
     assert!(
         !codes.iter().any(|c| [
+            "docx::font_not_embedded",
             "docx::hint_unknown",
             "docx::hint_unclosed",
             "docx::hint_unchecked",
