@@ -9,6 +9,34 @@ use word::render;
 const PAGE: &str = "#set page(width: 300pt, height: 300pt, margin: 30pt)\n";
 
 #[test]
+fn a_page_that_sets_one_of_foreground_and_background_keeps_its_margins() {
+    let fg = "foreground: place(top + right, dx: -5pt, dy: 5pt)[DRAFT]";
+    let bg = "background: rect(width: 100%, height: 100%, fill: luma(240))";
+    for (sets, margin) in [
+        (fg.to_string(), 400),
+        (bg.to_string(), 400),
+        (format!("{fg}, {bg}"), 1440),
+    ] {
+        let w = render(&format!(
+            "#set page(width: 300pt, height: 300pt, margin: 20pt, {sets})\n\
+             Body text.\n\n#pad(left: 20pt)[Indented text.]\n"
+        ));
+        let s = &w.sections()[0];
+        assert_eq!((s.margin_top, s.margin_left), (margin, margin), "{sets}");
+        assert_eq!(
+            w.has("docx::margins_assumed"),
+            margin == 1440,
+            "{sets}: {:?}",
+            w.codes
+        );
+        if margin == 400 {
+            assert_eq!(w.par("Body text.").ind_left, None, "{sets}");
+            assert_eq!(w.par("Indented text.").ind_left, Some(400), "{sets}");
+        }
+    }
+}
+
+#[test]
 fn sibling_blocks_are_paragraphs_of_their_own() {
     let w = render(&format!(
         "{PAGE}#block[First paragraph in its own block.]\n\

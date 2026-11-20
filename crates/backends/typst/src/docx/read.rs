@@ -141,6 +141,10 @@ struct Reader<'a> {
     images: HashMap<u128, ImageId>,
     origins: HashMap<NodeId, (u32, Point)>,
     page: u32,
+    /// The last page record on this page, and the page number text after
+    /// it. The background's record comes first and the foreground's last,
+    /// and only the foreground sees a page counter update the page's body
+    /// makes.
     probe: Option<Dict>,
     number_text: Option<String>,
     /// A par or block node's text edges, resolved against the face of its
@@ -992,7 +996,10 @@ impl Reader<'_> {
         let size = length(&get("size"), 0.0).unwrap_or(11.0);
         let close = matches!(get("edge"), Value::Str(s) if s.as_str() == "close");
         match hint.as_str() {
-            "page" => self.probe = Some(d.clone()),
+            "page" => {
+                self.probe = Some(d.clone());
+                self.number_text = None;
+            }
             "pnum" => {
                 if let Value::Str(s) = get("s") {
                     self.number_text

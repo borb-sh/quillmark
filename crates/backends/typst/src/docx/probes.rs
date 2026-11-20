@@ -8,7 +8,7 @@ use typst::Library;
 use typst::comemo::Track;
 use typst::engine::Sink;
 use typst::foundations::{
-    Content, Context, Dict, Element, Func, NativeElement, Recipe, Regex, Scope, Selector,
+    Content, Context, Dict, Element, Func, NativeElement, Property, Recipe, Regex, Scope, Selector,
     Transformation,
 };
 use typst::introspection::EmptyIntrospector;
@@ -22,7 +22,8 @@ use typst::text::LinebreakElem;
 use typst::utils::LazyHash;
 
 /// One rule per element key, `newline` for a line break a string spells as
-/// `\n`, and `page`, the foreground every page carries. Values pass typed,
+/// `\n`, and `page`, the foreground and the background every page carries,
+/// so a document that sets one of them keeps the other. Values pass typed,
 /// never as `repr` strings. A regex rule also matches every `linebreak` as a
 /// `\n` and hands it over as text, before which a space no longer collapses;
 /// `newline` returns a `linebreak` again, which the `linebreak` rule marks.
@@ -118,6 +119,8 @@ pub(crate) fn with_probes(
     );
     let page = dict.get("page").ok()?.clone().cast::<Content>().ok()?;
     out.styles
-        .apply_one(typst::foundations::Property::new(PageElem::foreground, Some(page)).into());
+        .apply_one(Property::new(PageElem::foreground, Some(page.clone())).into());
+    out.styles
+        .apply_one(Property::new(PageElem::background, Some(page)).into());
     Some(out)
 }
