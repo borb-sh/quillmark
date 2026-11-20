@@ -395,6 +395,11 @@ plates! {
          #grid(columns: (auto, auto, 1fr), [SUBJECT:], \"  \", [Annual Review])\n\
          #v(13.95pt)\n\
          Body text.\n";
+    plate space_inside_grid_cells: format!(
+        "{PAGE}Body text.\n#grid(columns: (1fr, 1fr), \
+         [#v(14pt)\n#v(42pt)\nLeft name\n\nLeft title], \
+         [Above the gap\n\n#v(42pt)\nRight name\n\nRight title])\n"
+    );
     plate two_grids_a_gap_apart: format!(
         "{PAGE}#grid(columns: (auto, 1fr), [One], [Left])\n#v(20pt)\n\
          #grid(columns: (auto, 1fr), [Two], [Right])\nAfter.\n"
