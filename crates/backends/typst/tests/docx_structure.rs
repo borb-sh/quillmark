@@ -1327,3 +1327,110 @@ fn a_keep_opening_a_footnote_cell_or_text_box_keeps_nothing_outside_it() {
         .collect();
     assert!(kept.is_empty(), "{kept:?}");
 }
+
+/// The left tab stops of the paragraph holding `text`, in twips.
+fn left_stops(w: &word::Word, text: &str) -> Vec<i64> {
+    let xml = w.xml("word/document.xml");
+    let doc = roxmltree::Document::parse(&xml).expect("well-formed");
+    let p = doc
+        .descendants()
+        .filter(|n| n.has_tag_name("p"))
+        .find(|p| {
+            p.descendants()
+                .filter(|n| n.has_tag_name("t"))
+                .filter_map(|n| n.text())
+                .collect::<String>()
+                .contains(text)
+        })
+        .unwrap_or_else(|| panic!("no paragraph holding {text:?}"));
+    p.descendants()
+        .filter(|n| {
+            n.has_tag_name("tab")
+                && n.attribute((
+                    "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+                    "val",
+                )) == Some("left")
+        })
+        .filter_map(|n| n.attributes().find(|a| a.name() == "pos"))
+        .map(|a| a.value().parse().expect("twips"))
+        .collect()
+}
+
+#[test]
+fn spacing_typst_sets_between_runs_is_a_space_or_a_tab_to_where_the_next_run_starts() {
+    let w = render(&format!(
+        "{PAGE}Left #h(1fr) Right\n\n\
+         Signed#h(2in)Dated\n\n\
+         #stack(dir: ltr, spacing: 1fr, [JOHN DOE], [12 Nov 2026])\n\n\
+         Name: #h(1in) Value\n\n\
+         Thin#h(0.1em)space and a#h(0.3em)gap\n"
+    ));
+    assert_eq!(
+        w.texts(),
+        [
+            "Left\tRight",
+            "Signed\tDated",
+            "JOHN DOE\t12 Nov 2026",
+            "Name: \tValue",
+            "Thinspace and a gap",
+        ]
+    );
+    let quill = word::plain(&format!("{PAGE}Signed#h(2in)Dated\n"));
+    let doc = quillmark_typst::testing::layout(&quill, &serde_json::json!({}), common::test_date())
+        .expect("layout");
+    let dated = doc
+        .pages
+        .iter()
+        .flat_map(|p| &p.items)
+        .find_map(|i| match &i.kind {
+            quillmark_docx::layout::ItemKind::Text(t) if t.text == "Dated" => Some(t.origin[0]),
+            _ => None,
+        })
+        .expect("Dated");
+    assert_eq!(
+        left_stops(&w, "Dated"),
+        [((dated - 30.0) * 20.0).round() as i64]
+    );
+    assert_eq!(left_stops(&w, "Right").len(), 1);
+}
+
+#[test]
+fn a_stacks_lines_break_where_a_wrap_could_not_and_wraps_still_join() {
+    let w = render(&format!(
+        "{PAGE}#stack(spacing: 1em, [Alpha], [Beta], [Gamma])\n\n\
+         Body. #v(3em) #align(right)[#stack(spacing: 0.65em, [JANE Q. DOE, Colonel, USAF], [Commander])]\n"
+    ));
+    assert_eq!(
+        w.texts(),
+        [
+            "Alpha\nBeta\nGamma",
+            "Body.",
+            "JANE Q. DOE, Colonel, USAF\nCommander"
+        ]
+    );
+    assert_eq!(
+        w.par("JANE Q. DOE, Colonel, USAF\nCommander").jc.as_deref(),
+        Some("right")
+    );
+
+    let words = "plain *bold* _italic_ ".repeat(6);
+    let w = render(&format!(
+        "#set page(width: 200pt, height: 400pt, margin: 20pt)\n\
+         #set text(font: \"Roboto\")\n\
+         {words}\n\n\
+         #set text(lang: \"en\", hyphenate: true)\n\
+         Extraordinarily incomprehensibilities characterization.\n\n\
+         A well-known, state-of-the-art, run-of-the-mill self-contained thing.\n\n\
+         #par(justify: true)[{words}]\n"
+    ));
+    let words = words.replace(['*', '_'], "");
+    assert_eq!(
+        w.texts(),
+        [
+            words.trim_end(),
+            "Extraordinarily incomprehensibilities characterization.",
+            "A well-known, state-of-the-art, run-of-the-mill self-contained thing.",
+            words.trim_end(),
+        ]
+    );
+}

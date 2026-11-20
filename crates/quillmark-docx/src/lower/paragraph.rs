@@ -27,6 +27,14 @@ pub(super) const WORD_CLONES: &[(&str, &str)] = &[
     ("Caladea", "Cambria"),
 ];
 
+/// The widths, in ems of the larger text beside it, from which a gap inside
+/// a line that no glyph sets reads as a word space, and as a tab. Kerning and
+/// the boundary between two runs leave no gap, and justification widens only
+/// the space glyphs, so a gap this wide is spacing the engine set between
+/// words: a word space below the tab width, which Word cannot tell from one,
+/// and a tab to where the next run starts from it.
+const GAP_EMS: (f64, f64) = (0.2, 0.4);
+
 /// A child a paragraph's lines read into: an inline element, or a bracket
 /// the reader found the paragraph reads through.
 pub(super) fn read_into(k: &NodeKind) -> bool {
@@ -342,7 +350,10 @@ impl<'a> Lower<'a> {
                 props.style = Some(id);
             }
         }
-        let mut content = self.runs(n, &lines, ctx);
+        let (mut content, stops) = self.runs(n, &lines, ctx);
+        props.tabs.extend(stops);
+        props.tabs.sort_by_key(|t| t.pos);
+        props.tabs.dedup_by_key(|t| t.pos);
         if let Some(label) = self.label_prefix.take() {
             content.insert(
                 0,
@@ -431,16 +442,21 @@ impl<'a> Lower<'a> {
         }
     }
 
-    /// The runs of `n`'s lines, joined into running text.
+    /// The runs of `n`'s lines, joined into running text, and the left tab
+    /// stops the tabs among them set to, from the container's edge.
     pub(super) fn runs(
         &mut self,
         n: NodeId,
         lines: &[crate::layout::Line],
         ctx: &Ctx,
-    ) -> Vec<Inline> {
+    ) -> (Vec<Inline>, Vec<TabStop>) {
         let mut out: Vec<(Option<String>, Inline)> = Vec::new();
+        let mut stops: Vec<TabStop> = Vec::new();
         let mut tabbed = false;
         for (li, line) in lines.iter().enumerate() {
+            // Where the last text run that is not raised ends, its size, and
+            // whether whitespace ends it.
+            let mut prev: Option<(f64, f64, bool)> = None;
             let texts: Vec<ItemRef> = line.items.clone();
             let main = texts
                 .iter()
@@ -456,15 +472,46 @@ impl<'a> Lower<'a> {
                 .rposition(|r| matches!(self.doc.item(*r).kind, ItemKind::Text(_)));
             for (i, r) in texts.iter().enumerate() {
                 if self.skip.contains(r) {
+                    prev = None;
                     continue;
                 }
                 self.consumed.insert(*r);
                 let item = self.doc.item(*r);
+                if !matches!(item.kind, ItemKind::Text(_)) {
+                    prev = None;
+                }
                 match &item.kind {
                     ItemKind::Text(t) => {
                         let chain = self.chain(item.node, n);
                         let fill = chain.iter().any(|k| matches!(k, NodeKind::TocFill));
                         let page = chain.iter().any(|k| matches!(k, NodeKind::TocPage));
+                        let raised = self.doc.raised(item.node, n);
+                        let before = prev.take();
+                        let mut gap = None;
+                        if !raised && !fill && !page && !tabbed {
+                            prev = Some((
+                                t.origin[0] + t.width,
+                                t.size,
+                                t.text.ends_with(char::is_whitespace),
+                            ));
+                            if let Some((end, size, spaced)) = before {
+                                let em = size.max(t.size);
+                                let spaced = spaced || t.text.starts_with(char::is_whitespace);
+                                let wide = t.origin[0] - end;
+                                gap = if wide >= GAP_EMS.1 * em {
+                                    stops.push(TabStop {
+                                        kind: TabKind::Left,
+                                        pos: tw(t.origin[0] - ctx.left),
+                                        leader: TabLeader::None,
+                                    });
+                                    Some(RunContent::Tab)
+                                } else if wide >= GAP_EMS.0 * em && !spaced {
+                                    Some(RunContent::Text(" ".into()))
+                                } else {
+                                    None
+                                };
+                            }
+                        }
                         if (fill || page) && !tabbed {
                             tabbed = true;
                             if let Some((_, Inline::Run(r))) = out.last_mut() {
@@ -511,6 +558,20 @@ impl<'a> Lower<'a> {
                         let mut props = self.run_props(t, &chain);
                         if let (Some(_), Some(main)) = (props.vert, main) {
                             props.size = Some((main * 2.0).round().max(2.0) as u32);
+                        }
+                        if let Some(content) = gap {
+                            out.push((
+                                None,
+                                Inline::Run(Run {
+                                    props: RunProps {
+                                        underline: false,
+                                        strike: false,
+                                        shade: None,
+                                        ..props.clone()
+                                    },
+                                    content: vec![content],
+                                }),
+                            ));
                         }
                         let link = chain.iter().find_map(|k| match k {
                             NodeKind::Link { url } if !runs_script(url) => Some(url.clone()),
@@ -603,7 +664,7 @@ impl<'a> Lower<'a> {
                 ));
             }
         }
-        merge(out)
+        (merge(out), stops)
     }
 
     /// The kinds from `item_node` up to and including `top`.

@@ -1,5 +1,5 @@
 section 0, next page
-  P "1.A label outside any list." before=0 after=- line=299
+  P "1. A label outside any list." before=0 after=- line=299
   P "A paragraph, not a grid." before=121 after=- line=299
   P "A paragraph, not a place." before=121 after=- line=299
 notices: docx::hint_unchecked docx::font_not_embedded

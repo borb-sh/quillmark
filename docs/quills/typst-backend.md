@@ -512,7 +512,9 @@ Every quill on this backend exports to Word with no change to the quill: ask for
 
 What is known to differ, with no warning:
 
-- **A number or a term meets the text after it** with nothing between them: a heading's number its title ("1.1Scope"), a contents entry's number its title, a number a `label` hint leaves printed its paragraph ("3.Skips two."), and a term its description. The gap Typst sets there is spacing, not text, and no tab takes its place.
+- **Spacing Typst sets between runs is a space or a tab.** Spacing no character prints, such as an `h`, a heading's number before its title, a term before its description or a stack set left to right, is a space when it is about a word space wide. A wider gap is a tab to a left tab stop where the next run starts, so a face Word sets wider than the PDF's can push the run to the next stop.
+- **A stack's lines are line breaks in one paragraph.** Lines Typst set apart, where its line breaker could not have wrapped, keep their breaks and the stack's spacing as the paragraph's line pitch.
+- **A space between two runs set in a family the quill does not ship is missing, in the PDF as well.** Typst finds no fallback face for a run that is only a space, so `*Bold* _italic_` prints "Bolditalic" until the plate sets a font the quill holds.
 - **A text box does not wrap.** Placed content is a text box exactly as wide as the PDF's ink, so a face Word sets wider than the PDF's runs past its edge or is cut off.
 - **Chinese, Japanese and Korean text is set in a face Word picks.** A run names its face for Latin and complex-script text only.
 - **A figure's table is not kept with the caption below it,** so Word can set the caption at the top of the next page.

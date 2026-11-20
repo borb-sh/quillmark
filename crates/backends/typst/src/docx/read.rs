@@ -1784,7 +1784,7 @@ fn form_lines(doc: &mut LayoutDoc) {
                     if !same {
                         if let Some(l) = lines.last_mut() {
                             if l.end == LineEnd::Last {
-                                l.end = LineEnd::Soft { ate_space: false };
+                                l.end = LineEnd::Soft;
                             }
                         }
                         lines.push(Line {
@@ -1844,28 +1844,76 @@ fn form_lines(doc: &mut LayoutDoc) {
             }
         }
         for l in &mut lines {
-            let x = |r: &ItemRef| match &doc.item(*r).kind {
-                ItemKind::Text(t) => t.origin[0],
-                ItemKind::Raster { rect, .. } => rect.x0,
-                _ => f64::MAX,
-            };
-            l.items.sort_by(|a, b| x(a).total_cmp(&x(b)));
-            if matches!(l.end, LineEnd::Soft { .. }) {
+            // A mark keeps its place after the ink it follows in reading
+            // order, so a footnote's reference stays where it is printed.
+            let mut at = f64::MIN;
+            let mut keyed: Vec<(f64, ItemRef)> = l
+                .items
+                .iter()
+                .map(|r| {
+                    match &doc.item(*r).kind {
+                        ItemKind::Text(t) => at = t.origin[0],
+                        ItemKind::Raster { rect, .. } => at = rect.x0,
+                        _ => {}
+                    }
+                    (at, *r)
+                })
+                .collect();
+            keyed.sort_by(|a, b| a.0.total_cmp(&b.0));
+            l.items = keyed.into_iter().map(|(_, r)| r).collect();
+            if l.end == LineEnd::Soft {
                 let last = l.items.iter().rev().find_map(|r| match &doc.item(*r).kind {
                     ItemKind::Text(t) => Some(t.text.as_str()),
                     _ => None,
                 });
-                l.end = match last {
-                    Some(t) if t.ends_with('\u{ad}') => LineEnd::Hyphenated,
-                    Some(t) => LineEnd::Soft {
-                        ate_space: t.ends_with(char::is_whitespace),
-                    },
-                    None => LineEnd::Soft { ate_space: false },
-                };
+                if last.is_some_and(|t| t.ends_with('\u{ad}')) {
+                    l.end = LineEnd::Hyphenated;
+                }
+            }
+        }
+        for i in 1..lines.len() {
+            if lines[i - 1].end == LineEnd::Soft && !could_wrap(doc, &lines[i - 1], &lines[i]) {
+                lines[i - 1].end = LineEnd::Forced;
             }
         }
         doc.nodes[id].lines = lines;
     }
+}
+
+/// Whether Typst's line breaker could have ended `line` where `next` starts.
+/// A link breaks between any two characters, and an inline object on either
+/// side offers a break; otherwise a word joined to the next word, or closing
+/// punctuation to a word, is no break opportunity, so the lines were laid out
+/// apart, as a stack's children are.
+fn could_wrap(doc: &LayoutDoc, line: &Line, next: &Line) -> bool {
+    let text = |r: Option<&ItemRef>| match r.map(|r| (r, &doc.item(*r).kind)) {
+        Some((r, ItemKind::Text(t))) => Some((*r, t.text.as_str())),
+        _ => None,
+    };
+    let inked = |r: &&ItemRef| !matches!(doc.item(**r).kind, ItemKind::Mark(_));
+    let (Some((r, end)), Some((_, start))) = (
+        text(line.items.iter().rfind(inked)),
+        text(next.items.iter().find(inked)),
+    ) else {
+        return true;
+    };
+    if doc
+        .ancestor(doc.item(r).node, |k| matches!(k, NodeKind::Link { .. }))
+        .is_some()
+    {
+        return true;
+    }
+    let word = |c: char| {
+        c.is_alphanumeric()
+            && ((c as u32) < 0x0E00
+                || (0x10A0..0x1100).contains(&(c as u32))
+                || (0x1E00..0x2000).contains(&(c as u32)))
+    };
+    let (Some(last), Some(first)) = (end.chars().next_back(), start.chars().next()) else {
+        return true;
+    };
+    let holds_after = word(last) || matches!(last, '.' | ',' | ':' | ';' | ')' | ']');
+    !(holds_after && word(first))
 }
 
 fn item_rect(doc: &LayoutDoc, r: ItemRef) -> Option<Rect> {

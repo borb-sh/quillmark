@@ -1,4 +1,4 @@
 section 0, next page
-  P "Before 𝑎2+𝑏2+𝑐2+𝑑2+𝑒2+𝑓2+𝑔2+ℎ2+𝑖2+𝑗2+𝑘2+" before=0 after=- line=300
+  P "Before 𝑎2 + 𝑏2 + 𝑐2 + 𝑑2 + 𝑒2 + 𝑓2 + 𝑔2 " before=0 after=- line=300
   P "The next paragraph, long enough that it " before=121 after=- line=299
 notices: docx::equation_text docx::font_not_embedded docx::font_not_embedded

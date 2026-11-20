@@ -340,12 +340,13 @@ pub enum Child {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineEnd {
-    /// A wrap; `ate_space` when the space the line broke at ends its text.
-    Soft {
-        ate_space: bool,
-    },
+    /// A wrap: the line's text ends where the next line's continues, with
+    /// the space the line broke at, if any, still in it.
+    Soft,
     /// A wrap at a hyphen the engine inserted, which ends the line's text.
     Hyphenated,
+    /// A line the engine did not end by wrapping: a forced break, or lines
+    /// laid out apart, such as a stack's children.
     Forced,
     Last,
 }
