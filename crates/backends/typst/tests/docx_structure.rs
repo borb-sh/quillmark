@@ -227,6 +227,63 @@ fn a_number_word_cannot_count_stays_text_and_is_reported() {
     assert!(w.has("docx::page_number_frozen"), "{:?}", w.codes);
 }
 
+const SHORT: &str = "#set page(width: 300pt, height: 200pt, margin: 40pt, footer: context [";
+
+#[test]
+fn page_n_of_m_is_one_section_with_a_page_field_and_a_page_count_field() {
+    let w = render(&format!(
+        "{SHORT}Page #counter(page).display() of #counter(page).final().first()])\n\
+         One.\n#pagebreak()\nTwo.\n#pagebreak()\nThree.\n"
+    ));
+    assert_eq!(
+        numbering(&w),
+        [(
+            Some("decimal".into()),
+            None,
+            strings(&["Page 1 of 3"]),
+            strings(&["PAGE", "NUMPAGES"])
+        )]
+    );
+    assert!(!w.has("docx::page_number_frozen"), "{:?}", w.codes);
+}
+
+#[test]
+fn a_count_of_the_body_alone_is_its_section_pages() {
+    let w = render(
+        "#set page(width: 300pt, height: 200pt, margin: 40pt, numbering: \"i\")\n\
+         Front.\n\
+         #set page(numbering: \"1\", footer: context [Page #counter(page).display() of \
+         #counter(page).final().first()])\n#counter(page).update(1)\n\
+         One.\n#pagebreak()\nTwo.\n",
+    );
+    let sections = numbering(&w);
+    assert_eq!(sections.len(), 2, "{sections:?}");
+    assert_eq!(sections[1].2, strings(&["Page 1 of 2"]));
+    assert_eq!(sections[1].3, strings(&["PAGE", "SECTIONPAGES"]));
+}
+
+#[test]
+fn a_lone_page_whose_footer_holds_its_number_is_reported() {
+    let w = render(&format!("{SHORT}Page #counter(page).display()])\nOne.\n"));
+    let sections = numbering(&w);
+    assert!(sections[0].3.is_empty(), "{sections:?}");
+    assert!(w.has("docx::page_number_frozen"), "{:?}", w.codes);
+}
+
+#[test]
+fn a_number_beside_a_page_field_is_not_reported() {
+    let w = render(&format!(
+        "{SHORT}Form 2 #h(1fr) Page #counter(page).display()])\n\
+         One.\n#pagebreak()\nTwo.\n"
+    ));
+    let sections = numbering(&w);
+    assert_eq!(sections.len(), 1, "{sections:?}");
+    assert_eq!(sections[0].3, strings(&["PAGE"]));
+    assert!(!w.has("docx::page_number_frozen"), "{:?}", w.codes);
+    let w = render(&format!("{SHORT}Revision 1])\nOne.\n#pagebreak()\nTwo.\n"));
+    assert!(!w.has("docx::page_number_frozen"), "{:?}", w.codes);
+}
+
 /// Each body paragraph's text, the page it starts, and the text of the
 /// objects anchored to it.
 fn anchors(w: &word::Word) -> Vec<(String, usize, Vec<String>)> {

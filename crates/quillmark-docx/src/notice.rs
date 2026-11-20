@@ -107,8 +107,9 @@ impl Code {
                  printed text"
             ),
             Code::PageNumberFrozen => format!(
-                "{n} printed page number(s) are not literal text around a number Word can count, \
-                 so they stay as printed text"
+                "{n} page(s) print their own number in a header or footer, but not as a pattern \
+                 the export can tell is the page number or as a number Word can count, so it \
+                 stays as printed text"
             ),
             Code::LinkScript => format!("{n} link(s) that run script are carried as plain text"),
             Code::UnstructuredText => format!(

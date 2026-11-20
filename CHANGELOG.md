@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- fix(docx): the last page of a "Page N of M" footer keeps its `PAGE` field and its section, and the page count after the number is a `NUMPAGES` or `SECTIONPAGES` field when it counts the document's or the section's pages
+- fix(docx): `docx::page_number_frozen` reports a page whose header or footer prints its own number with no `PAGE` field for it, as a "Page 1" on a one-page document
+
 ## v0.139.0 - 2026-11-15
 
 Upgrade path: [0.138 → 0.139](docs/migrations/0.138-to-0.139.md). The typed

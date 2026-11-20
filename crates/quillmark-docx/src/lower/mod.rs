@@ -130,7 +130,11 @@ impl<'a> Lower<'a> {
                     _ => None,
                 })
                 .collect(),
-            tally: Tally::default(),
+            tally: {
+                let mut tally = Tally::default();
+                tally.count(Code::PageNumberFrozen, "", pages.frozen);
+                tally
+            },
         }
     }
 }

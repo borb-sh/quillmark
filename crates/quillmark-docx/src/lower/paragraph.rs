@@ -518,33 +518,40 @@ impl<'a> Lower<'a> {
                         });
                         let number = ctx.page_number.and_then(|p| {
                             let (a, b) = self.pages.number_in(&t.text, p)?;
-                            let found = self.pages.printed(p);
-                            if found.is_none() {
-                                self.tally.count(Code::PageNumberFrozen, "", 1);
-                            }
-                            Some((a, b, found?))
+                            let total = self.pages.total_in(&t.text, p, b);
+                            Some((a, b, self.pages.printed(p)?, total))
                         });
-                        if let Some((a, b, found)) = number {
+                        if let Some((a, b, found, total)) = number {
                             let run = |text: String| Run {
                                 props: props.clone(),
                                 content: vec![RunContent::Text(text)],
                             };
+                            let field = |instruction: &str, shown: &str| Field {
+                                instruction: instruction.into(),
+                                props: props.clone(),
+                                result: vec![run(shown.to_string())],
+                                locked: false,
+                            };
+                            let end = t.text.len();
+                            let (c, d) = total.map_or((end, end), |(c, d, _)| (c, d));
                             let before = shaped(&format!("{}{}", &t.text[..a], found.before));
-                            let after = shaped(&format!("{}{}", found.after, &t.text[b..]));
+                            let after = shaped(&format!("{}{}", found.after, &t.text[b..c]));
                             if !before.is_empty() {
                                 out.push((link.clone(), Inline::Run(run(before))));
                             }
-                            out.push((
-                                link.clone(),
-                                Inline::Field(Field {
-                                    instruction: "PAGE".into(),
-                                    props: props.clone(),
-                                    result: vec![run(found.digits.clone())],
-                                    locked: false,
-                                }),
-                            ));
+                            out.push((link.clone(), Inline::Field(field("PAGE", &found.digits))));
                             if !after.is_empty() {
-                                out.push((link, Inline::Run(run(after))));
+                                out.push((link.clone(), Inline::Run(run(after))));
+                            }
+                            if let Some((_, _, instruction)) = total {
+                                out.push((
+                                    link.clone(),
+                                    Inline::Field(field(instruction, &t.text[c..d])),
+                                ));
+                                let tail = shaped(&t.text[d..]);
+                                if !tail.is_empty() {
+                                    out.push((link, Inline::Run(run(tail))));
+                                }
                             }
                             continue;
                         }
