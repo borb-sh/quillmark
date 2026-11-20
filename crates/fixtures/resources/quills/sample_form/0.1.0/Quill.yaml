@@ -4,43 +4,44 @@ quill:
   backend: acroform
   description: "Demo PDF form filled by the Typst-free acroform backend, over every field type it binds."
 
-main:
-  body:
-    enabled: false
-  fields:
-    full_name:
-      type: text
-      default: ""
-      description: Full legal name of the applicant. Binds the FullName text field.
-
-    comments:
-      type: array
-      items:
+schema:
+  main:
+    body:
+      enabled: false
+    fields:
+      full_name:
         type: text
-      default: []
-      description: "Free-form comments; each element becomes one line of the Comments field."
+        default: ""
+        description: Full legal name of the applicant. Binds the FullName text field.
 
-    agree:
-      type: boolean
-      default: false
-      description: Whether the applicant agrees to the terms. Binds the Agree checkbox.
+      comments:
+        type: array
+        items:
+          type: text
+        default: []
+        description: "Free-form comments; each element becomes one line of the Comments field."
 
-    favorite_color:
-      type: enum
-      values:
-        - red
-        - green
-        - blue
-      default: red
-      description: Favorite color. Binds the FavoriteColor dropdown.
+      agree:
+        type: boolean
+        default: false
+        description: Whether the applicant agrees to the terms. Binds the Agree checkbox.
 
-    headline:
-      type: richtext
-      default: ""
-      description: "One-paragraph richtext bound to the single-line Headline text field; lowered to plain text."
+      favorite_color:
+        type: enum
+        values:
+          - red
+          - green
+          - blue
+        default: red
+        description: Favorite color. Binds the FavoriteColor dropdown.
 
-    bio:
-      type: richtext
-      shape: blocks
-      default: ""
-      description: "Multiline richtext bound to the multiline Bio field; lowered to plain text (markup dropped, islands stripped)."
+      headline:
+        type: richtext
+        default: ""
+        description: "One-paragraph richtext bound to the single-line Headline text field; lowered to plain text."
+
+      bio:
+        type: richtext
+        shape: blocks
+        default: ""
+        description: "Multiline richtext bound to the multiline Bio field; lowered to plain text (markup dropped, islands stripped)."

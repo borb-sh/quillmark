@@ -26,20 +26,21 @@ fn text_quill() -> quillmark::Quill {
 typst:
   plate_file: plate.typ
 
-main:
-  body:
-    enabled: false
-  fields:
-    subject:
-      type: text
-      shape: lines
-      default: ""
-    tags:
-      type: array
-      items:
+schema:
+  main:
+    body:
+      enabled: false
+    fields:
+      subject:
         type: text
         shape: lines
-      description: text elements
+        default: ""
+      tags:
+        type: array
+        items:
+          type: text
+          shape: lines
+        description: text elements
 "#,
         ),
         (
@@ -165,14 +166,15 @@ fn qm_str_projects_a_text_value_to_its_verbatim_string() {
 typst:
   plate_file: plate.typ
 
-main:
-  body:
-    enabled: false
-  fields:
-    one: { type: text }
-    many: { type: text, shape: lines }
-    blank: { type: text }
-    absent: { type: text? }
+schema:
+  main:
+    body:
+      enabled: false
+    fields:
+      one: { type: text }
+      many: { type: text, shape: lines }
+      blank: { type: text }
+      absent: { type: text? }
 "#;
     let plate = format!(
         "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
@@ -209,13 +211,14 @@ fn qm_str_drops_every_trailing_space() {
   backend: "typst"
   description: "qm.str trailing whitespace"
 
-main:
-  body:
-    enabled: false
-  fields:
-    two: { type: text, shape: lines }
-    three: { type: text, shape: lines }
-    lines: { type: text, shape: lines }
+schema:
+  main:
+    body:
+      enabled: false
+    fields:
+      two: { type: text, shape: lines }
+      three: { type: text, shape: lines }
+      lines: { type: text, shape: lines }
 "#;
     let plate = "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
          #assert.eq(qm.str(qm.data.two), \"  trail\")\n\

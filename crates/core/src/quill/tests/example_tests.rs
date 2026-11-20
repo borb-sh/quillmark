@@ -4,47 +4,47 @@ use super::*;
 use serde_json::json;
 
 const SCHEMA: &str = r#"
-main:
-  body:
-    description: What the memo says.
-    example: "Filled-in *prose*."
-  fields:
-    subject: { type: text, example: Budget review }
-    count: { type: integer, default: 3, example: 7 }
-    note: { type: text }
-    contact:
-      type: object
-      properties:
-        city: { type: text, example: Springfield }
-        zip: { type: text }
-    refs:
-      type: array
-      items:
+schema:
+  main:
+    body:
+      description: What the memo says.
+      example: "Filled-in *prose*."
+    fields:
+      subject: { type: text, example: Budget review }
+      count: { type: integer, default: 3, example: 7 }
+      note: { type: text }
+      contact:
         type: object
         properties:
-          org: { type: text, example: ACME }
-          role: { type: text }
-    rows:
-      type: array
-      example: [{ org: Initech }]
-      items:
-        type: object
+          city: { type: text, example: Springfield }
+          zip: { type: text }
+      refs:
+        type: array
+        items:
+          type: object
+          properties:
+            org: { type: text, example: ACME }
+            role: { type: text }
+      rows:
+        type: array
+        example: [{ org: Initech }]
+        items:
+          type: object
+          properties:
+            org: { type: text, example: ACME }
+      tags: { type: array, items: { type: text, example: urgent } }
+      quals:
+        type: matrix
+        members: { cc: CC, ops: Ops }
         properties:
-          org: { type: text, example: ACME }
-    tags: { type: array, items: { type: text, example: urgent } }
-    quals:
-      type: matrix
-      members: { cc: CC, ops: Ops }
-      properties:
-        detail: { type: text, example: Earned 2024 }
-    marking:
-      type: enum
-      values: [PUBLIC, CUI]
-      example: CUI
-      variants:
-        CUI:
-          poc: { type: text, example: J. Doe }
-card_kinds:
+          detail: { type: text, example: Earned 2024 }
+      marking:
+        type: enum
+        values: [PUBLIC, CUI]
+        example: CUI
+        variants:
+          CUI:
+            poc: { type: text, example: J. Doe }
   item:
     seed:
       title: TITLE
@@ -122,8 +122,8 @@ fn a_variant_world_commits_under_the_member_that_opens_it() {
     let world = |discriminant: &str| {
         load(
             &format!(
-                "main:\n  fields:\n    marking:\n      type: enum\n      values: [PUBLIC, CUI]\n\
-                 {discriminant}      variants:\n        CUI:\n          poc: {{ type: text, example: J. Doe }}\n"
+                "schema:\n  main:\n    fields:\n      marking:\n        type: enum\n        values: [PUBLIC, CUI]\n\
+                 {discriminant}        variants:\n          CUI:\n            poc: {{ type: text, example: J. Doe }}\n"
             ),
             &[],
         )
@@ -131,7 +131,7 @@ fn a_variant_world_commits_under_the_member_that_opens_it() {
         .map(|doc| field(doc.main(), "marking"))
     };
     assert_eq!(
-        world("      default: CUI\n"),
+        world("        default: CUI\n"),
         Some(json!({ "poc": "J. Doe" }))
     );
     assert_eq!(world(""), None);
@@ -142,7 +142,7 @@ fn a_variant_world_commits_under_the_member_that_opens_it() {
 #[test]
 fn a_quill_declaring_no_example_has_no_example_document() {
     let quill = load(
-        "main:\n  fields:\n    subject: { type: text, default: Hello }\n",
+        "schema:\n  main:\n    fields:\n      subject: { type: text, default: Hello }\n",
         &[(
             "example.md",
             b"~~~\n$quill: q\nsubject: Budget review\n~~~\n",
@@ -204,7 +204,8 @@ fn a_body_example_and_description_are_checked_at_load() {
             "quill::richtext_example_import",
         ),
     ] {
-        let errors = config_with_sections(&format!("main:\n  body:\n{body}")).expect_err(body);
+        let errors =
+            config_with_sections(&main_section(&format!("  body:\n{body}"))).expect_err(body);
         assert_eq!(codes(&errors), [code], "{body}");
     }
 }

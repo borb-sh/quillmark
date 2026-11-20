@@ -177,13 +177,14 @@ describe('Quill.fromTree + engine.render', () => {
   backend: typst
   description: A quill holding a list of richtext notes
 
-main:
-  fields:
-    notes:
-      type: array
-      items:
-        type: richtext
-        shape: blocks
+schema:
+  main:
+    fields:
+      notes:
+        type: array
+        items:
+          type: richtext
+          shape: blocks
 `
     const NOTES_PLATE = `#import "@local/quillmark-helper:0.2.0" as qm
 
@@ -1252,14 +1253,14 @@ describe('quill.metadata', () => {
 typst:
   plate_file: plate.typ
 
-main:
-  description: The main card schema
-  fields:
-    title:
-      type: text
-      description: The title
+schema:
+  main:
+    description: The main card schema
+    fields:
+      title:
+        type: text
+        description: The title
 
-card_kinds:
   indorsement:
     description: Indorsement
     fields:
@@ -1305,8 +1306,8 @@ card_kinds:
     const schema = JSON.parse(JSON.stringify(quill.schema))
     expect(schema.main.description).toBe('The main card schema')
     expect(schema.main.fields.title).toBeDefined()
-    expect(schema.card_kinds.main).toBeUndefined()
-    expect(schema.card_kinds.indorsement.fields.signature_block).toBeDefined()
+    expect(Object.keys(schema)).toEqual(['main', 'indorsement'])
+    expect(schema.indorsement.fields.signature_block).toBeDefined()
   })
 
   it('surfaces the load\'s advisory diagnostics on quill.warnings', () => {
@@ -1324,12 +1325,12 @@ card_kinds:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    title:
-      type: text
+schema:
+  main:
+    fields:
+      title:
+        type: text
 
-card_kinds:
   skills:
     body:
       enabled: false
@@ -1358,14 +1359,14 @@ describe('quill.validate', () => {
   backend: typst
   description: Smoke test for validate
 
-main:
-  fields:
-    title:
-      type: text
-    count:
-      type: integer
+schema:
+  main:
+    fields:
+      title:
+        type: text
+      count:
+        type: integer
 
-card_kinds:
   note:
     fields:
       prose:
@@ -1420,15 +1421,16 @@ describe('value schema model', () => {
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    title:
-      type: text
-      description: Document title (no default)
-    subtitle:
-      type: text
-      default: "Untitled subtitle"
-      description: Document subtitle (defaulted, shippable)
+schema:
+  main:
+    fields:
+      title:
+        type: text
+        description: Document title (no default)
+      subtitle:
+        type: text
+        default: "Untitled subtitle"
+        description: Document subtitle (defaulted, shippable)
 `
 
   const SCHEMA_PLATE = `#import "@local/quillmark-helper:0.2.0" as qm

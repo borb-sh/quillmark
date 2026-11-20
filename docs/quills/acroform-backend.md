@@ -31,7 +31,7 @@ Nulling the key (PyMuPDF's `xref_set_key` sets a key to `null` rather than delet
 
 ## `Quill.yaml`
 
-An `acroform` quill declares `backend: acroform` and has **no plate file**. The document body is typically disabled: a form is filled from fields, not prose. Fields under `main.fields` define the document schema exactly as for any other backend:
+An `acroform` quill declares `backend: acroform` and has **no plate file**. The document body is typically disabled: a form is filled from fields, not prose. Fields under `schema.main.fields` define the document schema exactly as for any other backend:
 
 ```yaml
 # yaml-language-server: $schema=https://quillmark.dev/schemas/quill.schema.json
@@ -41,41 +41,42 @@ quill:
   backend: acroform
   description: "Demo PDF form filled by the Typst-free acroform backend, over every field type it binds."
 
-main:
-  body:
-    enabled: false
-  fields:
-    full_name:
-      type: text
-      default: ""
-      description: Full legal name of the applicant. Binds the FullName text field.
-
-    comments:
-      type: array
-      items:
+schema:
+  main:
+    body:
+      enabled: false
+    fields:
+      full_name:
         type: text
-      default: []
-      description: "Free-form comments; each element becomes one line of the Comments field."
+        default: ""
+        description: Full legal name of the applicant. Binds the FullName text field.
 
-    agree:
-      type: boolean
-      default: false
-      description: Whether the applicant agrees to the terms. Binds the Agree checkbox.
+      comments:
+        type: array
+        items:
+          type: text
+        default: []
+        description: "Free-form comments; each element becomes one line of the Comments field."
 
-    favorite_color:
-      type: enum
-      values:
-        - red
-        - green
-        - blue
-      default: red
-      description: Favorite color. Binds the FavoriteColor dropdown.
+      agree:
+        type: boolean
+        default: false
+        description: Whether the applicant agrees to the terms. Binds the Agree checkbox.
 
-    headline:
-      type: richtext
-      multiline: false
-      default: ""
-      description: "One-paragraph richtext bound to the Headline text field; lowered to plain text."
+      favorite_color:
+        type: enum
+        values:
+          - red
+          - green
+          - blue
+        default: red
+        description: Favorite color. Binds the FavoriteColor dropdown.
+
+      headline:
+        type: richtext
+        multiline: false
+        default: ""
+        description: "One-paragraph richtext bound to the Headline text field; lowered to plain text."
 ```
 
 See the [Quill.yaml Reference](quill-yaml-reference.md) for the full field-type vocabulary.

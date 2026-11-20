@@ -15,17 +15,17 @@ quill:
   backend: typst
   description: Validate surface test
 
-main:
-  fields:
-    title:
-      type: text
-    status:
-      type: text
-      default: draft
-    count:
-      type: integer
+schema:
+  main:
+    fields:
+      title:
+        type: text
+      status:
+        type: text
+        default: draft
+      count:
+        type: integer
 
-card_kinds:
   note:
     fields:
       label:
@@ -59,31 +59,32 @@ quill:
   backend: typst
   description: Render-floor leniencies
 
-main:
-  fields:
-    caption:
-      type: array
-      items:
+schema:
+  main:
+    fields:
+      caption:
+        type: array
+        items:
+          type: text
+      verified:
+        type: boolean
+      count:
+        type: integer
+      ratio:
+        type: number
+      heading:
         type: text
-    verified:
-      type: boolean
-    count:
-      type: integer
-    ratio:
-      type: number
-    heading:
-      type: text
-    grade:
-      type: enum
-      values: [alpha, beta]
-    signed_on:
-      type: date
-    prose:
-      type: richtext
-      shape: blocks
-    literal:
-      type: text
-      shape: lines
+      grade:
+        type: enum
+        values: [alpha, beta]
+      signed_on:
+        type: date
+      prose:
+        type: richtext
+        shape: blocks
+      literal:
+        type: text
+        shape: lines
 "#;
 
 fn lenient_doc(fields: &str) -> Document {
@@ -189,12 +190,13 @@ quill:
   version: "1.0.0"
   backend: typst
   description: element-wise conformance
-main:
-  fields:
-    counts:
-      type: array
-      items:
-        type: integer
+schema:
+  main:
+    fields:
+      counts:
+        type: array
+        items:
+          type: integer
 "#,
     );
     // `true` is a value the floor adopts for an integer; `"abc"` is not.
@@ -243,16 +245,17 @@ quill:
   version: "1.0.0"
   backend: typst
   description: variant-bearing enum
-main:
-  fields:
-    classification:
-      type: enum
-      values: [cui, secret]
-      default: ""
-      variants:
-        cui:
-          caveat:
-            type: text
+schema:
+  main:
+    fields:
+      classification:
+        type: enum
+        values: [cui, secret]
+        default: ""
+        variants:
+          cui:
+            caveat:
+              type: text
 "#,
     );
     // The floor normalizes the bare scalar into `{value: …}`; the diagnostic

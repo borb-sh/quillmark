@@ -7,13 +7,14 @@ quill:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    from:
-      description: Who the letter is from
-      type: text
-      example: 123 Example Office
-    subject:
-      description: What the letter is about
-      type: text
-      example: Numbered paragraphs
+schema:
+  main:
+    fields:
+      from:
+        description: Who the letter is from
+        type: text
+        example: 123 Example Office
+      subject:
+        description: What the letter is about
+        type: text
+        example: Numbered paragraphs

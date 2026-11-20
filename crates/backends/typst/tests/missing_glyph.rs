@@ -8,7 +8,7 @@ mod common;
 
 fn missing(a: &str) -> Vec<String> {
     let quill = common::quill_with_plate(
-        &common::yaml("main:\n  fields:\n    a:\n      type: text\n"),
+        &common::yaml("schema:\n  main:\n    fields:\n      a:\n        type: text\n"),
         "#import \"@local/quillmark-helper:0.2.0\" as qm\n#set text(font: \"Roboto\")\n#qm.data.a\n",
     );
     let session = TypstBackend::default()
@@ -57,7 +57,7 @@ fn covered_text_warns_nothing() {
 #[test]
 fn text_the_page_never_draws_warns_nothing() {
     let quill = common::quill_with_plate(
-        &common::yaml("main:\n  fields:\n    a:\n      type: text\n"),
+        &common::yaml("schema:\n  main:\n    fields:\n      a:\n        type: text\n"),
         "#set text(font: \"Roboto\")\n#link(\"https://例え.jp/パス\")[idn]\n",
     );
     let session = TypstBackend::default()

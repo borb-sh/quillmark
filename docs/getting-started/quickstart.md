@@ -19,14 +19,16 @@ quill:
   version: "1.0.0"
   description: A title above the body
 
-main:
-  fields:
-    title:
-      type: text
-      description: The heading at the top of the page
+schema:
+  main:
+    fields:
+      title:
+        type: text
+        description: The heading at the top of the page
 ```
 
-and `my_quill/plate.typ`, the Typst layout that prints it, which the backend
+`schema:` declares what a document holds, and `main` is the document itself.
+Beside it goes `my_quill/plate.typ`, the Typst layout that prints it, which the backend
 finds by its name:
 
 ```typst
@@ -110,11 +112,12 @@ This paragraph is the document body. *Markdown* works here.
       version: "1.0.0"
       description: A title above the body
 
-    main:
-      fields:
-        title:
-          type: text
-          description: The heading at the top of the page
+    schema:
+      main:
+        fields:
+          title:
+            type: text
+            description: The heading at the top of the page
     `)],
       ["plate.typ", enc.encode(`#import "@local/quillmark-helper:0.2.0" as qm
 

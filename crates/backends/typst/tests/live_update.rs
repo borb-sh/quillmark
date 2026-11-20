@@ -19,7 +19,7 @@ const PLATE: &str = r#"#import "@local/quillmark-helper:0.2.0" as qm
 "#;
 
 fn quill() -> Quill {
-    let yaml = "quill:\n  name: live\n  version: 0.1.0\n  backend: typst\n  description: update acceptance quill\n\ntypst:\n  plate_file: plate.typ\n\nmain:\n  fields:\n    msg:\n      description: message\n      type: text\n";
+    let yaml = "quill:\n  name: live\n  version: 0.1.0\n  backend: typst\n  description: update acceptance quill\n\ntypst:\n  plate_file: plate.typ\n\nschema:\n  main:\n    fields:\n      msg:\n        description: message\n        type: text\n";
     common::quill_with_plate(yaml, PLATE)
 }
 
@@ -76,16 +76,17 @@ fn two_field_quill() -> Quill {
   description: two markdown fields
 typst:
   plate_file: plate.typ
-main:
-  fields:
-    prose:
-      type: richtext
-      shape: blocks
-      description: a markdown body
-    note:
-      type: richtext
-      shape: blocks
-      description: a markdown note
+schema:
+  main:
+    fields:
+      prose:
+        type: richtext
+        shape: blocks
+        description: a markdown body
+      note:
+        type: richtext
+        shape: blocks
+        description: a markdown note
 "#;
     const PLATE: &str = r#"#import "@local/quillmark-helper:0.2.0" as qm
 #set page(width: 300pt, height: 200pt, margin: 20pt)

@@ -11,7 +11,9 @@ mod word;
 /// Each part of the one artifact `plate` renders to as DOCX.
 fn docx_parts(plate: &str, data: serde_json::Value) -> Vec<(String, Vec<u8>)> {
     let quill = common::quill_with_plate(
-        &common::yaml("main:\n  fields:\n    prose: { type: richtext, shape: blocks }\n"),
+        &common::yaml(
+            "schema:\n  main:\n    fields:\n      prose: { type: richtext, shape: blocks }\n",
+        ),
         plate,
     );
     let session = TypstBackend::default()

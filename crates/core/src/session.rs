@@ -449,11 +449,12 @@ quill:
   backend: typst
   version: 1.0.0
   description: Session test quill
-main:
-  fields:
-    subject:
-      type: text
-      shape: lines
+schema:
+  main:
+    fields:
+      subject:
+        type: text
+        shape: lines
 ";
 
     fn config() -> QuillConfig {

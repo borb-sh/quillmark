@@ -17,10 +17,11 @@ const QUILL_YAML: &str = r#"quill:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    issued: { type: date, default: today }
-    signed: { type: date }
+schema:
+  main:
+    fields:
+      issued: { type: date, default: today }
+      signed: { type: date }
 "#;
 
 fn quill(plate: &str) -> quillmark::Quill {

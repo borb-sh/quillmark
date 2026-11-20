@@ -19,7 +19,8 @@ fn link_hrefs_parse_as_xml_and_decode_to_the_url() {
         "#set page(width: 200pt, height: 120pt)\n#link(\"{url}\")[q]\n\
          #rect(fill: tiling(size: (10pt, 10pt), link(\"{TILED}\", box(width: 5pt, height: 5pt, fill: red))))\n"
     );
-    let quill = common::quill_with_plate(&common::yaml("main:\n  fields: {}\n"), &plate);
+    let quill =
+        common::quill_with_plate(&common::yaml("schema:\n  main:\n    fields: {}\n"), &plate);
     let session = TypstBackend::default()
         .open(&quill, &serde_json::json!({}), common::test_date())
         .expect("compiles");

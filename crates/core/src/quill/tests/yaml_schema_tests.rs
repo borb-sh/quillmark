@@ -70,7 +70,7 @@ fn minimal_field(token: &str) -> String {
         "number" | "integer" | "boolean" | "date" | "datetime" | "text" | "richtext" => "",
         other => panic!("give type `{other}` its companion keys here"),
     };
-    format!("{HEADER}main:\n  fields:\n    f: {{ type: \"{token}\"{companion} }}\n")
+    format!("{HEADER}schema:\n  main:\n    fields:\n      f: {{ type: \"{token}\"{companion} }}\n")
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn the_schema_names_every_key_the_loader_reads() {
     assert_eq!(keys(&schema, "body"), set(BODY_CARD_SCHEMA_KEYS));
     assert_eq!(keys(&schema, "card_ui"), set(UI_CARD_SCHEMA_KEYS));
 
-    let card = serde_expected(&format!("{HEADER}main:\n  zz: 1\n"));
+    let card = serde_expected(&format!("{HEADER}schema:\n  main:\n    zz: 1\n"));
     assert_eq!(keys(&schema, "card_kind"), card);
     let main: BTreeSet<String> = card.into_iter().filter(|k| k != "seed").collect();
     assert_eq!(keys(&schema, "main"), main, "`main` declares no `seed`");
@@ -88,13 +88,13 @@ fn the_schema_names_every_key_the_loader_reads() {
     assert_eq!(
         keys(&schema, "field"),
         serde_expected(&format!(
-            "{HEADER}main:\n  fields:\n    f: {{ type: text, zz: 1 }}\n"
+            "{HEADER}schema:\n  main:\n    fields:\n      f: {{ type: text, zz: 1 }}\n"
         ))
     );
     assert_eq!(
         keys(&schema, "field_ui"),
         serde_expected(&format!(
-            "{HEADER}main:\n  fields:\n    f: {{ type: text, ui: {{ zz: 1 }} }}\n"
+            "{HEADER}schema:\n  main:\n    fields:\n      f: {{ type: text, ui: {{ zz: 1 }} }}\n"
         ))
     );
     let layouts: BTreeSet<String> =
@@ -107,7 +107,7 @@ fn the_schema_names_every_key_the_loader_reads() {
     assert_eq!(
         layouts,
         serde_expected(&format!(
-            "{HEADER}main:\n  fields:\n    f: {{ type: text, ui: {{ layout: zz }} }}\n"
+            "{HEADER}schema:\n  main:\n    fields:\n      f: {{ type: text, ui: {{ layout: zz }} }}\n"
         ))
     );
 
@@ -257,7 +257,8 @@ fn every_guide_example_naming_the_schema_loads_and_validates() {
 #[test]
 fn the_schema_refuses_the_shape_errors_the_loader_refuses() {
     let validator = validator();
-    let field = |spec: &str| format!("{HEADER}main:\n  fields:\n    f: {{ {spec} }}\n");
+    let field =
+        |spec: &str| format!("{HEADER}schema:\n  main:\n    fields:\n      f: {{ {spec} }}\n");
     let cases = [
         field("type: Date"),
         field("type: string"),
@@ -281,13 +282,16 @@ fn the_schema_refuses_the_shape_errors_the_loader_refuses() {
         field("type: number, max: 3"),
         field("type: text, members: { a: A }"),
         field("type: enum, values: [a], open: true"),
-        format!("{HEADER}main:\n  fields:\n    Subject: {{ type: text }}\n"),
-        format!("{HEADER}main:\n  fields:\n    body: {{ type: text }}\n"),
-        format!("{HEADER}main:\n  seed: {{}}\n"),
-        format!("{HEADER}main:\n  body: {{ hidden: true }}\n"),
-        format!("{HEADER}main:\n  ui: {{ title: Memo }}\n"),
-        format!("{HEADER}card_kinds:\n  main: {{}}\n"),
-        format!("{HEADER}card_kinds:\n  Note: {{}}\n"),
+        format!("{HEADER}schema:\n  main:\n    fields:\n      Subject: {{ type: text }}\n"),
+        format!("{HEADER}schema:\n  main:\n    fields:\n      body: {{ type: text }}\n"),
+        format!("{HEADER}schema:\n  main:\n    seed: {{}}\n"),
+        format!("{HEADER}schema:\n  main:\n    body: {{ hidden: true }}\n"),
+        format!("{HEADER}schema:\n  main:\n    ui: {{ title: Memo }}\n"),
+        format!("{HEADER}schema:\n  fields: {{}}\n"),
+        format!("{HEADER}schema:\n  main: {{}}\nmain: {{}}\n"),
+        format!("{HEADER}schema:\n  main: {{}}\ncard_kinds: {{}}\n"),
+        format!("{HEADER}schema: []\n"),
+        format!("{HEADER}schema:\n  Note: {{}}\n"),
         format!("{HEADER}fields: {{}}\n"),
         format!("{HEADER}typst:\n  packages: []\n"),
         format!("{HEADER}  colour: blue\n"),

@@ -7,189 +7,189 @@ quill:
 typst:
   plate_file: plate.typ
 
-main:
-  description: U.S. Air Force and Space Force Official Memorandum. Top-level body paragraphs are auto-numbered and nested bullets auto-lettered, so add no manual numbering.
-  body:
-    description: Plain paragraphs, numbered for you; a `-` item under one becomes a lettered subparagraph.
-    example: |
-      The Base Records Portal replaces the shared drive for official records on 1 April 2026. Each unit moves its active files by the suspense in the subject line, per the schedule at the attachment.
+schema:
+  main:
+    description: U.S. Air Force and Space Force Official Memorandum. Top-level body paragraphs are auto-numbered and nested bullets auto-lettered, so add no manual numbering.
+    body:
+      description: Plain paragraphs, numbered for you; a `-` item under one becomes a lettered subparagraph.
+      example: |
+        The Base Records Portal replaces the shared drive for official records on 1 April 2026. Each unit moves its active files by the suspense in the subject line, per the schedule at the attachment.
 
-      Unit records custodians complete two steps before the move:
+        Unit records custodians complete two steps before the move:
 
-      - Confirm the file plan against reference (b).
-      - Mark each CUI record per reference (a) before upload.
+        - Confirm the file plan against reference (b).
+        - Mark each CUI record per reference (a) before upload.
 
-      Direct questions to the point of contact in the CUI block below.
-  fields:
-    memo_for:
-      type: array
-      items:
-        type: text
-      example:
-        - 123 MSG/CC
-        - 123 FSS/CC
-      description: "Organization/office symbol in UPPERCASE. To address a specific person, add their rank and name in parentheses (e.g., 'ORG/SYMBOL (LT COL JANE DOE)'). For many recipients, enter 'SEE DISTRIBUTION' and list them in the Distribution field."
+        Direct questions to the point of contact in the CUI block below.
+    fields:
+      memo_for:
+        type: array
+        items:
+          type: text
+        example:
+          - 123 MSG/CC
+          - 123 FSS/CC
+        description: "Organization/office symbol in UPPERCASE. To address a specific person, add their rank and name in parentheses (e.g., 'ORG/SYMBOL (LT COL JANE DOE)'). For many recipients, enter 'SEE DISTRIBUTION' and list them in the Distribution field."
 
-    memo_from:
-      type: array
-      items:
-        type: text
-      default: []
-      example:
-        - 123 CS/SCX
-        - 45 Example Street
-        - Example AFB ST 12345-6789
-      description: "If recipients are on the same installation, use only the office symbol. For recipients on other installations, include the full mailing address to enable return correspondence. Omit entirely to produce a Memorandum for Record (no MEMO FROM line)."
+      memo_from:
+        type: array
+        items:
+          type: text
+        default: []
+        example:
+          - 123 CS/SCX
+          - 45 Example Street
+          - Example AFB ST 12345-6789
+        description: "If recipients are on the same installation, use only the office symbol. For recipients on other installations, include the full mailing address to enable return correspondence. Omit entirely to produce a Memorandum for Record (no MEMO FROM line)."
 
-    subject:
-      type: richtext
-      example: Transition to the Base Records Portal (Suspense 15 Mar 26)
-      description: Be brief and clear. Capitalize the first letter of each word except articles, prepositions, and conjunctions. Include suspense dates in parentheses if applicable.
-
-    signature_block:
-      type: array
-      items:
-        type: text
-      example:
-        - JANE Q. DOE, Capt, USAF
-        - Chief, Knowledge Operations
-      description: "Line 1: Name in UPPERCASE as signed, grade, and service, as in FIRST M. LAST, Capt, USAF. Line 2: Duty title."
-
-    letterhead_title:
-      type: text
-      default: DEPARTMENT OF THE AIR FORCE
-      description: Change only for Joint Commands or DoW agencies.
-
-    letterhead_caption:
-      type: array
-      items:
-        type: text
-      example:
-        - HEADQUARTERS 123D EXAMPLE WING
-      description: The full organization name of your unit, as in HEADQUARTERS 123D EXAMPLE WING.
-
-    letterhead_seal:
-      type: enum
-      values:
-        - dow
-        - dod
-      default: dow
-      ui:
-        compact: true
-      description: Department of War (DoW) or Department of Defense (DoD) seal shown in the letterhead.
-
-    letterhead_seal_subtitle:
-      type: text
-      default: ""
-      ui:
-        compact: true
-      description: Bold-caps line below the seal; blank to omit.
-
-    tag_line:
-      type: richtext
-      default: ""
-      ui:
-        compact: true
-      description: "Organizational motto at the bottom of the page. Supports Markdown emphasis (e.g. *italics*, **bold**)."
-
-    classification:
-      type: enum
-      values:
-        - UNCLASSIFIED
-        - CUI
-        - CONFIDENTIAL
-        - SECRET
-        - TOP SECRET
-      default: ""
-      example: CUI
-      ui:
-        compact: true
-      description: "Select the classification marking shown in the header and footer banner. Unclassified documents typically omit this banner entirely, leave blank unless the document is CUI or classified. Mark per DAFI 16-1404 (DoDM 5200.48 for CUI) and applicable DoD guidance."
-      variants:
-        CUI:
-          controlled_by:
-            type: text
-            example: 123 CS/SCX
-            description: "Office or organization that designated this information as CUI. Required by DoDM 5200.48."
-          poc:
-            type: text
-            example: Capt J. Doe, DSN 555-0100, jane.doe@example.mil
-            description: "Point of contact for CUI questions, as in Capt J. Smith, DSN 555-1234, john.smith@us.af.mil. Required by DoDM 5200.48."
-          category:
-            type: text
-            default: ""
-            description: "CUI category from the DoD CUI Registry (e.g., 'Privacy/MED', 'CTI', 'PRVCY'). Leave blank to omit."
-          limited_dissemination:
-            type: text
-            default: ""
-            description: "Limited dissemination control shown in the indicator block (e.g., 'FEDONLY', 'NOFORN'). Independent from the banner suffix."
-
-    dissemination:
-      type: text
-      default: ""
-      ui:
-        compact: true
-      description: "Banner dissemination suffix appended after double slash (e.g. 'NF' renders as CUI//NF in the header/footer). Leave blank for no suffix."
-
-    references:
-      type: array
-      items:
+      subject:
         type: richtext
-      default: []
-      example:
-        - "AFMAN 33-326, 25 November 2011, *Preparing Official Communications*"
-        - "DAFI 33-360, *Publications and Forms Management*"
-      description: "References, auto-lettered (a), (b), (c) per AFH 33-337. Cite each by organization, type, date, and title; italicize publication titles with *asterisks* (standard Markdown emphasis)."
+        example: Transition to the Base Records Portal (Suspense 15 Mar 26)
+        description: Be brief and clear. Capitalize the first letter of each word except articles, prepositions, and conjunctions. Include suspense dates in parentheses if applicable.
 
-    cc:
-      type: array
-      items:
+      signature_block:
+        type: array
+        items:
+          type: text
+        example:
+          - JANE Q. DOE, Capt, USAF
+          - Chief, Knowledge Operations
+        description: "Line 1: Name in UPPERCASE as signed, grade, and service, as in FIRST M. LAST, Capt, USAF. Line 2: Duty title."
+
+      letterhead_title:
         type: text
-      default: []
-      description: List office symbols of recipients to receive copies.
+        default: DEPARTMENT OF THE AIR FORCE
+        description: Change only for Joint Commands or DoW agencies.
 
-    distribution:
-      type: array
-      items:
+      letterhead_caption:
+        type: array
+        items:
+          type: text
+        example:
+          - HEADQUARTERS 123D EXAMPLE WING
+        description: The full organization name of your unit, as in HEADQUARTERS 123D EXAMPLE WING.
+
+      letterhead_seal:
+        type: enum
+        values:
+          - dow
+          - dod
+        default: dow
+        ui:
+          compact: true
+        description: Department of War (DoW) or Department of Defense (DoD) seal shown in the letterhead.
+
+      letterhead_seal_subtitle:
         type: text
-      default: []
-      description: Complete list of recipients if 'SEE DISTRIBUTION' is used in the 'Memo For' field.
+        default: ""
+        ui:
+          compact: true
+        description: Bold-caps line below the seal; blank to omit.
 
-    attachments:
-      type: array
-      items:
+      tag_line:
+        type: richtext
+        default: ""
+        ui:
+          compact: true
+        description: "Organizational motto at the bottom of the page. Supports Markdown emphasis (e.g. *italics*, **bold**)."
+
+      classification:
+        type: enum
+        values:
+          - UNCLASSIFIED
+          - CUI
+          - CONFIDENTIAL
+          - SECRET
+          - TOP SECRET
+        default: ""
+        example: CUI
+        ui:
+          compact: true
+        description: "Select the classification marking shown in the header and footer banner. Unclassified documents typically omit this banner entirely, leave blank unless the document is CUI or classified. Mark per DAFI 16-1404 (DoDM 5200.48 for CUI) and applicable DoD guidance."
+        variants:
+          CUI:
+            controlled_by:
+              type: text
+              example: 123 CS/SCX
+              description: "Office or organization that designated this information as CUI. Required by DoDM 5200.48."
+            poc:
+              type: text
+              example: Capt J. Doe, DSN 555-0100, jane.doe@example.mil
+              description: "Point of contact for CUI questions, as in Capt J. Smith, DSN 555-1234, john.smith@us.af.mil. Required by DoDM 5200.48."
+            category:
+              type: text
+              default: ""
+              description: "CUI category from the DoD CUI Registry (e.g., 'Privacy/MED', 'CTI', 'PRVCY'). Leave blank to omit."
+            limited_dissemination:
+              type: text
+              default: ""
+              description: "Limited dissemination control shown in the indicator block (e.g., 'FEDONLY', 'NOFORN'). Independent from the banner suffix."
+
+      dissemination:
         type: text
-      default: []
-      example:
-        - Records Portal Transition Schedule, 1 Feb 26
-      description: List attachments in the order they are mentioned in the memo. Briefly describe each; do not use 'as stated' or abbreviations.
+        default: ""
+        ui:
+          compact: true
+        description: "Banner dissemination suffix appended after double slash (e.g. 'NF' renders as CUI//NF in the header/footer). Leave blank for no suffix."
 
-    memo_style:
-      type: enum
-      values:
-        - usaf
-        - daf
-      default: usaf
-      ui:
-        compact: true
-      description: "USAF memorandum or DAF headquarters memorandum; DAF changes date format and body paragraph layout per AFH 33-337."
+      references:
+        type: array
+        items:
+          type: richtext
+        default: []
+        example:
+          - "AFMAN 33-326, 25 November 2011, *Preparing Official Communications*"
+          - "DAFI 33-360, *Publications and Forms Management*"
+        description: "References, auto-lettered (a), (b), (c) per AFH 33-337. Cite each by organization, type, date, and title; italicize publication titles with *asterisks* (standard Markdown emphasis)."
 
-    font_size:
-      type: number
-      default: 12
-      ui:
-        compact: true
-      description: Body text size in points; decimals allowed (e.g. 11.5).
+      cc:
+        type: array
+        items:
+          type: text
+        default: []
+        description: List office symbols of recipients to receive copies.
 
-    date:
-      type: date
-      default: ""
-      example: 2026-02-02
-      ui:
-        compact: true
-      description: YYYY-MM-DD. Leave blank to render a fill-in field for the signer to date by hand.
+      distribution:
+        type: array
+        items:
+          type: text
+        default: []
+        description: Complete list of recipients if 'SEE DISTRIBUTION' is used in the 'Memo For' field.
 
-card_kinds:
+      attachments:
+        type: array
+        items:
+          type: text
+        default: []
+        example:
+          - Records Portal Transition Schedule, 1 Feb 26
+        description: List attachments in the order they are mentioned in the memo. Briefly describe each; do not use 'as stated' or abbreviations.
+
+      memo_style:
+        type: enum
+        values:
+          - usaf
+          - daf
+        default: usaf
+        ui:
+          compact: true
+        description: "USAF memorandum or DAF headquarters memorandum; DAF changes date format and body paragraph layout per AFH 33-337."
+
+      font_size:
+        type: number
+        default: 12
+        ui:
+          compact: true
+        description: Body text size in points; decimals allowed (e.g. 11.5).
+
+      date:
+        type: date
+        default: ""
+        example: 2026-02-02
+        ui:
+          compact: true
+        description: YYYY-MM-DD. Leave blank to render a fill-in field for the signer to date by hand.
+
   indorsement:
     title: Routing indorsement
     description: Chain of routing endorsements. Each endorsement block adds an official response or forwarding action to the original memo.

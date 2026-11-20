@@ -12,16 +12,17 @@ quill:
   backend: typst
   description: Today probe
 
-main:
-  fields:
-    issued: { type: date, default: today }
-    signed: { type: date }
-    stamps: { type: array, items: { type: date } }
-    review:
-      type: object
-      properties:
-        due: { type: date }
-    revoked: { type: date? }
+schema:
+  main:
+    fields:
+      issued: { type: date, default: today }
+      signed: { type: date }
+      stamps: { type: array, items: { type: date } }
+      review:
+        type: object
+        properties:
+          due: { type: date }
+      revoked: { type: date? }
 "#;
 
 fn document() -> Document {
@@ -74,7 +75,7 @@ fn today_is_a_date_value_only() {
     let with_default = |field: &str| {
         QuillConfig::from_yaml(&format!(
             "quill:\n  name: q\n  version: \"1.0.0\"\n  backend: typst\n  description: q\n\
-             main:\n  fields:\n    f: {field}\n"
+             schema:\n  main:\n    fields:\n      f: {field}\n"
         ))
     };
     assert!(with_default("{ type: date, default: today }").is_ok());

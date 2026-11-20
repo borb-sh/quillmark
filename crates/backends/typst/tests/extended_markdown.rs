@@ -14,7 +14,7 @@ const PAGE: &str = r#"
 "#;
 
 fn quill() -> Quill {
-    common::quill_with_plate(&common::yaml("main:\n  fields: {}\n"), PAGE)
+    common::quill_with_plate(&common::yaml("schema:\n  main:\n    fields: {}\n"), PAGE)
 }
 
 fn render(quill: &Quill, markdown: &str) -> (String, Vec<Diagnostic>) {

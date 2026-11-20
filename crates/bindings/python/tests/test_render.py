@@ -125,7 +125,7 @@ def test_render_dates_a_today_field(engine, tmp_path):
             "quill:\n  name: dated\n  version: 0.1.0\n  backend: typst\n"
             "  description: A field dated by the day it renders\n"
             "typst:\n  plate_file: plate.typ\n"
-            "main:\n  fields:\n    issued: { type: date, default: today }\n"
+            "schema:\n  main:\n    fields:\n      issued: { type: date, default: today }\n"
         )
         (root / "plate.typ").write_text(
             '#import "@local/quillmark-helper:0.2.0" as qm\n'

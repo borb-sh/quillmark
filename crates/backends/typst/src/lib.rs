@@ -1041,11 +1041,11 @@ mod tests {
 "#;
         let quill_with = |extra_field: bool| {
             let mut yaml = String::from(
-                "quill:\n  name: shift\n  version: 0.1.0\n  backend: typst\n  description: span shift probe\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    prose:\n      type: richtext\n      shape: blocks\n      description: body\n",
+                "quill:\n  name: shift\n  version: 0.1.0\n  backend: typst\n  description: span shift probe\ntypst:\n  plate_file: plate.typ\nschema:\n  main:\n    fields:\n      prose:\n        type: richtext\n        shape: blocks\n        description: body\n",
             );
             if extra_field {
                 yaml.push_str(
-                    "    zz_unused:\n      type: text\n      description: never placed\n",
+                    "      zz_unused:\n        type: text\n        description: never placed\n",
                 );
             }
             let mut files = HashMap::new();
@@ -1100,7 +1100,7 @@ mod tests {
 #qm.data.prose
 "#;
         let quill = || {
-            let yaml = "quill:\n  name: anchor\n  version: 0.1.0\n  backend: typst\n  description: line-anchor guard\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    prose:\n      type: richtext\n      shape: blocks\n      description: body\n";
+            let yaml = "quill:\n  name: anchor\n  version: 0.1.0\n  backend: typst\n  description: line-anchor guard\ntypst:\n  plate_file: plate.typ\nschema:\n  main:\n    fields:\n      prose:\n        type: richtext\n        shape: blocks\n        description: body\n";
             let mut files = HashMap::new();
             files.insert(
                 "Quill.yaml".to_string(),
@@ -1190,7 +1190,7 @@ mod tests {
         let quill = |inline: bool| {
             let shape = if inline { "line" } else { "blocks" };
             let yaml = format!(
-                "quill:\n  name: parbreak\n  version: 0.1.0\n  backend: typst\n  description: parbreak probe\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    subject:\n      type: richtext\n      shape: {shape}\n      description: subject\n",
+                "quill:\n  name: parbreak\n  version: 0.1.0\n  backend: typst\n  description: parbreak probe\ntypst:\n  plate_file: plate.typ\nschema:\n  main:\n    fields:\n      subject:\n        type: richtext\n        shape: {shape}\n        description: subject\n",
             );
             let mut files = HashMap::new();
             files.insert(

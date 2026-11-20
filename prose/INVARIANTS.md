@@ -86,6 +86,8 @@ The table of codes and keys lives in [Diagnostic Codes § Args](../docs/referenc
 
 **`Quill.yaml` parses strictly and reports every problem in one pass**, so a typo never loads as a silently ignored key. `quill.requires` is read first and reported alone, so a newer Quillmark's keys are not reported as typos by an older one.
 
+**A quill's cards are peers of one `schema:` block, and the file, the API and a document spell a card one way.** `main` and each kind are keyed as a document's `$kind` names them, `quill.schema` returns the block's own shape, and a load diagnostic names a card as the quill spells it. A card's own key is no kind name there, so a `main:` left out is reported as that. Rejected: a top-level `main:` beside a `card_kinds:` map, which gave the root one address in the file and the API and another in every document.
+
 ## Writing a document
 
 **A verb that needs a schema lives on the writer or reader; `Document` is quill-free.** The typed writer (`quill.writer(doc)`) and reader own every schema-shaped verb. `Document` holds the opaque store and the content writes, which navigate by address and never consult a schema. The verb names the write path: **store** is verbatim, **set** is typed, **apply**, **revise** and **replace** are the content write.

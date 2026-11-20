@@ -16,16 +16,16 @@ quill:
   version: "1.0.0"
   backend: typst
   description: Seed test
-main:
-  fields:
-    title:
-      type: text
-    status:
-      type: text
-      default: draft
-    notes:
-      type: text
-card_kinds:
+schema:
+  main:
+    fields:
+      title:
+        type: text
+      status:
+        type: text
+        default: draft
+      notes:
+        type: text
   note:
     fields:
       author:
@@ -115,7 +115,7 @@ quill:
   version: "1.0.0"
   backend: typst
   description: Seed order test
-card_kinds:
+schema:
   note:
     fields:
       alpha:
@@ -157,11 +157,11 @@ quill:
   version: "1.0.0"
   backend: typst
   description: Bodyless card test
-main:
-  fields:
-    title:
-      type: text
-card_kinds:
+schema:
+  main:
+    fields:
+      title:
+        type: text
   data:
     body:
       enabled: false
@@ -257,11 +257,11 @@ quill:
   version: "1.0.0"
   backend: typst
   description: Seed variant test
-main:
-  fields:
-    title:
-      type: text
-card_kinds:
+schema:
+  main:
+    fields:
+      title:
+        type: text
   entry:
     fields:
       classification:
@@ -305,10 +305,10 @@ fn a_variant_overlay_without_a_discriminant_commits_its_cells_under_the_default_
     let quill = quill_from_yaml(
         r#"
 quill: { name: seed_test, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    title: { type: text, default: "" }
-card_kinds:
+schema:
+  main:
+    fields:
+      title: { type: text, default: "" }
   entry:
     fields:
       classification:
@@ -364,7 +364,7 @@ quill:
   version: "1.0.0"
   backend: typst
   description: Kind seed test
-card_kinds:
+schema:
   note:
     seed:
       author: Kind Author
@@ -437,7 +437,7 @@ fn a_document_overlay_replaces_the_kind_seed_whole() {
     assert_eq!(seeded, bare, "the seeded document carries each kind's seed");
 
     assert_eq!(
-        quill.config().schema()["card_kinds"]["note"]["seed"],
+        quill.config().schema()["note"]["seed"],
         json!({ "author": "Kind Author", "tag": "kind", "$body": "Kind body." })
     );
 }
@@ -451,11 +451,11 @@ fn a_defective_kind_seed_fails_the_load() {
         format!(
             r#"
 quill: {{ name: bad_seed, version: "1.0.0", backend: typst, description: x }}
-main:
-  fields:
-    title: {{ type: text }}
+schema:
+  main:
+    fields:
+      title: {{ type: text }}
 {main}
-card_kinds:
   note:
     body: {{ enabled: false }}
     seed: {seed}
@@ -500,7 +500,7 @@ card_kinds:
         ("", "{ author: \"a\\nb\" }", "quill::seed_not_single_line"),
         ("", "{ code: abcd }", "quill::seed_over_length"),
         (
-            "  seed: { title: T }",
+            "    seed: { title: T }",
             "{ names: [a] }",
             "quill::invalid_card_schema",
         ),
@@ -531,7 +531,7 @@ fn a_seeded_document_validates_clean_and_conforms_as_a_no_op() {
     let quill = quill_from_yaml(
         r#"
 quill: { name: deep_seed, version: "1.0.0", backend: typst, description: x }
-card_kinds:
+schema:
   entry:
     seed:
       office: { symbol: 49 FW/CC }
@@ -566,7 +566,7 @@ fn a_one_line_seed_admits_a_trailing_newline() {
     let quill = quill_from_yaml(
         r#"
 quill: { name: nl_seed, version: "1.0.0", backend: typst, description: x }
-card_kinds:
+schema:
   note:
     seed: { author: "Named\n" }
     fields:
@@ -589,7 +589,7 @@ fn a_kind_seed_is_redundant_only_where_the_floor_renders_it() {
         format!(
             r#"
 quill: {{ name: floor_seed, version: "1.0.0", backend: typst, description: x }}
-card_kinds:
+schema:
   entry:
     seed: {seed}
     fields:

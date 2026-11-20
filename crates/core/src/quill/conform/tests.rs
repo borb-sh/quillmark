@@ -17,38 +17,38 @@ quill:
   version: "1.0.0"
   backend: typst
   description: Conform test
-main:
-  fields:
-    subject:
-      type: richtext
-    note:
-      type: text
-      shape: lines
-    qty:
-      type: integer
-    tags:
-      type: array
-      items:
+schema:
+  main:
+    fields:
+      subject:
         type: richtext
-        shape: blocks
-    meta:
-      type: object
-      properties:
-        label:
-          type: text
-          shape: lines
-        blurb:
+      note:
+        type: text
+        shape: lines
+      qty:
+        type: integer
+      tags:
+        type: array
+        items:
           type: richtext
           shape: blocks
-    rows:
-      type: array
-      items:
+      meta:
         type: object
         properties:
-          cell:
+          label:
+            type: text
+            shape: lines
+          blurb:
             type: richtext
             shape: blocks
-card_kinds:
+      rows:
+        type: array
+        items:
+          type: object
+          properties:
+            cell:
+              type: richtext
+              shape: blocks
   entry:
     fields:
       prose:
@@ -312,11 +312,11 @@ quill:
   version: "1.0.0"
   backend: typst
   description: variant seed rest
-main:
-  fields:
-    title:
-      type: text
-card_kinds:
+schema:
+  main:
+    fields:
+      title:
+        type: text
   entry:
     fields:
       classification:

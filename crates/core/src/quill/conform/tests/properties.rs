@@ -20,34 +20,35 @@ quill:
   version: "1.0.0"
   backend: typst
   description: Conform properties
-main:
-  fields:
-    rich:
-      type: richtext
-      shape: blocks
-    rich_inline:
-      type: richtext
-    plain:
-      type: text
-      shape: lines
-    plain_inline:
-      type: text
-    riches:
-      type: array
-      items:
+schema:
+  main:
+    fields:
+      rich:
         type: richtext
         shape: blocks
-    pair:
-      type: object
-      properties:
-        label:
-          type: text
-          shape: lines
-        blurb:
+      rich_inline:
+        type: richtext
+      plain:
+        type: text
+        shape: lines
+      plain_inline:
+        type: text
+      riches:
+        type: array
+        items:
           type: richtext
           shape: blocks
-    qty:
-      type: integer
+      pair:
+        type: object
+        properties:
+          label:
+            type: text
+            shape: lines
+          blurb:
+            type: richtext
+            shape: blocks
+      qty:
+        type: integer
 "#;
 
 /// The declared fields with a resting form to hold.

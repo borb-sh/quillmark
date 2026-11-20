@@ -9,7 +9,7 @@ use crate::document::Document;
 use crate::quill::{Quill, QuillConfig, blank, build_transform_schema, quill_from_yaml, test_date};
 use serde_json::json;
 
-use super::{codes_of, field, text};
+use super::{codes_of, field, main_section, text};
 
 /// A quill whose `classification` enum brings a `CUI` field set into play:
 /// `controlled_by` with no `default:`, `category` defaulted.
@@ -24,21 +24,22 @@ quill:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    classification:
-      type: enum
-      values: [UNCLASSIFIED, CUI, SECRET]
-      default: ""
-      variants:
-        CUI:
-          controlled_by: { type: text }
-          category: { type: text, default: "" }
-        SECRET:
-          declassify_on: { type: text }
-    title:
-      type: text
-      default: ""
+schema:
+  main:
+    fields:
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, CUI, SECRET]
+        default: ""
+        variants:
+          CUI:
+            controlled_by: { type: text }
+            category: { type: text, default: "" }
+          SECRET:
+            declassify_on: { type: text }
+      title:
+        type: text
+        default: ""
 "#
 }
 
@@ -71,7 +72,8 @@ fn codes(document: &Document) -> Vec<(String, String)> {
 fn load(fields: &str) -> Result<QuillConfig, String> {
     QuillConfig::from_yaml(&format!(
         "quill:\n  name: probe\n  version: \"0.1.0\"\n  backend: typst\n  description: probe\n\
-         main:\n  fields:\n{fields}\n"
+         {}",
+        main_section(&format!("  fields:\n{fields}\n"))
     ))
 }
 
@@ -182,16 +184,17 @@ quill:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    classification:
-      type: enum
-      values: [CUI]
-      default: ""
-      variants:
-        CUI:
-          note: { type: richtext, shape: blocks }
-          reply_by: { type: date }
+schema:
+  main:
+    fields:
+      classification:
+        type: enum
+        values: [CUI]
+        default: ""
+        variants:
+          CUI:
+            note: { type: richtext, shape: blocks }
+            reply_by: { type: date }
 "#;
     let config = QuillConfig::from_yaml(YAML).expect("loads");
     // The gate every companion, resting-form and seed path consults: a
@@ -254,8 +257,8 @@ classification:
 #[test]
 fn a_name_two_worlds_declare_identically_loads() {
     let config = QuillConfig::from_yaml(&quill_yaml().replace(
-        "        SECRET:\n          declassify_on: { type: text }",
-        "        SECRET:\n          declassify_on: { type: text }\n          controlled_by: { type: text }",
+        "          SECRET:\n            declassify_on: { type: text }",
+        "          SECRET:\n            declassify_on: { type: text }\n            controlled_by: { type: text }",
     ))
     .expect("an identically-repeated variant field loads");
     let doc = Document::parse(
@@ -389,8 +392,8 @@ fn the_plate_carries_exactly_the_live_world() {
 #[test]
 fn the_discriminant_falls_to_the_default_and_carries_its_world() {
     let yaml = quill_yaml().replace(
-        "      default: \"\"\n      variants:",
-        "      default: CUI\n      variants:",
+        "        default: \"\"\n        variants:",
+        "        default: CUI\n        variants:",
     );
     let data = QuillConfig::from_yaml(&yaml)
         .unwrap()
@@ -441,8 +444,8 @@ fn resolve_reports_the_container_as_one_cell_at_its_strongest_rung() {
     assert_eq!(row.value.as_json(), &json!(["CUI", "SECRET"]));
 
     let defaulted = quill_from_yaml(&quill_yaml().replace(
-        "      default: \"\"\n      variants:",
-        "      default: CUI\n      variants:",
+        "        default: \"\"\n        variants:",
+        "        default: CUI\n        variants:",
     ));
     for (fields, source, controlled_by) in [
         ("classification: {}\n", Authored, ""),
@@ -583,7 +586,7 @@ fn the_declaration_schema_round_trips_through_a_reload() {
                 "backend": "typst",
                 "description": "Enum variant probe",
             },
-            "main": emitted["main"],
+            "schema": emitted,
         }))
         .unwrap(),
     )
@@ -601,15 +604,16 @@ fn a_container_shaped_schema_literal_is_a_load_error() {
         "  version: \"0.1.0\"\n",
         "  backend: typst\n",
         "  description: probe\n",
-        "main:\n",
-        "  fields:\n",
-        "    classification:\n",
-        "      type: enum\n",
-        "      values: [UNCLASSIFIED, CUI]\n",
-        "      default: { value: CUI, note: \"A **bold** note\" }\n",
-        "      variants:\n",
-        "        CUI:\n",
-        "          note: { type: richtext, shape: blocks }\n",
+        "schema:\n",
+        "  main:\n",
+        "    fields:\n",
+        "      classification:\n",
+        "        type: enum\n",
+        "        values: [UNCLASSIFIED, CUI]\n",
+        "        default: { value: CUI, note: \"A **bold** note\" }\n",
+        "        variants:\n",
+        "          CUI:\n",
+        "            note: { type: richtext, shape: blocks }\n",
     );
     let err = QuillConfig::from_yaml_with_warnings(yaml).unwrap_err();
     let diag = err
@@ -639,22 +643,23 @@ quill:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    header:
-      type: object
-      description: Banner block.
-      properties:
-        office: { type: text, default: "" }
-        classification:
-          type: enum
-          values: [UNCLASSIFIED, CUI]
-          default: ""
-          description: Marking shown in the banner.
-          variants:
-            CUI:
-              controlled_by: { type: text }
-              category: { type: text, default: "" }
+schema:
+  main:
+    fields:
+      header:
+        type: object
+        description: Banner block.
+        properties:
+          office: { type: text, default: "" }
+          classification:
+            type: enum
+            values: [UNCLASSIFIED, CUI]
+            default: ""
+            description: Marking shown in the banner.
+            variants:
+              CUI:
+                controlled_by: { type: text }
+                category: { type: text, default: "" }
 "#;
 
 fn nested_doc(fields: &str) -> Document {
@@ -756,21 +761,22 @@ quill:
   version: "0.1.0"
   backend: typst
   description: probe
-main:
-  fields:
-    c:
-      type: enum
-      values: [A, B]
-      variants:
-        A: { y: { type: richtext, shape: blocks } }
-    box:
-      type: object
-      properties:
-        k:
-          type: enum
-          values: [A, B]
-          variants:
-            A: { y: { type: richtext, shape: blocks } }
+schema:
+  main:
+    fields:
+      c:
+        type: enum
+        values: [A, B]
+        variants:
+          A: { y: { type: richtext, shape: blocks } }
+      box:
+        type: object
+        properties:
+          k:
+            type: enum
+            values: [A, B]
+            variants:
+              A: { y: { type: richtext, shape: blocks } }
 "#,
     );
     let md = "~~~\n$quill: variant_drops@0.1.0\nc:\n  value: B\n  y: a <span>b</span>\n\

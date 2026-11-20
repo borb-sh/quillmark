@@ -23,13 +23,13 @@ quill:
   description: content images the backend declines
 typst:
   plate_file: plate.typ
-main:
-  fields:
-    intro:
-      type: richtext
-      shape: blocks
-      description: a paragraph carrying an image island
-card_kinds:
+schema:
+  main:
+    fields:
+      intro:
+        type: richtext
+        shape: blocks
+        description: a paragraph carrying an image island
   note:
     description: a note
     fields: {}

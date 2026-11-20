@@ -19,16 +19,16 @@ QUILL_YAML_CONTENT = """quill:
   backend: typst
   description: Python validate smoke test
 
-main:
-  fields:
-    title:
-      type: text
-    count:
-      type: integer
-    byline:
-      type: text
+schema:
+  main:
+    fields:
+      title:
+        type: text
+      count:
+        type: integer
+      byline:
+        type: text
 
-card_kinds:
   note:
     fields:
       prose:
@@ -87,7 +87,7 @@ def test_seed_document_commits_no_field(tmp_path):
     quill = make_quill(tmp_path)
     md = quill.seed_document().to_markdown()
     assert "TBD" not in md
-    assert quill.schema["card_kinds"]["note"]["fields"]["prose"]["default"] == "TBD"
+    assert quill.schema["note"]["fields"]["prose"]["default"] == "TBD"
     assert "default" not in quill.schema["main"]["fields"]["title"]
 
 
@@ -132,13 +132,14 @@ BOUND_QUILL_YAML = """quill:
   backend: typst
   description: Python bound-door smoke test
 
-main:
-  fields:
-    subject:
-      type: richtext
-    note:
-      type: text
-      shape: lines
+schema:
+  main:
+    fields:
+      subject:
+        type: richtext
+      note:
+        type: text
+        shape: lines
 """
 
 
@@ -208,8 +209,8 @@ def test_example_document_commits_the_declared_examples_none_without_one(tmp_pat
     assert Quill.from_path(tmp_path / "quill").example_document() is None
 
     yaml = QUILL_YAML_CONTENT.replace(
-        "    title:\n      type: text\n",
-        "    title:\n      type: text\n      example: A made-up title\n",
+        "      title:\n        type: text\n",
+        "      title:\n        type: text\n        example: A made-up title\n",
     )
     quill_dir = tmp_path / "declared"
     quill_dir.mkdir()

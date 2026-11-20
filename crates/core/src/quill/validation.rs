@@ -951,6 +951,12 @@ mod tests {
     use indexmap::IndexMap;
     use serde_json::json;
 
+    fn indent(block: &str) -> String {
+        block.lines().map(|line| format!("  {line}\n")).collect()
+    }
+
+    /// `main_fields` are fields at a four-space indent, and `cards` card kinds
+    /// at none.
     fn config_with(main_fields: &str, cards: &str) -> QuillConfig {
         let yaml = format!(
             r#"
@@ -959,11 +965,14 @@ quill:
   backend: typst
   description: Native validator tests
   version: 1.0.0
-main:
-  fields:
+schema:
+  main:
+    fields:
 {main_fields}
 {cards}
-"#
+"#,
+            main_fields = indent(main_fields),
+            cards = indent(cards),
         );
         let (config, warnings) = QuillConfig::from_yaml_with_warnings(&yaml).unwrap();
         // A bodiless card kind is the shape several of these cases are about,
@@ -1098,7 +1107,7 @@ main:
     fn validates_card_with_valid_discriminator() {
         let config = config_with(
             "    title:\n      type: text\n      default: \"\"",
-            "card_kinds:\n  indorsement:\n    fields:\n      signature_block:\n        type: text",
+            "indorsement:\n  fields:\n    signature_block:\n      type: text",
         );
         let doc = doc_with_typed_cards(
             &[],
@@ -1114,7 +1123,7 @@ main:
     fn reports_card_field_paths_with_card_name_and_index() {
         let config = config_with(
             "    title:\n      type: text\n      default: \"\"",
-            "card_kinds:\n  indorsement:\n    fields:\n      signature_block:\n        type: text",
+            "indorsement:\n  fields:\n    signature_block:\n      type: text",
         );
         let doc = doc_with_typed_cards(
             &[],

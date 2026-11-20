@@ -7,8 +7,9 @@ quill:
 typst:
   plate_file: plate.typ
 
-main:
-  fields:
-    title:
-      description: title of document
-      type: text
+schema:
+  main:
+    fields:
+      title:
+        description: title of document
+        type: text

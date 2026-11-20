@@ -560,19 +560,20 @@ quill:
   version: 1.0.0
   backend: typst
   description: x
-main:
-  fields:
-    classification:
-      type: enum
-      values: [UNCLASSIFIED, CUI]
-    endorsements:
-      type: array
-      items:
-        type: object
-        properties:
-          action:
-            type: enum
-            values: [approve, disapprove]
+schema:
+  main:
+    fields:
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, CUI]
+      endorsements:
+        type: array
+        items:
+          type: object
+          properties:
+            action:
+              type: enum
+              values: [approve, disapprove]
 "#;
         let schema = build_from_yaml(yaml);
         let json = schema.as_json();
@@ -600,17 +601,18 @@ quill:
   version: 1.0.0
   backend: typst
   description: x
-main:
-  fields:
-    classification:
-      type: enum
-      values: [UNCLASSIFIED, CUI]
-      default: ""
-      ui:
-        blank_title: "(no marking)"
-    action:
-      type: enum
-      values: [approve, disapprove]
+schema:
+  main:
+    fields:
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, CUI]
+        default: ""
+        ui:
+          blank_title: "(no marking)"
+      action:
+        type: enum
+        values: [approve, disapprove]
 "#;
 
     /// One `max:` in Quill.yaml, two keywords on the wire: the unit a reader
@@ -626,17 +628,18 @@ quill:
   version: 1.0.0
   backend: typst
   description: x
-main:
-  fields:
-    citation: { type: richtext, shape: blocks, max: 1350 }
-    ssn: { type: text, max: 9 }
-    statements:
-      type: array
-      max: 4
-      items: { type: text, max: 350 }
-    notes:
-      type: array
-      items: { type: text }
+schema:
+  main:
+    fields:
+      citation: { type: richtext, shape: blocks, max: 1350 }
+      ssn: { type: text, max: 9 }
+      statements:
+        type: array
+        max: 4
+        items: { type: text, max: 350 }
+      notes:
+        type: array
+        items: { type: text }
 "#,
         )
         .as_json()
@@ -717,34 +720,35 @@ quill:
   version: 1.0.0
   backend: typst
   description: x
-main:
-  fields:
-    refs:
-      type: array
-      items:
+schema:
+  main:
+    fields:
+      refs:
+        type: array
+        items:
+          type: object
+          properties:
+            org: { type: text }
+            year: { type: integer }
+      counts:
+        type: array
+        items: { type: integer }
+      sections:
+        type: array
+        items: { type: richtext, shape: blocks }
+      address:
         type: object
         properties:
-          org: { type: text }
-          year: { type: integer }
-    counts:
-      type: array
-      items: { type: integer }
-    sections:
-      type: array
-      items: { type: richtext, shape: blocks }
-    address:
-      type: object
-      properties:
-        street: { type: text }
-        city: { type: text }
-    subject:
-      type: richtext
-    lines:
-      type: array
-      items:
+          street: { type: text }
+          city: { type: text }
+      subject:
         type: richtext
-    label:
-      type: text
+      lines:
+        type: array
+        items:
+          type: richtext
+      label:
+        type: text
 "#;
         let content =
             serde_json::json!({ "type": "object", "contentMediaType": CONTENT_MEDIA_TYPE });
@@ -810,12 +814,12 @@ quill:
   backend: typst
   description: example
 
-main:
-  fields:
-    title:
-      type: text
+schema:
+  main:
+    fields:
+      title:
+        type: text
 
-card_kinds:
   indorsement:
     fields:
       signature_block:
@@ -860,14 +864,14 @@ quill:
   backend: typst
   description: example
 
-main:
-  body:
-    enabled: false
-  fields:
-    title:
-      type: text
+schema:
+  main:
+    body:
+      enabled: false
+    fields:
+      title:
+        type: text
 
-card_kinds:
   indorsement:
     body:
       enabled: false

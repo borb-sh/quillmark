@@ -142,10 +142,10 @@ pub struct QuillConfig {
     /// `quill.description`: the quill itself, not `main.description`, which
     /// describes the main card's schema.
     pub description: String,
-    /// The entry-point card schema (parsed from the Quill.yaml `main:` section).
+    /// The entry-point card schema: the `schema:` block's `main`.
     pub main: CardSchema,
-    /// Named, composable card-kind schemas (parsed from the Quill.yaml
-    /// `card_kinds:` section). Does not include `main`.
+    /// Named, composable card-kind schemas: every entry of the `schema:`
+    /// block but `main`.
     pub card_kinds: Vec<CardSchema>,
     /// Names the backend that renders this quill: a registered
     /// [`Backend::id`](crate::backend::Backend::id).
@@ -191,7 +191,7 @@ impl QuillConfig {
     }
 }
 
-/// One card-schema block: the `main:` section or a `card_kinds.<name>:` entry.
+/// One card-schema block: an entry of the `schema:` block.
 /// It fixes the key set and each block's outer shape; `fields`, `ui`, `body`,
 /// and `seed` stay raw so their own parsers can report per-block
 /// diagnostics.
@@ -267,6 +267,11 @@ pub(crate) const QUILL_SECTION_KEYS: &[&str] = &[
     "ui",
     "requires",
 ];
+
+/// The keys of one card schema. A `schema:` entry carrying one of these names
+/// is a card key written one level too high, so none is a card-kind name there.
+pub(crate) const SCHEMA_CARD_KEYS: &[&str] =
+    &["title", "description", "fields", "ui", "body", "seed"];
 
 /// The coercion `target` a one-line `text` refusal names, distinct from the
 /// codec's own decode target so the write surface keys on it.
@@ -374,35 +379,23 @@ impl QuillConfig {
         }
     }
 
-    /// The declaration view: the user-fillable fields of the main card and each
-    /// named card kind, `ui` hints included. The quill reference and the
+    /// The declaration view, shaped as the `schema:` block is: `main` and each
+    /// card kind as peers, `ui` hints included. The quill reference and the
     /// card-kind discriminators are document-level metadata, not fields, so
     /// they do not appear.
     ///
-    /// Key order is the ordering contract: fields, nested properties, and card
-    /// kinds all emit in declaration order, so a consumer walking the maps in
-    /// key order renders the authored layout.
+    /// Key order is the ordering contract: `main` first, then card kinds,
+    /// fields and nested properties in declaration order, so a consumer walking
+    /// the maps in key order renders the authored layout.
     pub fn schema(&self) -> serde_json::Value {
-        let mut obj = serde_json::Map::new();
-
-        let main_value =
-            serde_json::to_value(&self.main).expect("CardSchema is always serializable");
-        obj.insert("main".to_string(), main_value);
-
-        if !self.card_kinds.is_empty() {
-            let mut card_kinds = serde_json::Map::new();
-            for card in &self.card_kinds {
-                let card_value =
-                    serde_json::to_value(card).expect("CardSchema is always serializable");
-                card_kinds.insert(card.name.clone(), card_value);
-            }
-            obj.insert(
-                "card_kinds".to_string(),
-                serde_json::Value::Object(card_kinds),
-            );
-        }
-
-        serde_json::Value::Object(obj)
+        std::iter::once(&self.main)
+            .chain(&self.card_kinds)
+            .map(|card| {
+                let value = serde_json::to_value(card).expect("CardSchema is always serializable");
+                (card.name.clone(), value)
+            })
+            .collect::<serde_json::Map<_, _>>()
+            .into()
     }
 
     /// Coerce the main card's user fields.
@@ -1994,7 +1987,7 @@ impl QuillConfig {
         )
     }
 
-    /// Parse one card-schema block (`main:` or a `card_kinds.<name>:` entry).
+    /// Parse one card-schema block, an entry of the `schema:` block.
     /// `None` plus a diagnostic when the block is not a mapping or carries an
     /// unknown key, so a typo is reported rather than loading as an empty card.
     fn parse_card_schema_def(
@@ -2053,12 +2046,13 @@ impl QuillConfig {
     fn parse_card_seed(
         seed: &serde_json::Value,
         card: &CardSchema,
+        section: &str,
         unparsed: &[String],
         errors: &mut Vec<Diagnostic>,
     ) -> Option<crate::document::SeedOverlay> {
-        let at = crate::path::DocPath::new()
-            .field("card_kinds")
-            .field(&card.name)
+        let at = section
+            .split('.')
+            .fold(crate::path::DocPath::new(), |at, step| at.field(step))
             .field("seed");
         let mut seed = seed.clone();
         if let Some(obj) = seed.as_object_mut() {
@@ -2377,6 +2371,78 @@ impl QuillConfig {
         Ok(())
     }
 
+    /// Read the `schema:` block, whose entries are `main` and each card kind as
+    /// peers, into the `main` and `card_kinds` sections the rest of the load
+    /// reads.
+    fn lift_schema(quill_yaml_val: &mut serde_json::Value, errors: &mut Vec<Diagnostic>) {
+        let Some(top) = quill_yaml_val.as_object_mut() else {
+            return;
+        };
+        for (key, moved) in [("main", "schema.main"), ("card_kinds", "schema.<kind>")] {
+            if top.shift_remove(key).is_some() {
+                errors.push(
+                    Diagnostic::new(
+                        Severity::Error,
+                        format!("Unknown top-level section '{key}'"),
+                    )
+                    .with_code("quill::unknown_section".to_string())
+                    .with_hint(format!(
+                        "A quill declares its cards as entries of one `schema:` block: \
+                         `{key}` is written as `{moved}`."
+                    )),
+                );
+            }
+        }
+        let Some(schema) = top.shift_remove("schema") else {
+            return;
+        };
+        let entries = match schema {
+            serde_json::Value::Null => serde_json::Map::new(),
+            serde_json::Value::Object(entries) => entries,
+            _ => {
+                errors.push(
+                    Diagnostic::new(
+                        Severity::Error,
+                        "The `schema:` block must be a mapping of `main` and each card kind \
+                         to its card schema."
+                            .to_string(),
+                    )
+                    .with_code("quill::invalid_schema".to_string()),
+                );
+                return;
+            }
+        };
+        let mut card_kinds = serde_json::Map::new();
+        for (name, card) in entries {
+            if name == "main" {
+                top.insert(name, card);
+            } else if SCHEMA_CARD_KEYS.contains(&name.as_str()) {
+                errors.push(
+                    Diagnostic::new(
+                        Severity::Error,
+                        format!(
+                            "`{name}` is a key of a card, and the `schema:` block holds cards: \
+                             no card kind can be named `{name}`."
+                        ),
+                    )
+                    .with_code("quill::invalid_card_name".to_string())
+                    .with_hint(format!(
+                        "Move it onto the card it describes, `schema.main.{name}` for the \
+                         document's main card."
+                    )),
+                );
+            } else {
+                card_kinds.insert(name, card);
+            }
+        }
+        if !card_kinds.is_empty() {
+            top.insert(
+                "card_kinds".to_string(),
+                serde_json::Value::Object(card_kinds),
+            );
+        }
+    }
+
     /// Parse QuillConfig from YAML content while collecting non-fatal warnings.
     ///
     /// Returns `Ok((config, warnings))` on success, or `Err(errors)` containing all
@@ -2390,7 +2456,7 @@ impl QuillConfig {
 
         // Declaration order survives this only under serde_json's
         // `preserve_order`, which the ordering contract rides end to end.
-        let quill_yaml_val: serde_json::Value = match crate::value::parse_yaml(yaml_content) {
+        let mut quill_yaml_val: serde_json::Value = match crate::value::parse_yaml(yaml_content) {
             Ok(v) => v,
             Err(e) => {
                 // Through `YamlError` so this shares the one saphyr adapter:
@@ -2402,6 +2468,10 @@ impl QuillConfig {
                 ]);
             }
         };
+
+        Self::lift_schema(&mut quill_yaml_val, &mut errors);
+        let section = |kind: &str| format!("schema.{kind}");
+        let main_label = section("main");
 
         // Everything below reads this section, so its absence is fatal here.
         let quill_section = match quill_yaml_val.get("quill") {
@@ -2593,8 +2663,12 @@ impl QuillConfig {
             BODY_CARD_SCHEMA_KEYS.join(", ")
         );
 
-        let ui_section =
-            Self::parse_card_ui(quill_section.get("ui"), "quill.ui", "main", &mut errors);
+        let ui_section = Self::parse_card_ui(
+            quill_section.get("ui"),
+            "quill.ui",
+            &main_label,
+            &mut errors,
+        );
 
         let mut backend_config = HashMap::new();
         if !backend.is_empty() {
@@ -2637,12 +2711,12 @@ impl QuillConfig {
 
                 diag = if key == "fields" {
                     diag.with_hint(
-                        "Root-level `fields` is not supported; use `main.fields` instead."
+                        "A field is declared on a card: move `fields` under `schema.main`."
                             .to_string(),
                     )
                 } else {
                     diag.with_hint(format!(
-                        "Valid top-level sections are: quill, main, card_kinds{}",
+                        "Valid top-level sections are: quill, schema{}",
                         if backend.is_empty() {
                             String::new()
                         } else {
@@ -2657,7 +2731,7 @@ impl QuillConfig {
 
         let mut main_def = quill_yaml_val
             .get("main")
-            .and_then(|main_val| Self::parse_card_schema_def(main_val, "main", &mut errors))
+            .and_then(|main_val| Self::parse_card_schema_def(main_val, &main_label, &mut errors))
             .unwrap_or_default();
 
         let main_fields = Self::parse_fields(
@@ -2666,11 +2740,16 @@ impl QuillConfig {
             &mut errors,
         );
 
-        let main_ui = Self::parse_card_ui(main_def.ui.as_ref(), "main.ui", "main", &mut errors);
+        let main_ui = Self::parse_card_ui(
+            main_def.ui.as_ref(),
+            &format!("{main_label}.ui"),
+            &main_label,
+            &mut errors,
+        );
 
         let main_body: Option<BodyCardSchema> = Self::parse_section(
             main_def.body.as_ref(),
-            "main.body",
+            &format!("{main_label}.body"),
             "quill::invalid_body",
             &body_hint,
             &mut errors,
@@ -2680,7 +2759,7 @@ impl QuillConfig {
             errors.push(
                 Diagnostic::new(
                     Severity::Error,
-                    "Invalid 'main' block: `main` declares no `seed`.".to_string(),
+                    format!("Invalid '{main_label}' block: `main` declares no `seed`."),
                 )
                 .with_code("quill::invalid_card_schema".to_string())
                 .with_hint(
@@ -2741,15 +2820,15 @@ impl QuillConfig {
                                 )
                                 .with_code("quill::invalid_card_name".to_string())
                                 .with_hint(
-                                    "Rename the card kind, or declare its fields under the \
-                                     top-level `main:` section."
+                                    "Rename the card kind, or declare its fields under \
+                                     `schema.main`."
                                         .to_string(),
                                 ),
                             );
                             continue;
                         }
 
-                        let label = format!("card_kinds.{}", card_name);
+                        let label = section(card_name);
                         let mut card_def =
                             match Self::parse_card_schema_def(card_value, &label, &mut errors) {
                                 Some(d) => d,
@@ -2804,12 +2883,9 @@ impl QuillConfig {
         // Every card the read-only checks below walk, under the label each names
         // it by. The checks stay one loop apiece: a diagnostic's position in the
         // vector is check-major, not card-major.
-        let labeled: Vec<(String, &CardSchema)> = std::iter::once(("main".to_string(), &main))
-            .chain(
-                card_kinds
-                    .iter()
-                    .map(|card| (format!("card_kinds.{}", card.name), card)),
-            )
+        let labeled: Vec<(String, &CardSchema)> = std::iter::once(&main)
+            .chain(&card_kinds)
+            .map(|card| (section(&card.name), card))
             .collect();
 
         // A card is a part someone writes; a bodiless kind is the loader's one
@@ -2897,14 +2973,16 @@ impl QuillConfig {
         // companion, a pure function of the Quill.yaml bytes and never
         // serialized, which the render floor reads instead of re-importing the
         // markdown per document.
-        populate_card_content(&mut main, "main", &mut errors);
+        populate_card_content(&mut main, &main_label, &mut errors);
         for card in &mut card_kinds {
-            let label = format!("card_kinds.{}", card.name);
+            let label = section(&card.name);
             populate_card_content(card, &label, &mut errors);
         }
 
         for (index, seed, unparsed) in kind_seeds {
-            let seed = Self::parse_card_seed(&seed, &card_kinds[index], &unparsed, &mut errors);
+            let card = &card_kinds[index];
+            let seed =
+                Self::parse_card_seed(&seed, card, &section(&card.name), &unparsed, &mut errors);
             card_kinds[index].seed = seed;
         }
 
@@ -2920,10 +2998,9 @@ impl QuillConfig {
         if legacy > 0 {
             warnings.push(Self::deprecated_multiline(legacy));
         }
-        warnings.extend(Self::field_after_object("main", &main));
+        warnings.extend(Self::field_after_object(&main_label, &main));
         for card in &card_kinds {
-            let label = format!("card_kinds.{}", card.name);
-            warnings.extend(Self::field_after_object(&label, card));
+            warnings.extend(Self::field_after_object(&section(&card.name), card));
         }
 
         Ok((

@@ -26,7 +26,7 @@ fn quill(yaml: &str, files: &[(&str, &[u8])]) -> Quill {
 fn a_workspace_lays_out_packages_by_spec_and_carries_the_fallback_fonts() {
     let q = quill(
         "quill:\n  name: t\n  version: 0.1.0\n  backend: typst\n  description: t\n\
-         main:\n  fields:\n    title: { type: text }\n",
+         schema:\n  main:\n    fields:\n      title: { type: text }\n",
         &[
             ("plate.typ", b"#import \"@preview/p:1.2.0\": x\n"),
             (

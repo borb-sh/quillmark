@@ -20,53 +20,54 @@ quill:
   description: container property addressing
 typst:
   plate_file: plate.typ
-main:
-  fields:
-    subject:
-      type: text
-      description: a scalar, which offers no step at all
-    balance:
-      type: integer
-      description: a negative number, which a bare `#` embed will not lex
-    address:
-      type: object
-      description: a typed dictionary
-      properties:
-        city:
-          type: text
-        street:
-          type: text
-    tags:
-      type: array
-      description: a primitive list, whose element offers no further step
-      items:
+schema:
+  main:
+    fields:
+      subject:
         type: text
-    refs:
-      type: array
-      description: a typed table
-      items:
+        description: a scalar, which offers no step at all
+      balance:
+        type: integer
+        description: a negative number, which a bare `#` embed will not lex
+      address:
         type: object
+        description: a typed dictionary
         properties:
-          org:
+          city:
             type: text
-          num:
+          street:
             type: text
-    classification:
-      type: enum
-      values: [UNCLASSIFIED, CUI]
-      default: ""
-      description: a variant container
-      variants:
-        CUI:
-          poc:
-            type: text
-          controlled_by:
-            type: text
-          note:
-            type: richtext
-            shape: blocks
-          reply_by:
-            type: date
+      tags:
+        type: array
+        description: a primitive list, whose element offers no further step
+        items:
+          type: text
+      refs:
+        type: array
+        description: a typed table
+        items:
+          type: object
+          properties:
+            org:
+              type: text
+            num:
+              type: text
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, CUI]
+        default: ""
+        description: a variant container
+        variants:
+          CUI:
+            poc:
+              type: text
+            controlled_by:
+              type: text
+            note:
+              type: richtext
+              shape: blocks
+            reply_by:
+              type: date
 "#;
 
 fn data() -> serde_json::Value {
@@ -247,10 +248,10 @@ quill:
   description: card container addressing
 typst:
   plate_file: plate.typ
-main:
-  body:
-    enabled: false
-card_kinds:
+schema:
+  main:
+    body:
+      enabled: false
   endorsement:
     fields:
       origin:

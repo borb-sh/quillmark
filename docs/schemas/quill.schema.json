@@ -11,16 +11,28 @@
     "quill": {
       "$ref": "#/definitions/quill"
     },
-    "main": {
-      "$ref": "#/definitions/main"
-    },
-    "card_kinds": {
-      "description": "Additional composable card kinds, keyed by kind name.",
-      "type": "object",
+    "schema": {
+      "description": "The document's schema: `main` and each card kind, as peers keyed by kind name.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "main": {
+          "$ref": "#/definitions/main"
+        }
+      },
       "propertyNames": {
         "pattern": "^[a-z_][a-z0-9_]*$",
         "not": {
-          "const": "main"
+          "enum": [
+            "title",
+            "description",
+            "fields",
+            "ui",
+            "body",
+            "seed"
+          ]
         }
       },
       "additionalProperties": {

@@ -6,34 +6,34 @@ use serde_json::json;
 mod properties;
 
 const SCHEMA: &str = r#"
-main:
-  title: Memo
-  description: A one-page memo.
-  body:
-    description: What the memo says.
-    example: "Filled-in *prose*."
-  fields:
-    subject:
-      type: richtext
-      title: Subject
-      description: The memo's subject line.
-      example: Budget *review*
-    from: { type: text, default: HQ }
-    count: { type: integer? }
-    when: { type: date }
-    refs: { type: array, items: { type: text } }
-    contact:
-      type: object
-      properties:
-        city: { type: text }
-    marking:
-      type: enum
-      values: [PUBLIC, CUI, SECRET]
-      default: PUBLIC
-      variants:
-        CUI:
-          poc: { type: richtext }
-card_kinds:
+schema:
+  main:
+    title: Memo
+    description: A one-page memo.
+    body:
+      description: What the memo says.
+      example: "Filled-in *prose*."
+    fields:
+      subject:
+        type: richtext
+        title: Subject
+        description: The memo's subject line.
+        example: Budget *review*
+      from: { type: text, default: HQ }
+      count: { type: integer? }
+      when: { type: date }
+      refs: { type: array, items: { type: text } }
+      contact:
+        type: object
+        properties:
+          city: { type: text }
+      marking:
+        type: enum
+        values: [PUBLIC, CUI, SECRET]
+        default: PUBLIC
+        variants:
+          CUI:
+            poc: { type: richtext }
   indorsement:
     title: Indorsement
     fields:

@@ -44,9 +44,8 @@ pub use quillmark_core::{
     error::{DOCUMENT_FILE, Diagnostic, Location, ParseError, RenderError, RenderResult, Severity},
     path::DocPath,
     quill::{
-        BUNDLE_EXTENSION, BoundParseError, CalendarDate, CardSchema, DeltaClass, DeltaEntry,
-        FieldSchema, FieldType, FileTreeNode, ParseDateError, Quill, QuillConfig, QuillIgnore,
-        SchemaDelta, ValidationError,
+        BUNDLE_EXTENSION, BoundParseError, CalendarDate, CardSchema, FieldSchema, FieldType,
+        FileTreeNode, ParseDateError, Quill, QuillConfig, QuillIgnore, ValidationError,
     },
     reader::{CardReader, TypedReader},
     region::{

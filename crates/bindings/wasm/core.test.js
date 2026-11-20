@@ -25,11 +25,12 @@ function makeCoreQuill() {
   version: "1.0.0"
   backend: typst
   description: Core build smoke test
-main:
-  fields:
-    title:
-      type: text
-      description: Document title
+schema:
+  main:
+    fields:
+      title:
+        type: text
+        description: Document title
 `
   return new Map([['Quill.yaml', enc.encode(yaml)]])
 }
@@ -93,8 +94,8 @@ describe('@quillmark/wasm/core surface', () => {
 
     const tree = makeCoreQuill()
     const yaml = dec.decode(tree.get('Quill.yaml'))
-      .replace('      description: Document title\n', '      description: Document title\n      example: A made-up title\n')
-      .concat('  body:\n    example: Made-up prose.\n')
+      .replace('        description: Document title\n', '        description: Document title\n        example: A made-up title\n')
+      .concat('    body:\n      example: Made-up prose.\n')
     tree.set('Quill.yaml', enc.encode(yaml))
     const quill = Quill.fromTree(tree)
 
@@ -112,11 +113,11 @@ describe('@quillmark/wasm/core surface', () => {
   version: "1.0.0"
   backend: typst
   description: Seed overlay smoke test
-main:
-  fields:
-    title:
-      type: text
-card_kinds:
+schema:
+  main:
+    fields:
+      title:
+        type: text
   note:
     fields:
       author:

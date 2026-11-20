@@ -34,8 +34,8 @@ pub fn quill(yaml: &str, files: &[(&str, &[u8])]) -> Quill {
     Quill::from_tree(root).expect("load quill")
 }
 
-/// A `Quill.yaml` whose plate is `plate.typ`, declaring `schema` (its `main:`
-/// and `card_kinds:` sections).
+/// A `Quill.yaml` whose plate is `plate.typ`, declaring `schema` (its `schema:`
+/// block).
 pub fn yaml(schema: &str) -> String {
     format!(
         "quill:\n  name: t\n  version: 0.1.0\n  backend: typst\n  description: t\n\
@@ -121,7 +121,7 @@ pub fn body_session(body: serde_json::Value) -> LiveSession {
     TypstBackend::default()
         .open(
             &quill_with_plate(
-                &yaml("main:\n  fields:\n    prose: { type: richtext, shape: blocks }\n"),
+                &yaml("schema:\n  main:\n    fields:\n      prose: { type: richtext, shape: blocks }\n"),
                 r#"
 #import "@local/quillmark-helper:0.2.0" as qm
 #set page(width: 612pt, height: 792pt, margin: 72pt)

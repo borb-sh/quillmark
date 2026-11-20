@@ -13,7 +13,7 @@ const PAGE: &str = r#"
 
 fn quill(plate: &str) -> Quill {
     common::quill_with_plate(
-        &common::yaml("main:\n  fields: {}\n"),
+        &common::yaml("schema:\n  main:\n    fields: {}\n"),
         &format!("{PAGE}{plate}#qm.data.at(\"$body\", default: [])\n"),
     )
 }

@@ -136,60 +136,13 @@ export interface QuillCardSchema {
 }
 
 /**
- * Document schema returned by `Quill.schema`: the user-fillable fields only.
- * The quill reference (`${metadata.name}@${metadata.version}`) and card-kind
- * discriminators are document-level metadata, not schema fields.
+ * Document schema returned by `Quill.schema`, shaped as the `schema:` block
+ * of `Quill.yaml` is: `main` and each card kind as peers keyed by kind name,
+ * `main` first and the kinds in declaration order. The user-fillable fields
+ * only: the quill reference (`${metadata.name}@${metadata.version}`) and
+ * card-kind discriminators are document-level metadata, not schema fields.
  */
-export interface QuillSchema {
-    main: QuillCardSchema;
-    /** Present only when the quill declares at least one named card kind. */
-    card_kinds?: Record<string, QuillCardSchema>;
-}
-
-/**
- * How a slot of the quill a document moves to reads what the document wrote
- * under the quill it moves from.
- *
- * - `same`: both quills declare the slot alike.
- * - `widened`: the target admits every value the source does, and more.
- * - `narrowed`: the target refuses some value the source admits, so a stored
- *   value stays as written and may fail `validate`.
- * - `retyped`: the target reads the slot as another type, so `conform`
- *   rewrites a stored value.
- * - `unclaimed`: only the source declares the slot. A stored value stays in
- *   the document, renders nowhere and warns `validation::unknown_field`.
- * - `added`: only the target declares the slot.
- */
-export type DeltaClass = "same" | "widened" | "narrowed" | "retyped" | "unclaimed" | "added";
-
-/** One slot of a `SchemaDelta`. */
-export interface DeltaEntry {
-    /** `main`, or a card kind's name. */
-    kind: string;
-    /**
-     * The slot under the kind: a field (`skills`), a slot below it
-     * (`contact.email`, `skills.0.name`), or `$body`. Absent for a kind only
-     * one quill declares.
-     */
-    path?: string;
-    class: DeltaClass;
-    /** Both quills declare the slot and give it different `default:`s, so a
-     *  document that leaves it unanswered prints differently. */
-    default_changed: boolean;
-}
-
-/**
- * What moving a document from one quill to another does to each slot, as
- * `Quill.compare` returns it. An entry classed `retyped`, `unclaimed` or
- * `added` stands for every slot beneath it. A matrix is one slot.
- */
-export interface SchemaDelta {
-    /** Whether every stored value reads the same under the target, so
-     *  `setQuillRef` is the whole move: no entry is `narrowed`, `retyped` or
-     *  `unclaimed`. */
-    carries: boolean;
-    entries: DeltaEntry[];
-}
+export type QuillSchema = { main: QuillCardSchema } & Record<string, QuillCardSchema>;
 
 /**
  * One card of an `AuthoringDocument`: its kind, its fields in the values form,
@@ -797,14 +750,6 @@ impl Quill {
         }
 
         serialize_or_throw(&value, "metadata")
-    }
-
-    /// The ABI under `Quill.compare({ from, to })`.
-    #[wasm_bindgen(js_name = _compare, skip_typescript, unchecked_return_type = "SchemaDelta")]
-    pub fn compare(from: &Quill, to: &Quill) -> Result<JsValue, JsValue> {
-        let delta = quillmark::Quill::compare(&from.inner, &to.inner);
-        let value = serde_json::json!({ "carries": delta.carries(), "entries": delta.entries });
-        serialize_or_throw(&value, "compare")
     }
 
     /// Validate `doc` against this quill's schema, returning every diagnostic:

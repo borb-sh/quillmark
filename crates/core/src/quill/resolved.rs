@@ -262,26 +262,26 @@ quill:
   version: "1.0.0"
   backend: typst
   description: Field-state tests
-main:
-  fields:
-    title:
-      type: text
-    status:
-      type: text
-      default: draft
-    notes:
-      type: text
-    intro:
-      type: richtext
-      shape: blocks
-      default: "**hi**"
-    recipients:
-      type: array
-      items:
-        type: object
-        properties:
-          name: { type: text }
-card_kinds:
+schema:
+  main:
+    fields:
+      title:
+        type: text
+      status:
+        type: text
+        default: draft
+      notes:
+        type: text
+      intro:
+        type: richtext
+        shape: blocks
+        default: "**hi**"
+      recipients:
+        type: array
+        items:
+          type: object
+          properties:
+            name: { type: text }
   note:
     fields:
       author:
@@ -341,16 +341,17 @@ quill:
   version: "1.0.0"
   backend: typst
   description: Container-shape tests
-main:
-  fields:
-    counts:
-      type: array
-      items:
-        type: integer
-    address:
-      type: object
-      properties:
-        street: { type: text }
+schema:
+  main:
+    fields:
+      counts:
+        type: array
+        items:
+          type: integer
+      address:
+        type: object
+        properties:
+          street: { type: text }
 "#;
 
     fn shape_doc(fields: &str) -> Document {
@@ -499,11 +500,11 @@ quill:
   version: "1.0.0"
   backend: typst
   description: Body-disabled test
-main:
-  fields:
-    title:
-      type: text
-card_kinds:
+schema:
+  main:
+    fields:
+      title:
+        type: text
   stamp:
     body:
       enabled: false

@@ -18,7 +18,7 @@ const PLATE: &str = r#"
 "#;
 
 fn quill() -> Quill {
-    common::quill_with_plate(&common::yaml("main:\n  fields: {}\n"), PLATE)
+    common::quill_with_plate(&common::yaml("schema:\n  main:\n    fields: {}\n"), PLATE)
 }
 
 fn svg(quill: &Quill, markdown: &str) -> String {
@@ -98,7 +98,10 @@ fn placing_a_table_keeps_its_cells_aligned_as_they_were() {
         let placed = format!("<table align=\"center\"{aligns}>\n{rows}\n</table>");
         for set in sets {
             let plate = PLATE.replace("#qm.data", &format!("{set}#qm.data"));
-            let quill = common::quill_with_plate(&common::yaml("main:\n  fields: {}\n"), &plate);
+            let quill = common::quill_with_plate(
+                &common::yaml("schema:\n  main:\n    fields: {}\n"),
+                &plate,
+            );
             let at = origins(&svg(&quill, &placed));
             let unplaced = origins(&svg(&quill, table));
             let offsets = |o: &[(f64, f64)]| -> Vec<(f64, f64)> {
@@ -129,7 +132,8 @@ fn a_headless_table_has_no_header_row_to_style() {
         "#show table: it => if it.children.any(c => c.func() == table.header) {\n  \
          show table.cell.where(y: 0): set text(fill: rgb(\"#ff0000\"))\n  it\n} else { it }\n#qm.data",
     );
-    let quill = common::quill_with_plate(&common::yaml("main:\n  fields: {}\n"), &plate);
+    let quill =
+        common::quill_with_plate(&common::yaml("schema:\n  main:\n    fields: {}\n"), &plate);
     let styled = |md: &str| svg(&quill, md).matches("#ff0000").count();
     assert!(styled(PLAIN) > 0);
     let headless = "<table>\n<tbody>\n<tr><td>Item</td><td>Amount</td></tr>\n<tr><td>Total</td><td>42</td></tr>\n</tbody>\n</table>";
