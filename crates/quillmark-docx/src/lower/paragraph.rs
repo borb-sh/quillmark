@@ -296,6 +296,7 @@ impl<'a> Lower<'a> {
                 let next = counts[l] + 1;
                 if value.is_some_and(|v| v != next) {
                     self.tally.count(Code::LabelMismatch, "", 1);
+                    props.numbering = None;
                 } else {
                     counts[l] = next;
                     for d in counts.iter_mut().skip(l + 1) {

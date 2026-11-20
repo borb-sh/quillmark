@@ -450,6 +450,34 @@ fn a_label_the_count_does_not_reach_stays_printed_and_is_reported() {
 }
 
 #[test]
+fn a_printed_label_in_a_drawn_enum_is_not_numbered_twice() {
+    let (parts, codes) = render(&format!(
+        "{HINTS}#show enum: it => hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),), {{\n\
+         for item in it.children {{ block[#hints.hint(\"label\", level: 1, value: it.start)[#it.start.#h(4pt)]#item.body] }}\n\
+         }})\n\
+         + First.\n\nBetween.\n\n#enum(start: 3)[Third.]\n"
+    ));
+    let xml = part(&parts, "word/document.xml");
+    let texts: Vec<String> = paragraphs(&xml).into_iter().map(|p| p.0).collect();
+    assert!(texts.contains(&"First.".to_string()), "{texts:?}");
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.starts_with("3.") && t.ends_with("Third.")),
+        "{texts:?}"
+    );
+    assert_eq!(
+        xml.matches("<w:numPr>").count(),
+        0,
+        "the live number comes from the level style, and a printed one has none: {xml}"
+    );
+    assert!(
+        codes.iter().any(|c| c == "docx::label_mismatch"),
+        "{codes:?}"
+    );
+}
+
+#[test]
 fn an_unknown_hint_and_one_left_open_are_reported_and_cost_only_their_paragraph() {
     let (parts, codes) = render(&format!(
         "{HINTS}#metadata((kind: \"__qm_hint__\", hint: \"mystery\"))<__qm_hint__>\
