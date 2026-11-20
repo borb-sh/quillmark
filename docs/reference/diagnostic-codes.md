@@ -234,7 +234,7 @@ A Word export. Each warns that the Word file carries less than the PDF shows; no
 - `docx::columns_flattened`: a `columns` block within the flow, rather than a page's `columns`, is written as one column.
 - `docx::direction_dropped`: a paragraph holds right-to-left text, and the Word file marks no paragraph or run as right to left.
 - `docx::equation_text`: an equation that wraps across lines keeps its glyphs as text, set in their face and size, rather than being one picture.
-- `docx::font_not_embedded`: a font with no metric-compatible Word face is named without being embedded, so Word substitutes another where it is not installed.
+- `docx::font_not_embedded`: a font with no metric-compatible Word face and no `font` hint is named without being embedded, so Word substitutes another where it is not installed.
 - `docx::form_field_declined`: a form or signature field, which the PDF carries as a widget, is left out of the Word file.
 - `docx::label_mismatch`: a paragraph number a `label` hint marks is not the number Word would count, so it stays as printed text.
 - `docx::link_internal`: a link goes to a place in the document rather than to a URL, so its text is kept without the link.

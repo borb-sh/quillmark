@@ -168,7 +168,7 @@ impl<'a> Lower<'a> {
             for item in &page.items {
                 if let ItemKind::Text(t) = &item.kind {
                     *sizes.entry((t.size * 2.0).round() as u32).or_default() += t.text.len();
-                    let f = word_font(&self.doc.fonts[t.font].family);
+                    let f = word_font(&self.doc.fonts[t.font].family, &self.alt_names);
                     *families.entry(f).or_default() += t.text.len();
                 }
             }

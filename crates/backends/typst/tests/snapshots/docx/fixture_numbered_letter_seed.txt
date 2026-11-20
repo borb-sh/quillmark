@@ -6,4 +6,4 @@ section 0, next page
   P "The second paragraph is the last one." before=84 after=- line=327
   P "Respectfully," before=84 after=- line=327 keep_next
   P "SIGNER NAME" before=84 after=- line=327
-notices: docx::font_not_embedded
+notices: 

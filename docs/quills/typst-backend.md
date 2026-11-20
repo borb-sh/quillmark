@@ -507,7 +507,7 @@ Every quill on this backend exports to Word with no change to the quill: ask for
 - **Equations, superscripts and subscripts:** an equation is a picture of it with its source as alt text, on its line or centred on a line of its own; one that wraps across lines keeps its glyphs as text. A superscript or subscript is Word's, set at its line's size.
 - **Quotes, captions, terms and raw text:** a block quote's body and attribution are paragraphs in Word's Quote style, and a figure's caption is a paragraph in its Caption style, kept with the figure's body unless that body is a table above it. A term and its description are one paragraph. A raw block is a paragraph per line, with spell-check off.
 - **What Word decides:** which word ends a line and which line ends a page, as in any document typed in Word, with widow and orphan control on as Typst's is. A page that is full in the PDF can spill onto another in Word.
-- **Fonts:** a face with a metric-compatible Word face is named as that face (TeX Gyre Termes and Liberation Serif as Times New Roman, Liberation Sans and TeX Gyre Heros as Arial, Liberation Mono as Courier New, Carlito as Calibri, Caladea as Cambria). Any other face is named as it is, without being embedded.
+- **Fonts:** a face with a metric-compatible Word face is named as that face (TeX Gyre Termes and Liberation Serif as Times New Roman, Liberation Sans and TeX Gyre Heros as Arial, Liberation Mono as Courier New, Carlito as Calibri, Caladea as Cambria). Any other face is named as the `alt` of the quill's `font` hint for it, keeping its own name as the font's alternate name, or, with no hint, as it is. No face is embedded.
 - **What reaches Word only as frozen text, a picture, or not at all** raises a warning, so a render's warnings say where the Word file carries less than the PDF shows. The [`docx::` codes](../reference/diagnostic-codes.md#docx) list each.
 
 What is known to differ, with no warning:
@@ -540,7 +540,7 @@ A quill states what its frames cannot show with `qm.hints`. A hint emits only la
 | `layout` | bracket around a grid | `form: "tabbed"` | each row as one paragraph of label, tab and text |
 | `chrome` | bracket around a `place` | none | the placed object in the page header, or the footer for a `place` aligned to the bottom |
 | `keep` | point; `keep-with-next(body)` emits it | none | no page break between the paragraph before and the one after |
-| `font` | point, once per face | `family`, `alt` | `alt` as the face Word names where `family` is missing |
+| `font` | point, once per face | `family`, `alt` | for a family with no metric-compatible Word face, `alt` as the face its text names, with `family` as the font's alternate name; a family with one keeps it |
 
 A quill package that must stay publishable without Quillmark vendors `crates/backends/typst/src/hints.typ` from the Quillmark repository unchanged.
 

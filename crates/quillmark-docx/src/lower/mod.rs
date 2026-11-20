@@ -119,7 +119,17 @@ impl<'a> Lower<'a> {
             counters: HashMap::new(),
             extra_styles: Vec::new(),
             roles: BTreeMap::new(),
-            alt_names: BTreeMap::new(),
+            alt_names: doc
+                .pages
+                .iter()
+                .flat_map(|p| &p.items)
+                .filter_map(|i| match &i.kind {
+                    ItemKind::Mark(PointHint::Font { family, alt }) => {
+                        Some((family.to_lowercase(), alt.clone()))
+                    }
+                    _ => None,
+                })
+                .collect(),
             tally: Tally::default(),
         }
     }
@@ -175,7 +185,8 @@ struct Lower<'a> {
     extra_styles: Vec<Style>,
     /// Role style id to its name and the role after it.
     roles: BTreeMap<String, (String, Option<String>)>,
-    /// A face's name for readers without it, from the quill's `font` hint.
+    /// The Word face a family with no metric clone is named as, from the
+    /// quill's `font` hint, keyed by the family in lower case.
     alt_names: BTreeMap<String, String>,
     tally: Tally,
 }
@@ -249,11 +260,6 @@ impl<'a> Lower<'a> {
         }
         let roles = self.role_styles(&mut bodies);
         self.extra_styles.extend(roles);
-        for f in self.fonts.values_mut() {
-            if let Some(alt) = self.alt_names.get(&f.name) {
-                f.alt_name = Some(alt.clone());
-            }
-        }
         let mut headers = Vec::new();
         let mut footers = Vec::new();
         let mut had = [[false; 2]; 2];
@@ -351,9 +357,8 @@ impl<'a> Lower<'a> {
                 self.consumed.insert(r);
                 vec![Entry::Keep]
             }
-            ItemKind::Mark(PointHint::Font { family, alt }) => {
+            ItemKind::Mark(PointHint::Font { .. }) => {
                 self.consumed.insert(r);
-                self.alt_names.insert(family.clone(), alt.clone());
                 Vec::new()
             }
             ItemKind::Mark(PointHint::Break { .. }) => {

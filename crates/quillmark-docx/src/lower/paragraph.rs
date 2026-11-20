@@ -13,6 +13,7 @@ use super::sections::is_roman;
 use super::space::{Entry, line_props};
 use super::styles::style_id;
 use super::{Ctx, Lower, hex, tw};
+use std::collections::BTreeMap;
 
 /// Families whose metric-compatible Word face a Word machine has.
 pub(super) const WORD_CLONES: &[(&str, &str)] = &[
@@ -63,12 +64,15 @@ pub(super) fn runs_script(url: &str) -> bool {
 }
 
 /// The Word face for a Typst family: a metric-compatible clone a Word
-/// machine has, else the family itself.
-pub(super) fn word_font(family: &str) -> String {
+/// machine has, else the face the quill's `font` hint names, else the family
+/// itself.
+pub(super) fn word_font(family: &str, alt_names: &BTreeMap<String, String>) -> String {
     WORD_CLONES
         .iter()
         .find(|(f, _)| f.eq_ignore_ascii_case(family))
-        .map_or_else(|| family.to_string(), |(_, w)| w.to_string())
+        .map(|(_, w)| w.to_string())
+        .or_else(|| alt_names.get(&family.to_lowercase()).cloned())
+        .unwrap_or_else(|| family.to_string())
 }
 
 /// Identical neighbouring runs as one, and neighbours under one link as one
@@ -641,7 +645,7 @@ impl<'a> Lower<'a> {
     }
 
     pub(super) fn font(&mut self, family: &str, monospace: bool) -> String {
-        let name = word_font(family);
+        let name = word_font(family, &self.alt_names);
         if name == family {
             self.tally.count(Code::FontNotEmbedded, family, 1);
         }
