@@ -623,7 +623,7 @@ impl<'a> Lower<'a> {
         let indent = number
             .and_then(|m| self.doc.nodes[m].frames.first())
             .map(|f| f.1.x0 - left);
-        let (mut blocks, _) = space::nested(self.children(note, &ctx));
+        let (mut blocks, _) = space::nested(self.children(note, &ctx), None);
         if let Some(Block::Paragraph(p)) = blocks.first_mut() {
             if let Some(x) = indent.filter(|x| x.abs() >= 0.25) {
                 p.props.indent = Some(Indent {

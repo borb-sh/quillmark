@@ -139,7 +139,7 @@ impl<'a> Lower<'a> {
             NodeKind::Place { .. } | NodeKind::Artifact { .. } => self.children(n, &inner),
             _ => self.node(n, &inner),
         };
-        let (blocks, inner) = space::nested(entries);
+        let (blocks, inner) = space::nested(entries, None);
         let inner_boxes: Vec<Drawing> = inner.into_iter().map(|(_, d)| d).collect();
         let has_content = blocks.iter().any(|b| match b {
             Block::Paragraph(p) => !p.content.is_empty(),

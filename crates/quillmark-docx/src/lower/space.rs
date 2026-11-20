@@ -271,8 +271,8 @@ struct Body<'a> {
 /// One pass over a scope's entries that decides what depends on a
 /// neighbour: the space above each paragraph, the gap above a table, keeps,
 /// page breaks, and the paragraph each drawing is anchored in. A cell, text
-/// box or footnote has no body: no space above its first line, no page
-/// break, and its drawings left to the scope around it.
+/// box or footnote has no body: space above only from what stands above on
+/// its page, no page break, and its drawings left to the scope around it.
 struct Flow<'a> {
     body: Option<Body<'a>>,
     bodies: Vec<Vec<Block>>,
@@ -319,9 +319,16 @@ pub(super) fn body(doc: &LayoutDoc, groups: &[Vec<usize>], entries: Vec<Entry>) 
 }
 
 /// The blocks of a cell, text box or footnote, and the drawings no
-/// paragraph in it takes, with their pages.
-pub(super) fn nested(entries: Vec<Entry>) -> (Vec<Block>, Vec<(u32, Drawing)>) {
-    let mut flow = Flow::new(None, 1).run(entries);
+/// paragraph in it takes, with their pages. A paragraph takes the space
+/// above it from the one before it on its page, the first from where its
+/// scope's text starts when `top` gives that.
+pub(super) fn nested(
+    entries: Vec<Entry>,
+    top: Option<(u32, f64)>,
+) -> (Vec<Block>, Vec<(u32, Drawing)>) {
+    let mut flow = Flow::new(None, 1);
+    flow.prev = top.map(|(page, y)| Prev::Bottom(page, y));
+    let mut flow = flow.run(entries);
     (flow.bodies.pop().unwrap_or_default(), flow.pending)
 }
 
@@ -436,7 +443,7 @@ impl<'a> Flow<'a> {
         }
     }
 
-    fn before(&mut self, body: Body, at: &Placed) -> f64 {
+    fn before(&mut self, at: &Placed) -> f64 {
         match self.prev {
             Some(Prev::Baseline(p, y)) if p == at.page => {
                 let gap = at.baseline - y - at.pitch;
@@ -446,6 +453,16 @@ impl<'a> Flow<'a> {
                 gap
             }
             Some(Prev::Bottom(p, y)) if p == at.page => at.baseline - y - 0.8 * at.pitch,
+            _ => match self.body {
+                Some(body) => self.across(body, at),
+                None => 0.0,
+            },
+        }
+    }
+
+    /// The space above a paragraph with nothing above it on its page.
+    fn across(&self, body: Body, at: &Placed) -> f64 {
+        match self.prev {
             Some(_) if !self.broken => at
                 .key
                 .and_then(|k| body.usual.get(&k).copied())
@@ -458,10 +475,7 @@ impl<'a> Flow<'a> {
     }
 
     fn paragraph(&mut self, mut p: Paragraph, at: Placed) {
-        let before = match self.body {
-            Some(body) => self.before(body, &at),
-            None => 0.0,
-        };
+        let before = self.before(&at);
         let before = if at.object {
             before.max(0.0) - 0.2 * at.pitch
         } else {

@@ -273,6 +273,15 @@ impl<'a> Lower<'a> {
             })
     }
 
+    /// Where the first line box of `row` starts on `page`, inside its cell's
+    /// inset, with that inset.
+    fn row_top(&self, cells: &[NodeId], row: u32, page: u32) -> Option<(f64, f64)> {
+        let (m, inset) = self.first_line_in_row(cells, row, page)?;
+        let lines = &self.doc.nodes[m].lines;
+        let pitch = self.strides.pitch(m, lines, self.par_style(m));
+        Some((lines[0].baseline - 0.8 * pitch, inset))
+    }
+
     /// Where Word ends a table's last row on `page`: below the last line its
     /// cells hold there at that line's pitch, plus the cell's bottom inset and
     /// the closing paragraph of a cell that ends in a table.
@@ -375,12 +384,8 @@ impl<'a> Lower<'a> {
             .unwrap_or(0) as usize;
         let top = tops.first().map(|&(page, y)| {
             let first = self
-                .first_line_in_row(&cells, 0, page)
-                .map_or(y, |(m, inset)| {
-                    let lines = self.doc.nodes[m].lines.clone();
-                    let pitch = self.strides.pitch(m, &lines, self.par_style(m));
-                    lines[0].baseline - 0.8 * pitch - inset
-                });
+                .row_top(&cells, 0, page)
+                .map_or(y, |(top, inset)| top - inset);
             (page, first)
         });
         let mut opens = false;
@@ -434,7 +439,16 @@ impl<'a> Lower<'a> {
                         width: grid.iter().skip(c).take(span as usize).sum::<i32>() as f64 / 20.0,
                         ..Ctx::default()
                     };
-                    let (mut blocks, left) = space::nested(self.children(m, &inner));
+                    let top = self
+                        .doc
+                        .subtree(m)
+                        .into_iter()
+                        .find_map(|d| self.doc.nodes[d].lines.first().map(|l| l.page))
+                        .and_then(|page| {
+                            let (top, _) = self.row_top(&cells, r as u32, page)?;
+                            Some((page, top))
+                        });
+                    let (mut blocks, left) = space::nested(self.children(m, &inner), top);
                     drawings.extend(left);
                     if matches!(blocks.last(), Some(Block::Table(_))) {
                         blocks.push(Block::Paragraph(spacer(CLOSING)));
