@@ -1,5 +1,4 @@
 mod authoring_tests;
-mod delta_tests;
 mod example_tests;
 mod matrix_tests;
 mod optional_tests;

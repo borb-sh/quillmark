@@ -95,54 +95,6 @@ describe('@quillmark/wasm: surface', () => {
 // `quill.writer(doc)`. Each verb forwards to the right address, coerces the
 // value through its declared type, and carries a refused write's diagnostic
 // code and DocPath out to the caller unswallowed.
-describe('@quillmark/wasm: Quill.compare (moving a document between quills)', () => {
-  const quillOf = (name, schema) =>
-    Quill.fromTree(
-      makeQuill({
-        name,
-        plate: TEST_PLATE,
-        quillYaml: `quill:\n  name: ${name}\n  version: "0.1.0"\n  backend: typst\n  description: d\n${schema}`,
-      }),
-    )
-  const plain = quillOf(
-    'resume',
-    'schema:\n  main:\n    fields:\n      name: { type: text }\n      level: { type: enum, values: [junior] }\n      fax: { type: text }\n',
-  )
-  const modern = quillOf(
-    'resume_modern',
-    'schema:\n  main:\n    fields:\n      name: { type: text, default: Ada }\n      level: { type: enum, values: [junior, senior] }\n      accent: { type: text }\n',
-  )
-  const changed = (delta) =>
-    delta.entries
-      .filter((e) => e.class !== 'same' || e.default_changed)
-      .map((e) => [e.kind, e.path, e.class, e.default_changed])
-
-  it('classes each slot in the direction the document moves', () => {
-    const there = Quill.compare({ from: plain, to: modern })
-    expect(there.carries).toBe(false)
-    expect(changed(there)).toEqual([
-      ['main', 'name', 'same', true],
-      ['main', 'level', 'widened', false],
-      ['main', 'accent', 'added', false],
-      ['main', 'fax', 'unclaimed', false],
-    ])
-
-    const back = Quill.compare({ from: modern, to: plain })
-    expect(changed(back)).toEqual([
-      ['main', 'name', 'same', true],
-      ['main', 'level', 'narrowed', false],
-      ['main', 'fax', 'added', false],
-      ['main', 'accent', 'unclaimed', false],
-    ])
-  })
-
-  it('refuses a misspelled side and a value that is no quill', () => {
-    expect(caughtFrom(() => Quill.compare({ from: plain, too: modern }))?.message).toContain('`too`')
-    expectEditCode(() => Quill.compare({ from: plain }), 'runtime::not_a_quill')
-    expectEditCode(() => Quill.compare(), 'runtime::not_a_quill')
-  })
-})
-
 describe('@quillmark/wasm: DocumentWriter / CardWriter (bind the quill once)', () => {
   const EDITOR_QUILL_YAML = `quill:
   name: editor_test

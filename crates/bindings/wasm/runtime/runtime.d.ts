@@ -134,9 +134,6 @@ export type {
 	QuillCardUi,
 	QuillGroupUi,
 	QuillMetadata,
-	DeltaClass,
-	DeltaEntry,
-	SchemaDelta,
 	AuthoringDocument,
 	AuthoringCard
 } from '../core/wasm.js';
@@ -646,15 +643,6 @@ export declare class LiveSession {
 // class is re-exported verbatim, so the method is declared by merging into the
 // core module's `Quill` rather than redeclaring the class).
 declare module '../core/wasm.js' {
-	namespace Quill {
-		/**
-		 * What a document written for `from` meets when `setQuillRef` retargets
-		 * it to `to`: another quill, or another version of the same one. Reads
-		 * the two schemas and no document, so one answer covers every document
-		 * of `from`.
-		 */
-		function compare(quills: { from: Quill; to: Quill }): SchemaDelta;
-	}
 	interface Quill {
 		/**
 		 * Bind this quill's schema to `doc` for typed writes. The returned writer
