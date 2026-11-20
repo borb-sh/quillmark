@@ -641,6 +641,7 @@ impl<'a> Lower<'a> {
                 None
             },
             no_proof: has(|k| matches!(k, NodeKind::RawLine)),
+            lang: t.lang.clone().filter(|l| Some(l) != self.language.as_ref()),
             ..RunProps::default()
         }
     }

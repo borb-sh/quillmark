@@ -182,6 +182,7 @@ impl<'a> Lower<'a> {
             default_run: RunProps {
                 font: top(&families),
                 size: top(&sizes),
+                lang: self.language.clone(),
                 ..RunProps::default()
             },
             default_par: ParProps {

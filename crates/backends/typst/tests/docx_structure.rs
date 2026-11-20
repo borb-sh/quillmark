@@ -9,6 +9,29 @@ use word::render;
 const PAGE: &str = "#set page(width: 300pt, height: 300pt, margin: 30pt)\n";
 
 #[test]
+fn the_document_language_is_the_default_and_a_run_in_another_states_its_own() {
+    let w = render(&format!(
+        "{PAGE}#set text(lang: \"de\")\nGuten Tag, ihr alle zusammen. \
+         #text(lang: \"fr\", region: \"ca\")[Bonjour] und tschüss.\n"
+    ));
+    let styles = w.xml("word/styles.xml");
+    let defaults = &styles[..styles.find("</w:docDefaults>").expect("defaults")];
+    assert!(defaults.contains(r#"<w:lang w:val="de"/>"#), "{defaults}");
+    assert!(
+        w.xml("docProps/core.xml")
+            .contains("<dc:language>de</dc:language>")
+    );
+    let doc = w.xml("word/document.xml");
+    let langs: Vec<&str> = doc
+        .match_indices(r#"<w:lang w:val=""#)
+        .map(|(i, m)| &doc[i + m.len()..][..doc[i + m.len()..].find('"').unwrap()])
+        .collect();
+    assert_eq!(langs, ["fr-CA"]);
+    let run = &doc[..doc.find("Bonjour").expect("the French run")];
+    assert!(run.rfind("<w:r>").unwrap() < run.rfind(r#"w:val="fr-CA""#).unwrap());
+}
+
+#[test]
 fn a_drawn_rule_or_filled_block_is_reported_anchored_and_a_border_or_decoration_is_not() {
     for plate in [
         "= Experience\n#line(length: 100%)\nSome text.\n",

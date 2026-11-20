@@ -106,6 +106,8 @@ impl LayoutDoc {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DocInfo {
     pub title: Option<String>,
+    /// The document's language, as a BCP 47 tag. Where it is `None`, the
+    /// language most of the text is set in.
     pub language: Option<String>,
 }
 
@@ -235,6 +237,9 @@ pub struct TextRun {
     /// The advance width of the face's own advances, as a writer that does
     /// not kern sets the text.
     pub natural: f64,
+    /// The language the text is set in, as a BCP 47 tag: `de`, or `de-DE`
+    /// with a region.
+    pub lang: Option<String>,
 }
 
 impl TextRun {

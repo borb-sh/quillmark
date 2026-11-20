@@ -643,6 +643,10 @@ impl Reader<'_> {
                         fill: rgb(&text.fill),
                         width,
                         natural,
+                        lang: Some(match &text.region {
+                            Some(region) => format!("{}-{}", text.lang.as_str(), region.as_str()),
+                            None => text.lang.as_str().to_string(),
+                        }),
                     });
                     match self.toc_page() {
                         Some(page) => self.ink_under(page, run),

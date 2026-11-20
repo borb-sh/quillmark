@@ -68,6 +68,7 @@ fn paragraph(family: &str, lines: &[(&str, LineEnd)]) -> LayoutDoc {
                 fill: Rgb(0, 0, 0),
                 width: 6.0 * text.len() as f64,
                 natural: 6.0 * text.len() as f64,
+                lang: None,
             }),
         });
         doc.nodes[par].children.push(Child::Item(r));
@@ -180,6 +181,7 @@ fn ink_no_node_places_is_counted_as_dropped() {
             fill: Rgb(0, 0, 0),
             width: 24.0,
             natural: 24.0,
+            lang: None,
         }),
     });
     doc.nodes[id]
@@ -239,6 +241,7 @@ fn line_under(doc: &mut LayoutDoc, parent: usize, text: &str, baseline: f64) -> 
             fill: Rgb(0, 0, 0),
             width,
             natural: width,
+            lang: None,
         }),
     });
     doc.nodes[par].children.push(Child::Item(r));
