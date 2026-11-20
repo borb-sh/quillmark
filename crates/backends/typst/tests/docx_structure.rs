@@ -1483,3 +1483,30 @@ fn an_image_inside_a_box_in_a_line_of_text_is_placed() {
     assert_eq!(pictures.len(), 1, "{:?}", w.codes);
     assert_eq!(pictures[0].width, 20 * 12700);
 }
+
+#[test]
+fn a_clipped_justified_paragraph_stays_text_between_its_edges() {
+    let w = render(&format!(
+        "{PAGE}#pad(x: 40pt, block(height: 120pt, clip: true, {{\n\
+         set par(justify: true)\n\
+         [One two three four five six, seven eight nine ten eleven twelve. Thirteen fourteen \
+         fifteen sixteen seventeen eighteen nineteen twenty and then some more words to wrap again \
+         and again until four lines are full of them.]\n}}))\n"
+    ));
+    let par = w
+        .body()
+        .into_iter()
+        .find(|p| p.text.starts_with("One two"))
+        .expect("the paragraph");
+    assert!(par.drawings.is_empty(), "{:?}", par.drawings);
+    assert_eq!(par.jc.as_deref(), Some("both"));
+    assert_eq!(par.ind_left, Some(800));
+    let xml = w.xml("word/document.xml");
+    let right: i64 = xml
+        .split("w:right=\"")
+        .nth(1)
+        .and_then(|v| v.split('"').next())
+        .and_then(|v| v.parse().ok())
+        .expect("a right indent");
+    assert!((right - 800).abs() <= 1, "{right}");
+}
