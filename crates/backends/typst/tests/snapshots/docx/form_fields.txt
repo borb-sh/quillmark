@@ -1,0 +1,4 @@
+section 0, next page
+  P "Name: " before=160 after=- line=299
+  P "Signed: " before=365 after=- line=299
+notices: docx::font_not_embedded

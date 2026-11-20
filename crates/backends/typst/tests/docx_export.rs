@@ -410,9 +410,14 @@ fn hints_number_paragraphs_live_and_name_their_roles_tabs_chrome_keep_and_font()
             .any(|n| n.tag_name().name() == "keepNext")
     );
     let fonts = part(&parts, "word/fontTable.xml");
-    assert!(fonts.contains("<w:altName w:val=\"Arial\"/>"), "{fonts}");
+    assert!(
+        fonts.contains("<w:font w:name=\"Arial\"><w:altName w:val=\"Roboto\"/>"),
+        "a hinted face with no clone is named as its alt: {fonts}"
+    );
+    assert!(!xml.contains("w:ascii=\"Roboto\""), "the runs name the alt");
     assert!(
         !codes.iter().any(|c| [
+            "docx::font_not_embedded",
             "docx::hint_unknown",
             "docx::hint_unclosed",
             "docx::hint_unchecked",
@@ -439,6 +444,34 @@ fn a_label_the_count_does_not_reach_stays_printed_and_is_reported() {
             .iter()
             .any(|t| t.starts_with("3.") && t.ends_with("Third, but first.")),
         "{texts:?}"
+    );
+    assert!(
+        codes.iter().any(|c| c == "docx::label_mismatch"),
+        "{codes:?}"
+    );
+}
+
+#[test]
+fn a_printed_label_in_a_drawn_enum_is_not_numbered_twice() {
+    let (parts, codes) = render(&format!(
+        "{HINTS}#show enum: it => hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),), {{\n\
+         for item in it.children {{ block[#hints.hint(\"label\", level: 1, value: it.start)[#it.start.#h(4pt)]#item.body] }}\n\
+         }})\n\
+         + First.\n\nBetween.\n\n#enum(start: 3)[Third.]\n"
+    ));
+    let xml = part(&parts, "word/document.xml");
+    let texts: Vec<String> = paragraphs(&xml).into_iter().map(|p| p.0).collect();
+    assert!(texts.contains(&"First.".to_string()), "{texts:?}");
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.starts_with("3.") && t.ends_with("Third.")),
+        "{texts:?}"
+    );
+    assert_eq!(
+        xml.matches("<w:numPr>").count(),
+        0,
+        "the live number comes from the level style, and a printed one has none: {xml}"
     );
     assert!(
         codes.iter().any(|c| c == "docx::label_mismatch"),
@@ -538,4 +571,20 @@ fn an_outline_whose_page_numbers_carry_a_prefix_is_locked() {
     let texts: Vec<String> = paragraphs(&xml).into_iter().map(|p| p.0).collect();
     assert!(texts.contains(&"IntroA-1".to_string()), "{texts:?}");
     assert!(codes.iter().any(|c| c == "docx::toc_frozen"), "{codes:?}");
+}
+
+#[test]
+fn a_document_the_probes_would_move_is_read_without_them_and_keeps_its_text() {
+    let w = word::render(
+        "#set page(width: 300pt, height: 300pt, margin: 30pt)\n\
+         = Heading\n\
+         One two three four five #linebreak(justify: true) six seven.\n\n\
+         A second paragraph.\n",
+    );
+    assert!(w.has("docx::probes_disabled"), "{:?}", w.codes);
+    assert!(w.has("docx::margins_assumed"), "{:?}", w.codes);
+    assert!(!w.has("docx::ink_dropped"), "{:?}", w.codes);
+    let body = w.body();
+    assert_eq!(body.len(), 3, "{:?}", word::texts(&body));
+    assert_eq!(body[0].style.as_deref(), Some("Heading1"));
 }

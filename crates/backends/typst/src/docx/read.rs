@@ -17,9 +17,10 @@ use std::collections::HashMap;
 use quillmark_docx::layout::{
     ArtifactKind, BracketHint, Child, DocInfo, FontFace, FontId, Geometry, HAlign, HintLevel,
     ImageData, ImageFormat, ImageId, Item, ItemKind, ItemRef, LayoutDoc, Line, LineEnd, Marker,
-    Node, NodeId, NodeKind, Notice, NumberFormat, Page, PageSetup, ParStyle, Parity, PointHint,
-    Rect, Rgb, Shape, Sides, TextRun, VAlign,
+    Node, NodeId, NodeKind, NumberFormat, Page, PageSetup, ParStyle, Parity, PointHint, Rect, Rgb,
+    Shape, Sides, TextRun, VAlign,
 };
+use quillmark_docx::notice::{Code, Tally};
 use typst::World;
 use typst::foundations::{Content, Dict, Packed, Smart, StyleChain, Value};
 use typst::introspection::{Location, Tag};
@@ -43,18 +44,25 @@ use typst_layout::{PagedDocument, PagedIntrospector};
 
 use crate::tags::{marker, relocated};
 
-pub(crate) const CODE_MARGINS_ASSUMED: &str = "docx::margins_assumed";
-pub(crate) const CODE_RASTERIZED: &str = "docx::rasterized";
-pub(crate) const CODE_PICTURE_FAILED: &str = "docx::picture_failed";
-pub(crate) const CODE_LINK_INTERNAL: &str = "docx::link_internal";
-pub(crate) const CODE_EQUATION_TEXT: &str = "docx::equation_text";
-pub(crate) const CODE_HINT_UNKNOWN: &str = "docx::hint_unknown";
-pub(crate) const CODE_HINT_UNCLOSED: &str = "docx::hint_unclosed";
-pub(crate) const CODE_LIST_MARKER_REPLACED: &str = "docx::list_marker_replaced";
 const HINT: &str = "__qm_hint__";
 
 /// Typst's text size where nothing sets one.
 const DEFAULT_TEXT_SIZE: f64 = 11.0;
+
+/// The setup of a page with no page probe: 1 in margins.
+const ASSUMED_SETUP: PageSetup = PageSetup {
+    margins: Sides {
+        top: 72.0,
+        right: 72.0,
+        bottom: 72.0,
+        left: 72.0,
+    },
+    columns: 1,
+    gutter: 0.0,
+    flipped: false,
+    header_ascent: 0.3 * 72.0,
+    footer_descent: 0.3 * 72.0,
+};
 
 /// The page probe's record in `frame`.
 fn page_probe(frame: &Frame) -> Option<Dict> {
@@ -69,7 +77,48 @@ fn page_probe(frame: &Frame) -> Option<Dict> {
 #[derive(Clone, Copy, PartialEq)]
 enum Key {
     Elem(Location),
-    Bracket(&'static str),
+    Bracket(Bracket),
+}
+
+/// A bracket a hint or probe opens and closes by name.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Bracket {
+    List,
+    Label,
+    Role,
+    Layout,
+    Chrome,
+    Repeat,
+    Block,
+    Align,
+    Columns,
+    Box,
+}
+
+impl Bracket {
+    fn named(name: &str) -> Option<Bracket> {
+        Some(match name {
+            "list" => Bracket::List,
+            "label" => Bracket::Label,
+            "role" => Bracket::Role,
+            "layout" => Bracket::Layout,
+            "chrome" => Bracket::Chrome,
+            "repeat" => Bracket::Repeat,
+            "block" => Bracket::Block,
+            "align" => Bracket::Align,
+            "columns" => Bracket::Columns,
+            "box" => Bracket::Box,
+            _ => return None,
+        })
+    }
+
+    /// A quill's own hint, which closes only under the element it opened in.
+    fn quill(self) -> bool {
+        matches!(
+            self,
+            Bracket::List | Bracket::Label | Bracket::Role | Bracket::Layout | Bracket::Chrome
+        )
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -92,9 +141,12 @@ struct Reader<'a> {
     images: HashMap<u128, ImageId>,
     origins: HashMap<NodeId, (u32, Point)>,
     page: u32,
+    /// The last page record on this page, and the page number text after
+    /// it. The background's record comes first and the foreground's last,
+    /// and only the foreground sees a page counter update the page's body
+    /// makes.
     probe: Option<Dict>,
     number_text: Option<String>,
-    rasters: usize,
     /// A par or block node's text edges, resolved against the face of its
     /// first text.
     edges: HashMap<NodeId, (Value, Value)>,
@@ -109,18 +161,11 @@ struct Reader<'a> {
     /// The text size the page probe records for the page being read, which
     /// it paints last.
     page_text: f64,
-    /// Groups that needed a picture and got none, whose ink is read as laid
-    /// out.
-    unpictured: usize,
-    /// Links to a place in the document, whose text is kept without the link.
-    internal_links: usize,
     /// The equations carried as pictures whose end tag is still to come.
     equations: Vec<Location>,
-    /// Equations whose ink is read as text, since their end tag lies in
-    /// another frame.
-    equation_texts: usize,
     /// A display equation's picture, until the block that shows it opens.
     held: Option<ItemKind>,
+    tally: Tally,
 }
 
 /// The Layout IR of `document`, compiled from `world`'s sources.
@@ -148,19 +193,15 @@ pub(crate) fn read(
         page: 0,
         probe: None,
         number_text: None,
-        rasters: 0,
         edges: HashMap::new(),
         sizings: HashMap::new(),
         in_raster: 0,
         toc_led: None,
         page_text: DEFAULT_TEXT_SIZE,
-        unpictured: 0,
-        internal_links: 0,
         equations: Vec::new(),
-        equation_texts: 0,
         held: None,
+        tally: Tally::default(),
     };
-    let mut assumed = 0;
     for (i, page) in document.pages().iter().enumerate() {
         r.page = i as u32;
         r.probe = None;
@@ -171,14 +212,7 @@ pub(crate) fn read(
         let size = [page.frame.width().to_pt(), page.frame.height().to_pt()];
         r.out.pages.push(Page {
             size,
-            setup: PageSetup {
-                margins: Sides::default(),
-                columns: 1,
-                gutter: 0.0,
-                flipped: false,
-                header_ascent: 0.0,
-                footer_descent: 0.0,
-            },
+            setup: ASSUMED_SETUP,
             number: page.number as u64,
             number_text: None,
             items: Vec::new(),
@@ -186,67 +220,13 @@ pub(crate) fn read(
         r.walk(&page.frame, Transform::identity());
         let setup = r.probe.as_ref().and_then(|d| page_setup(d, size));
         if setup.is_none() {
-            assumed += 1;
+            r.tally.count(Code::MarginsAssumed, "", 1);
         }
         let p = &mut r.out.pages[i];
-        p.setup = setup.unwrap_or(PageSetup {
-            margins: Sides {
-                top: 72.0,
-                right: 72.0,
-                bottom: 72.0,
-                left: 72.0,
-            },
-            columns: 1,
-            gutter: 0.0,
-            flipped: false,
-            header_ascent: 0.3 * 72.0,
-            footer_descent: 0.3 * 72.0,
-        });
+        p.setup = setup.unwrap_or(ASSUMED_SETUP);
         p.number_text = r.number_text.take();
     }
-    if assumed > 0 {
-        r.notice(
-            CODE_MARGINS_ASSUMED,
-            format!("{assumed} page(s) carry no page probe, so their margins are taken as 1 in"),
-        );
-    }
-    if r.rasters > 0 {
-        let n = r.rasters;
-        r.notice(
-            CODE_RASTERIZED,
-            format!(
-                "{n} equation(s), curve(s), gradient(s), vector image(s), or rotated, mirrored or \
-                 clipped group(s) are carried as pictures"
-            ),
-        );
-    }
-    if r.unpictured > 0 {
-        let n = r.unpictured;
-        r.notice(
-            CODE_PICTURE_FAILED,
-            format!(
-                "{n} rotated, clipped or drawn group(s) on the page could not be carried as \
-                 pictures, so their ink is read as it is laid out, unrotated and unclipped"
-            ),
-        );
-    }
-    if r.equation_texts > 0 {
-        let n = r.equation_texts;
-        r.notice(
-            CODE_EQUATION_TEXT,
-            format!(
-                "{n} equation(s) that wrap across lines or frames are carried as their glyphs' \
-                 text, not as pictures"
-            ),
-        );
-    }
-    if r.internal_links > 0 {
-        let n = r.internal_links;
-        r.notice(
-            CODE_LINK_INTERNAL,
-            format!("{n} link(s) to a place in the document are carried as plain text"),
-        );
-    }
+    r.out.notices = r.tally.notices();
     let mut out = r.out;
     let origins = r.origins;
     let sizings = std::mem::take(&mut r.sizings);
@@ -258,14 +238,30 @@ pub(crate) fn read(
     out
 }
 
-impl Reader<'_> {
-    fn notice(&mut self, code: &str, message: String) {
-        self.out.notices.push(Notice {
-            code: code.to_string(),
-            message,
-        });
-    }
+/// The `Cell` node of a table or grid cell, whose elements share these
+/// fields.
+macro_rules! cell_kind {
+    ($cell:expr, $header:expr, $size:expr) => {{
+        let (fill, inset, borders) = cell_style(
+            $cell.inset.get(StyleChain::default()),
+            $cell.fill.get_ref(StyleChain::default()),
+            &$cell.stroke.get_cloned(StyleChain::default()),
+            $size,
+        );
+        NodeKind::Cell {
+            col: smart_index($cell.x.get(StyleChain::default())),
+            row: smart_index($cell.y.get(StyleChain::default())),
+            colspan: $cell.colspan.get(StyleChain::default()).get() as u32,
+            rowspan: $cell.rowspan.get(StyleChain::default()).get() as u32,
+            header: $header,
+            fill,
+            inset,
+            borders,
+        }
+    }};
+}
 
+impl Reader<'_> {
     fn top(&self) -> Option<NodeId> {
         match self.stack.last() {
             Some(o) => o.node,
@@ -298,14 +294,10 @@ impl Reader<'_> {
         if let Some(i) = self.stack.iter().rposition(|o| o.key == key) {
             let open = self.stack[i + 1..]
                 .iter()
-                .filter(|o| matches!(o.key, Key::Bracket(k) if QUILL_BRACKETS.contains(&k)))
+                .filter(|o| matches!(o.key, Key::Bracket(k) if k.quill()))
                 .count();
-            for _ in 0..open {
-                self.notice(
-                    CODE_HINT_UNCLOSED,
-                    "a hint bracket is still open where its element ends, so it closes there"
-                        .into(),
-                );
+            if open > 0 {
+                self.tally.raise(Code::HintUnclosed, "");
             }
             self.stack.truncate(i);
         }
@@ -313,7 +305,7 @@ impl Reader<'_> {
 
     /// Closes the quill bracket `kind` opened under the innermost open
     /// element; a close with no such open is dropped.
-    fn close_hint(&mut self, kind: &'static str) {
+    fn close_hint(&mut self, kind: Bracket) {
         for i in (0..self.stack.len()).rev() {
             match self.stack[i].key {
                 Key::Bracket(k) if k == kind => {
@@ -356,9 +348,12 @@ impl Reader<'_> {
     }
 
     fn ink_under(&mut self, node: NodeId, kind: ItemKind) {
-        if self.in_raster > 0 {
-            return;
+        if self.in_raster == 0 {
+            self.add_item(node, kind);
         }
+    }
+
+    fn add_item(&mut self, node: NodeId, kind: ItemKind) {
         let page = &mut self.out.pages[self.page as usize];
         let at = ItemRef {
             page: self.page,
@@ -437,7 +432,7 @@ impl Reader<'_> {
             return Some(None);
         };
         let image = self.image(ImageFormat::Png, &png);
-        self.rasters += 1;
+        self.tally.count(Code::Rasterized, "", 1);
         Some(Some(ItemKind::Raster { image, rect, alt }))
     }
 
@@ -461,7 +456,7 @@ impl Reader<'_> {
             .iter()
             .position(|(_, item)| matches!(item, FrameItem::Tag(Tag::End(l, ..)) if *l == loc));
         let Some(end) = end else {
-            self.equation_texts += 1;
+            self.tally.count(Code::EquationText, "", 1);
             return;
         };
         let mut inner = Frame::soft(Size::zero());
@@ -495,24 +490,18 @@ impl Reader<'_> {
                 self.in_raster += 1;
                 self.equations.push(loc);
             }
-            Some(None) => self.unpictured += 1,
+            Some(None) => self.tally.count(Code::PictureFailed, "", 1),
             None => {}
         }
     }
 
     /// Places the held picture of a display equation in the innermost open
-    /// node.
+    /// node. The walk is inside that picture then, so the raster guard of
+    /// [`Self::ink_under`] does not apply.
     fn place_held(&mut self) {
-        let (Some(kind), Some(node)) = (self.held.take(), self.top()) else {
-            return;
-        };
-        let page = &mut self.out.pages[self.page as usize];
-        let at = ItemRef {
-            page: self.page,
-            index: page.items.len() as u32,
-        };
-        page.items.push(Item { node, kind });
-        self.out.nodes[node].children.push(Child::Item(at));
+        if let (Some(kind), Some(node)) = (self.held.take(), self.top()) {
+            self.add_item(node, kind);
+        }
     }
 
     fn walk(&mut self, frame: &Frame, ts: Transform) {
@@ -524,7 +513,7 @@ impl Reader<'_> {
                         && needs_raster(group, ts)
                         && match self.raster(item, *pos, ts) {
                             Some(false) => {
-                                self.unpictured += 1;
+                                self.tally.count(Code::PictureFailed, "", 1);
                                 false
                             }
                             _ => true,
@@ -633,7 +622,8 @@ impl Reader<'_> {
                         .map(|g| g.x_advance.at(text.size).to_pt())
                         .sum::<f64>()
                         * scale;
-                    let natural: f64 = text
+                    let tracking = tracking(text);
+                    let natural: f64 = (text
                         .glyphs
                         .iter()
                         .map(|g| {
@@ -644,6 +634,7 @@ impl Reader<'_> {
                                 .to_pt()
                         })
                         .sum::<f64>()
+                        + tracking.unwrap_or(0.0) * text.glyphs.len().saturating_sub(1) as f64)
                         * scale;
                     let origin = pos.transform(ts);
                     let run = ItemKind::Text(TextRun {
@@ -654,6 +645,11 @@ impl Reader<'_> {
                         fill: rgb(&text.fill),
                         width,
                         natural,
+                        tracking: tracking.map(|t| t * scale),
+                        lang: Some(match &text.region {
+                            Some(region) => format!("{}-{}", text.lang.as_str(), region.as_str()),
+                            None => text.lang.as_str().to_string(),
+                        }),
                     });
                     match self.toc_page() {
                         Some(page) => self.ink_under(page, run),
@@ -727,6 +723,13 @@ impl Reader<'_> {
         }
     }
 
+    fn add_cell(&mut self, kind: NodeKind, loc: Location, at: Point) {
+        let node = self.add_node(kind);
+        self.origins.insert(node, (self.page, at));
+        self.by_loc.insert(loc, node);
+        self.push(Key::Elem(loc), Some(node), false);
+    }
+
     fn start(&mut self, elem: &Content, at: Point) {
         if let Some(d) = marker(elem, HINT) {
             if !self.hidden() {
@@ -772,49 +775,13 @@ impl Reader<'_> {
                 cell.kind.get(StyleChain::default()),
                 typst::foundations::Smart::Custom(TableCellKind::Header(..))
             );
-            let size = self.text_size();
-            let (fill, inset, borders) = cell_style(
-                cell.inset.get(StyleChain::default()),
-                cell.fill.get_ref(StyleChain::default()),
-                &cell.stroke.get_cloned(StyleChain::default()),
-                size,
-            );
-            let node = self.add_node(NodeKind::Cell {
-                col: smart_index(cell.x.get(StyleChain::default())),
-                row: smart_index(cell.y.get(StyleChain::default())),
-                colspan: cell.colspan.get(StyleChain::default()).get() as u32,
-                rowspan: cell.rowspan.get(StyleChain::default()).get() as u32,
-                header,
-                fill,
-                inset,
-                borders,
-            });
-            self.origins.insert(node, (self.page, at));
-            self.by_loc.insert(loc, node);
-            self.push(Key::Elem(loc), Some(node), false);
+            let kind = cell_kind!(cell, header, self.text_size());
+            self.add_cell(kind, loc, at);
             return;
         }
         if let Some(cell) = elem.to_packed::<GridCell>() {
-            let size = self.text_size();
-            let (fill, inset, borders) = cell_style(
-                cell.inset.get(StyleChain::default()),
-                cell.fill.get_ref(StyleChain::default()),
-                &cell.stroke.get_cloned(StyleChain::default()),
-                size,
-            );
-            let node = self.add_node(NodeKind::Cell {
-                col: smart_index(cell.x.get(StyleChain::default())),
-                row: smart_index(cell.y.get(StyleChain::default())),
-                colspan: cell.colspan.get(StyleChain::default()).get() as u32,
-                rowspan: cell.rowspan.get(StyleChain::default()).get() as u32,
-                header: false,
-                fill,
-                inset,
-                borders,
-            });
-            self.origins.insert(node, (self.page, at));
-            self.by_loc.insert(loc, node);
-            self.push(Key::Elem(loc), Some(node), false);
+            let kind = cell_kind!(cell, false, self.text_size());
+            self.add_cell(kind, loc, at);
             return;
         }
         if let Some(m) = elem.to_packed::<PdfMarkerTag>() {
@@ -836,7 +803,7 @@ impl Reader<'_> {
             && !self.hidden()
             && self.toc_entry().is_none()
         {
-            self.internal_links += 1;
+            self.tally.count(Code::LinkInternal, "", 1);
         }
         if elem.is::<RawLine>() {
             let in_raw = self
@@ -860,7 +827,7 @@ impl Reader<'_> {
         }
         let label = match self.stack.last() {
             Some(Open {
-                key: Key::Bracket("label"),
+                key: Key::Bracket(Bracket::Label),
                 node: Some(n),
                 ..
             }) if matches!(kind, NodeKind::Par { .. })
@@ -970,10 +937,7 @@ impl Reader<'_> {
                 _ => Default::default(),
             };
             let glyph = if glyph.trim().is_empty() {
-                self.notice(
-                    CODE_LIST_MARKER_REPLACED,
-                    "a list's marker is not text, so its items carry a bullet".into(),
-                );
+                self.tally.raise(Code::BulletReplaced, "");
                 "\u{2022}".to_string()
             } else {
                 glyph.trim().to_string()
@@ -1022,12 +986,7 @@ impl Reader<'_> {
             _ => Marker::Printed,
         };
         if marker == Marker::Printed {
-            self.notice(
-                CODE_LIST_MARKER_REPLACED,
-                "a numbered list's numbering is not a pattern Word can count, so its numbers \
-                 are kept as printed"
-                    .into(),
-            );
+            self.tally.raise(Code::NumbersPrinted, "");
         }
         Some(NodeKind::List {
             marker,
@@ -1044,7 +1003,10 @@ impl Reader<'_> {
         let size = length(&get("size"), 0.0).unwrap_or(11.0);
         let close = matches!(get("edge"), Value::Str(s) if s.as_str() == "close");
         match hint.as_str() {
-            "page" => self.probe = Some(d.clone()),
+            "page" => {
+                self.probe = Some(d.clone());
+                self.number_text = None;
+            }
             "pnum" => {
                 if let Value::Str(s) = get("s") {
                     self.number_text
@@ -1063,11 +1025,7 @@ impl Reader<'_> {
                 }
             }
             "list" | "label" | "role" | "layout" | "chrome" => {
-                let kind = QUILL_BRACKETS
-                    .iter()
-                    .copied()
-                    .find(|k| *k == hint.as_str())
-                    .expect("a quill bracket");
+                let kind = Bracket::named(hint.as_str()).expect("a quill bracket");
                 if close {
                     self.close_hint(kind);
                     return;
@@ -1078,7 +1036,7 @@ impl Reader<'_> {
                     _ => None,
                 };
                 let bracket = match kind {
-                    "list" => BracketHint::List {
+                    Bracket::List => BracketHint::List {
                         name: text(get("name")).unwrap_or_else(|| "List".into()),
                         levels: match get("levels") {
                             Value::Array(a) => {
@@ -1087,7 +1045,7 @@ impl Reader<'_> {
                             _ => Vec::new(),
                         },
                     },
-                    "label" => BracketHint::Label {
+                    Bracket::Label => BracketHint::Label {
                         level: match get("level") {
                             Value::Int(n) => n.clamp(1, 9) as u8,
                             _ => 1,
@@ -1097,11 +1055,11 @@ impl Reader<'_> {
                             _ => None,
                         },
                     },
-                    "role" => BracketHint::Role {
+                    Bracket::Role => BracketHint::Role {
                         name: text(get("name")).unwrap_or_default(),
                         next: text(get("next")),
                     },
-                    "layout" => BracketHint::Tabbed,
+                    Bracket::Layout => BracketHint::Tabbed,
                     _ => BracketHint::Chrome,
                 };
                 match self.top() {
@@ -1150,7 +1108,7 @@ impl Reader<'_> {
             "repeat" => {
                 let entry = self.toc_entry();
                 if close {
-                    self.close(Key::Bracket("repeat"));
+                    self.close(Key::Bracket(Bracket::Repeat));
                     self.toc_led = entry.map(|e| (e, None));
                     return;
                 }
@@ -1158,15 +1116,10 @@ impl Reader<'_> {
                     (Some(_), Some(_)) => Some(self.add_node(NodeKind::TocFill)),
                     _ => None,
                 };
-                self.push(Key::Bracket("repeat"), node, false);
+                self.push(Key::Bracket(Bracket::Repeat), node, false);
             }
             "block" | "align" | "columns" | "box" => {
-                let key = Key::Bracket(match hint.as_str() {
-                    "block" => "block",
-                    "align" => "align",
-                    "columns" => "columns",
-                    _ => "box",
-                });
+                let key = Key::Bracket(Bracket::named(hint.as_str()).expect("a probe bracket"));
                 if close {
                     self.close(key);
                     return;
@@ -1213,19 +1166,12 @@ impl Reader<'_> {
                     None => self.push(key, None, false),
                 }
             }
-            _ => self.notice(
-                CODE_HINT_UNKNOWN,
-                format!(
-                    "the hint {:?} is not one the Word export knows, so it is ignored",
-                    hint.as_str()
-                ),
-            ),
+            _ => self.tally.raise(Code::HintUnknown, hint.as_str()),
         }
     }
 }
 
 /// The brackets a quill emits, as against the probes'.
-const QUILL_BRACKETS: [&str; 5] = ["list", "label", "role", "layout", "chrome"];
 
 /// One level of a `list` hint; an `em` indent resolves at `size`.
 fn hint_level(v: &Value, size: f64) -> Option<HintLevel> {
@@ -1389,6 +1335,28 @@ fn needs_raster(group: &GroupItem, ts: Transform) -> bool {
             || r.x1 > c.max.x.to_pt() + 0.5
             || r.y1 > c.max.y.to_pt() + dy
     })
+}
+
+/// The extra advance `text` sets after each glyph, in points, where it is
+/// unambiguous: more than half of the glyphs before the last, and at least
+/// two, carry the same nonzero advance over the face's own. Kerning varies
+/// by pair and justification widens only spaces, so neither reads as
+/// tracking. The last glyph is left out: Typst sets none after a tracked
+/// span ends.
+fn tracking(text: &typst::text::TextItem) -> Option<f64> {
+    let deltas: Vec<i64> = text.glyphs[..text.glyphs.len().saturating_sub(1)]
+        .iter()
+        .map(|g| {
+            let own = text.font.x_advance(g.id).unwrap_or(g.x_advance);
+            ((g.x_advance - own).at(text.size).to_pt() * 100.0).round() as i64
+        })
+        .collect();
+    let mut counts: HashMap<i64, usize> = HashMap::new();
+    for &d in &deltas {
+        *counts.entry(d).or_default() += 1;
+    }
+    let (&delta, &n) = counts.iter().max_by_key(|&(d, n)| (*n, -d.abs()))?;
+    (delta != 0 && n >= 2 && 2 * n > deltas.len()).then(|| delta as f64 / 100.0)
 }
 
 /// The largest text size in `frame`, since glyphs rise past a box's text
@@ -1783,20 +1751,6 @@ fn inline_items(doc: &LayoutDoc, id: NodeId, out: &mut Vec<ItemRef>) {
     }
 }
 
-/// Whether `node` lies in a superscript or subscript inside `par`.
-fn raised(doc: &LayoutDoc, mut node: NodeId, par: NodeId) -> bool {
-    while node != par {
-        if matches!(doc.nodes[node].kind, NodeKind::Super | NodeKind::Sub) {
-            return true;
-        }
-        match doc.nodes[node].parent {
-            Some(p) => node = p,
-            None => return false,
-        }
-    }
-    false
-}
-
 fn form_lines(doc: &mut LayoutDoc) {
     for id in 0..doc.nodes.len() {
         if !doc.nodes[id].kind.forms_paragraph()
@@ -1813,7 +1767,7 @@ fn form_lines(doc: &mut LayoutDoc) {
         for r in items {
             match &doc.item(r).kind {
                 ItemKind::Text(t) => {
-                    let raised = raised(doc, doc.item(r).node, id);
+                    let raised = doc.raised(doc.item(r).node, id);
                     let y = t.origin[1];
                     // A raised or lowered item joins the line it follows,
                     // within an em of its baseline.
@@ -1830,7 +1784,7 @@ fn form_lines(doc: &mut LayoutDoc) {
                     if !same {
                         if let Some(l) = lines.last_mut() {
                             if l.end == LineEnd::Last {
-                                l.end = LineEnd::Soft { ate_space: false };
+                                l.end = LineEnd::Soft;
                             }
                         }
                         lines.push(Line {
@@ -1890,28 +1844,76 @@ fn form_lines(doc: &mut LayoutDoc) {
             }
         }
         for l in &mut lines {
-            let x = |r: &ItemRef| match &doc.item(*r).kind {
-                ItemKind::Text(t) => t.origin[0],
-                ItemKind::Raster { rect, .. } => rect.x0,
-                _ => f64::MAX,
-            };
-            l.items.sort_by(|a, b| x(a).total_cmp(&x(b)));
-            if matches!(l.end, LineEnd::Soft { .. }) {
+            // A mark keeps its place after the ink it follows in reading
+            // order, so a footnote's reference stays where it is printed.
+            let mut at = f64::MIN;
+            let mut keyed: Vec<(f64, ItemRef)> = l
+                .items
+                .iter()
+                .map(|r| {
+                    match &doc.item(*r).kind {
+                        ItemKind::Text(t) => at = t.origin[0],
+                        ItemKind::Raster { rect, .. } => at = rect.x0,
+                        _ => {}
+                    }
+                    (at, *r)
+                })
+                .collect();
+            keyed.sort_by(|a, b| a.0.total_cmp(&b.0));
+            l.items = keyed.into_iter().map(|(_, r)| r).collect();
+            if l.end == LineEnd::Soft {
                 let last = l.items.iter().rev().find_map(|r| match &doc.item(*r).kind {
                     ItemKind::Text(t) => Some(t.text.as_str()),
                     _ => None,
                 });
-                l.end = match last {
-                    Some(t) if t.ends_with('\u{ad}') => LineEnd::Hyphenated,
-                    Some(t) => LineEnd::Soft {
-                        ate_space: t.ends_with(char::is_whitespace),
-                    },
-                    None => LineEnd::Soft { ate_space: false },
-                };
+                if last.is_some_and(|t| t.ends_with('\u{ad}')) {
+                    l.end = LineEnd::Hyphenated;
+                }
+            }
+        }
+        for i in 1..lines.len() {
+            if lines[i - 1].end == LineEnd::Soft && !could_wrap(doc, &lines[i - 1], &lines[i]) {
+                lines[i - 1].end = LineEnd::Forced;
             }
         }
         doc.nodes[id].lines = lines;
     }
+}
+
+/// Whether Typst's line breaker could have ended `line` where `next` starts.
+/// A link breaks between any two characters, and an inline object on either
+/// side offers a break; otherwise a word joined to the next word, or closing
+/// punctuation to a word, is no break opportunity, so the lines were laid out
+/// apart, as a stack's children are.
+fn could_wrap(doc: &LayoutDoc, line: &Line, next: &Line) -> bool {
+    let text = |r: Option<&ItemRef>| match r.map(|r| (r, &doc.item(*r).kind)) {
+        Some((r, ItemKind::Text(t))) => Some((*r, t.text.as_str())),
+        _ => None,
+    };
+    let inked = |r: &&ItemRef| !matches!(doc.item(**r).kind, ItemKind::Mark(_));
+    let (Some((r, end)), Some((_, start))) = (
+        text(line.items.iter().rfind(inked)),
+        text(next.items.iter().find(inked)),
+    ) else {
+        return true;
+    };
+    if doc
+        .ancestor(doc.item(r).node, |k| matches!(k, NodeKind::Link { .. }))
+        .is_some()
+    {
+        return true;
+    }
+    let word = |c: char| {
+        c.is_alphanumeric()
+            && ((c as u32) < 0x0E00
+                || (0x10A0..0x1100).contains(&(c as u32))
+                || (0x1E00..0x2000).contains(&(c as u32)))
+    };
+    let (Some(last), Some(first)) = (end.chars().next_back(), start.chars().next()) else {
+        return true;
+    };
+    let holds_after = word(last) || matches!(last, '.' | ',' | ':' | ';' | ')' | ']');
+    !(holds_after && word(first))
 }
 
 fn item_rect(doc: &LayoutDoc, r: ItemRef) -> Option<Rect> {
@@ -1965,16 +1967,7 @@ fn measure_tables(
         if !matches!(doc.nodes[id].kind, NodeKind::Table { .. }) {
             continue;
         }
-        let cells: Vec<NodeId> = doc
-            .subtree(id)
-            .into_iter()
-            .filter(|&n| {
-                matches!(doc.nodes[n].kind, NodeKind::Cell { .. })
-                    && doc.ancestor(doc.nodes[n].parent.unwrap_or(0), |k| {
-                        matches!(k, NodeKind::Table { .. })
-                    }) == Some(id)
-            })
-            .collect();
+        let cells = doc.cells_of(id);
         let (sizing, size) = sizings.get(&id).cloned().unwrap_or_default();
         let mut starts: HashMap<u32, f64> = HashMap::new();
         let mut tops: HashMap<u32, (u32, f64)> = HashMap::new();

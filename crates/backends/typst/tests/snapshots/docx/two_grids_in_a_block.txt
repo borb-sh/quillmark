@@ -1,0 +1,17 @@
+section 0, next page
+  P "Last line." before=0 after=680 line=279
+  T
+    cell 0,0
+      P "1st Ind, 123 OG/CC" before=0 after=- line=279
+    cell 0,1
+      P "14 November 2026" before=0 after=- line=279
+  P "" before=0 after=0 line=159 keep_next keep_lines
+  T
+    cell 0,0
+      P "MEMORANDUM FOR" before=0 after=- line=279
+    cell 0,1
+      P "  " before=0 after=- line=279
+    cell 0,2
+      P "123 CS/SCX" before=0 after=- line=279
+  P "Body text." before=159 after=- line=279
+notices: 

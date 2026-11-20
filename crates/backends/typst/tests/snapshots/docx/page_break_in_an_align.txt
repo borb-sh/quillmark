@@ -1,0 +1,6 @@
+section 0, next page
+  P "One." before=0 after=- line=299
+  P "Two." before=121 after=- line=299
+  P "Three." before=0 after=- line=299 page_break
+  P "Four." before=121 after=- line=299
+notices: docx::font_not_embedded

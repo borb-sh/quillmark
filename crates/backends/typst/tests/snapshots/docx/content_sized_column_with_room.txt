@@ -1,0 +1,8 @@
+section 0, next page
+  T
+    cell 0,0
+      P "123 OG/CC" before=0 after=- line=315
+    cell 0,1
+      P "" before=- after=- line=-
+  P "" before=- after=- line=-
+notices: 

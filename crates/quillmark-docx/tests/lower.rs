@@ -6,7 +6,7 @@ use quillmark_docx::layout::{
     PageSetup, Rgb, Sides, TextRun,
 };
 use quillmark_docx::lower::lower;
-use quillmark_docx::model::{Block, Inline, RunContent};
+use quillmark_docx::model::{Block, Inline, Paragraph, RunContent, Twips};
 
 fn page() -> Page {
     Page {
@@ -68,6 +68,8 @@ fn paragraph(family: &str, lines: &[(&str, LineEnd)]) -> LayoutDoc {
                 fill: Rgb(0, 0, 0),
                 width: 6.0 * text.len() as f64,
                 natural: 6.0 * text.len() as f64,
+                tracking: None,
+                lang: None,
             }),
         });
         doc.nodes[par].children.push(Child::Item(r));
@@ -83,7 +85,7 @@ fn paragraph(family: &str, lines: &[(&str, LineEnd)]) -> LayoutDoc {
     doc
 }
 
-fn texts(blocks: &[Block], last: &quillmark_docx::model::Paragraph) -> Vec<String> {
+fn texts(blocks: &[Block], last: &Paragraph) -> Vec<String> {
     blocks
         .iter()
         .filter_map(|b| match b {
@@ -101,6 +103,7 @@ fn texts(blocks: &[Block], last: &quillmark_docx::model::Paragraph) -> Vec<Strin
                 .map(|c| match c {
                     RunContent::Text(t) => t,
                     RunContent::Break(_) => "\n".into(),
+                    RunContent::Tab => "\t".into(),
                     _ => String::new(),
                 })
                 .collect()
@@ -113,7 +116,7 @@ fn a_paragraphs_lines_join_into_one_run_and_only_a_forced_end_breaks() {
     let doc = paragraph(
         "TeX Gyre Termes",
         &[
-            ("A wrapped ", LineEnd::Soft { ate_space: true }),
+            ("A wrapped ", LineEnd::Soft),
             ("hyphen\u{ad}", LineEnd::Hyphenated),
             ("ated line", LineEnd::Forced),
             ("after", LineEnd::Last),
@@ -136,14 +139,50 @@ fn a_paragraphs_lines_join_into_one_run_and_only_a_forced_end_breaks() {
     );
 }
 
+/// `paragraph` with its lines set as one line: each run starts at its x,
+/// 6pt to a character at 12pt.
+fn one_line(runs: &[(&str, f64)]) -> LayoutDoc {
+    let ends: Vec<(&str, LineEnd)> = runs.iter().map(|(t, _)| (*t, LineEnd::Last)).collect();
+    let mut doc = paragraph("TeX Gyre Termes", &ends);
+    for (i, (_, x)) in runs.iter().enumerate() {
+        if let ItemKind::Text(t) = &mut doc.pages[0].items[i].kind {
+            t.origin = [*x, 100.0];
+        }
+    }
+    let line = Line {
+        baseline: 100.0,
+        x0: runs[0].1,
+        items: doc.nodes[1]
+            .lines
+            .iter()
+            .flat_map(|l| l.items.clone())
+            .collect(),
+        ..doc.nodes[1].lines.last().expect("a line").clone()
+    };
+    doc.nodes[1].lines = vec![line];
+    doc
+}
+
+#[test]
+fn a_gap_no_glyph_sets_is_a_space_when_word_sized_and_a_tab_to_the_next_run_when_wider() {
+    let (word, _) = lower(&one_line(&[
+        ("Bold", 72.0),
+        ("italic", 96.0 + 3.0),
+        (" plain", 135.0),
+        ("x", 171.0 + 0.5),
+        ("Dated", 250.0),
+    ]));
+    let last = &word.sections[0].body.last;
+    assert_eq!(texts(&[], last), ["Bold italic plainx\tDated"]);
+    let stops: Vec<Twips> = last.props.tabs.iter().map(|t| t.pos).collect();
+    assert_eq!(stops, [(250.0 - 72.0) as Twips * 20], "from the margin");
+}
+
 #[test]
 fn lines_closer_than_half_their_size_give_no_pitch() {
     let mut doc = paragraph(
         "TeX Gyre Termes",
-        &[
-            ("one line ", LineEnd::Soft { ate_space: true }),
-            ("read as two", LineEnd::Last),
-        ],
+        &[("one line ", LineEnd::Soft), ("read as two", LineEnd::Last)],
     );
     doc.nodes[1].lines[1].baseline = 96.0;
     let (word, _) = lower(&doc);
@@ -180,6 +219,8 @@ fn ink_no_node_places_is_counted_as_dropped() {
             fill: Rgb(0, 0, 0),
             width: 24.0,
             natural: 24.0,
+            tracking: None,
+            lang: None,
         }),
     });
     doc.nodes[id]
@@ -195,7 +236,7 @@ fn text_no_element_tags_is_a_paragraph_per_line_and_reported() {
     let mut doc = paragraph(
         "TeX Gyre Termes",
         &[
-            ("Two lines ", LineEnd::Soft { ate_space: true }),
+            ("Two lines ", LineEnd::Soft),
             ("of loose text", LineEnd::Last),
         ],
     );
@@ -208,4 +249,90 @@ fn text_no_element_tags_is_a_paragraph_per_line_and_reported() {
     );
     let codes: Vec<&str> = notices.iter().map(|n| n.code.as_str()).collect();
     assert_eq!(codes, ["docx::unstructured_text"]);
+}
+
+/// A one-line paragraph of `text` under `parent`, on the first page with its
+/// baseline at `baseline`.
+fn line_under(doc: &mut LayoutDoc, parent: usize, text: &str, baseline: f64) -> usize {
+    let par = push_node(
+        doc,
+        parent,
+        NodeKind::Par {
+            justify: false,
+            first_line: 0.0,
+            hanging: 0.0,
+            style: None,
+            left: None,
+        },
+    );
+    let r = ItemRef {
+        page: 0,
+        index: doc.pages[0].items.len() as u32,
+    };
+    let width = 6.0 * text.len() as f64;
+    doc.pages[0].items.push(Item {
+        node: par,
+        kind: ItemKind::Text(TextRun {
+            origin: [72.0, baseline],
+            text: text.into(),
+            font: 0,
+            size: 12.0,
+            fill: Rgb(0, 0, 0),
+            width,
+            natural: width,
+            tracking: None,
+            lang: None,
+        }),
+    });
+    doc.nodes[par].children.push(Child::Item(r));
+    doc.nodes[par].lines.push(Line {
+        page: 0,
+        baseline,
+        x0: 72.0,
+        x1: 72.0 + width,
+        items: vec![r],
+        end: LineEnd::Last,
+    });
+    par
+}
+
+fn push_node(doc: &mut LayoutDoc, parent: usize, kind: NodeKind) -> usize {
+    doc.nodes.push(Node::new(Some(parent), kind));
+    let id = doc.nodes.len() - 1;
+    doc.nodes[parent].children.push(Child::Node(id));
+    id
+}
+
+#[test]
+fn a_contents_entry_is_spaced_from_the_entry_before_it_past_what_sits_between() {
+    let mut doc = paragraph("TeX Gyre Termes", &[("Before", LineEnd::Last)]);
+    let toc = push_node(&mut doc, 0, NodeKind::Toc { depth: None });
+    let a = push_node(&mut doc, toc, NodeKind::TocEntry { level: 1 });
+    line_under(&mut doc, a, "Alpha", 130.0);
+    line_under(&mut doc, toc, "Between", 150.0);
+    let b = push_node(&mut doc, toc, NodeKind::TocEntry { level: 1 });
+    line_under(&mut doc, b, "Beta", 170.0);
+    let (word, _) = lower(&doc);
+    let body = &word.sections[0].body;
+    let Some(Block::Toc(contents)) = body.blocks.get(1) else {
+        panic!("contents second: {:?}", body.blocks);
+    };
+    let entries: Vec<String> = contents
+        .entries
+        .iter()
+        .map(|p| texts(&[], p).remove(0))
+        .collect();
+    assert_eq!(entries, ["Alpha", "Beta"]);
+    let before = |p: &Paragraph| p.props.spacing.and_then(|s| s.before);
+    assert_eq!(
+        before(&contents.entries[1]),
+        Some(((170.0 - 130.0 - 14.4) * 20.0f64).round() as Twips),
+        "from Alpha, which Word sets it after"
+    );
+    assert_eq!(texts(&[], &body.last), ["Between"]);
+    assert_eq!(
+        before(&body.last),
+        Some(0),
+        "Word sets it after Beta, which is below it"
+    );
 }

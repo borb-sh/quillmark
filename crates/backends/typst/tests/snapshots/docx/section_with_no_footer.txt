@@ -1,0 +1,6 @@
+section 0, next page
+  P "First page." before=0 after=- line=299
+  P "Second page." before=0 after=- line=299 page_break
+section 1, next page
+  P "Third page, with no footer." before=0 after=- line=299 page_break
+notices: docx::font_not_embedded

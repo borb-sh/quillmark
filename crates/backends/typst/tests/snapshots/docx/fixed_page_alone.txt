@@ -1,0 +1,7 @@
+section 0, next page
+  P "" before=0 after=0 line=20
+    box
+      P "Cover title" before=0 after=- line=264
+    box
+      P "Over it" before=0 after=- line=264
+notices: docx::font_not_embedded docx::place_anchored

@@ -1,0 +1,11 @@
+section 0, next page
+  P "AT RISK" before=157 after=- line=auto 240
+    picture
+  P "Harbor Migration" before=365 after=- line=370
+  P "Issued 15 January 2026" before=22 after=- line=299
+  P "Lead: Jane Doe" before=121 after=- line=299
+  P "The cutover rehearsal slipped a week whi" before=121 after=- line=299
+  P "Cutover rehearsal" before=188 after=- line=317
+  P "Due 2026-02-02" before=22 after=- line=299
+  P "Sign-off pending from the data owners." before=121 after=- line=299
+notices: docx::rasterized docx::font_not_embedded

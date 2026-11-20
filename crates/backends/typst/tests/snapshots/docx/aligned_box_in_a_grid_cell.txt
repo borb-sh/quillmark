@@ -1,0 +1,8 @@
+section 0, next page
+  T
+    cell 0,0
+      P "Left" before=0 after=- line=299
+    cell 0,1
+      P "18\u{a0}November\u{a0}2026" before=0 after=- line=299
+  P "Centred alone" before=121 after=- line=299
+notices: docx::font_not_embedded

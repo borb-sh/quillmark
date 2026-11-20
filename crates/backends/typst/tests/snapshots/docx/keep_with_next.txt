@@ -1,0 +1,5 @@
+section 0, next page
+  P "Before." before=0 after=- line=299
+  P "Kept." before=121 after=- line=299 keep_next
+  P "Next." before=121 after=- line=299
+notices: docx::font_not_embedded

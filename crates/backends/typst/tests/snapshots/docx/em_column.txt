@@ -1,0 +1,8 @@
+section 0, next page
+  T
+    cell 0,0
+      P "a" before=0 after=- line=272
+    cell 0,1
+      P "b" before=0 after=- line=272
+  P "" before=- after=- line=-
+notices: docx::font_not_embedded

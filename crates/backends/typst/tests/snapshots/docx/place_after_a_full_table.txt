@@ -1,0 +1,10 @@
+section 0, next page
+  T
+    cell 0,0
+      P "A tall cell." before=0 after=- line=299
+  P "" before=0 after=0 line=20
+    box
+      P "Placed." before=0 after=- line=264
+  P "Next paragraph after the place, long eno" before=121 after=- line=299
+  P "Second paragraph." before=121 after=- line=299
+notices: docx::font_not_embedded docx::place_anchored

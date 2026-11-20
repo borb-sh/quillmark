@@ -1,0 +1,7 @@
+section 0, next page
+  P "One A." before=0 after=- line=299
+  P "One B." before=0 after=- line=299 page_break
+section 1, next page
+  P "Two A." before=0 after=- line=299 page_break
+  P "Two B." before=0 after=- line=299 page_break
+notices: docx::font_not_embedded

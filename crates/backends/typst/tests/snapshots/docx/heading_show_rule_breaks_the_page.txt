@@ -1,0 +1,8 @@
+section 0, next page
+  P "First chapter" before=0 after=- line=370
+  P "Some text." before=22 after=- line=299
+  P "Second chapter" before=0 after=- line=370 page_break
+  P "More text." before=22 after=- line=299
+  P "A section" before=188 after=- line=317
+  P "Even more." before=22 after=- line=299
+notices: docx::font_not_embedded

@@ -1,0 +1,6 @@
+section 0, next page
+  P "Before." before=0 after=- line=299
+  P "After." before=785 after=- line=299
+    shape
+    shape
+notices: docx::font_not_embedded docx::place_anchored

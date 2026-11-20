@@ -1,0 +1,77 @@
+section 0, next page
+  P "2 February 2026" before=1016 after=279 line=279
+    box
+      P "DEPARTMENT OF THE AIR FORCE" before=0 after=- line=288
+      P "HEADQUARTERS 123D EXAMPLE WING" before=35 after=- line=252
+    box
+      P "" before=0 after=- line=- keep_lines
+        picture
+  T
+    cell 0,0
+      P "MEMORANDUM FOR" before=0 after=- line=279
+    cell 0,1
+      P "  " before=0 after=- line=279
+    cell 0,2
+      T
+        cell 0,0
+          P "123 MSG/CC" before=0 after=- line=279
+        cell 0,1
+          P "" before=- after=- line=-
+        cell 1,0
+          P "123 FSS/CC" before=0 after=- line=279
+        cell 1,1
+          P "" before=- after=- line=-
+      P "" before=0 after=0 line=20
+  P "" before=0 after=0 line=259
+  T
+    cell 0,0
+      P "FROM:" before=0 after=- line=279
+    cell 0,1
+      P "  " before=0 after=- line=279
+    cell 0,2
+      P "123 CS/SCX\n45 Example Street\nExample AFB" before=0 after=- line=279
+  P "" before=0 after=0 line=279
+  T
+    cell 0,0
+      P "SUBJECT:" before=0 after=- line=279
+    cell 0,1
+      P "  " before=0 after=- line=279
+    cell 0,2
+      P "Transition to the Base Records Portal (S" before=0 after=- line=279
+  P "" before=0 after=0 line=279
+  T
+    cell 0,0
+      P "References:" before=0 after=- line=279
+    cell 0,1
+      P "  " before=0 after=- line=279
+    cell 0,2
+      P "AFMAN 33-326, 25 November 2011, Preparin" before=0 after=- line=279
+      P "DAFI 33-360, Publications and Forms Mana" before=0 after=- line=279
+  P "1.  The Base Records Portal replaces the" before=279 after=- line=279
+  P "2.  Unit records custodians complete two" before=279 after=- line=279
+  P "a.  Confirm the file plan against refere" before=279 after=- line=279
+  P "b.  Mark each CUI record per reference (" before=279 after=- line=279
+  P "3.  Direct questions to the point of con" before=279 after=- line=279 keep_next
+  P "JANE Q. DOE, Capt, USAF" before=1116 after=- line=279 keep_next keep_lines
+  P "Chief, Knowledge Operations" before=0 after=- line=279 keep_lines
+  P "Attachment:\nRecords Portal Transition Sc" before=438 after=- line=279
+  P "1st Ind to 123 CS/SCX, 2 February 2026, " before=279 after=279 line=279 keep_next keep_lines
+  T
+    cell 0,0
+      P "123 MSG/CC" before=0 after=- line=279
+    cell 0,1
+      P "9 February 2026" before=0 after=- line=279
+  P "" before=0 after=0 line=279 keep_next keep_lines
+  T
+    cell 0,0
+      P "MEMORANDUM FOR" before=0 after=- line=279
+    cell 0,1
+      P "  " before=0 after=- line=279
+    cell 0,2
+      P "123 CS/SCX" before=0 after=- line=279
+  P "Approve / Disapprove" before=319 after=- line=279 keep_next
+    picture
+  P "Concur. 123 FSS moves first as the pilot" before=319 after=- line=279 keep_next
+  P "JOHN A. SMITH, Col, USAF" before=1116 after=- line=279 keep_next keep_lines
+  P "Commander" before=0 after=- line=279 keep_lines
+notices: docx::rasterized docx::font_not_embedded docx::place_anchored

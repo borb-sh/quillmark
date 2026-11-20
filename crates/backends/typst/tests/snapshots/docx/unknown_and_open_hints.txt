@@ -1,0 +1,4 @@
+section 0, next page
+  P "Open here." before=0 after=- line=299
+  P "After it." before=121 after=- line=299
+notices: docx::hint_unknown docx::hint_unclosed docx::font_not_embedded

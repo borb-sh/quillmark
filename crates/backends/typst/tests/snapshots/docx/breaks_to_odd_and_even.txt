@@ -1,0 +1,12 @@
+section 0, next page
+  P "One." before=0 after=- line=299
+section 1, odd page
+  P "Three." before=0 after=- line=299
+section 2, even page
+  T
+    cell 0,0
+      P "A" before=0 after=- line=299
+    cell 0,1
+      P "B" before=0 after=- line=299
+  P "" before=- after=- line=-
+notices: docx::font_not_embedded

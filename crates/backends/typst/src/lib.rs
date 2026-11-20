@@ -620,10 +620,11 @@ pub mod testing {
     use super::*;
 
     /// The plain and the probed compile of `source` over `json_data`, each
-    /// as its PDF, its ink hashes and its warnings.
+    /// as its pages' SVG, its ink hashes and its warnings. Their PDFs differ:
+    /// the probed one marks the background the probes set as an artifact.
     pub struct ProbeCheck {
-        pub plain_pdf: Vec<u8>,
-        pub probed_pdf: Vec<u8>,
+        pub plain_svg: Vec<String>,
+        pub probed_svg: Vec<String>,
         pub plain_hashes: Vec<u128>,
         pub probed_hashes: Vec<u128>,
         pub plain_warnings: Vec<Diagnostic>,
@@ -643,17 +644,22 @@ pub mod testing {
         world.set_today(today);
         world.inject_helper_package(json_data, &meta)?;
         let probed_world = world.probed().ok_or_else(|| {
-            RenderError::coded("docx::probes_disabled", "the probes did not evaluate")
+            RenderError::coded(
+                quillmark_docx::notice::Code::ProbesDisabled.as_str(),
+                "the probes did not evaluate",
+            )
         })?;
         let (plain, plain_warnings) = compile::compile_document(&world)?;
         let (probed, probed_warnings) = compile::compile_document(&probed_world)?;
-        let pdf = |doc: &typst_layout::PagedDocument| {
-            typst_pdf::pdf(doc, &typst_pdf::PdfOptions::default())
-                .map_err(|e| RenderError::coded("typst::pdf_generation", format!("{e:?}")))
+        let svg = |doc: &typst_layout::PagedDocument| {
+            doc.pages()
+                .iter()
+                .map(|page| typst_svg::svg(page, &typst_svg::SvgOptions::default()))
+                .collect()
         };
         Ok(ProbeCheck {
-            plain_pdf: pdf(&plain)?,
-            probed_pdf: pdf(&probed)?,
+            plain_svg: svg(&plain),
+            probed_svg: svg(&probed),
             plain_hashes: ink_hashes(&plain),
             probed_hashes: ink_hashes(&probed),
             plain_warnings,

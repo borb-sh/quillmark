@@ -1,0 +1,5 @@
+section 0, next page
+  P "Before." before=0 after=- line=299
+  P "Left column text." before=121 after=- line=299
+  P "Right column text." before=0 after=- line=299
+notices: docx::columns_flattened docx::font_not_embedded

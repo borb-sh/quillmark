@@ -1,0 +1,5 @@
+section 0, next page
+  P "First paragraph in its own block." before=0 after=- line=299
+  P "Second paragraph in its own block." before=121 after=- line=299
+  P "A third, underlined in its block." before=121 after=- line=299
+notices: docx::font_not_embedded

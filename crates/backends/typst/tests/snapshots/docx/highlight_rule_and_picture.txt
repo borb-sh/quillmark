@@ -1,0 +1,5 @@
+section 0, next page
+  P "Before blue and  after." before=0 after=- line=299
+    picture
+    shape
+notices: docx::rasterized docx::font_not_embedded docx::place_anchored

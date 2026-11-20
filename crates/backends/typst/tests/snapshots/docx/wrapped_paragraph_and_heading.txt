@@ -1,0 +1,5 @@
+section 0, next page
+  P "Title" before=0 after=- line=370
+  P "A paragraph with words enough that it wr" before=22 after=- line=299
+  P "Line one\nline two" before=121 after=- line=299
+notices: docx::font_not_embedded

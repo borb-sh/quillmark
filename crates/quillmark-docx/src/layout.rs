@@ -73,11 +73,41 @@ impl LayoutDoc {
         }
         None
     }
+
+    /// The cells of `table` itself, not of a table nested in it, in reading
+    /// order.
+    pub fn cells_of(&self, table: NodeId) -> Vec<NodeId> {
+        self.subtree(table)
+            .into_iter()
+            .filter(|&n| {
+                matches!(self.nodes[n].kind, NodeKind::Cell { .. })
+                    && self.ancestor(self.nodes[n].parent.unwrap_or(0), |k| {
+                        matches!(k, NodeKind::Table { .. })
+                    }) == Some(table)
+            })
+            .collect()
+    }
+
+    /// Whether `node` lies in a superscript or subscript inside `top`.
+    pub fn raised(&self, mut node: NodeId, top: NodeId) -> bool {
+        while node != top {
+            if matches!(self.nodes[node].kind, NodeKind::Super | NodeKind::Sub) {
+                return true;
+            }
+            match self.nodes[node].parent {
+                Some(p) => node = p,
+                None => return false,
+            }
+        }
+        false
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DocInfo {
     pub title: Option<String>,
+    /// The document's language, as a BCP 47 tag. Where it is `None`, the
+    /// language most of the text is set in.
     pub language: Option<String>,
 }
 
@@ -204,9 +234,14 @@ pub struct TextRun {
     pub fill: Rgb,
     /// The advance width as laid out.
     pub width: f64,
-    /// The advance width of the face's own advances, as a writer that does
-    /// not kern sets the text.
+    /// The advance width of the face's own advances and the tracking, as a
+    /// writer that does not kern sets the text.
     pub natural: f64,
+    /// The extra advance after each character, in points.
+    pub tracking: Option<f64>,
+    /// The language the text is set in, as a BCP 47 tag: `de`, or `de-DE`
+    /// with a region.
+    pub lang: Option<String>,
 }
 
 impl TextRun {
@@ -305,12 +340,13 @@ pub enum Child {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineEnd {
-    /// A wrap; `ate_space` when the space the line broke at ends its text.
-    Soft {
-        ate_space: bool,
-    },
+    /// A wrap: the line's text ends where the next line's continues, with
+    /// the space the line broke at, if any, still in it.
+    Soft,
     /// A wrap at a hyphen the engine inserted, which ends the line's text.
     Hyphenated,
+    /// A line the engine did not end by wrapping: a forced break, or lines
+    /// laid out apart, such as a stack's children.
     Forced,
     Last,
 }

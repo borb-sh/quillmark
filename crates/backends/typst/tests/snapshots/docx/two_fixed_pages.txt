@@ -1,0 +1,8 @@
+section 0, next page
+  P "" before=0 after=0 line=20
+    box
+      P "First page" before=0 after=- line=264
+  P "" before=0 after=0 line=20 page_break
+    box
+      P "Second page" before=0 after=- line=264
+notices: docx::font_not_embedded docx::place_anchored
