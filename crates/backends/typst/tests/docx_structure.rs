@@ -1467,3 +1467,19 @@ fn a_table_row_is_as_tall_as_typst_sets_it_and_an_empty_cell_adds_no_height() {
         .expect("the empty cell");
     assert_eq!(empty.line, Some(20));
 }
+
+#[test]
+fn an_image_inside_a_box_in_a_line_of_text_is_placed() {
+    let w = render(&format!(
+        "{PAGE}#let dot = image(bytes((137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 0, 0, 3, 1, 1, 0, 201, 254, 146, 239, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130)), width: 20pt)\n\
+         #block[Signed #box(block(dot))]\n"
+    ));
+    let pictures: Vec<_> = w
+        .body()
+        .into_iter()
+        .flat_map(|p| p.drawings)
+        .filter(|d| d.picture)
+        .collect();
+    assert_eq!(pictures.len(), 1, "{:?}", w.codes);
+    assert_eq!(pictures[0].width, 20 * 12700);
+}

@@ -289,6 +289,7 @@ impl<'a> Lower<'a> {
         let mut out = Vec::new();
         if opens {
             out = self.inline_shapes(n);
+            out.extend(self.inline_images(n));
             for place in self.inline_places(n) {
                 let drawings = self.text_box(place, ctx);
                 self.tally.count(Code::PlaceAnchored, "", 1);

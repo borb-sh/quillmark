@@ -9,6 +9,7 @@ use crate::model::{
 use super::paragraph::read_into;
 use super::space::{self, Entry};
 use super::{Ctx, Lower, hex};
+use crate::notice::Code;
 
 pub(super) const EMU_PER_PT: f64 = 12700.0;
 
@@ -86,6 +87,44 @@ impl<'a> Lower<'a> {
                 Child::Node(m) if read_into(self.kind(m)) => out.extend(self.inline_shapes(m)),
                 _ => {}
             }
+        }
+        out
+    }
+
+    /// The images inside `n`'s inline content that sit in no line of it, as
+    /// a stack's or a block's inside a box do, anchored to the page where
+    /// they sit.
+    pub(super) fn inline_images(&mut self, n: NodeId) -> Vec<Entry> {
+        let kids = self.doc.nodes[n].children.clone();
+        let mut out = Vec::new();
+        for c in kids {
+            let Child::Node(m) = c else { continue };
+            if !read_into(self.kind(m)) {
+                continue;
+            }
+            for d in self.doc.nodes[m].children.clone() {
+                let Child::Item(r) = d else { continue };
+                let ItemKind::Image { image, rect, alt } = self.doc.item(r).kind.clone() else {
+                    continue;
+                };
+                self.consumed.insert(r);
+                if self.boxed == 0 {
+                    self.tally.count(Code::PlaceAnchored, "", 1);
+                }
+                self.z += 1;
+                let placement = Placement::Anchor(Anchor {
+                    x: emu(rect.x0),
+                    y: emu(rect.y0),
+                    behind_text: false,
+                    z: self.z,
+                    wrap: Wrap::None,
+                });
+                out.push(Entry::Drawing(
+                    r.page,
+                    self.picture(image, rect, alt, placement),
+                ));
+            }
+            out.extend(self.inline_images(m));
         }
         out
     }
