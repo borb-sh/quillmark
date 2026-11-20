@@ -32,6 +32,22 @@ fn the_document_language_is_the_default_and_a_run_in_another_states_its_own() {
 }
 
 #[test]
+fn letter_spacing_is_carried_and_kerning_is_not_read_as_it() {
+    let w = render(&format!(
+        "{PAGE}#text(tracking: 3pt)[SPACED OUT] normal AVATAR WAVE.\n"
+    ));
+    let doc = w.xml("word/document.xml");
+    let spacing = |text: &str| {
+        let run = &doc[..doc.find(text).expect(text)];
+        let run = &run[run.rfind("<w:r>").expect("a run")..];
+        run.find(r#"<w:spacing w:val=""#)
+            .map(|i| run[i + 18..].split('"').next().unwrap().to_string())
+    };
+    assert_eq!(spacing("SPACED OUT").as_deref(), Some("60"));
+    assert_eq!(spacing("normal"), None);
+}
+
+#[test]
 fn a_drawn_rule_or_filled_block_is_reported_anchored_and_a_border_or_decoration_is_not() {
     for plate in [
         "= Experience\n#line(length: 100%)\nSome text.\n",

@@ -46,7 +46,7 @@ const PRELUDE: &str = r#"{
     box: it => { h(hint: "box", edge: "open"); it; h(hint: "box", edge: "close") },
     repeat: it => { h(hint: "repeat", edge: "open"); it; h(hint: "repeat", edge: "close") },
     par: it => {
-      context h(hint: "par", a: align.alignment, size: text.size, tracking: text.tracking,
+      context h(hint: "par", a: align.alignment, size: text.size,
         leading: par.leading, spacing: par.spacing, top: text.top-edge, bottom: text.bottom-edge)
       it
     },
