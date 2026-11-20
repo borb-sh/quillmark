@@ -3,6 +3,6 @@ section 0, next page
     cell 0,0
       P "123 OG/CC" before=0 after=- line=315
     cell 0,1
-      P "" before=- after=- line=-
+      P "" before=0 after=0 line=20
   P "" before=- after=- line=-
 notices: 

@@ -1434,3 +1434,36 @@ fn a_stacks_lines_break_where_a_wrap_could_not_and_wraps_still_join() {
         ]
     );
 }
+
+/// A cell margin side's twips in the cell holding `text`.
+fn cell_margin(xml: &str, text: &str, side: &str) -> i64 {
+    let cell = &xml[..xml.find(text).expect(text)];
+    let cell = &cell[cell.rfind("<w:tc>").expect("a cell")..];
+    cell.split("<w:tcMar>")
+        .nth(1)
+        .and_then(|m| m.split("</w:tcMar>").next())
+        .and_then(|m| m.split(&format!("<w:{side} w:w=\"")).nth(1))
+        .and_then(|v| v.split('"').next())
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
+
+#[test]
+fn a_table_row_is_as_tall_as_typst_sets_it_and_an_empty_cell_adds_no_height() {
+    let w = render(&format!(
+        "{PAGE}#table(columns: 2, rows: (40pt, 26pt), inset: 6pt, [Tall], [], [Short], [Other])\n"
+    ));
+    let xml = w.xml("word/document.xml");
+    let pars = w.body();
+    for (text, height) in [("Tall", 800), ("Short", 520)] {
+        let line = pars.iter().find(|p| p.text == text).expect(text).line;
+        let row =
+            cell_margin(&xml, text, "top") + line.unwrap() + cell_margin(&xml, text, "bottom");
+        assert!((row - height).abs() <= 1, "{text}: {row}");
+    }
+    let empty = pars
+        .iter()
+        .find(|p| p.in_table && p.text.is_empty())
+        .expect("the empty cell");
+    assert_eq!(empty.line, Some(20));
+}

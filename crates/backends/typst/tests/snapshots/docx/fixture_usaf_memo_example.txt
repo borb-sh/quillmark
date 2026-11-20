@@ -16,11 +16,11 @@ section 0, next page
         cell 0,0
           P "123 MSG/CC" before=0 after=- line=279
         cell 0,1
-          P "" before=- after=- line=-
+          P "" before=0 after=0 line=20
         cell 1,0
           P "123 FSS/CC" before=0 after=- line=279
         cell 1,1
-          P "" before=- after=- line=-
+          P "" before=0 after=0 line=20
       P "" before=0 after=0 line=20
   P "" before=0 after=0 line=259
   T

@@ -2,7 +2,7 @@ section 0, next page
   P "one" before=0 after=- line=299
   P "two" before=0 after=- line=299
   P "first" before=121 after=- line=299
-  P "second" before=0 after=121 line=299
+  P "second" before=0 after=204 line=299
   T
     cell 0,0
       P "H1" before=0 after=- line=299 keep_next
@@ -12,7 +12,7 @@ section 0, next page
       P "a" before=0 after=- line=299
     cell 1,1
       P "b" before=0 after=- line=299
-  P "Noted." before=121 after=- line=299
+  P "Noted." before=181 after=- line=299
 footnote 0
   P " The note." before=0 after=- line=224
 notices: docx::font_not_embedded

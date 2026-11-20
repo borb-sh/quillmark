@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
-use crate::layout::{BracketHint, Child, HAlign, ItemKind, LayoutDoc, NodeId, NodeKind, Rgb};
+use crate::layout::{BracketHint, Child, HAlign, ItemKind, LayoutDoc, Line, NodeId, NodeKind, Rgb};
 use crate::model::{
     Block, Blocks, Border, Borders, BreakKind, Cell, CellMargins, CellProps, FirstLine, Indent,
     Inline, Paragraph, Row, RowProps, Run, RunContent, RunProps, TabKind, TabLeader, TabStop,
@@ -31,12 +31,9 @@ pub(super) fn tabbed_hint(doc: &LayoutDoc, n: NodeId) -> Option<NodeId> {
 }
 
 impl<'a> Lower<'a> {
-    /// How many twips wider than Typst's kerned ink each content-sized
-    /// column of table `n` must be for its widest line in the face's own
-    /// advances, as Word sets it, with a twip for each character after the
-    /// first, which covers a layout that rounds each advance up to a whole
-    /// twip. Room the column already has past a line, such as a gutter it
-    /// took in, counts against it.
+    /// How many twips wider each content-sized column of table `n` must be
+    /// for its widest line as Word sets it. Room the column already has past
+    /// a line, such as a gutter it took in, counts against it.
     pub(super) fn slack(&self, n: NodeId) -> Vec<Twips> {
         let NodeKind::Table {
             columns,
@@ -64,18 +61,8 @@ impl<'a> Lower<'a> {
             }
             for p in self.doc.subtree(m) {
                 for line in &self.doc.nodes[p].lines {
-                    let (extra, glyphs) = line
-                        .items
-                        .iter()
-                        .filter_map(|r| match &self.doc.item(*r).kind {
-                            ItemKind::Text(t) => {
-                                Some((t.natural - t.width, t.text.trim_end().chars().count()))
-                            }
-                            _ => None,
-                        })
-                        .fold((0.0, 0), |(e, g), (de, dg)| (e + de, g + dg));
                     let spare = (columns[col + 1] - inset.right - line.x1).max(0.0);
-                    let need = extra + glyphs.saturating_sub(1) as f64 / 20.0 - spare;
+                    let need = self.excess(line) - spare;
                     out[col] = out[col].max(need);
                 }
             }
@@ -83,6 +70,22 @@ impl<'a> Lower<'a> {
         out.into_iter()
             .map(|s| (s * 20.0).ceil() as Twips)
             .collect()
+    }
+
+    /// How much wider than Typst's kerned ink `line` is in the face's own
+    /// advances, as Word sets it, with a twip for each character after the
+    /// first, which covers a layout that rounds each advance up to a whole
+    /// twip.
+    pub(super) fn excess(&self, line: &Line) -> f64 {
+        let (extra, glyphs) = line
+            .items
+            .iter()
+            .filter_map(|r| match &self.doc.item(*r).kind {
+                ItemKind::Text(t) => Some((t.natural - t.width, t.text.trim_end().chars().count())),
+                _ => None,
+            })
+            .fold((0.0, 0), |(e, g), (de, dg)| (e + de, g + dg));
+        extra + glyphs.saturating_sub(1) as f64 / 20.0
     }
 
     /// The paragraph-forming nodes of `cell`, in reading order.
@@ -279,22 +282,20 @@ impl<'a> Lower<'a> {
             })
     }
 
-    /// Where the first line box of `row` starts on `page`, inside its cell's
-    /// inset, with that inset.
-    fn row_top(&self, cells: &[NodeId], row: u32, page: u32) -> Option<(f64, f64)> {
-        let (m, inset) = self.first_line_in_row(cells, row, page)?;
+    /// Where the first line box of `row` starts on `page`.
+    fn row_top(&self, cells: &[NodeId], row: u32, page: u32) -> Option<f64> {
+        let (m, _) = self.first_line_in_row(cells, row, page)?;
         let lines = &self.doc.nodes[m].lines;
         let pitch = self.strides.pitch(m, lines, self.par_style(m));
-        Some((lines[0].baseline - 0.8 * pitch, inset))
+        Some(lines[0].baseline - 0.8 * pitch)
     }
 
-    /// Where Word ends a table's last row on `page`: below the last line its
-    /// cells hold there at that line's pitch, plus the cell's bottom inset and
-    /// the closing paragraph of a cell that ends in a table.
-    pub(super) fn table_bottom(
+    /// Where the last line box of the cells that end in `row` ends on `page`,
+    /// past the closing paragraph of a cell that ends in a table.
+    fn row_text_bottom(
         &self,
         cells: &[NodeId],
-        nrows: u32,
+        row: u32,
         page: u32,
         closed: &HashSet<NodeId>,
     ) -> Option<f64> {
@@ -302,11 +303,8 @@ impl<'a> Lower<'a> {
             .iter()
             .filter_map(|&c| match self.kind(c) {
                 NodeKind::Cell {
-                    row,
-                    rowspan,
-                    inset,
-                    ..
-                } if row + (*rowspan).max(1) >= nrows => {
+                    row: r, rowspan, ..
+                } if r + (*rowspan).max(1) == row + 1 => {
                     let text = self
                         .doc
                         .subtree(c)
@@ -323,11 +321,24 @@ impl<'a> Lower<'a> {
                     } else {
                         0.0
                     };
-                    Some(text + inset.bottom + closing)
+                    Some(text + closing)
                 }
                 _ => None,
             })
             .reduce(f64::max)
+    }
+
+    /// The inset of the cells of `row`, by the first of them.
+    fn row_inset(&self, cells: &[NodeId], row: u32) -> (f64, f64) {
+        cells
+            .iter()
+            .find_map(|&c| match self.kind(c) {
+                NodeKind::Cell { row: r, inset, .. } if *r == row => {
+                    Some((inset.top, inset.bottom))
+                }
+                _ => None,
+            })
+            .unwrap_or((0.0, 0.0))
     }
 
     /// Table `n`, then the drawings in its cells that no paragraph there
@@ -388,12 +399,24 @@ impl<'a> Lower<'a> {
             })
             .max()
             .unwrap_or(0) as usize;
-        let top = tops.first().map(|&(page, y)| {
-            let first = self
-                .row_top(&cells, 0, page)
-                .map_or(y, |(top, inset)| top - inset);
-            (page, first)
-        });
+        let closing_stroke = cells
+            .iter()
+            .filter_map(|&m| match self.kind(m) {
+                NodeKind::Cell {
+                    row,
+                    rowspan,
+                    borders,
+                    ..
+                } if (*row + (*rowspan).max(1)) as usize == nrows => borders[2].map(|(w, _)| w),
+                _ => None,
+            })
+            .fold(0.0, f64::max);
+        let last_frame = self.doc.nodes[n]
+            .frames
+            .last()
+            .map(|&(p, f)| (p, f.y1 - closing_stroke / 2.0));
+        let mut top = None;
+        let mut end = None;
         let mut opens = false;
         let mut drawings = Vec::new();
         let mut closed = HashSet::new();
@@ -405,6 +428,27 @@ impl<'a> Lower<'a> {
         };
         let mut rows = Vec::new();
         for r in 0..nrows {
+            let bounds = tops.get(r).and_then(|&(page, y0)| {
+                let y1 = match tops.get(r + 1) {
+                    Some(&(q, y1)) => (q == page).then_some(y1),
+                    None => last_frame.and_then(|(q, y1)| (q == page).then_some(y1)),
+                }?;
+                Some((page, y0, y1))
+            });
+            let (inset_top, inset_bottom) = self.row_inset(&cells, r as u32);
+            let first_line = tops
+                .get(r)
+                .and_then(|&(page, _)| self.row_top(&cells, r as u32, page));
+            let margin_top = match (bounds, first_line) {
+                (Some((_, y0, _)), Some(line)) => (line - y0).max(0.0),
+                (Some(_), None) => 0.0,
+                _ => inset_top,
+            };
+            if r == 0 {
+                top = tops
+                    .first()
+                    .map(|&(page, y)| (page, first_line.map_or(y, |line| line - margin_top)));
+            }
             let mut row_cells = Vec::new();
             let mut c = 0;
             while c < ncols {
@@ -450,15 +494,15 @@ impl<'a> Lower<'a> {
                         .subtree(m)
                         .into_iter()
                         .find_map(|d| self.doc.nodes[d].lines.first().map(|l| l.page))
-                        .and_then(|page| {
-                            let (top, _) = self.row_top(&cells, r as u32, page)?;
-                            Some((page, top))
-                        });
+                        .and_then(|page| Some((page, self.row_top(&cells, r as u32, page)?)));
                     let (mut blocks, left) = space::nested(self.children(m, &inner), top);
                     drawings.extend(left);
                     if matches!(blocks.last(), Some(Block::Table(_))) {
                         blocks.push(Block::Paragraph(spacer(CLOSING)));
                         closed.insert(m);
+                    }
+                    if blocks.is_empty() {
+                        blocks.push(Block::Paragraph(spacer(CLOSING)));
                     }
                     let header = (r as u32) < header_rows;
                     for b in &mut blocks {
@@ -473,7 +517,10 @@ impl<'a> Lower<'a> {
                         (rowspan > 1).then_some(VMerge::Restart),
                     )
                 } else {
-                    (Blocks::default(), Some(VMerge::Continue))
+                    (
+                        Blocks::from_paragraphs(vec![spacer(CLOSING)]),
+                        Some(VMerge::Continue),
+                    )
                 };
                 let [t, rt, b, l] = borders;
                 row_cells.push(Cell {
@@ -492,7 +539,7 @@ impl<'a> Lower<'a> {
                         fill: fill.map(hex),
                         no_wrap: span == 1 && content_sized.get(c).copied().unwrap_or(false),
                         margins: Some(CellMargins {
-                            top: tw(inset.top),
+                            top: tw(margin_top),
                             left: tw(inset.left),
                             bottom: tw(inset.bottom),
                             right: tw(inset.right),
@@ -502,6 +549,31 @@ impl<'a> Lower<'a> {
                     body,
                 });
                 c += span as usize;
+            }
+            let page = tops.get(r).map(|&(page, _)| page);
+            let text_bottom =
+                page.and_then(|page| self.row_text_bottom(&cells, r as u32, page, &closed));
+            let above = match (bounds, first_line) {
+                (Some((_, y0, _)), Some(line)) => (y0 - line).max(0.0),
+                _ => 0.0,
+            };
+            let margin_bottom = match (bounds, text_bottom) {
+                (Some((_, _, y1)), Some(text)) => (y1 - text - above).max(0.0),
+                (Some(_), None) => 0.0,
+                _ => inset_bottom,
+            };
+            for cell in &mut row_cells {
+                if let Some(m) = &mut cell.props.margins {
+                    m.bottom = tw(margin_bottom);
+                }
+            }
+            if r + 1 == nrows {
+                end = last_frame.map(|(p, y1)| {
+                    let bottom = self
+                        .row_text_bottom(&cells, r as u32, p, &closed)
+                        .map_or(y1, |text| text + margin_bottom);
+                    (p, bottom)
+                });
             }
             let height = match (tops.get(r), tops.get(r + 1)) {
                 (Some((p, a)), Some((q, b))) if p == q => Some(tw(b - a)),
@@ -516,12 +588,6 @@ impl<'a> Lower<'a> {
                 cells: row_cells,
             });
         }
-        let end = self.doc.nodes[n].frames.last().map(|&(p, f)| {
-            let bottom = self
-                .table_bottom(&cells, nrows as u32, p, &closed)
-                .unwrap_or(f.y1);
-            (p, bottom)
-        });
         let table = Table {
             props: TableProps {
                 style: None,

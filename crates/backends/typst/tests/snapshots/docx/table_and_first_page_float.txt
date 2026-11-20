@@ -1,6 +1,6 @@
 section 0, next page
   P "A paragraph with words enough that it wr" before=0 after=- line=299
-  P "One line." before=121 after=121 line=299
+  P "One line." before=121 after=204 line=299
   T
     cell 0,0
       P "Key" before=0 after=- line=299
