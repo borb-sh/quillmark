@@ -183,6 +183,7 @@ impl<'a> Lower<'a> {
             let mut content = Vec::new();
             let mut tabs = Vec::new();
             let mut stop: Twips = 0;
+            let mut gap_stops = Vec::new();
             for (i, &(col, c)) in cells.iter().enumerate() {
                 if i > 0 {
                     let pos = (((x(self, c, col) * 20.0).ceil()) as Twips).max(stop + 1);
@@ -214,7 +215,9 @@ impl<'a> Lower<'a> {
                         }));
                     }
                     let lines = self.doc.nodes[p].lines.clone();
-                    content.extend(self.runs(p, &lines, ctx));
+                    let (runs, stops) = self.runs(p, &lines, ctx);
+                    content.extend(runs);
+                    gap_stops.extend(stops);
                 }
             }
             if !end && cells.len() > 1 {
@@ -224,6 +227,9 @@ impl<'a> Lower<'a> {
                     first: Some(FirstLine::Hanging(stop)),
                 });
             }
+            tabs.extend(gap_stops);
+            tabs.sort_by_key(|t| t.pos);
+            tabs.dedup_by_key(|t| t.pos);
             props.tabs = tabs;
             if let Some((name, next)) = role.clone() {
                 let id = style_id(&name);

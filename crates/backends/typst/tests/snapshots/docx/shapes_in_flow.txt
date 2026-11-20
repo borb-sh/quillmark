@@ -3,4 +3,4 @@ section 0, next page
   P "After." before=785 after=- line=299
     shape
     shape
-notices: docx::font_not_embedded
+notices: docx::font_not_embedded docx::place_anchored

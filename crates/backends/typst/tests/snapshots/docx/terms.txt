@@ -1,4 +1,4 @@
 section 0, next page
-  P "AlphaThe first description." before=0 after=- line=299
-  P "BetaThe second description." before=0 after=- line=299
+  P "Alpha\tThe first description." before=0 after=- line=299
+  P "Beta\tThe second description." before=0 after=- line=299
 notices: docx::font_not_embedded

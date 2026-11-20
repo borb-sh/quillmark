@@ -141,6 +141,10 @@ struct Reader<'a> {
     images: HashMap<u128, ImageId>,
     origins: HashMap<NodeId, (u32, Point)>,
     page: u32,
+    /// The last page record on this page, and the page number text after
+    /// it. The background's record comes first and the foreground's last,
+    /// and only the foreground sees a page counter update the page's body
+    /// makes.
     probe: Option<Dict>,
     number_text: Option<String>,
     /// A par or block node's text edges, resolved against the face of its
@@ -618,7 +622,8 @@ impl Reader<'_> {
                         .map(|g| g.x_advance.at(text.size).to_pt())
                         .sum::<f64>()
                         * scale;
-                    let natural: f64 = text
+                    let tracking = tracking(text);
+                    let natural: f64 = (text
                         .glyphs
                         .iter()
                         .map(|g| {
@@ -629,6 +634,7 @@ impl Reader<'_> {
                                 .to_pt()
                         })
                         .sum::<f64>()
+                        + tracking.unwrap_or(0.0) * text.glyphs.len().saturating_sub(1) as f64)
                         * scale;
                     let origin = pos.transform(ts);
                     let run = ItemKind::Text(TextRun {
@@ -639,6 +645,11 @@ impl Reader<'_> {
                         fill: rgb(&text.fill),
                         width,
                         natural,
+                        tracking: tracking.map(|t| t * scale),
+                        lang: Some(match &text.region {
+                            Some(region) => format!("{}-{}", text.lang.as_str(), region.as_str()),
+                            None => text.lang.as_str().to_string(),
+                        }),
                     });
                     match self.toc_page() {
                         Some(page) => self.ink_under(page, run),
@@ -992,7 +1003,10 @@ impl Reader<'_> {
         let size = length(&get("size"), 0.0).unwrap_or(11.0);
         let close = matches!(get("edge"), Value::Str(s) if s.as_str() == "close");
         match hint.as_str() {
-            "page" => self.probe = Some(d.clone()),
+            "page" => {
+                self.probe = Some(d.clone());
+                self.number_text = None;
+            }
             "pnum" => {
                 if let Value::Str(s) = get("s") {
                     self.number_text
@@ -1321,6 +1335,28 @@ fn needs_raster(group: &GroupItem, ts: Transform) -> bool {
             || r.x1 > c.max.x.to_pt() + 0.5
             || r.y1 > c.max.y.to_pt() + dy
     })
+}
+
+/// The extra advance `text` sets after each glyph, in points, where it is
+/// unambiguous: more than half of the glyphs before the last, and at least
+/// two, carry the same nonzero advance over the face's own. Kerning varies
+/// by pair and justification widens only spaces, so neither reads as
+/// tracking. The last glyph is left out: Typst sets none after a tracked
+/// span ends.
+fn tracking(text: &typst::text::TextItem) -> Option<f64> {
+    let deltas: Vec<i64> = text.glyphs[..text.glyphs.len().saturating_sub(1)]
+        .iter()
+        .map(|g| {
+            let own = text.font.x_advance(g.id).unwrap_or(g.x_advance);
+            ((g.x_advance - own).at(text.size).to_pt() * 100.0).round() as i64
+        })
+        .collect();
+    let mut counts: HashMap<i64, usize> = HashMap::new();
+    for &d in &deltas {
+        *counts.entry(d).or_default() += 1;
+    }
+    let (&delta, &n) = counts.iter().max_by_key(|&(d, n)| (*n, -d.abs()))?;
+    (delta != 0 && n >= 2 && 2 * n > deltas.len()).then(|| delta as f64 / 100.0)
 }
 
 /// The largest text size in `frame`, since glyphs rise past a box's text
@@ -1748,7 +1784,7 @@ fn form_lines(doc: &mut LayoutDoc) {
                     if !same {
                         if let Some(l) = lines.last_mut() {
                             if l.end == LineEnd::Last {
-                                l.end = LineEnd::Soft { ate_space: false };
+                                l.end = LineEnd::Soft;
                             }
                         }
                         lines.push(Line {
@@ -1808,28 +1844,76 @@ fn form_lines(doc: &mut LayoutDoc) {
             }
         }
         for l in &mut lines {
-            let x = |r: &ItemRef| match &doc.item(*r).kind {
-                ItemKind::Text(t) => t.origin[0],
-                ItemKind::Raster { rect, .. } => rect.x0,
-                _ => f64::MAX,
-            };
-            l.items.sort_by(|a, b| x(a).total_cmp(&x(b)));
-            if matches!(l.end, LineEnd::Soft { .. }) {
+            // A mark keeps its place after the ink it follows in reading
+            // order, so a footnote's reference stays where it is printed.
+            let mut at = f64::MIN;
+            let mut keyed: Vec<(f64, ItemRef)> = l
+                .items
+                .iter()
+                .map(|r| {
+                    match &doc.item(*r).kind {
+                        ItemKind::Text(t) => at = t.origin[0],
+                        ItemKind::Raster { rect, .. } => at = rect.x0,
+                        _ => {}
+                    }
+                    (at, *r)
+                })
+                .collect();
+            keyed.sort_by(|a, b| a.0.total_cmp(&b.0));
+            l.items = keyed.into_iter().map(|(_, r)| r).collect();
+            if l.end == LineEnd::Soft {
                 let last = l.items.iter().rev().find_map(|r| match &doc.item(*r).kind {
                     ItemKind::Text(t) => Some(t.text.as_str()),
                     _ => None,
                 });
-                l.end = match last {
-                    Some(t) if t.ends_with('\u{ad}') => LineEnd::Hyphenated,
-                    Some(t) => LineEnd::Soft {
-                        ate_space: t.ends_with(char::is_whitespace),
-                    },
-                    None => LineEnd::Soft { ate_space: false },
-                };
+                if last.is_some_and(|t| t.ends_with('\u{ad}')) {
+                    l.end = LineEnd::Hyphenated;
+                }
+            }
+        }
+        for i in 1..lines.len() {
+            if lines[i - 1].end == LineEnd::Soft && !could_wrap(doc, &lines[i - 1], &lines[i]) {
+                lines[i - 1].end = LineEnd::Forced;
             }
         }
         doc.nodes[id].lines = lines;
     }
+}
+
+/// Whether Typst's line breaker could have ended `line` where `next` starts.
+/// A link breaks between any two characters, and an inline object on either
+/// side offers a break; otherwise a word joined to the next word, or closing
+/// punctuation to a word, is no break opportunity, so the lines were laid out
+/// apart, as a stack's children are.
+fn could_wrap(doc: &LayoutDoc, line: &Line, next: &Line) -> bool {
+    let text = |r: Option<&ItemRef>| match r.map(|r| (r, &doc.item(*r).kind)) {
+        Some((r, ItemKind::Text(t))) => Some((*r, t.text.as_str())),
+        _ => None,
+    };
+    let inked = |r: &&ItemRef| !matches!(doc.item(**r).kind, ItemKind::Mark(_));
+    let (Some((r, end)), Some((_, start))) = (
+        text(line.items.iter().rfind(inked)),
+        text(next.items.iter().find(inked)),
+    ) else {
+        return true;
+    };
+    if doc
+        .ancestor(doc.item(r).node, |k| matches!(k, NodeKind::Link { .. }))
+        .is_some()
+    {
+        return true;
+    }
+    let word = |c: char| {
+        c.is_alphanumeric()
+            && ((c as u32) < 0x0E00
+                || (0x10A0..0x1100).contains(&(c as u32))
+                || (0x1E00..0x2000).contains(&(c as u32)))
+    };
+    let (Some(last), Some(first)) = (end.chars().next_back(), start.chars().next()) else {
+        return true;
+    };
+    let holds_after = word(last) || matches!(last, '.' | ',' | ':' | ';' | ')' | ']');
+    !(holds_after && word(first))
 }
 
 fn item_rect(doc: &LayoutDoc, r: ItemRef) -> Option<Rect> {

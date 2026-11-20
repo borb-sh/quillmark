@@ -27,6 +27,14 @@ pub(super) const WORD_CLONES: &[(&str, &str)] = &[
     ("Caladea", "Cambria"),
 ];
 
+/// The widths, in ems of the larger text beside it, from which a gap inside
+/// a line that no glyph sets reads as a word space, and as a tab. Kerning and
+/// the boundary between two runs leave no gap, and justification widens only
+/// the space glyphs, so a gap this wide is spacing the engine set between
+/// words: a word space below the tab width, which Word cannot tell from one,
+/// and a tab to where the next run starts from it.
+const GAP_EMS: (f64, f64) = (0.2, 0.4);
+
 /// A child a paragraph's lines read into: an inline element, or a bracket
 /// the reader found the paragraph reads through.
 pub(super) fn read_into(k: &NodeKind) -> bool {
@@ -342,7 +350,10 @@ impl<'a> Lower<'a> {
                 props.style = Some(id);
             }
         }
-        let mut content = self.runs(n, &lines, ctx);
+        let (mut content, stops) = self.runs(n, &lines, ctx);
+        props.tabs.extend(stops);
+        props.tabs.sort_by_key(|t| t.pos);
+        props.tabs.dedup_by_key(|t| t.pos);
         if let Some(label) = self.label_prefix.take() {
             content.insert(
                 0,
@@ -431,16 +442,21 @@ impl<'a> Lower<'a> {
         }
     }
 
-    /// The runs of `n`'s lines, joined into running text.
+    /// The runs of `n`'s lines, joined into running text, and the left tab
+    /// stops the tabs among them set to, from the container's edge.
     pub(super) fn runs(
         &mut self,
         n: NodeId,
         lines: &[crate::layout::Line],
         ctx: &Ctx,
-    ) -> Vec<Inline> {
+    ) -> (Vec<Inline>, Vec<TabStop>) {
         let mut out: Vec<(Option<String>, Inline)> = Vec::new();
+        let mut stops: Vec<TabStop> = Vec::new();
         let mut tabbed = false;
         for (li, line) in lines.iter().enumerate() {
+            // Where the last text run that is not raised ends, its size, and
+            // whether whitespace ends it.
+            let mut prev: Option<(f64, f64, bool)> = None;
             let texts: Vec<ItemRef> = line.items.clone();
             let main = texts
                 .iter()
@@ -456,15 +472,46 @@ impl<'a> Lower<'a> {
                 .rposition(|r| matches!(self.doc.item(*r).kind, ItemKind::Text(_)));
             for (i, r) in texts.iter().enumerate() {
                 if self.skip.contains(r) {
+                    prev = None;
                     continue;
                 }
                 self.consumed.insert(*r);
                 let item = self.doc.item(*r);
+                if !matches!(item.kind, ItemKind::Text(_)) {
+                    prev = None;
+                }
                 match &item.kind {
                     ItemKind::Text(t) => {
                         let chain = self.chain(item.node, n);
                         let fill = chain.iter().any(|k| matches!(k, NodeKind::TocFill));
                         let page = chain.iter().any(|k| matches!(k, NodeKind::TocPage));
+                        let raised = self.doc.raised(item.node, n);
+                        let before = prev.take();
+                        let mut gap = None;
+                        if !raised && !fill && !page && !tabbed {
+                            prev = Some((
+                                t.origin[0] + t.width,
+                                t.size,
+                                t.text.ends_with(char::is_whitespace),
+                            ));
+                            if let Some((end, size, spaced)) = before {
+                                let em = size.max(t.size);
+                                let spaced = spaced || t.text.starts_with(char::is_whitespace);
+                                let wide = t.origin[0] - end;
+                                gap = if wide >= GAP_EMS.1 * em {
+                                    stops.push(TabStop {
+                                        kind: TabKind::Left,
+                                        pos: tw(t.origin[0] - ctx.left),
+                                        leader: TabLeader::None,
+                                    });
+                                    Some(RunContent::Tab)
+                                } else if wide >= GAP_EMS.0 * em && !spaced {
+                                    Some(RunContent::Text(" ".into()))
+                                } else {
+                                    None
+                                };
+                            }
+                        }
                         if (fill || page) && !tabbed {
                             tabbed = true;
                             if let Some((_, Inline::Run(r))) = out.last_mut() {
@@ -512,39 +559,60 @@ impl<'a> Lower<'a> {
                         if let (Some(_), Some(main)) = (props.vert, main) {
                             props.size = Some((main * 2.0).round().max(2.0) as u32);
                         }
+                        if let Some(content) = gap {
+                            out.push((
+                                None,
+                                Inline::Run(Run {
+                                    props: RunProps {
+                                        underline: false,
+                                        strike: false,
+                                        shade: None,
+                                        ..props.clone()
+                                    },
+                                    content: vec![content],
+                                }),
+                            ));
+                        }
                         let link = chain.iter().find_map(|k| match k {
                             NodeKind::Link { url } if !runs_script(url) => Some(url.clone()),
                             _ => None,
                         });
                         let number = ctx.page_number.and_then(|p| {
                             let (a, b) = self.pages.number_in(&t.text, p)?;
-                            let found = self.pages.printed(p);
-                            if found.is_none() {
-                                self.tally.count(Code::PageNumberFrozen, "", 1);
-                            }
-                            Some((a, b, found?))
+                            let total = self.pages.total_in(&t.text, p, b);
+                            Some((a, b, self.pages.printed(p)?, total))
                         });
-                        if let Some((a, b, found)) = number {
+                        if let Some((a, b, found, total)) = number {
                             let run = |text: String| Run {
                                 props: props.clone(),
                                 content: vec![RunContent::Text(text)],
                             };
+                            let field = |instruction: &str, shown: &str| Field {
+                                instruction: instruction.into(),
+                                props: props.clone(),
+                                result: vec![run(shown.to_string())],
+                                locked: false,
+                            };
+                            let end = t.text.len();
+                            let (c, d) = total.map_or((end, end), |(c, d, _)| (c, d));
                             let before = shaped(&format!("{}{}", &t.text[..a], found.before));
-                            let after = shaped(&format!("{}{}", found.after, &t.text[b..]));
+                            let after = shaped(&format!("{}{}", found.after, &t.text[b..c]));
                             if !before.is_empty() {
                                 out.push((link.clone(), Inline::Run(run(before))));
                             }
-                            out.push((
-                                link.clone(),
-                                Inline::Field(Field {
-                                    instruction: "PAGE".into(),
-                                    props: props.clone(),
-                                    result: vec![run(found.digits.clone())],
-                                    locked: false,
-                                }),
-                            ));
+                            out.push((link.clone(), Inline::Field(field("PAGE", &found.digits))));
                             if !after.is_empty() {
-                                out.push((link, Inline::Run(run(after))));
+                                out.push((link.clone(), Inline::Run(run(after))));
+                            }
+                            if let Some((_, _, instruction)) = total {
+                                out.push((
+                                    link.clone(),
+                                    Inline::Field(field(instruction, &t.text[c..d])),
+                                ));
+                                let tail = shaped(&t.text[d..]);
+                                if !tail.is_empty() {
+                                    out.push((link, Inline::Run(run(tail))));
+                                }
                             }
                             continue;
                         }
@@ -596,7 +664,7 @@ impl<'a> Lower<'a> {
                 ));
             }
         }
-        merge(out)
+        (merge(out), stops)
     }
 
     /// The kinds from `item_node` up to and including `top`.
@@ -641,6 +709,11 @@ impl<'a> Lower<'a> {
                 None
             },
             no_proof: has(|k| matches!(k, NodeKind::RawLine)),
+            lang: t.lang.clone().filter(|l| Some(l) != self.language.as_ref()),
+            spacing: t
+                .tracking
+                .map(|pt| (pt * 20.0).round() as crate::model::Twips)
+                .filter(|&tw| tw != 0),
             ..RunProps::default()
         }
     }

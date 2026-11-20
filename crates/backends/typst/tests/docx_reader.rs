@@ -84,7 +84,7 @@ fn a_wrapped_paragraph_is_one_node_whose_lines_record_how_they_end() {
     assert!(style.is_some_and(|s| s.size == 11.0), "{style:?}");
     let first = &doc.nodes[pars[0]].lines;
     assert!(first.len() >= 2);
-    assert_eq!(first[0].end, LineEnd::Soft { ate_space: true });
+    assert_eq!(first[0].end, LineEnd::Soft);
     assert_eq!(first.last().unwrap().end, LineEnd::Last);
     let emph = find(&doc, |k| matches!(k, NodeKind::Emph))[0];
     assert_eq!(

@@ -111,14 +111,35 @@ pub(super) fn roman(mut n: u64) -> Option<String> {
     Some(out)
 }
 
-/// The last place `token` stands in `text` with no `joins` character on
-/// either side.
-pub(super) fn token_at(text: &str, token: &str, joins: fn(char) -> bool) -> Option<usize> {
-    text.rmatch_indices(token).map(|(i, _)| i).find(|&i| {
+/// Each place `token` stands in `text` with no `joins` character on either
+/// side, first to last.
+pub(super) fn tokens<'t>(
+    text: &'t str,
+    token: &'t str,
+    joins: fn(char) -> bool,
+) -> impl Iterator<Item = usize> + 't {
+    text.match_indices(token).map(|(i, _)| i).filter(move |&i| {
         let before = text[..i].chars().next_back();
         let after = text[i + token.len()..].chars().next();
         !before.is_some_and(joins) && !after.is_some_and(joins)
     })
+}
+
+/// The last place `token` stands in `text` with no `joins` character on
+/// either side.
+pub(super) fn token_at(text: &str, token: &str, joins: fn(char) -> bool) -> Option<usize> {
+    tokens(text, token, joins).last()
+}
+
+/// Where the first whole decimal number in `text` stands.
+fn first_decimal(text: &str) -> Option<(usize, usize)> {
+    let start = text.find(|c: char| c.is_ascii_digit())?;
+    let len = text[start..]
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(text.len() - start);
+    let joined = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+    (!joined(text[..start].chars().next_back()) && !joined(text[start + len..].chars().next()))
+        .then_some((start, start + len))
 }
 
 pub(super) fn is_roman(s: &str, upper: bool) -> bool {
@@ -130,7 +151,9 @@ pub(super) fn is_roman(s: &str, upper: bool) -> bool {
 mod properties {
     use proptest::prelude::*;
 
-    use super::printed_number;
+    use std::collections::HashSet;
+
+    use super::{number_at, printed_number};
     use crate::layout::{Page, PageSetup, Sides};
     use crate::model::NumFormat;
 
@@ -216,6 +239,21 @@ mod properties {
         }
 
         #[test]
+        fn a_page_number_is_found_where_its_pattern_holds_it_even_beside_the_total(
+            total in 2u64..1000,
+            seed in 0u64..1000,
+        ) {
+            let n = seed % total + 1;
+            let numbered = HashSet::from([("Page ".to_string(), format!(" of {total}"))]);
+            let text = format!("Page {n} of {total}");
+            prop_assert_eq!(
+                number_at(&text, &n.to_string(), &numbered),
+                Some((5, 5 + n.to_string().len()))
+            );
+            prop_assert_eq!(number_at(&format!("Form {n}"), &n.to_string(), &numbered), None);
+        }
+
+        #[test]
         fn a_number_that_is_not_its_count_is_not_split(n in 1u64..1000) {
             prop_assert_eq!(split(n, &(n + 1).to_string()), None);
         }
@@ -246,6 +284,9 @@ pub(super) struct Pages<'a> {
     /// The text around a page number that chrome prints on more than one
     /// number, which makes a chrome run holding the number a page number.
     numbered: HashSet<(String, String)>,
+    /// How many pages' chrome holds the page's number where no field is
+    /// written for it.
+    pub(super) frozen: usize,
     pub(super) groups: Vec<Vec<usize>>,
     pub(super) starts: Vec<SectionStart>,
 }
@@ -273,10 +314,12 @@ impl<'a> Pages<'a> {
             chrome,
             signatures: Vec::new(),
             numbered: HashSet::new(),
+            frozen: 0,
             groups: Vec::new(),
             starts: Vec::new(),
         };
         pages.numbered = pages.numbered_runs();
+        pages.frozen = pages.frozen_pages();
         pages.signatures = (0..doc.pages.len())
             .map(|p| [0, 1].map(|f| pages.signature(&pages.chrome[p][f], p)))
             .collect();
@@ -427,31 +470,38 @@ impl<'a> Pages<'a> {
         out
     }
 
+    /// The text of every run of chrome on `page`, header then footer.
+    fn chrome_texts(&self, page: usize) -> Vec<&'a str> {
+        let doc = self.doc;
+        let mut out = Vec::new();
+        for footer in [false, true] {
+            for &n in self.chrome_of(page, footer) {
+                for m in doc.subtree(n) {
+                    for c in &doc.nodes[m].children {
+                        if let Child::Item(r) = c
+                            && let ItemKind::Text(t) = &doc.item(*r).kind
+                        {
+                            out.push(t.text.as_str());
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// The text around each page number chrome prints that recurs around two
     /// or more different numbers.
     fn numbered_runs(&self) -> HashSet<(String, String)> {
-        let mut seen: HashMap<(String, String), BTreeSet<String>> = HashMap::new();
+        let mut seen: HashMap<(String, String), BTreeSet<&str>> = HashMap::new();
         for page in 0..self.doc.pages.len() {
             let Some(number) = self.number[page] else {
                 continue;
             };
-            for footer in [false, true] {
-                for &n in self.chrome_of(page, footer) {
-                    for m in self.doc.subtree(n) {
-                        for c in &self.doc.nodes[m].children {
-                            let Child::Item(r) = c else { continue };
-                            let ItemKind::Text(t) = &self.doc.item(*r).kind else {
-                                continue;
-                            };
-                            if let Some(i) = token_at(&t.text, number, char::is_alphanumeric) {
-                                let around = (
-                                    t.text[..i].to_string(),
-                                    t.text[i + number.len()..].to_string(),
-                                );
-                                seen.entry(around).or_default().insert(number.to_string());
-                            }
-                        }
-                    }
+            for text in self.chrome_texts(page) {
+                for i in tokens(text, number, char::is_alphanumeric) {
+                    let around = (text[..i].to_string(), text[i + number.len()..].to_string());
+                    seen.entry(around).or_default().insert(number);
                 }
             }
         }
@@ -461,20 +511,80 @@ impl<'a> Pages<'a> {
             .collect()
     }
 
-    /// Where `page`'s printed number stands in a chrome text run, when the
-    /// run is the number alone or text that recurs around other numbers.
-    pub(super) fn number_in(&self, text: &str, page: usize) -> Option<(usize, usize)> {
-        let number = self.number[page]?;
-        let i = token_at(text, number, char::is_alphanumeric)?;
-        let end = i + number.len();
-        let (before, after) = (&text[..i], &text[end..]);
-        let alone = before.trim().is_empty() && after.trim().is_empty();
-        (alone
-            || self
-                .numbered
-                .contains(&(before.to_string(), after.to_string())))
-        .then_some((i, end))
+    /// The pages whose chrome holds the page's number in a run that is not
+    /// printed the same on a page of another number, and whose number no
+    /// field carries.
+    fn frozen_pages(&self) -> usize {
+        let mut numbers: HashMap<&str, BTreeSet<&str>> = HashMap::new();
+        for page in 0..self.doc.pages.len() {
+            if let Some(number) = self.number[page] {
+                for text in self.chrome_texts(page) {
+                    numbers.entry(text).or_default().insert(number);
+                }
+            }
+        }
+        (0..self.doc.pages.len())
+            .filter(|&page| {
+                let Some(number) = self.number[page] else {
+                    return false;
+                };
+                let texts = self.chrome_texts(page);
+                let fielded = self.printed(page).is_some()
+                    && texts.iter().any(|t| self.number_in(t, page).is_some());
+                !fielded
+                    && texts.iter().any(|t| {
+                        numbers[t].len() < 2
+                            && tokens(t, number, char::is_alphanumeric).next().is_some()
+                    })
+            })
+            .count()
     }
+
+    /// Where `page`'s printed number stands in a chrome text run: the first
+    /// place it stands alone or inside text that recurs around other
+    /// numbers.
+    pub(super) fn number_in(&self, text: &str, page: usize) -> Option<(usize, usize)> {
+        number_at(text, self.number[page]?, &self.numbered)
+    }
+
+    /// Where the page count stands in a chrome text run whose `page` number
+    /// ends at `end`, and the field that counts it: the first whole number
+    /// after the page's, when it is the document's page count or else its
+    /// section's.
+    pub(super) fn total_in(
+        &self,
+        text: &str,
+        page: usize,
+        end: usize,
+    ) -> Option<(usize, usize, &'static str)> {
+        let (a, b) = first_decimal(&text[end..])?;
+        let total: usize = text[end + a..end + b].parse().ok()?;
+        let section = self.groups.iter().find(|g| g.contains(&page))?.len();
+        let field = if total == self.doc.pages.len() {
+            "NUMPAGES"
+        } else if total == section {
+            "SECTIONPAGES"
+        } else {
+            return None;
+        };
+        Some((end + a, end + b, field))
+    }
+}
+
+/// Where `number` stands in `text`: the first place it stands alone or
+/// inside text that `numbered` holds as recurring around other numbers.
+fn number_at(
+    text: &str,
+    number: &str,
+    numbered: &HashSet<(String, String)>,
+) -> Option<(usize, usize)> {
+    tokens(text, number, char::is_alphanumeric)
+        .map(|i| (i, i + number.len()))
+        .find(|&(i, end)| {
+            let (before, after) = (&text[..i], &text[end..]);
+            (before.trim().is_empty() && after.trim().is_empty())
+                || numbered.contains(&(before.to_string(), after.to_string()))
+        })
 }
 
 /// The places a `chrome` hint holds, each with its page and whether it sits

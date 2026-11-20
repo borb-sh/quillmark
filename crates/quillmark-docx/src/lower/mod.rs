@@ -72,6 +72,21 @@ fn spacer(height: Twips) -> Paragraph {
     }
 }
 
+/// The language most of `doc`'s text is set in, by characters.
+fn dominant_language(doc: &LayoutDoc) -> Option<String> {
+    let mut by: BTreeMap<&str, usize> = BTreeMap::new();
+    for item in doc.pages.iter().flat_map(|p| &p.items) {
+        if let ItemKind::Text(t) = &item.kind
+            && let Some(lang) = &t.lang
+        {
+            *by.entry(lang).or_default() += t.text.chars().count();
+        }
+    }
+    by.into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0)))
+        .map(|(lang, _)| lang.to_string())
+}
+
 fn hex(c: Rgb) -> String {
     format!("{:02X}{:02X}{:02X}", c.0, c.1, c.2)
 }
@@ -107,6 +122,8 @@ impl<'a> Lower<'a> {
             media: Vec::new(),
             media_of: HashMap::new(),
             z: 0,
+            boxed: 0,
+            language: doc.info.language.clone().or_else(|| dominant_language(doc)),
             headings: BTreeSet::new(),
             unlisted: BTreeSet::new(),
             builtin: BTreeSet::new(),
@@ -130,7 +147,11 @@ impl<'a> Lower<'a> {
                     _ => None,
                 })
                 .collect(),
-            tally: Tally::default(),
+            tally: {
+                let mut tally = Tally::default();
+                tally.count(Code::PageNumberFrozen, "", pages.frozen);
+                tally
+            },
         }
     }
 }
@@ -164,6 +185,12 @@ struct Lower<'a> {
     media: Vec<Media>,
     media_of: HashMap<usize, usize>,
     z: u32,
+    /// The text boxes being lowered around the current node. A shape inside
+    /// one moves with its box, which answers for it.
+    boxed: u32,
+    /// The document's language, which a run states only where its own
+    /// differs.
+    language: Option<String>,
     headings: BTreeSet<u8>,
     unlisted: BTreeSet<u8>,
     /// Word's own paragraph styles in use, by id and name.
@@ -323,7 +350,7 @@ impl<'a> Lower<'a> {
             },
             info: Info {
                 title: doc.info.title.clone(),
-                language: doc.info.language.clone(),
+                language: self.language.clone(),
             },
         }
     }
@@ -373,6 +400,9 @@ impl<'a> Lower<'a> {
                 );
                 if decoration {
                     return Vec::new();
+                }
+                if self.boxed == 0 {
+                    self.tally.count(Code::ShapeAnchored, "", 1);
                 }
                 vec![Entry::Drawing(r.page, self.shape(shape))]
             }

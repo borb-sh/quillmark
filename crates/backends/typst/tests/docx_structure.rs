@@ -9,6 +9,90 @@ use word::render;
 const PAGE: &str = "#set page(width: 300pt, height: 300pt, margin: 30pt)\n";
 
 #[test]
+fn the_document_language_is_the_default_and_a_run_in_another_states_its_own() {
+    let w = render(&format!(
+        "{PAGE}#set text(lang: \"de\")\nGuten Tag, ihr alle zusammen. \
+         #text(lang: \"fr\", region: \"ca\")[Bonjour] und tschüss.\n"
+    ));
+    let styles = w.xml("word/styles.xml");
+    let defaults = &styles[..styles.find("</w:docDefaults>").expect("defaults")];
+    assert!(defaults.contains(r#"<w:lang w:val="de"/>"#), "{defaults}");
+    assert!(
+        w.xml("docProps/core.xml")
+            .contains("<dc:language>de</dc:language>")
+    );
+    let doc = w.xml("word/document.xml");
+    let langs: Vec<&str> = doc
+        .match_indices(r#"<w:lang w:val=""#)
+        .map(|(i, m)| &doc[i + m.len()..][..doc[i + m.len()..].find('"').unwrap()])
+        .collect();
+    assert_eq!(langs, ["fr-CA"]);
+    let run = &doc[..doc.find("Bonjour").expect("the French run")];
+    assert!(run.rfind("<w:r>").unwrap() < run.rfind(r#"w:val="fr-CA""#).unwrap());
+}
+
+#[test]
+fn letter_spacing_is_carried_and_kerning_is_not_read_as_it() {
+    let w = render(&format!(
+        "{PAGE}#text(tracking: 3pt)[SPACED OUT] normal AVATAR WAVE.\n"
+    ));
+    let doc = w.xml("word/document.xml");
+    let spacing = |text: &str| {
+        let run = &doc[..doc.find(text).expect(text)];
+        let run = &run[run.rfind("<w:r>").expect("a run")..];
+        run.find(r#"<w:spacing w:val=""#)
+            .map(|i| run[i + 18..].split('"').next().unwrap().to_string())
+    };
+    assert_eq!(spacing("SPACED OUT").as_deref(), Some("60"));
+    assert_eq!(spacing("normal"), None);
+}
+
+#[test]
+fn a_drawn_rule_or_filled_block_is_reported_anchored_and_a_border_or_decoration_is_not() {
+    for plate in [
+        "= Experience\n#line(length: 100%)\nSome text.\n",
+        "#block(fill: luma(230), inset: 6pt)[A callout.]\n",
+    ] {
+        let w = render(&format!("{PAGE}{plate}"));
+        assert!(w.has("docx::place_anchored"), "{plate}: {:?}", w.codes);
+    }
+    let w = render(&format!(
+        "{PAGE}#underline[under] #strike[struck] #highlight[lit]\n\
+         #table(columns: 2, [a], [b])\n"
+    ));
+    assert!(!w.has("docx::place_anchored"), "{:?}", w.codes);
+    assert!(!w.has("docx::shape_dropped"), "{:?}", w.codes);
+}
+
+#[test]
+fn a_page_that_sets_one_of_foreground_and_background_keeps_its_margins() {
+    let fg = "foreground: place(top + right, dx: -5pt, dy: 5pt)[DRAFT]";
+    let bg = "background: rect(width: 100%, height: 100%, fill: luma(240))";
+    for (sets, margin) in [
+        (fg.to_string(), 400),
+        (bg.to_string(), 400),
+        (format!("{fg}, {bg}"), 1440),
+    ] {
+        let w = render(&format!(
+            "#set page(width: 300pt, height: 300pt, margin: 20pt, {sets})\n\
+             Body text.\n\n#pad(left: 20pt)[Indented text.]\n"
+        ));
+        let s = &w.sections()[0];
+        assert_eq!((s.margin_top, s.margin_left), (margin, margin), "{sets}");
+        assert_eq!(
+            w.has("docx::margins_assumed"),
+            margin == 1440,
+            "{sets}: {:?}",
+            w.codes
+        );
+        if margin == 400 {
+            assert_eq!(w.par("Body text.").ind_left, None, "{sets}");
+            assert_eq!(w.par("Indented text.").ind_left, Some(400), "{sets}");
+        }
+    }
+}
+
+#[test]
 fn sibling_blocks_are_paragraphs_of_their_own() {
     let w = render(&format!(
         "{PAGE}#block[First paragraph in its own block.]\n\
@@ -225,6 +309,63 @@ fn a_number_word_cannot_count_stays_text_and_is_reported() {
     assert_eq!(sections.len(), 1);
     assert!(sections[0].3.is_empty(), "{sections:?}");
     assert!(w.has("docx::page_number_frozen"), "{:?}", w.codes);
+}
+
+const SHORT: &str = "#set page(width: 300pt, height: 200pt, margin: 40pt, footer: context [";
+
+#[test]
+fn page_n_of_m_is_one_section_with_a_page_field_and_a_page_count_field() {
+    let w = render(&format!(
+        "{SHORT}Page #counter(page).display() of #counter(page).final().first()])\n\
+         One.\n#pagebreak()\nTwo.\n#pagebreak()\nThree.\n"
+    ));
+    assert_eq!(
+        numbering(&w),
+        [(
+            Some("decimal".into()),
+            None,
+            strings(&["Page 1 of 3"]),
+            strings(&["PAGE", "NUMPAGES"])
+        )]
+    );
+    assert!(!w.has("docx::page_number_frozen"), "{:?}", w.codes);
+}
+
+#[test]
+fn a_count_of_the_body_alone_is_its_section_pages() {
+    let w = render(
+        "#set page(width: 300pt, height: 200pt, margin: 40pt, numbering: \"i\")\n\
+         Front.\n\
+         #set page(numbering: \"1\", footer: context [Page #counter(page).display() of \
+         #counter(page).final().first()])\n#counter(page).update(1)\n\
+         One.\n#pagebreak()\nTwo.\n",
+    );
+    let sections = numbering(&w);
+    assert_eq!(sections.len(), 2, "{sections:?}");
+    assert_eq!(sections[1].2, strings(&["Page 1 of 2"]));
+    assert_eq!(sections[1].3, strings(&["PAGE", "SECTIONPAGES"]));
+}
+
+#[test]
+fn a_lone_page_whose_footer_holds_its_number_is_reported() {
+    let w = render(&format!("{SHORT}Page #counter(page).display()])\nOne.\n"));
+    let sections = numbering(&w);
+    assert!(sections[0].3.is_empty(), "{sections:?}");
+    assert!(w.has("docx::page_number_frozen"), "{:?}", w.codes);
+}
+
+#[test]
+fn a_number_beside_a_page_field_is_not_reported() {
+    let w = render(&format!(
+        "{SHORT}Form 2 #h(1fr) Page #counter(page).display()])\n\
+         One.\n#pagebreak()\nTwo.\n"
+    ));
+    let sections = numbering(&w);
+    assert_eq!(sections.len(), 1, "{sections:?}");
+    assert_eq!(sections[0].3, strings(&["PAGE"]));
+    assert!(!w.has("docx::page_number_frozen"), "{:?}", w.codes);
+    let w = render(&format!("{SHORT}Revision 1])\nOne.\n#pagebreak()\nTwo.\n"));
+    assert!(!w.has("docx::page_number_frozen"), "{:?}", w.codes);
 }
 
 /// Each body paragraph's text, the page it starts, and the text of the
@@ -1185,4 +1326,111 @@ fn a_keep_opening_a_footnote_cell_or_text_box_keeps_nothing_outside_it() {
         .map(|p| p.text)
         .collect();
     assert!(kept.is_empty(), "{kept:?}");
+}
+
+/// The left tab stops of the paragraph holding `text`, in twips.
+fn left_stops(w: &word::Word, text: &str) -> Vec<i64> {
+    let xml = w.xml("word/document.xml");
+    let doc = roxmltree::Document::parse(&xml).expect("well-formed");
+    let p = doc
+        .descendants()
+        .filter(|n| n.has_tag_name("p"))
+        .find(|p| {
+            p.descendants()
+                .filter(|n| n.has_tag_name("t"))
+                .filter_map(|n| n.text())
+                .collect::<String>()
+                .contains(text)
+        })
+        .unwrap_or_else(|| panic!("no paragraph holding {text:?}"));
+    p.descendants()
+        .filter(|n| {
+            n.has_tag_name("tab")
+                && n.attribute((
+                    "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+                    "val",
+                )) == Some("left")
+        })
+        .filter_map(|n| n.attributes().find(|a| a.name() == "pos"))
+        .map(|a| a.value().parse().expect("twips"))
+        .collect()
+}
+
+#[test]
+fn spacing_typst_sets_between_runs_is_a_space_or_a_tab_to_where_the_next_run_starts() {
+    let w = render(&format!(
+        "{PAGE}Left #h(1fr) Right\n\n\
+         Signed#h(2in)Dated\n\n\
+         #stack(dir: ltr, spacing: 1fr, [JOHN DOE], [12 Nov 2026])\n\n\
+         Name: #h(1in) Value\n\n\
+         Thin#h(0.1em)space and a#h(0.3em)gap\n"
+    ));
+    assert_eq!(
+        w.texts(),
+        [
+            "Left\tRight",
+            "Signed\tDated",
+            "JOHN DOE\t12 Nov 2026",
+            "Name: \tValue",
+            "Thinspace and a gap",
+        ]
+    );
+    let quill = word::plain(&format!("{PAGE}Signed#h(2in)Dated\n"));
+    let doc = quillmark_typst::testing::layout(&quill, &serde_json::json!({}), common::test_date())
+        .expect("layout");
+    let dated = doc
+        .pages
+        .iter()
+        .flat_map(|p| &p.items)
+        .find_map(|i| match &i.kind {
+            quillmark_docx::layout::ItemKind::Text(t) if t.text == "Dated" => Some(t.origin[0]),
+            _ => None,
+        })
+        .expect("Dated");
+    assert_eq!(
+        left_stops(&w, "Dated"),
+        [((dated - 30.0) * 20.0).round() as i64]
+    );
+    assert_eq!(left_stops(&w, "Right").len(), 1);
+}
+
+#[test]
+fn a_stacks_lines_break_where_a_wrap_could_not_and_wraps_still_join() {
+    let w = render(&format!(
+        "{PAGE}#stack(spacing: 1em, [Alpha], [Beta], [Gamma])\n\n\
+         Body. #v(3em) #align(right)[#stack(spacing: 0.65em, [JANE Q. DOE, Colonel, USAF], [Commander])]\n"
+    ));
+    assert_eq!(
+        w.texts(),
+        [
+            "Alpha\nBeta\nGamma",
+            "Body.",
+            "JANE Q. DOE, Colonel, USAF\nCommander"
+        ]
+    );
+    assert_eq!(
+        w.par("JANE Q. DOE, Colonel, USAF\nCommander").jc.as_deref(),
+        Some("right")
+    );
+
+    let words = "plain *bold* _italic_ ".repeat(6);
+    let w = render(&format!(
+        "#set page(width: 200pt, height: 400pt, margin: 20pt)\n\
+         #set text(font: \"Roboto\")\n\
+         {words}\n\n\
+         #set text(lang: \"en\", hyphenate: true)\n\
+         Extraordinarily incomprehensibilities characterization.\n\n\
+         A well-known, state-of-the-art, run-of-the-mill self-contained thing.\n\n\
+         #par(justify: true)[{words}]\n"
+    ));
+    let words = words.replace(['*', '_'], "");
+    assert_eq!(
+        w.texts(),
+        [
+            words.trim_end(),
+            "Extraordinarily incomprehensibilities characterization.",
+            "A well-known, state-of-the-art, run-of-the-mill self-contained thing.",
+            words.trim_end(),
+        ]
+    );
 }
