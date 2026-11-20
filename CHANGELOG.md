@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+Upgrade path: [0.139 → 0.140](docs/migrations/0.139-to-0.140.md). Word is a
+fourth output format: `docx` renders any Typst quill, unchanged, as a Word file
+laid out by Word, with a `docx::` warning wherever it carries less than the PDF,
+and `qm.hints` lets a quill give Word live numbering, paragraph styles and font
+substitutes. The new `quillmark-docx` crate writes it. A quill declares `main`
+and each card kind as peers of one `schema:` block, and `quill.schema` is keyed
+by kind with no `card_kinds` level; a top-level `main:` or `card_kinds:` fails
+as `quill::unknown_section`. `ui.layout: flat` and the retired spellings fail to
+load, and an acroform quill reads its field spec from `Form.yaml` alone.
+
 ## v0.139.0 - 2026-11-15
 
 Upgrade path: [0.138 → 0.139](docs/migrations/0.138-to-0.139.md). The typed
