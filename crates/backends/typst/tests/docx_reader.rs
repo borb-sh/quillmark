@@ -437,3 +437,22 @@ fn a_tables_columns_close_at_their_own_size_and_cells_carry_their_fields() {
     let ink = doc.nodes[wide].frames[0].1.x1;
     assert!((columns[1] - (ink + 5.0)).abs() < 0.5, "{columns:?} {ink}");
 }
+
+#[test]
+fn a_ligatures_natural_width_is_its_characters_own_advances() {
+    let width = |plate: &str| {
+        let doc = read(&format!("{PAGE}{plate}\n"));
+        doc.pages
+            .iter()
+            .flat_map(|p| &p.items)
+            .find_map(|i| match &i.kind {
+                ItemKind::Text(t) if t.text.starts_with("ffi") => Some((t.width, t.natural)),
+                _ => None,
+            })
+            .expect("the run")
+    };
+    let (joined, natural) = width("ffi");
+    let (apart, _) = width("#text(ligatures: false)[ffi]");
+    assert!(joined < apart - 0.1, "{joined} {apart}");
+    assert!((natural - apart).abs() < 0.01, "{natural} {apart}");
+}

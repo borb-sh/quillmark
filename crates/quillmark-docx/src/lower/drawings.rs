@@ -124,8 +124,15 @@ impl<'a> Lower<'a> {
                 outer.or(style.map(|s| s.align)).unwrap_or_default()
             })
             .unwrap_or_default();
+        let excess = self
+            .doc
+            .subtree(n)
+            .into_iter()
+            .flat_map(|m| self.doc.nodes[m].lines.iter())
+            .map(|l| self.excess(l))
+            .fold(0.0, f64::max);
         let (x, width, wrap) = match align {
-            HAlign::Start => (rect.x0, rect.width() + 2.0, false),
+            HAlign::Start => (rect.x0, rect.width() + 2.0 + excess, false),
             _ => (col_left, col_width, true),
         };
         let inner = Ctx {

@@ -626,13 +626,7 @@ impl Reader<'_> {
                     let natural: f64 = (text
                         .glyphs
                         .iter()
-                        .map(|g| {
-                            text.font
-                                .x_advance(g.id)
-                                .unwrap_or(g.x_advance)
-                                .at(text.size)
-                                .to_pt()
-                        })
+                        .map(|g| unshaped_advance(text, g).at(text.size).to_pt())
                         .sum::<f64>()
                         + tracking.unwrap_or(0.0) * text.glyphs.len().saturating_sub(1) as f64)
                         * scale;
@@ -1951,6 +1945,31 @@ fn measure_frames(doc: &mut LayoutDoc) {
         frames.sort_by_key(|f| f.0);
         doc.nodes[id].frames = frames;
     }
+}
+
+/// The advance Word gives the text `glyph` stands for: each character's
+/// own glyph where shaping joined several into a ligature, else the
+/// glyph's unkerned advance.
+fn unshaped_advance(text: &typst::text::TextItem, glyph: &typst::text::Glyph) -> typst::layout::Em {
+    let own = text.font.x_advance(glyph.id).unwrap_or(glyph.x_advance);
+    let Some(chars) = text.text.get(glyph.range()) else {
+        return own;
+    };
+    if chars.chars().count() < 2 {
+        return own;
+    }
+    chars
+        .chars()
+        .map(|c| {
+            text.font
+                .ttf()
+                .glyph_index(c)
+                .and_then(|id| text.font.x_advance(id.0))
+        })
+        .try_fold(typst::layout::Em::zero(), |sum, advance| {
+            Some(sum + advance?)
+        })
+        .map_or(own, |split| split.max(own))
 }
 
 /// A table's column boundaries are its cells' origins, the last one closed
