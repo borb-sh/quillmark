@@ -30,6 +30,18 @@ updates:
         patterns: ['*']
         update-types: [minor, patch]
 
+  # The docs site build: `requirements.in`, compiled with hashes.
+  - package-ecosystem: pip
+    directory: /docs
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      docs:
+        patterns: ['*']
+        update-types: [minor, patch]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
