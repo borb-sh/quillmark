@@ -1705,7 +1705,7 @@ Upgrade path: [0.123 → 0.124](docs/migrations/0.123-to-0.124.md).
 
 ## v0.123.1 - 2026-10-06
 
-Upgrade path: [0.123.0 → 0.123.1](docs/migrations/0.123.0-to-0.123.1.md).
+Upgrade path: [0.123.0 → 0.123.1](https://github.com/borb-sh/quillmark/blob/v0.140.0/docs/migrations/0.123.0-to-0.123.1.md).
 
 ### Table cells
 
@@ -1728,7 +1728,7 @@ Upgrade path: [0.123.0 → 0.123.1](docs/migrations/0.123.0-to-0.123.1.md).
 
 ## v0.123.0 - 2026-10-06
 
-Upgrade path: [0.122 → 0.123](docs/migrations/0.122-to-0.123.md).
+Upgrade path: [0.122 → 0.123](https://github.com/borb-sh/quillmark/blob/v0.140.0/docs/migrations/0.122-to-0.123.md).
 
 ### Boolean coercion
 
@@ -1821,7 +1821,7 @@ Upgrade path: [0.122 → 0.123](docs/migrations/0.122-to-0.123.md).
 
 ## v0.122.0 - 2026-10-05
 
-Upgrade path: [0.121 → 0.122](docs/migrations/0.121-to-0.122.md).
+Upgrade path: [0.121 → 0.122](https://github.com/borb-sh/quillmark/blob/v0.140.0/docs/migrations/0.121-to-0.122.md).
 
 ### YAML booleans
 
@@ -1935,7 +1935,7 @@ Upgrade path: [0.121 → 0.122](docs/migrations/0.121-to-0.122.md).
 
 ## v0.121.0 - 2026-09-30
 
-Upgrade path: [0.120 → 0.121](docs/migrations/0.120-to-0.121.md).
+Upgrade path: [0.120 → 0.121](https://github.com/borb-sh/quillmark/blob/v0.140.0/docs/migrations/0.120-to-0.121.md).
 
 ### Matrix presence
 
@@ -1989,7 +1989,7 @@ Upgrade path: [0.120 → 0.121](docs/migrations/0.120-to-0.121.md).
 
 ## v0.120.0 - 2026-09-30
 
-Upgrade path: [0.119 → 0.120](docs/migrations/0.119-to-0.120.md).
+Upgrade path: [0.119 → 0.120](https://github.com/borb-sh/quillmark/blob/v0.140.0/docs/migrations/0.119-to-0.120.md).
 
 ### `Engine.load`
 
@@ -2021,7 +2021,7 @@ Upgrade path: [0.119 → 0.120](docs/migrations/0.119-to-0.120.md).
 
 ## v0.118.0 - 2026-09-30
 
-Upgrade path: [0.117 → 0.118](docs/migrations/0.117-to-0.118.md).
+Upgrade path: [0.117 → 0.118](https://github.com/borb-sh/quillmark/blob/v0.140.0/docs/migrations/0.117-to-0.118.md).
 
 ### Kind seeds
 
@@ -2052,7 +2052,7 @@ Upgrade path: [0.117 → 0.118](docs/migrations/0.117-to-0.118.md).
 
 ## v0.117.0 - 2026-09-29
 
-Upgrade path: [0.116 → 0.117](docs/migrations/0.116-to-0.117.md).
+Upgrade path: [0.116 → 0.117](https://github.com/borb-sh/quillmark/blob/v0.140.0/docs/migrations/0.116-to-0.117.md).
 
 ### `example:` leaves the quill schema
 
@@ -2131,7 +2131,7 @@ Upgrade path: [0.116 → 0.117](docs/migrations/0.116-to-0.117.md).
 
 ## v0.116.0 - 2026-09-26
 
-Upgrade path: [0.115 → 0.116](docs/migrations/0.115-to-0.116.md).
+Upgrade path: [0.115 → 0.116](https://github.com/borb-sh/quillmark/blob/v0.140.0/docs/migrations/0.115-to-0.116.md).
 
 ### What blocks a render
 
@@ -2336,7 +2336,7 @@ Upgrade path: [0.115 → 0.116](docs/migrations/0.115-to-0.116.md).
 
 ## v0.115.0 - 2026-09-22
 
-Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
+Upgrade path: [0.114 → 0.115](https://github.com/borb-sh/quillmark/blob/v0.140.0/docs/migrations/0.114-to-0.115.md).
 
 ### The quill authoring contract
 
@@ -2633,7 +2633,7 @@ Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
 
 ## v0.113.0 - 2026-09-16
 
-Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
+Upgrade path: [0.112 → 0.113](https://github.com/borb-sh/quillmark/blob/v0.140.0/docs/migrations/0.112-to-0.113.md).
 
 ### The content model
 
@@ -4156,7 +4156,7 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   either projection move too. A consumer holding bare seam JSON outside a
   stored document gets a hard break, having no tag to dispatch on. The storage
   tag becomes `quillmark/document@0.112.0`; `@0.93.0` rows migrate forward on
-  read. See [0.111 → 0.112](docs/migrations/0.111-to-0.112.md).
+  read. See [0.111 → 0.112](https://github.com/borb-sh/quillmark/blob/v0.140.0/docs/migrations/0.111-to-0.112.md).
 - feat(core)!: **`fieldAt` and `positionAt` take a pointer tolerance, and
   resolve to the nearest ink rather than the first containing it.** A glyph's
   box is its run's ink height by its own advance, so a text column answers over
@@ -4464,7 +4464,7 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   and so does what the seam types `unknown` (`getStored` on a field,
   `PayloadItem.value`), which answers with the stored bytes verbatim. Content
   parsed from a stored document is the one shape that needs a cast.
-  [Guide](docs/migrations/0.109-to-0.110.md)
+  [Guide](https://github.com/borb-sh/quillmark/blob/v0.140.0/docs/migrations/0.109-to-0.110.md)
 - fix(core): **`Quill::validate` refuses only what the render floor refuses.**
   Validation ran its own read-side type dispatch over the authored value while
   the render door validated the *coerced* one, so five of seven types had values
@@ -5377,7 +5377,7 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   `integer`, `number` and `boolean` keep `0` / `false` as their blank,
   indistinguishable from an authored zero — a permanent seam, since a wire
   `none` would cost the totality the floor exists to buy. Full guide:
-  [0.104 → 0.105](docs/migrations/0.104-to-0.105.md) (#1254).
+  [0.104 → 0.105](https://github.com/borb-sh/quillmark/blob/v0.140.0/docs/migrations/0.104-to-0.105.md) (#1254).
 - fix(fixtures,docs): the three fixture plates that dispatch on `$kind` read it
   with a bare `card.at("$kind")`, which panics on a kindless card, and guarded
   declared fields against an absence blank-filled render makes impossible.

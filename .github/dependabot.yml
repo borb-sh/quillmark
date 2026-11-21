@@ -17,6 +17,10 @@ updates:
       cargo:
         patterns: ['*']
         update-types: [minor, patch]
+    ignore:
+      # acroform's hayro is the version typst-render links, so a build with both
+      # backends carries one copy; it moves with a Typst upgrade, by hand.
+      - dependency-name: hayro
 
   # The WASM binding's npm side: the test runner, the typecheck, the packaging.
   - package-ecosystem: npm
