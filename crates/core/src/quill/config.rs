@@ -2213,23 +2213,6 @@ impl QuillConfig {
         fields
     }
 
-    fn deprecated_multiline(fields: usize) -> Diagnostic {
-        Diagnostic::new(
-            Severity::Warning,
-            format!(
-                "{fields} text or richtext field(s) spell their shape with `multiline:`; \
-                 declare `shape:`."
-            ),
-        )
-        .with_code("quill::deprecated_multiline".to_string())
-        .with_hint(
-            "Drop `multiline: false`. Write `multiline: true` as `shape: lines` on a \
-             `text`, and as `shape: blocks` on a `richtext`, or as `shape: lines` where the \
-             field holds lines and no list, heading or table."
-                .to_string(),
-        )
-    }
-
     fn deprecated_groups(label: &str) -> Diagnostic {
         Diagnostic::new(
             Severity::Warning,
@@ -2283,9 +2266,20 @@ impl QuillConfig {
     }
 
     fn field_parse_hint(field_value: &serde_json::Value) -> Option<String> {
-        spells_ui_title(field_value).then(|| {
-            "A field's label is its own `title:`, beside `description:`; `ui` holds no \
-             `title`."
+        if spells(field_value, &|f| {
+            f.get("ui").and_then(|ui| ui.get("title")).is_some()
+        }) {
+            return Some(
+                "A field's label is its own `title:`, beside `description:`; `ui` holds no \
+                 `title`."
+                    .to_string(),
+            );
+        }
+        spells(field_value, &|f| f.get("multiline").is_some()).then(|| {
+            "A text or richtext field declares `shape:` where it declared `multiline:`: \
+             drop `multiline: false`, and write `multiline: true` as `shape: lines` on a \
+             `text` and as `shape: blocks` on a `richtext`, or `shape: lines` where it holds \
+             lines and no list, heading or table."
                 .to_string()
         })
     }
@@ -2994,10 +2988,6 @@ impl QuillConfig {
         for card in &mut card_kinds {
             order_groups(card);
         }
-        let legacy = spelled_multiline(&quill_yaml_val);
-        if legacy > 0 {
-            warnings.push(Self::deprecated_multiline(legacy));
-        }
         warnings.extend(Self::field_after_object(&main_label, &main));
         for card in &card_kinds {
             warnings.extend(Self::field_after_object(&section(&card.name), card));
@@ -3018,19 +3008,6 @@ impl QuillConfig {
             },
             warnings,
         ))
-    }
-}
-
-/// How many field declarations under `value` spell the legacy `multiline:`.
-fn spelled_multiline(value: &serde_json::Value) -> usize {
-    match value {
-        serde_json::Value::Object(map) => {
-            let here = map.get("type").is_some_and(|t| t.is_string())
-                && map.get("multiline").is_some_and(|m| m.is_boolean());
-            here as usize + map.values().map(spelled_multiline).sum::<usize>()
-        }
-        serde_json::Value::Array(items) => items.iter().map(spelled_multiline).sum(),
-        _ => 0,
     }
 }
 
@@ -3079,9 +3056,9 @@ fn order_groups(card: &mut CardSchema) {
     });
 }
 
-/// Whether a raw field schema spells `ui.title` on itself or on any field
-/// schema nested in it.
-fn spells_ui_title(field: &serde_json::Value) -> bool {
+/// Whether `here` holds for a raw field schema or any field schema nested in
+/// it.
+fn spells(field: &serde_json::Value, here: &dyn Fn(&serde_json::Value) -> bool) -> bool {
     let schemas = |key: &str| {
         field
             .get(key)
@@ -3089,13 +3066,13 @@ fn spells_ui_title(field: &serde_json::Value) -> bool {
             .into_iter()
             .flat_map(|m| m.values())
     };
-    field.get("ui").and_then(|ui| ui.get("title")).is_some()
-        || field.get("items").is_some_and(spells_ui_title)
-        || schemas("properties").any(spells_ui_title)
+    here(field)
+        || field.get("items").is_some_and(|f| spells(f, here))
+        || schemas("properties").any(|f| spells(f, here))
         || schemas("variants")
             .filter_map(|world| world.as_object())
             .flat_map(|world| world.values())
-            .any(spells_ui_title)
+            .any(|f| spells(f, here))
 }
 
 /// The field-name path (`rows[].quals`) of the first open matrix in `field`'s

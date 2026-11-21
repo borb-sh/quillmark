@@ -605,7 +605,7 @@ schema:
         );
     }
 
-    /// The items need not declare `multiline: true`: the joined value carries
+    /// The items need not declare a `shape`: the joined value carries
     /// newlines.
     #[test]
     fn a_scalar_array_projects_to_multiline_text() {

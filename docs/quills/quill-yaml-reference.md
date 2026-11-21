@@ -147,7 +147,6 @@ schema:
 | `items`       | object            | for `array` | Element schema for an `array` field (a nested field schema). Required on every array. |
 | `properties`  | object            | for `object` | Nested field schemas for an `object` typed dictionary (or an array's `object`-typed `items`). Required on every `object` field. |
 | `shape`       | string            | no       | For `text` and `richtext` only, how much the value holds: `line` (the default), `lines` or `blocks`. See [The shape of a text field](#the-shape-of-a-text-field). A `text` value's trailing whitespace drops before the check, the newline a YAML `|` block keeps included. A write refuses a line break inside a one-line `text` value. A stored one renders as a space and warns `validation::line_break_folded`. |
-| `multiline`   | boolean           | no       | The legacy spelling of `shape`, read for one more release and warned as `quill::deprecated_multiline`: `false` is `line`, and `true` is `lines` on a `text` and `blocks` on a `richtext`. Beside a `shape:` that disagrees it is a load error. |
 
 ### `title`
 

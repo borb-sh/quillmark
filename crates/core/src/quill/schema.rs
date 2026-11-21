@@ -18,11 +18,6 @@ pub const CONTENT_MEDIA_TYPE: &str = "application/quillmark-content+json";
 /// carries `blocks`.
 pub const QUILLMARK_SHAPE_KEY: &str = "quillmark:shape";
 
-/// Transform-schema keyword marking a `text` or `richtext` field that admits
-/// more than one line, beside every [`QUILLMARK_SHAPE_KEY`]: the legacy
-/// spelling a consumer that predates the shape reads.
-pub const QUILLMARK_MULTILINE_KEY: &str = "quillmark:multiline";
-
 /// Transform-schema keywords carrying a field's `max:` in the unit its type
 /// counts: elements on an array, characters on a text field. A cap warns and
 /// never refuses, so it rides a `quillmark:` annotation rather than JSON
@@ -137,7 +132,7 @@ fn content_envelope(config: &QuillConfig) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
             "contentMediaType": CONTENT_MEDIA_TYPE,
-            QUILLMARK_MULTILINE_KEY: true,
+            QUILLMARK_SHAPE_KEY: Shape::Blocks.as_str(),
         })
     };
     let properties = |card: &CardSchema| {
@@ -260,7 +255,6 @@ fn authoring_card_properties(card: &CardSchema) -> serde_json::Map<String, serde
             QUILLMARK_SHAPE_KEY.to_string(),
             Shape::Blocks.as_str().into(),
         );
-        body.insert(QUILLMARK_MULTILINE_KEY.to_string(), true.into());
         if let Some(example) = declared.and_then(|b| b.example.as_deref()) {
             body.insert("examples".to_string(), serde_json::json!([example]));
         }
@@ -453,7 +447,6 @@ fn declared_schema(field: &FieldSchema, codec: SchemaCodec) -> serde_json::Value
             }
             if shape != Shape::Line {
                 schema.insert(QUILLMARK_SHAPE_KEY.to_string(), shape.as_str().into());
-                schema.insert(QUILLMARK_MULTILINE_KEY.to_string(), true.into());
             }
             if let Some(max) = field.max {
                 schema.insert(QUILLMARK_MAX_LENGTH_KEY.to_string(), max.into());
@@ -756,7 +749,6 @@ schema:
             "type": "object",
             "contentMediaType": CONTENT_MEDIA_TYPE,
             QUILLMARK_SHAPE_KEY: "blocks",
-            QUILLMARK_MULTILINE_KEY: true,
         });
         let text = serde_json::json!({
             "type": "object",
@@ -836,7 +828,7 @@ schema:
         let main_body = &json["properties"]["$body"];
         assert_eq!(main_body["type"], "object");
         assert_eq!(main_body["contentMediaType"], CONTENT_MEDIA_TYPE);
-        assert_eq!(main_body[QUILLMARK_MULTILINE_KEY], true);
+        assert_eq!(main_body[QUILLMARK_SHAPE_KEY], "blocks");
 
         for def_name in ["indorsement_card", "note_card"] {
             let card_body = &json["$defs"][def_name]["properties"]["$body"];
@@ -849,7 +841,7 @@ schema:
                 "{def_name} $body should be richtext"
             );
             assert_eq!(
-                card_body[QUILLMARK_MULTILINE_KEY], true,
+                card_body[QUILLMARK_SHAPE_KEY], "blocks",
                 "{def_name} $body should lower as a block"
             );
         }

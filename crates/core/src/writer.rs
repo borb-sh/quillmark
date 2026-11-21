@@ -3,7 +3,7 @@
 //! `Card::commit_field` asks the caller to fetch a [`FieldSchema`] per write.
 //! [`Quill::writer`](crate::quill::Quill::writer) binds the schema once
 //! instead, so callers issue one verb (`set`) and never pass a type token or a
-//! `multiline` flag. An undeclared name is [`EditError::UnknownField`]: on the
+//! shape. An undeclared name is [`EditError::UnknownField`]: on the
 //! typed path it is a typo, not a fallback. So is a member a typed dictionary
 //! or a variant's worlds leave undeclared, unless the stored value already
 //! carries it, equal. Opaque storage stays available

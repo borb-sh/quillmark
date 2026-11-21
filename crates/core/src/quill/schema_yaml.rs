@@ -95,7 +95,7 @@ schema:
                 "values"
             ]
         );
-        assert_eq!(keys(&fields["mike"]), ["type", "ui", "shape", "multiline"]);
+        assert_eq!(keys(&fields["mike"]), ["type", "ui", "shape"]);
     }
 
     #[test]
