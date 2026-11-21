@@ -1,5 +1,5 @@
 # MkDocs dependencies. `requirements.txt` is compiled from this file:
-# uv pip compile docs/requirements.in --generate-hashes --universal --python-version 3.13 -o docs/requirements.txt
+# uv pip compile requirements.in --generate-hashes --universal --python-version 3.13 --exclude-newer <a date a week back> -o requirements.txt
 mkdocs>=1.6.0,<2
 mkdocs-material>=9.5.0,<10
 pymdown-extensions>=10.0
