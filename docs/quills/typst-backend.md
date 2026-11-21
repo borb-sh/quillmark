@@ -522,27 +522,27 @@ What is known to differ, with no warning:
 
 #### Hints
 
-A quill states what its frames cannot show with `qm.hints`. A hint emits only labelled metadata, so the PDF is unchanged, and a misspelt kind or field, or a value of the wrong type, fails the compile. A bracket closes under the element it opens in; one left open raises `docx::hint_unclosed` and costs that element only. A hint around what it cannot apply to (a `label` outside any `list`, a `layout` around no grid, `chrome` around no place) raises `docx::hint_unchecked` and is ignored.
+A quill states what its frames cannot show with `qm.hints`. A hint emits only labelled metadata, so the PDF is unchanged, and a misspelt function or argument, or a value of the wrong type, fails the compile. A bracket closes under the element it opens in; one left open raises `docx::hint_unclosed` and costs that element only. A hint around what it cannot apply to (a `label` outside any `list`, `tabbed` around no grid, `chrome` around no place) raises `docx::hint_unchecked` and is ignored.
 
 ```typst
 #let hints = qm.hints
-#hints.hint("list", name: "Letter Paragraph", levels: (
+#hints.list(name: "Letter Paragraph", (
   (format: "decimal", suffix: ".  "),
   (format: "lower-letter", suffix: ".  ", indent: 18pt),
 ))[
-  #hints.hint("label", level: 1)[1.#h(1em)]The first paragraph.
+  #hints.label(1)[1.#h(1em)]The first paragraph.
 ]
 ```
 
-| Hint | Form | Data | Word gets |
-|---|---|---|---|
-| `list` | bracket around one list | `name`, `levels`: per level `format`, `prefix`, `suffix`, `underline`, `visible`, `indent` | a multilevel numbering and one paragraph style per level; a level with no `indent` takes the place of its first label, so `indent` matters only for a level the document does not print |
-| `label` | bracket around a printed number and the space after it | `level` | the paragraph numbered live; a label whose text is not the level's `prefix`, the number Word counts and `suffix` stays printed text with `docx::label_mismatch` |
-| `role` | bracket around paragraphs | `name`, `next` | a paragraph style of that name |
-| `layout` | bracket around a grid | `form: "tabbed"` | each row as one paragraph of label, tab and text |
-| `chrome` | bracket around a `place` | none | the placed object in the page header, or the footer for a `place` aligned to the bottom |
-| `keep` | point; `keep-with-next(body)` emits it | none | no page break between the paragraph before and the one after |
-| `font` | point, once per face | `family`, `alt` | for a family with no metric-compatible Word face, `alt` as the face its text names, with `family` as the font's alternate name; a family with one keeps it |
+| Hint | Around | Word gets |
+|---|---|---|
+| `list(levels, name: .., body)` | one list; `levels` holds per level `format`, `prefix`, `suffix`, `underline`, `visible`, `indent` | a multilevel numbering and one paragraph style per level, named from `name`; a level with no `indent` takes the place of its first label, so `indent` matters only for a level the document does not print |
+| `label(level, body)` | a printed number and the space after it, at `level` from 1 | the paragraph numbered live; a label whose text is not the level's `prefix`, the number Word counts and `suffix` stays printed text with `docx::label_mismatch` |
+| `role(name, next: .., body)` | paragraphs | a paragraph style of that name, followed by the style `next` |
+| `tabbed(body)` | a grid | each row as one paragraph of label, tab and text |
+| `chrome(body)` | a `place` | the placed object in the page header, or the footer for a `place` aligned to the bottom |
+| `keep()` | nothing; it ends a paragraph | no page break between that paragraph and the one after |
+| `font(family, alt: ..)` | nothing; once per face | for a family with no metric-compatible Word face, `alt` as the face its text names, with `family` as the font's alternate name; a family with one keeps it |
 
 A quill package that must stay publishable without Quillmark vendors `crates/backends/typst/src/hints.typ` from the Quillmark repository unchanged.
 

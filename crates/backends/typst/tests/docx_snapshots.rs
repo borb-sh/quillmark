@@ -424,7 +424,7 @@ plates! {
     hosted tabbed_label:
         "#set page(width: 612pt, height: 792pt, margin: 72pt)\n\
          #set text(font: \"TeX Gyre Termes\", size: 12pt)\n\
-         #qm.hints.hint(\"layout\", form: \"tabbed\")[#grid(columns: (auto, auto, 1fr), \
+         #qm.hints.tabbed[#grid(columns: (auto, auto, 1fr), \
          [SUBJECT:], [], [Annual Review of Every Office of Record in the Wing, with a \
          subject long enough to wrap under itself])]\n";
     plate superscript: format!(
@@ -454,10 +454,10 @@ plates! {
     );
     plate numbered_paragraphs_across_pages: format!(
         "#let hints = qm.hints\n{PAGE}#set par(spacing: 6pt)\n\
-         #hints.hint(\"list\", levels: ((format: \"decimal\", suffix: \". \"),))[\n{}]\n",
+         #hints.list(((format: \"decimal\", suffix: \". \"),))[\n{}]\n",
         (1..=16)
             .map(|i| format!(
-                "#hints.hint(\"label\", level: 1)[{i}.#h(4pt)]Paragraph {i}.\n\n#v(8pt)\n\n"
+                "#hints.label(1)[{i}.#h(4pt)]Paragraph {i}.\n\n#v(8pt)\n\n"
             ))
             .collect::<String>()
     );
@@ -482,16 +482,16 @@ plates! {
          = Alpha\n#lorem(70)\n\n= Beta\n#lorem(60)\n\n= Gamma\nShort.\n";
     plate hints_misused: format!(
         "#let hints = qm.hints\n{PAGE}\
-         #hints.hint(\"label\", level: 1)[1.#h(4pt)]A label outside any list.\n\n\
-         #hints.hint(\"layout\", form: \"tabbed\")[A paragraph, not a grid.]\n\n\
-         #hints.hint(\"chrome\")[A paragraph, not a place.]\n"
+         #hints.label(1)[1.#h(4pt)]A label outside any list.\n\n\
+         #hints.tabbed[A paragraph, not a grid.]\n\n\
+         #hints.chrome[A paragraph, not a place.]\n"
     );
     plate hints_applied: format!(
         "#let hints = qm.hints\n{PAGE}\
-         #hints.hint(\"layout\", form: \"tabbed\")[#grid(columns: (auto, 1fr), [FROM:], [Here])]\n\
-         #hints.hint(\"chrome\")[#place(top + right)[Mark]]\n\
-         #hints.hint(\"list\", levels: ((format: \"decimal\", suffix: \". \"),))[\n\
-         #hints.hint(\"label\", level: 1)[1.#h(4pt)]In a list.\n]\n"
+         #hints.tabbed[#grid(columns: (auto, 1fr), [FROM:], [Here])]\n\
+         #hints.chrome[#place(top + right)[Mark]]\n\
+         #hints.list(((format: \"decimal\", suffix: \". \"),))[\n\
+         #hints.label(1)[1.#h(4pt)]In a list.\n]\n"
     );
     plate form_fields: format!(
         "{PAGE}Name: #qm.form-field(\"name\", type: \"text\", value: \"Ann\")\n\n\
@@ -529,8 +529,8 @@ plates! {
     );
     plate label_the_count_does_not_reach: format!(
         "#let hints = qm.hints\n{PAGE}\
-         #hints.hint(\"list\", levels: ((format: \"decimal\", suffix: \". \"),))[\n\
-         #hints.hint(\"label\", level: 1)[3.#h(4pt)]Third, but first.\n]\n"
+         #hints.list(((format: \"decimal\", suffix: \". \"),))[\n\
+         #hints.label(1)[3.#h(4pt)]Third, but first.\n]\n"
     );
     plate unknown_and_open_hints: format!(
         "{PAGE}#metadata((kind: \"__qm_hint__\", hint: \"mystery\"))<__qm_hint__>\
@@ -544,19 +544,19 @@ plates! {
         "#set page(width: 300pt, height: 300pt, margin: 30pt, \
          numbering: (..n) => \"A-\" + str(n.pos().first()))\n#outline()\n= Intro\n";
     plate keep_with_next: format!(
-        "{PAGE}Before.\n\n#qm.hints.keep-with-next[Kept.]\n\nNext.\n"
+        "{PAGE}Before.\n\nKept.#qm.hints.keep()\n\nNext.\n"
     );
     plate keep_opening_a_cell: format!(
-        "{PAGE}Before.\n\n#table(columns: 1, [#qm.hints.hint-point(\"keep\")Cell text.])\n\nAfter.\n"
+        "{PAGE}Before.\n\n#table(columns: 1, [#qm.hints.keep()Cell text.])\n\nAfter.\n"
     );
     plate keep_opening_a_footnote: format!(
-        "{PAGE}Body text.#footnote[#qm.hints.hint-point(\"keep\")The note.]\n\nNext.\n"
+        "{PAGE}Body text.#footnote[#qm.hints.keep()The note.]\n\nNext.\n"
     );
     plate keep_opening_a_block: format!(
-        "{PAGE}Before.\n\n#block[#qm.hints.hint-point(\"keep\")Inside.]\n\nAfter.\n"
+        "{PAGE}Before.\n\n#block[#qm.hints.keep()Inside.]\n\nAfter.\n"
     );
     plate keep_after_a_table: format!(
-        "{PAGE}#table(columns: 1, [Cell])\n#qm.hints.hint-point(\"keep\")\nAfter.\n"
+        "{PAGE}#table(columns: 1, [Cell])\n#qm.hints.keep()\nAfter.\n"
     );
     plate table_in_a_block: format!(
         "{PAGE}Before.\n\n#block[#table(columns: 1, [Cell])]\n\nAfter.\n"
