@@ -239,6 +239,9 @@ pub struct TextRun {
     pub natural: f64,
     /// The extra advance after each character, in points.
     pub tracking: Option<f64>,
+    /// Whether a space in it is set wider or narrower than the face's own
+    /// and the tracking make it, as justification sets one.
+    pub justified: bool,
     /// The language the text is set in, as a BCP 47 tag: `de`, or `de-DE`
     /// with a region.
     pub lang: Option<String>,

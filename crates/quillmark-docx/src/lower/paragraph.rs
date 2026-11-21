@@ -165,7 +165,39 @@ impl<'a> Lower<'a> {
         }
     }
 
-    /// One Word paragraph of some of `n`'s lines: all of them, or one line
+    /// Whether a wrapped line among `lines` holds justified text.
+    fn justified(&self, lines: &[crate::layout::Line]) -> bool {
+        lines
+            .iter()
+            .filter(|l| matches!(l.end, LineEnd::Soft | LineEnd::Hyphenated))
+            .flat_map(|l| &l.items)
+            .any(|r| matches!(&self.doc.item(*r).kind, ItemKind::Text(t) if t.justified))
+    }
+
+    /// How far short of the page's right margin the wrapped lines of a
+    /// justified paragraph in the body end, where a narrower container set
+    /// them. The shortest line is the edge: one ending in punctuation hangs
+    /// past it.
+    fn right_gap(&self, n: NodeId, lines: &[crate::layout::Line], ctx: &Ctx) -> Option<f64> {
+        let page = &self.doc.pages[lines.first()?.page as usize];
+        if ctx.width > 0.0
+            || page.setup.columns > 1
+            || self
+                .doc
+                .ancestor(n, |k| matches!(k, NodeKind::Columns { .. }))
+                .is_some()
+        {
+            return None;
+        }
+        let edge = lines
+            .iter()
+            .filter(|l| matches!(l.end, LineEnd::Soft | LineEnd::Hyphenated))
+            .map(|l| l.x1)
+            .reduce(f64::min)?;
+        let gap = page.size[0] - page.setup.margins.right - edge;
+        (gap >= 3.0).then_some(gap)
+    }
+
     /// of text no element tags. The objects and number the node holds go
     /// with its first line, after the drawings it anchors.
     pub(super) fn paragraph_of(
@@ -192,7 +224,7 @@ impl<'a> Lower<'a> {
                 sp.line = Some(Line::Auto(240));
             }
         }
-        let justify = matches!(kind, NodeKind::Par { justify: true, .. });
+        let justify = matches!(kind, NodeKind::Par { justify: true, .. }) || self.justified(&lines);
         let align = self
             .read_align(n)
             .or(ctx.align)
@@ -238,12 +270,12 @@ impl<'a> Lower<'a> {
                 Some(FirstLine::Hanging(tw(-first_off)))
             };
             let left = (left.abs() >= 0.25).then_some(tw(left));
-            if left.is_some() || first.is_some() {
-                props.indent = Some(Indent {
-                    left,
-                    right: None,
-                    first,
-                });
+            let right = justify
+                .then(|| self.right_gap(n, &lines, ctx))
+                .flatten()
+                .map(tw);
+            if left.is_some() || right.is_some() || first.is_some() {
+                props.indent = Some(Indent { left, right, first });
             }
         }
         if let NodeKind::Heading {
@@ -290,6 +322,7 @@ impl<'a> Lower<'a> {
         let mut out = Vec::new();
         if opens {
             out = self.inline_shapes(n);
+            out.extend(self.inline_images(n));
             for place in self.inline_places(n) {
                 let drawings = self.text_box(place, ctx);
                 self.tally.count(Code::PlaceAnchored, "", 1);

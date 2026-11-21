@@ -1434,3 +1434,79 @@ fn a_stacks_lines_break_where_a_wrap_could_not_and_wraps_still_join() {
         ]
     );
 }
+
+/// A cell margin side's twips in the cell holding `text`.
+fn cell_margin(xml: &str, text: &str, side: &str) -> i64 {
+    let cell = &xml[..xml.find(text).expect(text)];
+    let cell = &cell[cell.rfind("<w:tc>").expect("a cell")..];
+    cell.split("<w:tcMar>")
+        .nth(1)
+        .and_then(|m| m.split("</w:tcMar>").next())
+        .and_then(|m| m.split(&format!("<w:{side} w:w=\"")).nth(1))
+        .and_then(|v| v.split('"').next())
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
+
+#[test]
+fn a_table_row_is_as_tall_as_typst_sets_it_and_an_empty_cell_adds_no_height() {
+    let w = render(&format!(
+        "{PAGE}#table(columns: 2, rows: (40pt, 26pt), inset: 6pt, [Tall], [], [Short], [Other])\n"
+    ));
+    let xml = w.xml("word/document.xml");
+    let pars = w.body();
+    for (text, height) in [("Tall", 800), ("Short", 520)] {
+        let line = pars.iter().find(|p| p.text == text).expect(text).line;
+        let row =
+            cell_margin(&xml, text, "top") + line.unwrap() + cell_margin(&xml, text, "bottom");
+        assert!((row - height).abs() <= 1, "{text}: {row}");
+    }
+    let empty = pars
+        .iter()
+        .find(|p| p.in_table && p.text.is_empty())
+        .expect("the empty cell");
+    assert_eq!(empty.line, Some(20));
+}
+
+#[test]
+fn an_image_inside_a_box_in_a_line_of_text_is_placed() {
+    let w = render(&format!(
+        "{PAGE}#let dot = image(bytes((137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 0, 0, 3, 1, 1, 0, 201, 254, 146, 239, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130)), width: 20pt)\n\
+         #block[Signed #box(block(dot))]\n"
+    ));
+    let pictures: Vec<_> = w
+        .body()
+        .into_iter()
+        .flat_map(|p| p.drawings)
+        .filter(|d| d.picture)
+        .collect();
+    assert_eq!(pictures.len(), 1, "{:?}", w.codes);
+    assert_eq!(pictures[0].width, 20 * 12700);
+}
+
+#[test]
+fn a_clipped_justified_paragraph_stays_text_between_its_edges() {
+    let w = render(&format!(
+        "{PAGE}#pad(x: 40pt, block(height: 120pt, clip: true, {{\n\
+         set par(justify: true)\n\
+         [One two three four five six, seven eight nine ten eleven twelve. Thirteen fourteen \
+         fifteen sixteen seventeen eighteen nineteen twenty and then some more words to wrap again \
+         and again until four lines are full of them.]\n}}))\n"
+    ));
+    let par = w
+        .body()
+        .into_iter()
+        .find(|p| p.text.starts_with("One two"))
+        .expect("the paragraph");
+    assert!(par.drawings.is_empty(), "{:?}", par.drawings);
+    assert_eq!(par.jc.as_deref(), Some("both"));
+    assert_eq!(par.ind_left, Some(800));
+    let xml = w.xml("word/document.xml");
+    let right: i64 = xml
+        .split("w:right=\"")
+        .nth(1)
+        .and_then(|v| v.split('"').next())
+        .and_then(|v| v.parse().ok())
+        .expect("a right indent");
+    assert!((right - 800).abs() <= 1, "{right}");
+}

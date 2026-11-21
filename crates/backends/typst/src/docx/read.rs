@@ -626,13 +626,7 @@ impl Reader<'_> {
                     let natural: f64 = (text
                         .glyphs
                         .iter()
-                        .map(|g| {
-                            text.font
-                                .x_advance(g.id)
-                                .unwrap_or(g.x_advance)
-                                .at(text.size)
-                                .to_pt()
-                        })
+                        .map(|g| unshaped_advance(text, g).at(text.size).to_pt())
                         .sum::<f64>()
                         + tracking.unwrap_or(0.0) * text.glyphs.len().saturating_sub(1) as f64)
                         * scale;
@@ -646,6 +640,7 @@ impl Reader<'_> {
                         width,
                         natural,
                         tracking: tracking.map(|t| t * scale),
+                        justified: justified(text, tracking.unwrap_or(0.0)),
                         lang: Some(match &text.region {
                             Some(region) => format!("{}-{}", text.lang.as_str(), region.as_str()),
                             None => text.lang.as_str().to_string(),
@@ -1324,12 +1319,12 @@ fn needs_raster(group: &GroupItem, ts: Transform) -> bool {
         return false;
     };
     let c = clip.bbox(None);
-    let dy = 0.5_f64.max(0.25 * max_text_size(&group.frame));
+    let d = 0.5_f64.max(0.25 * max_text_size(&group.frame));
     frame_box(&group.frame, Transform::identity()).is_some_and(|r| {
-        r.x0 < c.min.x.to_pt() - 0.5
-            || r.y0 < c.min.y.to_pt() - dy
-            || r.x1 > c.max.x.to_pt() + 0.5
-            || r.y1 > c.max.y.to_pt() + dy
+        r.x0 < c.min.x.to_pt() - d
+            || r.y0 < c.min.y.to_pt() - d
+            || r.x1 > c.max.x.to_pt() + d
+            || r.y1 > c.max.y.to_pt() + d
     })
 }
 
@@ -1947,6 +1942,48 @@ fn measure_frames(doc: &mut LayoutDoc) {
         frames.sort_by_key(|f| f.0);
         doc.nodes[id].frames = frames;
     }
+}
+
+/// Whether every space of `text`, of three or more, is set wider or
+/// narrower than the face's own advance and `tracking`, in points, make it.
+/// Justification moves each space of a line, and kerning only the ones in
+/// a kerned pair.
+fn justified(text: &typst::text::TextItem, tracking: f64) -> bool {
+    let mut spaces = text
+        .glyphs
+        .iter()
+        .filter(|g| text.text.get(g.range()) == Some(" "))
+        .map(|g| {
+            text.font.x_advance(g.id).is_some_and(|own| {
+                ((g.x_advance - own).at(text.size).to_pt() - tracking).abs() > 0.02
+            })
+        });
+    spaces.clone().count() >= 3 && spaces.all(|moved| moved)
+}
+
+/// The advance Word gives the text `glyph` stands for: each character's
+/// own glyph where shaping joined several into a ligature, else the
+/// glyph's unkerned advance.
+fn unshaped_advance(text: &typst::text::TextItem, glyph: &typst::text::Glyph) -> typst::layout::Em {
+    let own = text.font.x_advance(glyph.id).unwrap_or(glyph.x_advance);
+    let Some(chars) = text.text.get(glyph.range()) else {
+        return own;
+    };
+    if chars.chars().count() < 2 {
+        return own;
+    }
+    chars
+        .chars()
+        .map(|c| {
+            text.font
+                .ttf()
+                .glyph_index(c)
+                .and_then(|id| text.font.x_advance(id.0))
+        })
+        .try_fold(typst::layout::Em::zero(), |sum, advance| {
+            Some(sum + advance?)
+        })
+        .map_or(own, |split| split.max(own))
 }
 
 /// A table's column boundaries are its cells' origins, the last one closed
