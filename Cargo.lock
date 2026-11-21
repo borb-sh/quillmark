@@ -2665,6 +2665,7 @@ name = "quillmark-fixtures"
 version = "0.140.0"
 dependencies = [
  "lopdf",
+ "pdf-writer",
 ]
 
 [[package]]

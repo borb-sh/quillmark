@@ -4,14 +4,14 @@
 //!
 //! `Ok` is not assertable over mutated bytes — the reader's input contract
 //! refuses most well-formed PDFs too — so a refusal is an acceptable answer
-//! there. A base the testkit builds has one answer, its stamp or a refusal
+//! there. A base `quillmark_fixtures::pdf` builds has one answer, its stamp or a refusal
 //! under a known code, so that answer is asserted.
 
 use std::sync::LazyLock;
 
 use pdf_writer::types::AnnotationType;
 use proptest::prelude::*;
-use quillmark_pdf::testkit::{BasePdf, Held, NO_OBJECT, NULL_OBJECT, RAW_OBJECT, null_spellings};
+use quillmark_fixtures::pdf::{BasePdf, Held, NO_OBJECT, NULL_OBJECT, RAW_OBJECT, null_spellings};
 use quillmark_pdf::{FieldSpec, FieldType, StampOptions, page_canvas_boxes, stamp};
 
 /// A real AcroForm the spine accepts, so a mutant of it exercises parse paths a
@@ -81,7 +81,7 @@ const NULLABLE: [(&str, &str); 8] = [
     ("page", "Rotate"),
 ];
 
-/// A one-page testkit base carrying `/key` and its spelling of `null` at each
+/// A one-page fixture base carrying `/key` and its spelling of `null` at each
 /// of `nulls`.
 fn nulled_base(nulls: &[((&str, &'static str), Vec<u8>)]) -> Vec<u8> {
     let mut base = BasePdf::letter(1).null_object();
