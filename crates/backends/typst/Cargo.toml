@@ -14,7 +14,6 @@ categories = ["rendering", "text-processing"]
 publish = true
 
 [dependencies]
-# Typst's process-global memo cache; evicted after each compile (compile.rs).
 quillmark-core = { workspace = true }
 # The content model `emit.rs` lowers to Typst markup, reached directly rather
 # than through core so the emitter names its types head-on. Nothing here parses
