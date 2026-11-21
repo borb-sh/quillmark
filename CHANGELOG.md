@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.140.0 - 2026-11-21
 
 Upgrade path: [0.139 → 0.140](docs/migrations/0.139-to-0.140.md). Word is a
 fourth output format: `docx` renders any Typst quill, unchanged, as a Word file
@@ -11,6 +11,98 @@ and each card kind as peers of one `schema:` block, and `quill.schema` is keyed
 by kind with no `card_kinds` level; a top-level `main:` or `card_kinds:` fails
 as `quill::unknown_section`. `ui.layout: flat` and the retired spellings fail to
 load, and an acroform quill reads its field spec from `Form.yaml` alone.
+
+### Commits since v0.139.0
+
+- refactor(typst): qm.hints is one function per hint kind
+- fix(typst): a hint value of the wrong type fails the compile, and a list hint states no version
+- fix(docx): a table's last row keeps its height when its cells are empty
+- feat(docx): check a label hint against its printed text, so `value` goes
+- fix(docx): a clipped justified paragraph stays text between its edges
+- fix(docx): an image inside a box in a line of text is placed
+- fix(docx): a ligature is measured as the letters Word sets, so a tight box or cell holds its line
+- fix(docx): a table row is as tall as Typst sets it, and an empty cell adds no height
+- docs(changelog): summarize 0.140 ahead of the release
+- docs(changelog): leave the docx fixes to their commit subjects
+- fix(docx): spacing Typst sets between runs is a space or a tab, and a stack's lines keep their breaks
+- fix(docx): letter spacing is carried as the run's character spacing
+- feat(docx): the Word file carries the language its text is set in
+- fix(docx): a drawn rule or filled box anchored to the page is reported
+- fix(docx): a "Page N of M" footer keeps its page field on the last page, and an unfielded page number is reported
+- test(docx): a document the probes would move is read without them
+- fix(docx): a page that sets its own foreground keeps its margins
+- refactor(core): drop Quill.compare, which no host reads
+- fix(docx): a label Word does not count keeps no list number of its own
+- test(docx): the hinted numbered_letter face raises no font_not_embedded
+- feat(docx): a hinted font with no Word clone is named as its alt
+- fix(docx): keep the space above a paragraph inside a table cell
+- feat(core)!: a quill declares main and each card kind as peers of one schema block
+- test(docx): snapshot only what lowering decides from a block's neighbours
+- test(docx): pin where a keep, a table's gap and a contents entry's space resolve
+- refactor(docx): name the reader's brackets by an enum, not by string
+- refactor(docx): read a table cell and a grid cell in one place
+- refactor(docx): settle what a block asks of its neighbours in one pass over a flat list
+- refactor(docx): one notice code per loss, with its message, tallied in one place
+- refactor(docx): read sections, page numbers and strides once, outside the walk
+- refactor(docx): split lowering into a module per concern
+- refactor(docx): one item push and one assumed page setup in the reader
+- refactor(docx): build a nested scope's context from the default
+- refactor(docx): one raised test, and a node chain that borrows its kinds
+- refactor(docx): read the page of the block before in one place
+- refactor(docx): make every fixed-height paragraph with spacer
+- refactor(docx): map a layout number format to Word's in one place
+- refactor(docx): find a table's own cells in one place
+- test(docx): pin the lowered Word model of each case with a snapshot
+- feat(core): compare what a document meets moving between two quills (#2500)
+- fix(docx): a table gap that goes to the level above leaves later ones to settle
+- docs(docx): one line in a block with no paragraph break keeps a left indent
+- fix(docx): a content-sized column grows only by what its widest line lacks
+- fix(docx): a content-sized column has a twip per character to spare
+- fix(docx): a break to an odd or even page starts a section of that parity
+- fix(docx): form fields, in-flow columns and right-to-left text are reported
+- fix(docx): a hint around what it cannot apply to raises docx::hint_unchecked
+- fix(docx): a section that changes only its chrome mid-flow starts on the same page
+- fix(docx): a section with no header or footer writes an empty one
+- fix(docx): an anchor paragraph forces a page break only for a page with no flow
+- fix(docx): widow and orphan control is on for every paragraph
+- fix(docx): a paragraph Typst put at a page top keeps its siblings' space before
+- fix(docx): a one-line paragraph takes its indent kind from where Typst starts it
+- fix(docx): an equation is a picture, and a superscript joins its line
+- fix(docx): a content-sized column is as wide as its text set without kerning
+- fix(docx): two tables in a row keep the gap between them and stay two tables
+- fix(docx): an inline raw line stays in its paragraph
+- feat(docx): block quotes, captions, term lists and raw blocks as Word has them
+- docs(docx): the Word section says what the export does and what it does not yet
+- fix(docx): hyperlink targets are URIs, script links are plain text, and the test-only zip reader leaves the crate
+- fix(docx): a table's gap is to its first baseline, mirrored ink is a picture, notices once, internal links reported
+- fix(docx): a picture of ink is bounded by the page, and a failed one is reported
+- fix(typst): a failed session update leaves the Word export of the served document
+- fix(docx): an em size with no block around it resolves at the page's text size
+- fix(docx): the newline probe no longer keeps a space before a line break
+- fix(docx): the footnote rule is left to Word and never reaches a header
+- fix(docx): an outline's leader is its tagged repeat, and the number follows it
+- fix(docx): a page with no flow anchors its own objects
+- fix(docx): a section per page numbering, with the page number as a field
+- fix(docx): text no element tags is a paragraph per line, with a notice
+- fix(docx): a heading whose show rule breaks the page keeps its style
+- fix(docx): a block starts its own paragraph, and an align bracket aligns it
+- feat(docx): an outline is a TOC field holding the PDF's entries
+- feat(typst): quill hints for live numbering, roles, tabbed lines, chrome, keeps and faces
+- fix(docx): measure pitch, header distance, gutter, table edges and cell fields instead of assuming them
+- fix(docx): carry list formats, footnote numbers, forced breaks and pictured ink from Typst's own fields
+- feat(docx): lower the layout tree to Word paragraphs, lists, tables and chrome
+- feat(typst): read the probed compile into a layout tree
+- feat(typst): the Word export reads a probed second compile
+- feat(typst)!: Word export as the fourth output format
+- feat(docx): a typed Word model and its deterministic writer
+- perf(content): convert a narrow change on a narrow value without a run
+- fix(core): number YAML error lines as the document does
+- fix(typst): the helper's manifest declares Typst 0.15.0 (#2495)
+- Add an issue form for what Quill.yaml cannot declare (#2490)
+- docs: link the playground at play.quillmark.dev
+- refactor(core)!: ui.layout: flat, the retired spelling messages and the acroform legacy spec names are gone
+- fix(pdf): an acroform stamp renders on every valid tagged base
+- docs: state the four pre-1.0 promises in README Status
 
 ## v0.139.0 - 2026-11-15
 
