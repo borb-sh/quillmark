@@ -1963,7 +1963,7 @@ fn ui_layout_table_loads_on_a_typed_table_and_is_refused_elsewhere() {
 
 /// Declaring the key contracts that every column is a leaf, so the only decline
 /// left to a consumer is the capability one it alone can answer. The boundary is
-/// containment, not height: prose is a column whatever its `multiline`.
+/// containment, not height: prose is a column whatever its `shape`.
 #[test]
 fn a_table_column_is_a_leaf_and_a_container_column_is_refused() {
     quill_with_field(
