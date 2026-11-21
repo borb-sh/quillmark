@@ -11,7 +11,7 @@ section 0, next page
     cell 1,2
       P "C2" before=0 after=- line=299
     cell 2,0
-      P "" before=- after=- line=-
+      P "" before=0 after=0 line=20
     cell 2,1
       P "B3" before=0 after=- line=299
     cell 2,2
