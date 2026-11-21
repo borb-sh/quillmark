@@ -104,8 +104,8 @@ impl Code {
                  are locked against an update"
             ),
             Code::LabelMismatch => format!(
-                "{n} paragraph number(s) are not the number Word would count, so they stay as \
-                 printed text"
+                "{n} paragraph number(s) are not the number Word would count and print, so they \
+                 stay as printed text"
             ),
             Code::PageNumberFrozen => format!(
                 "{n} page(s) print their own number in a header or footer, but not as a pattern \

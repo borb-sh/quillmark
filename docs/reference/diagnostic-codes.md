@@ -237,7 +237,7 @@ A Word export. Each warns that the Word file carries less than the PDF shows; no
 - `docx::equation_text`: an equation that wraps across lines keeps its glyphs as text, set in their face and size, rather than being one picture.
 - `docx::font_not_embedded`: a font with no metric-compatible Word face and no `font` hint is named without being embedded, so Word substitutes another where it is not installed.
 - `docx::form_field_declined`: a form or signature field, which the PDF carries as a widget, is left out of the Word file.
-- `docx::label_mismatch`: a paragraph number a `label` hint marks is not the number Word would count, so it stays as printed text.
+- `docx::label_mismatch`: a paragraph number a `label` hint marks is not the number Word would count and print, so it stays as printed text.
 - `docx::link_internal`: a link goes to a place in the document rather than to a URL, so its text is kept without the link.
 - `docx::link_script`: a link's target is a `javascript:` URL, so its text is kept without the link.
 - `docx::list_marker_replaced`: a list's marker is not text, so its items carry a bullet, or its numbering is not a pattern Word can count, so its numbers are kept as printed.

@@ -6,7 +6,7 @@
 
 #let _fields = (
   list: (bracket: true, required: ("v", "levels"), allowed: ("v", "name", "levels")),
-  label: (bracket: true, required: ("level",), allowed: ("level", "value")),
+  label: (bracket: true, required: ("level",), allowed: ("level",)),
   role: (bracket: true, required: ("name",), allowed: ("name", "next")),
   layout: (bracket: true, required: ("form",), allowed: ("form",)),
   chrome: (bracket: true, required: (), allowed: ()),

@@ -1077,7 +1077,7 @@ fn first_on_second_page(quill: &quillmark_core::quill::Quill, texts: &[String]) 
 fn a_numbered_paragraph_at_a_page_top_keeps_its_siblings_space_before() {
     let body: String = (1..=16)
         .map(|i| {
-            format!("#hints.hint(\"label\", level: 1, value: {i})[{i}.#h(4pt)]Paragraph {i}.\n\n#v(8pt)\n\n")
+            format!("#hints.hint(\"label\", level: 1)[{i}.#h(4pt)]Paragraph {i}.\n\n#v(8pt)\n\n")
         })
         .collect();
     let quill = word::plain(&format!(
@@ -1208,7 +1208,7 @@ fn a_hint_on_what_it_cannot_apply_to_is_reported() {
         w.has("docx::hint_unchecked")
     };
     assert!(misused(
-        "#hints.hint(\"label\", level: 1, value: 1)[1.#h(4pt)]A label outside any list."
+        "#hints.hint(\"label\", level: 1)[1.#h(4pt)]A label outside any list."
     ));
     assert!(misused(
         "#hints.hint(\"layout\", form: \"tabbed\")[A paragraph, not a grid.]"
@@ -1220,7 +1220,7 @@ fn a_hint_on_what_it_cannot_apply_to_is_reported() {
         "#hints.hint(\"layout\", form: \"tabbed\")[#grid(columns: (auto, 1fr), [FROM:], [Here])]\n\
          #hints.hint(\"chrome\")[#place(top + right)[Mark]]\n\
          #hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n\
-         #hints.hint(\"label\", level: 1, value: 1)[1.#h(4pt)]In a list.\n]"
+         #hints.hint(\"label\", level: 1)[1.#h(4pt)]In a list.\n]"
     ));
 }
 

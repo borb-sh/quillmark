@@ -9,7 +9,8 @@ use crate::model::{
 };
 use crate::notice::Code;
 
-use super::sections::is_roman;
+use super::lists::{first_line, num_format};
+use super::sections::{is_roman, word_number};
 use super::space::{Entry, line_props};
 use super::styles::style_id;
 use super::{Ctx, Lower, hex, tw};
@@ -298,14 +299,17 @@ impl<'a> Lower<'a> {
         let label = self.label_in(n).filter(|_| opens);
         let mut numbered = None;
         if let (Some(lab), Some((scheme, num, first))) = (label, ctx.hint_list) {
-            if let NodeKind::Hint(BracketHint::Label { level, value }) = self.kind(lab).clone() {
+            if let NodeKind::Hint(BracketHint::Label { level }) = self.kind(lab).clone() {
                 let l = (level as usize - 1).min(8);
-                let counts = self.counters.entry(num).or_insert([0; 9]);
-                let next = counts[l] + 1;
-                if value.is_some_and(|v| v != next) {
+                let next = self.counters.get(&num).map_or(0, |c| c[l]) + 1;
+                let spec = &self.schemes[scheme].levels[l];
+                let word = word_number(next, num_format(spec.format)).unwrap_or_default();
+                let word = format!("{}{word}{}", spec.prefix, spec.suffix);
+                if spec.visible && word.trim() != self.text_of(lab).trim() {
                     self.tally.count(Code::LabelMismatch, "", 1);
                     props.numbering = None;
                 } else {
+                    let counts = self.counters.entry(num).or_insert([0; 9]);
                     counts[l] = next;
                     for d in counts.iter_mut().skip(l + 1) {
                         *d = 0;
@@ -328,21 +332,13 @@ impl<'a> Lower<'a> {
                     }
                 }
             }
-            let level = &self.schemes[scheme].levels[l];
+            let indent = self.level_indent(scheme, l, at);
             props.style = Some(format!("{}{}", style_id(&self.schemes[scheme].name), l + 1));
             props.numbering = (!first).then_some(NumRef {
                 level: l as u8,
                 num,
             });
-            props.indent = ((at - level.indent).abs() > 0.72).then(|| Indent {
-                left: Some(0),
-                right: None,
-                first: Some(if at >= 0.0 {
-                    FirstLine::Indent(tw(at))
-                } else {
-                    FirstLine::Hanging(tw(-at))
-                }),
-            });
+            props.indent = ((at - indent).abs() > 0.72).then(|| first_line(at));
         } else if props.style.is_none() {
             if let Some((name, next)) = self.role_of(n) {
                 let id = style_id(&name);
