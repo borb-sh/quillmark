@@ -189,7 +189,7 @@ jobs:
   # The verifying package build runs every dependency's build script and proc
   # macro, so it runs here, where no OIDC token can be minted: every Trusted
   # Publisher in this workflow (crates.io, npm, PyPI) accepts any token from the
-  # Publish environment.
+  # `publish` environment.
   verify-crates:
     needs: [prepare]
     runs-on: ubuntu-latest
@@ -249,7 +249,7 @@ jobs:
   publish-crates:
     needs: [prepare, verify-crates]
     runs-on: ubuntu-latest
-    environment: Publish
+    environment: publish
     permissions:
       id-token: write
       contents: read
@@ -283,7 +283,7 @@ jobs:
         # a pause.
         #
         # Each published crate needs its own crates.io Trusted Publisher (this
-        # repo + this workflow + the Publish environment). A crate missing one
+        # repo + this workflow + the `publish` environment). A crate missing one
         # 403s ("access token is not valid for crate <name>") when the ordered
         # publish reaches it, add the config on crates.io, then re-run.
         env:
@@ -328,7 +328,7 @@ jobs:
   # ──────────────────────────────────────────────
   # Three jobs. No npm dependency runs where an OIDC token can be minted: every
   # Trusted Publisher here (crates.io, npm, PyPI) accepts any token from this
-  # workflow in the Publish environment. None runs before the tarball is
+  # workflow in the `publish` environment. None runs before the tarball is
   # uploaded, or in a job that saves a cache.
   build-wasm:
     needs: [prepare]
@@ -463,7 +463,7 @@ jobs:
   publish-wasm:
     needs: [prepare, test-wasm]
     runs-on: ubuntu-latest
-    environment: Publish
+    environment: publish
     permissions:
       id-token: write
     steps:
@@ -707,7 +707,7 @@ jobs:
   publish-python:
     needs: [prepare, build-python-linux, build-python-windows, build-python-macos, build-python-sdist]
     runs-on: ubuntu-latest
-    environment: Publish
+    environment: publish
     permissions:
       id-token: write
     steps:
