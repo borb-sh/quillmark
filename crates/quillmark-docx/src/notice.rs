@@ -128,7 +128,7 @@ impl Code {
                  direction"
             ),
             Code::HintMisused => format!(
-                "{n} hint(s) mark what they cannot apply to: a label outside any list, a layout \
+                "{n} hint(s) mark what they cannot apply to: a label outside any list, tabbed \
                  around no grid, or chrome around no place, so the export ignores them"
             ),
             Code::FontNotEmbedded => format!(

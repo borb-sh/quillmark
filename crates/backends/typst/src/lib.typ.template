@@ -8,8 +8,8 @@
 // A plate imports it as a module, `#import "@local/quillmark-helper:{version}" as qm`,
 // and reads every member through that name: `qm.data`, `qm.ink(..)`.
 
-/// Word export hints, as `qm.hints.hint(..)`, `qm.hints.hint-point(..)` and
-/// `qm.hints.keep-with-next(..)`. Each emits only labelled metadata.
+/// Word export hints, one function per kind, as `qm.hints.list(..)`. Each
+/// emits only labelled metadata.
 #import "hints.typ"
 
 /// Backend-generated schema address tree (`fields` for the main card, `cards`

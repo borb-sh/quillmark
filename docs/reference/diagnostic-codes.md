@@ -242,7 +242,7 @@ A Word export. Each warns that the Word file carries less than the PDF shows; no
 - `docx::link_script`: a link's target is a `javascript:` URL, so its text is kept without the link.
 - `docx::list_marker_replaced`: a list's marker is not text, so its items carry a bullet, or its numbering is not a pattern Word can count, so its numbers are kept as printed.
 - `docx::margins_assumed`: a page carries no page probe, so its margins are taken as 1 in.
-- `docx::hint_unchecked`: a hint claims what the frames contradict, such as a tabbed grid whose cell before the last wraps, or marks what it cannot apply to: a `label` outside any `list`, a `layout` around no grid, or `chrome` around no place. The export does not take it.
+- `docx::hint_unchecked`: a hint claims what the frames contradict, such as a tabbed grid whose cell before the last wraps, or marks what it cannot apply to: a `label` outside any `list`, `tabbed` around no grid, or `chrome` around no place. The export does not take it.
 - `docx::hint_unclosed`: a hint bracket is still open where its element ends, so it closes there.
 - `docx::hint_unknown`: a hint names a kind the Word export does not know, so it is ignored.
 - `docx::ink_dropped`: text or an image that no paragraph, table, text box or picture holds is left out.

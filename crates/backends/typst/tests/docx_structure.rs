@@ -923,7 +923,7 @@ fn a_content_sized_column_with_room_past_its_text_keeps_its_width() {
 fn a_tabbed_label_has_room_for_its_unkerned_text() {
     let plate = "#set page(width: 612pt, height: 792pt, margin: 72pt)\n\
          #set text(font: \"TeX Gyre Termes\", size: 12pt)\n\
-         #qm.hints.hint(\"layout\", form: \"tabbed\")[#grid(columns: (auto, auto, 1fr), \
+         #qm.hints.tabbed[#grid(columns: (auto, auto, 1fr), \
          [SUBJECT:], [], [Annual Review of Every Office of Record in the Wing, with a \
          subject long enough to wrap under itself])]\n";
     let w = word::render_hosted(plate);
@@ -1076,13 +1076,11 @@ fn first_on_second_page(quill: &quillmark_core::quill::Quill, texts: &[String]) 
 #[test]
 fn a_numbered_paragraph_at_a_page_top_keeps_its_siblings_space_before() {
     let body: String = (1..=16)
-        .map(|i| {
-            format!("#hints.hint(\"label\", level: 1)[{i}.#h(4pt)]Paragraph {i}.\n\n#v(8pt)\n\n")
-        })
+        .map(|i| format!("#hints.label(1)[{i}.#h(4pt)]Paragraph {i}.\n\n#v(8pt)\n\n"))
         .collect();
     let quill = word::plain(&format!(
         "#let hints = qm.hints\n{PAGE}#set par(spacing: 6pt)\n\
-         #hints.hint(\"list\", levels: ((format: \"decimal\", suffix: \". \"),))[\n{body}]\n"
+         #hints.list(((format: \"decimal\", suffix: \". \"),))[\n{body}]\n"
     ));
     let texts: Vec<String> = (1..=16).map(|i| format!("Paragraph {i}.")).collect();
     let top = first_on_second_page(&quill, &texts);
@@ -1208,19 +1206,15 @@ fn a_hint_on_what_it_cannot_apply_to_is_reported() {
         w.has("docx::hint_unchecked")
     };
     assert!(misused(
-        "#hints.hint(\"label\", level: 1)[1.#h(4pt)]A label outside any list."
+        "#hints.label(1)[1.#h(4pt)]A label outside any list."
     ));
-    assert!(misused(
-        "#hints.hint(\"layout\", form: \"tabbed\")[A paragraph, not a grid.]"
-    ));
-    assert!(misused(
-        "#hints.hint(\"chrome\")[A paragraph, not a place.]"
-    ));
+    assert!(misused("#hints.tabbed[A paragraph, not a grid.]"));
+    assert!(misused("#hints.chrome[A paragraph, not a place.]"));
     assert!(!misused(
-        "#hints.hint(\"layout\", form: \"tabbed\")[#grid(columns: (auto, 1fr), [FROM:], [Here])]\n\
-         #hints.hint(\"chrome\")[#place(top + right)[Mark]]\n\
-         #hints.hint(\"list\", levels: ((format: \"decimal\", suffix: \". \"),))[\n\
-         #hints.hint(\"label\", level: 1)[1.#h(4pt)]In a list.\n]"
+        "#hints.tabbed[#grid(columns: (auto, 1fr), [FROM:], [Here])]\n\
+         #hints.chrome[#place(top + right)[Mark]]\n\
+         #hints.list(((format: \"decimal\", suffix: \". \"),))[\n\
+         #hints.label(1)[1.#h(4pt)]In a list.\n]"
     ));
 }
 
@@ -1288,7 +1282,7 @@ fn before(w: &word::Word, text: &str) -> word::Par {
 #[test]
 fn a_keep_or_a_tables_gap_in_a_list_or_contents_goes_to_the_block_right_before_it() {
     let w = render(&format!(
-        "{PAGE}Before.\n\n- one\n- #qm.hints.keep-with-next[two]\n- three\n\n  \
+        "{PAGE}Before.\n\n- one\n- two#qm.hints.keep()\n- three\n\n  \
          #table(columns: 1, [T1])\n  #table(columns: 1, [T2])\n- four\n"
     ));
     assert!(w.par("two").keep_next);
@@ -1313,7 +1307,7 @@ fn a_keep_or_a_tables_gap_in_a_list_or_contents_goes_to_the_block_right_before_i
 
 #[test]
 fn a_keep_opening_a_footnote_cell_or_text_box_keeps_nothing_outside_it() {
-    let keep = "#qm.hints.hint-point(\"keep\")";
+    let keep = "#qm.hints.keep()";
     let w = render(&format!(
         "{PAGE}First.\n\nSecond.#footnote[{keep}The note.]\n\n\
          #table(columns: 1, [A], [{keep}Cell text.])\n\n\
