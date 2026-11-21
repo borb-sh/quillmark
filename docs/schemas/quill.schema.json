@@ -377,10 +377,6 @@
             "blocks"
           ]
         },
-        "multiline": {
-          "description": "Legacy spelling of `shape`: `true` is `lines` on a `text` and `blocks` on a `richtext`.",
-          "type": "boolean"
-        },
         "max": {
           "description": "An array's element cap, or a text or richtext field's character cap.",
           "type": "integer",
@@ -614,8 +610,7 @@
           },
           "then": {
             "properties": {
-              "shape": false,
-              "multiline": false
+              "shape": false
             }
           }
         },

@@ -32,8 +32,8 @@ pub(crate) use resolved::resolve_document;
 pub use resolved::{FieldSource, Resolved, ResolvedCard, ResolvedField, ResolvedMain};
 pub use schema::{
     AUTHORING_KIND_KEY, CONTENT_MEDIA_TYPE, MARKDOWN_MEDIA_TYPE, QUILLMARK_MAX_ITEMS_KEY,
-    QUILLMARK_MAX_LENGTH_KEY, QUILLMARK_MULTILINE_KEY, QUILLMARK_ROSTER_KEY, QUILLMARK_SHAPE_KEY,
-    SchemaCodec, build_transform_schema,
+    QUILLMARK_MAX_LENGTH_KEY, QUILLMARK_ROSTER_KEY, QUILLMARK_SHAPE_KEY, SchemaCodec,
+    build_transform_schema,
 };
 pub use tree::FileTreeNode;
 pub use types::{

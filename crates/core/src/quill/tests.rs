@@ -1431,8 +1431,8 @@ fn enum_blank_ignores_a_declared_blank_member() {
 /// A declaration the field grammar does not admit, including the retired keys
 /// `must_fill`, `enum` and `ui.order` and the layout `flat`, which `deny_unknown_fields` refuses
 /// rather than a named arm, an unknown type, a shape outside the three, a
-/// `text` of blocks, a shape on a type that takes none, and a shape its legacy
-/// `multiline` contradicts.
+/// `text` of blocks, a shape on a type that takes none, and the retired
+/// `multiline:`.
 #[test]
 fn a_declaration_outside_the_field_grammar_is_a_field_parse_error() {
     for field in [
@@ -1441,7 +1441,7 @@ fn a_declaration_outside_the_field_grammar_is_a_field_parse_error() {
         "    f:\n      type: richtext\n      shape: paragraphs\n",
         "    f:\n      type: text\n      shape: blocks\n",
         "    f:\n      type: number\n      shape: lines\n",
-        "    f:\n      type: richtext\n      shape: line\n      multiline: true\n",
+        "    f:\n      type: richtext\n      multiline: true\n",
         "    f:\n      type: enum\n",
         "    f:\n      type: text\n      values: [a, b]\n",
         "    f:\n      type: text\n      must_fill: true\n",
@@ -1802,7 +1802,6 @@ fn a_shape_past_one_line_survives_the_declaration_wire() {
         let field = config.main.fields.get("subject").unwrap();
         let wire = serde_json::to_value(field).expect("serializes");
         assert_eq!(wire["shape"], shape, "{ty}: {wire}");
-        assert_eq!(wire["multiline"], true, "{ty}: {wire}");
         let back = quill_with_field(&format!(
             "    subject: {}\n",
             serde_json::to_string(&wire).unwrap()
@@ -1812,33 +1811,27 @@ fn a_shape_past_one_line_survives_the_declaration_wire() {
     }
     let line = quill_with_field("    subject:\n      type: richtext\n").expect("loads");
     let wire = serde_json::to_value(&line.main.fields["subject"]).unwrap();
-    assert!(
-        wire.get("shape").is_none() && wire.get("multiline").is_none(),
-        "{wire}"
-    );
+    assert!(wire.get("shape").is_none(), "{wire}");
 }
 
-/// The legacy `multiline:` reads as the shape it meant, and warns once for
-/// the quill.
+/// The retired `multiline:` fails the load with a hint naming `shape:`, on
+/// a field and on one nested in it.
 #[test]
-fn the_legacy_multiline_reads_as_the_shape_it_meant() {
-    use crate::quill::Shape;
-    let yaml = with_header(
-        "schema:\n  main:\n    fields:\n      a: { type: richtext, multiline: true }\n      \
-         b: { type: richtext, multiline: false }\n      c: { type: text, multiline: true }\n      \
-         d: { type: text, multiline: false }\n",
-    );
-    let (config, warnings) = QuillConfig::from_yaml_with_warnings(&yaml).expect("loads");
-    let shape = |name: &str| match config.main.fields[name].r#type {
-        FieldType::RichText { shape } | FieldType::Text { shape } => shape,
-        _ => unreachable!(),
-    };
-    assert_eq!(
-        ["a", "b", "c", "d"].map(shape),
-        [Shape::Blocks, Shape::Line, Shape::Lines, Shape::Line]
-    );
-    let codes: Vec<_> = warnings.iter().filter_map(|w| w.code.as_deref()).collect();
-    assert_eq!(codes, ["quill::deprecated_multiline"]);
+fn the_retired_multiline_points_at_shape() {
+    for field in [
+        "    f:\n      type: text\n      multiline: true\n",
+        "    f:\n      type: array\n      items: { type: richtext, multiline: false }\n",
+    ] {
+        let err = quill_with_field(field).expect_err(field);
+        let diag = err
+            .iter()
+            .find(|d| d.code.as_deref() == Some("quill::field_parse_error"))
+            .unwrap_or_else(|| panic!("{field}: {err:?}"));
+        assert!(
+            diag.hint.as_deref().is_some_and(|h| h.contains("shape:")),
+            "{field}: {diag:?}"
+        );
+    }
 }
 
 #[test]
@@ -1970,7 +1963,7 @@ fn ui_layout_table_loads_on_a_typed_table_and_is_refused_elsewhere() {
 
 /// Declaring the key contracts that every column is a leaf, so the only decline
 /// left to a consumer is the capability one it alone can answer. The boundary is
-/// containment, not height: prose is a column whatever its `multiline`.
+/// containment, not height: prose is a column whatever its `shape`.
 #[test]
 fn a_table_column_is_a_leaf_and_a_container_column_is_refused() {
     quill_with_field(

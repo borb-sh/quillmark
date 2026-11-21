@@ -587,7 +587,7 @@ pub const VARIANT_DISCRIMINANT_KEY: &str = "value";
 /// Schema definition for a template field.
 ///
 /// The text types' line shape and an `enum`'s domain each have **one**
-/// carrier, the [`FieldType`] payload. The wire's sibling `multiline:` and
+/// carrier, the [`FieldType`] payload. The wire's sibling `shape:` and
 /// `values:` keys fold into it at parse and the hand-written `Serialize`
 /// re-emits them from there, so neither can live in two places that disagree.
 ///
@@ -683,9 +683,6 @@ struct FieldSchemaDef {
     /// A `text` or `richtext` field's [`Shape`]. Lands in the
     /// [`FieldType::Text`] / [`FieldType::RichText`] payload.
     pub shape: Option<String>,
-    /// The legacy spelling of [`shape`](Self::shape): `false` is `line`, and
-    /// `true` is `lines` on a `text` and `blocks` on a `richtext`.
-    pub multiline: Option<bool>,
     /// An `array`'s element cap or a text field's character cap. Lands in
     /// [`FieldSchema::max`].
     pub max: Option<u32>,
@@ -784,7 +781,7 @@ impl FieldSchema {
         // The sole sync point for `shape:` and `values:`: past here the type
         // payload is each key's one carrier.
         let optional = def.r#type.optional;
-        let r#type = Self::resolve_text_shape(def.r#type.r#type, def.shape, def.multiline)?;
+        let r#type = Self::resolve_text_shape(def.r#type.r#type, def.shape)?;
         let r#type = Self::resolve_enum_domain(r#type, def.values)?;
         let r#type = Self::resolve_matrix_roster(r#type, def.members, def.open)?;
         let max = Self::resolve_max(&r#type, def.max)?;
@@ -1027,60 +1024,32 @@ impl FieldSchema {
         }
     }
 
-    /// Fold the sibling `shape:` key into a text type's payload, or its
-    /// legacy spelling `multiline:`. Every other type rejects both, here and
-    /// nowhere else.
-    fn resolve_text_shape(
-        r#type: FieldType,
-        shape: Option<String>,
-        multiline: Option<bool>,
-    ) -> Result<FieldType, String> {
+    /// Fold the sibling `shape:` key into a text type's payload. Every other
+    /// type rejects it, here and nowhere else.
+    fn resolve_text_shape(r#type: FieldType, shape: Option<String>) -> Result<FieldType, String> {
         let rich = match r#type {
             FieldType::RichText { .. } => true,
             FieldType::Text { .. } => false,
             other => {
-                return match (shape, multiline) {
-                    (None, None) => Ok(other),
-                    (Some(_), _) => Err(format!(
+                return match shape {
+                    None => Ok(other),
+                    Some(_) => Err(format!(
                         "shape: is only valid on type: text or type: richtext, not on type: {}",
-                        other.as_str()
-                    )),
-                    (None, Some(_)) => Err(format!(
-                        "multiline: is only valid on type: text or type: richtext, not on type: {}",
                         other.as_str()
                     )),
                 };
             }
         };
-        let legacy = multiline.map(|multiline| match (multiline, rich) {
-            (false, _) => Shape::Line,
-            (true, false) => Shape::Lines,
-            (true, true) => Shape::Blocks,
-        });
         let shape = match shape.as_deref() {
-            None => legacy.unwrap_or_default(),
-            Some(name) => {
-                let shape = match name {
-                    "line" => Shape::Line,
-                    "lines" => Shape::Lines,
-                    "blocks" => Shape::Blocks,
-                    other => {
-                        return Err(format!(
-                            "unknown shape '{other}': a text or richtext field's shape is \
-                             line, lines or blocks"
-                        ));
-                    }
-                };
-                // `schema()` emits both keys, so a pair that agrees on one
-                // line or more than one loads back.
-                if multiline.is_some_and(|multiline| multiline != (shape != Shape::Line)) {
-                    return Err(format!(
-                        "shape: {name} and multiline: {} disagree: drop multiline:, which \
-                         shape: replaces",
-                        multiline.unwrap_or_default()
-                    ));
-                }
-                shape
+            None => Shape::Line,
+            Some("line") => Shape::Line,
+            Some("lines") => Shape::Lines,
+            Some("blocks") => Shape::Blocks,
+            Some(other) => {
+                return Err(format!(
+                    "unknown shape '{other}': a text or richtext field's shape is \
+                     line, lines or blocks"
+                ));
             }
         };
         if rich {
@@ -1193,15 +1162,13 @@ impl FieldSchema {
 impl Serialize for FieldSchema {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
-        // `line` is the default and is not spelled. `multiline` is the
-        // legacy key a consumer that predates `shape` reads.
+        // `line` is the default and is not spelled.
         let shape = match self.r#type {
             FieldType::RichText { shape } | FieldType::Text { shape } if shape != Shape::Line => {
                 Some(shape)
             }
             _ => None,
         };
-        let multiline = shape.map(|_| true);
         let values = match &self.r#type {
             FieldType::Enum { values } => Some(values),
             _ => None,
@@ -1213,7 +1180,6 @@ impl Serialize for FieldSchema {
         let open = self.r#type.is_open_matrix().then_some(true);
         let len = 1
             + shape.is_some() as usize
-            + multiline.is_some() as usize
             + self.title.is_some() as usize
             + self.description.is_some() as usize
             + self.default.is_some() as usize
@@ -1227,8 +1193,8 @@ impl Serialize for FieldSchema {
             + self.items.is_some() as usize
             + self.max.is_some() as usize;
         // Key order is part of `QuillConfig::schema`'s ordering contract:
-        // `values` between `ui` and `variants`, `shape` and `multiline`
-        // trailing the block, both read off the type payload.
+        // `values` between `ui` and `variants`, `shape` trailing the block,
+        // both read off the type payload.
         let mut map = serializer.serialize_map(Some(len))?;
         if self.optional {
             map.serialize_entry("type", &format!("{}?", self.r#type.as_str()))?;
@@ -1273,9 +1239,6 @@ impl Serialize for FieldSchema {
         }
         if let Some(v) = shape {
             map.serialize_entry("shape", &v)?;
-        }
-        if let Some(v) = multiline {
-            map.serialize_entry("multiline", &v)?;
         }
         map.end()
     }

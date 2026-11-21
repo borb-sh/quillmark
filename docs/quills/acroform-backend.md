@@ -74,7 +74,6 @@ schema:
 
       headline:
         type: richtext
-        multiline: false
         default: ""
         description: "One-paragraph richtext bound to the Headline text field; lowered to plain text."
 ```

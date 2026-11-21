@@ -22,7 +22,7 @@ use crate::emit::{
 };
 use crate::families::Families;
 use quillmark_core::quill::{
-    CONTENT_MEDIA_TYPE, PLATE_PATH_KEY as PATH_KEY, QUILLMARK_MULTILINE_KEY, QUILLMARK_ROSTER_KEY,
+    CONTENT_MEDIA_TYPE, PLATE_PATH_KEY as PATH_KEY, QUILLMARK_ROSTER_KEY, QUILLMARK_SHAPE_KEY,
 };
 
 pub const HELPER_VERSION: &str = "0.2.0";
@@ -597,7 +597,7 @@ fn lowering(node: Option<&serde_json::Value>) -> Lower<'_> {
     let str_key = |key: &str| node.get(key).and_then(|v| v.as_str());
     if str_key("contentMediaType") == Some(CONTENT_MEDIA_TYPE) {
         return Lower::Content {
-            inline: node.get(QUILLMARK_MULTILINE_KEY).and_then(|v| v.as_bool()) != Some(true),
+            inline: str_key(QUILLMARK_SHAPE_KEY).is_none(),
         };
     }
     match str_key("format") {
@@ -805,7 +805,7 @@ mod tests {
         serde_json::json!({
             "type": "object",
             "contentMediaType": CONTENT_MEDIA_TYPE,
-            "quillmark:multiline": true
+            "quillmark:shape": "blocks"
         })
     }
 
@@ -834,7 +834,7 @@ mod tests {
         );
     }
 
-    /// An array field's elements lower against `items`, whose `quillmark:multiline` is absent.
+    /// An array field's elements lower against `items`, whose `quillmark:shape` is absent.
     #[test]
     fn inline_array_lowers_each_element_without_parbreak() {
         let meta = meta_from(serde_json::json!({ "properties": {
