@@ -4,15 +4,16 @@
 
 Upgrade path: [0.139 → 0.140](docs/migrations/0.139-to-0.140.md). Word is a
 fourth output format: `docx` renders any Typst quill, unchanged, as a Word file
-laid out by Word, with a `docx::` warning wherever it carries less than the PDF,
-and `qm.hints` lets a quill give Word live numbering, paragraph styles and font
-substitutes. The new `quillmark-docx` crate writes it. A quill declares `main`
-and each card kind as peers of one `schema:` block, and `quill.schema` is keyed
-by kind with no `card_kinds` level; a top-level `main:` or `card_kinds:` fails
-as `quill::unknown_section`. `ui.layout: flat` and the retired spellings fail to
-load, and an acroform quill reads its field spec from `Form.yaml` alone.
-
-### Commits since v0.139.0
+laid out by Word, with a `docx::` warning wherever it carries less than the
+PDF, and `qm.hints`, one function per hint kind, lets a quill give Word live
+numbering, paragraph styles, keeps and font substitutes; a label whose printed
+text is not the number Word counts stays text with `docx::label_mismatch`, and
+a hint value of the wrong type fails the compile. The new `quillmark-docx`
+crate writes it. A quill declares `main` and each card kind as peers of one
+`schema:` block, and `quill.schema` is keyed by kind with no `card_kinds`
+level; a top-level `main:` or `card_kinds:` fails as `quill::unknown_section`.
+`ui.layout: flat` and the retired spellings fail to load, and an acroform quill
+reads its field spec from `Form.yaml` alone.
 
 - refactor(typst): qm.hints is one function per hint kind
 - fix(typst): a hint value of the wrong type fails the compile, and a list hint states no version
@@ -22,8 +23,6 @@ load, and an acroform quill reads its field spec from `Form.yaml` alone.
 - fix(docx): an image inside a box in a line of text is placed
 - fix(docx): a ligature is measured as the letters Word sets, so a tight box or cell holds its line
 - fix(docx): a table row is as tall as Typst sets it, and an empty cell adds no height
-- docs(changelog): summarize 0.140 ahead of the release
-- docs(changelog): leave the docx fixes to their commit subjects
 - fix(docx): spacing Typst sets between runs is a space or a tab, and a stack's lines keep their breaks
 - fix(docx): letter spacing is carried as the run's character spacing
 - feat(docx): the Word file carries the language its text is set in
@@ -31,7 +30,6 @@ load, and an acroform quill reads its field spec from `Form.yaml` alone.
 - fix(docx): a "Page N of M" footer keeps its page field on the last page, and an unfielded page number is reported
 - test(docx): a document the probes would move is read without them
 - fix(docx): a page that sets its own foreground keeps its margins
-- refactor(core): drop Quill.compare, which no host reads
 - fix(docx): a label Word does not count keeps no list number of its own
 - test(docx): the hinted numbered_letter face raises no font_not_embedded
 - feat(docx): a hinted font with no Word clone is named as its alt
@@ -53,7 +51,6 @@ load, and an acroform quill reads its field spec from `Form.yaml` alone.
 - refactor(docx): map a layout number format to Word's in one place
 - refactor(docx): find a table's own cells in one place
 - test(docx): pin the lowered Word model of each case with a snapshot
-- feat(core): compare what a document meets moving between two quills (#2500)
 - fix(docx): a table gap that goes to the level above leaves later ones to settle
 - docs(docx): one line in a block with no paragraph break keeps a left indent
 - fix(docx): a content-sized column grows only by what its widest line lacks
