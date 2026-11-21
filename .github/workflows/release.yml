@@ -33,7 +33,12 @@ jobs:
   # Only runs when a release PR (release/vX.Y.Z) is merged to main.
   # ──────────────────────────────────────────────
   prepare:
-    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v')
+    # The head repository check keeps a fork's branch named `release/v…` from
+    # cutting a release when it merges.
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release/v')
     runs-on: ubuntu-latest
     permissions:
       # The tag and the GitHub Release, and the whole of what either needs. A tag
@@ -179,19 +184,22 @@ jobs:
             || echo "::warning::could not dispatch Docs for ${TAG}; the site stays at the previous release until Docs is dispatched from the Actions tab."
 
   # ──────────────────────────────────────────────
-  # Publish: Rust crates → crates.io
+  # Verify, then publish: Rust crates → crates.io
   # ──────────────────────────────────────────────
-  publish-crates:
+  # The verifying package build runs every dependency's build script and proc
+  # macro, so it runs here, where no OIDC token can be minted: every Trusted
+  # Publisher in this workflow (crates.io, npm, PyPI) accepts any token from the
+  # Publish environment.
+  verify-crates:
     needs: [prepare]
     runs-on: ubuntu-latest
-    environment: Publish
     permissions:
-      id-token: write
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: v${{ needs.prepare.outputs.version }}
+          persist-credentials: false
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
@@ -204,9 +212,7 @@ jobs:
       # Both checks answer a question only the tag can ask, at the last moment
       # the answer is still free: a failure here leaves a tag with no upload
       # behind it, where a failure after the first `cargo publish` leaves a
-      # crates.io version that can never be replaced. Ahead of the token mint
-      # because packaging seven crates takes minutes and a Trusted Publishing
-      # token expires 30 minutes after issue.
+      # crates.io version that can never be replaced.
       #
       # `cargo package` (verifying, unlike the `--no-verify` publish below)
       # builds every crate from its own archive, so a file the build needs but
@@ -238,6 +244,25 @@ jobs:
             done
           done
           exit $status
+
+  # `--no-verify` builds nothing, so no dependency code runs beside the token.
+  publish-crates:
+    needs: [prepare, verify-crates]
+    runs-on: ubuntu-latest
+    environment: Publish
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v${{ needs.prepare.outputs.version }}
+          persist-credentials: false
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
 
       - name: Authenticate with crates.io (Trusted Publishing)
         id: crates-auth
@@ -312,6 +337,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: v${{ needs.prepare.outputs.version }}
+          persist-credentials: false
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
@@ -403,6 +429,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: v${{ needs.prepare.outputs.version }}
+          persist-credentials: false
 
       - name: Download the npm tarball
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -592,6 +619,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: v${{ needs.prepare.outputs.version }}
+          persist-credentials: false
 
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -615,6 +643,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: v${{ needs.prepare.outputs.version }}
+          persist-credentials: false
 
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -637,6 +666,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: v${{ needs.prepare.outputs.version }}
+          persist-credentials: false
 
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -659,6 +689,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: v${{ needs.prepare.outputs.version }}
+          persist-credentials: false
 
       - name: Build sdist
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -680,11 +711,36 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - name: Download artifacts
+      # Each artifact by its exact name: a pattern would also take one any other
+      # job in the run uploaded under a matching name.
+      - name: Download wheels-linux-x86_64
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: wheels-*
-          merge-multiple: true
+          name: wheels-linux-x86_64
+          path: dist/
+
+      - name: Download wheels-linux-aarch64
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheels-linux-aarch64
+          path: dist/
+
+      - name: Download wheels-windows-x64
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheels-windows-x64
+          path: dist/
+
+      - name: Download wheels-macos-aarch64
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheels-macos-aarch64
+          path: dist/
+
+      - name: Download wheels-sdist
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheels-sdist
           path: dist/
 
       - name: Publish to PyPI (Trusted Publishing)
