@@ -18,7 +18,7 @@
   (format: "lower-letter", suffix: ".  ", indent: 18pt),
 )
 
-#hints.hint("list", v: 1, name: "Letter Paragraph", levels: levels)[
+#hints.hint("list", name: "Letter Paragraph", levels: levels)[
   #hints.hint("role", name: "Letter Body")[
     #hints.hint("label", level: 1)[1.#h(1em)]The first paragraph is long enough that it wraps onto a second line, so its number has text after it on both lines of the page.
 

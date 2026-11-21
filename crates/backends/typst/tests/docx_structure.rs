@@ -1082,7 +1082,7 @@ fn a_numbered_paragraph_at_a_page_top_keeps_its_siblings_space_before() {
         .collect();
     let quill = word::plain(&format!(
         "#let hints = qm.hints\n{PAGE}#set par(spacing: 6pt)\n\
-         #hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n{body}]\n"
+         #hints.hint(\"list\", levels: ((format: \"decimal\", suffix: \". \"),))[\n{body}]\n"
     ));
     let texts: Vec<String> = (1..=16).map(|i| format!("Paragraph {i}.")).collect();
     let top = first_on_second_page(&quill, &texts);
@@ -1219,7 +1219,7 @@ fn a_hint_on_what_it_cannot_apply_to_is_reported() {
     assert!(!misused(
         "#hints.hint(\"layout\", form: \"tabbed\")[#grid(columns: (auto, 1fr), [FROM:], [Here])]\n\
          #hints.hint(\"chrome\")[#place(top + right)[Mark]]\n\
-         #hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n\
+         #hints.hint(\"list\", levels: ((format: \"decimal\", suffix: \". \"),))[\n\
          #hints.hint(\"label\", level: 1)[1.#h(4pt)]In a list.\n]"
     ));
 }

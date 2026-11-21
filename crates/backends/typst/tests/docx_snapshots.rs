@@ -454,7 +454,7 @@ plates! {
     );
     plate numbered_paragraphs_across_pages: format!(
         "#let hints = qm.hints\n{PAGE}#set par(spacing: 6pt)\n\
-         #hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n{}]\n",
+         #hints.hint(\"list\", levels: ((format: \"decimal\", suffix: \". \"),))[\n{}]\n",
         (1..=16)
             .map(|i| format!(
                 "#hints.hint(\"label\", level: 1)[{i}.#h(4pt)]Paragraph {i}.\n\n#v(8pt)\n\n"
@@ -490,7 +490,7 @@ plates! {
         "#let hints = qm.hints\n{PAGE}\
          #hints.hint(\"layout\", form: \"tabbed\")[#grid(columns: (auto, 1fr), [FROM:], [Here])]\n\
          #hints.hint(\"chrome\")[#place(top + right)[Mark]]\n\
-         #hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n\
+         #hints.hint(\"list\", levels: ((format: \"decimal\", suffix: \". \"),))[\n\
          #hints.hint(\"label\", level: 1)[1.#h(4pt)]In a list.\n]\n"
     );
     plate form_fields: format!(
@@ -529,7 +529,7 @@ plates! {
     );
     plate label_the_count_does_not_reach: format!(
         "#let hints = qm.hints\n{PAGE}\
-         #hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n\
+         #hints.hint(\"list\", levels: ((format: \"decimal\", suffix: \". \"),))[\n\
          #hints.hint(\"label\", level: 1)[3.#h(4pt)]Third, but first.\n]\n"
     );
     plate unknown_and_open_hints: format!(

@@ -1,21 +1,38 @@
 // Word export hints. Each one emits only labelled metadata, so the PDF does
-// not change. A misspelt kind, edge or field fails the compile with a message.
+// not change. A misspelt kind or field, or a value of the wrong type, fails the
+// compile with a message.
 //
 // A quill package that must stay publishable without Quillmark vendors this
 // file unchanged.
 
 #let _fields = (
-  list: (bracket: true, required: ("v", "levels"), allowed: ("v", "name", "levels")),
-  label: (bracket: true, required: ("level",), allowed: ("level",)),
-  role: (bracket: true, required: ("name",), allowed: ("name", "next")),
-  layout: (bracket: true, required: ("form",), allowed: ("form",)),
-  chrome: (bracket: true, required: (), allowed: ()),
-  keep: (bracket: false, required: (), allowed: ()),
-  font: (bracket: false, required: ("family", "alt"), allowed: ("family", "alt")),
+  list: (bracket: true, required: ("levels",), fields: (name: str, levels: array)),
+  label: (bracket: true, required: ("level",), fields: (level: int)),
+  role: (bracket: true, required: ("name",), fields: (name: str, next: str)),
+  layout: (bracket: true, required: ("form",), fields: (form: str)),
+  chrome: (bracket: true, required: (), fields: (:)),
+  keep: (bracket: false, required: (), fields: (:)),
+  font: (bracket: false, required: ("family", "alt"), fields: (family: str, alt: str)),
 )
 
-#let _level-fields = ("format", "prefix", "suffix", "underline", "visible", "indent")
+#let _level-fields = (
+  format: str,
+  prefix: str,
+  suffix: str,
+  underline: bool,
+  visible: bool,
+  indent: length,
+)
 #let _formats = ("decimal", "lower-letter", "upper-letter", "lower-roman", "upper-roman")
+
+#let _typed(what, fields, data) = {
+  for (key, value) in data {
+    assert(key in fields, message: what + ": unknown field " + repr(key))
+    let want = fields.at(key)
+    assert(type(value) == want,
+      message: what + ": " + key + " must be " + repr(want) + ", got " + repr(type(value)))
+  }
+}
 
 #let _check(kind, data, bracket) = {
   assert(type(kind) == str and kind in _fields,
@@ -23,26 +40,22 @@
   let spec = _fields.at(kind)
   assert(spec.bracket == bracket,
     message: "hint: " + kind + " is a " + if spec.bracket { "bracket; use hint" } else { "point; use hint-point" })
-  for key in data.keys() {
-    assert(key in spec.allowed, message: "hint " + kind + ": unknown field " + repr(key))
-  }
+  _typed("hint " + kind, spec.fields, data)
   for key in spec.required {
     assert(key in data, message: "hint " + kind + ": missing field " + repr(key))
   }
   if kind == "list" {
-    assert(data.v == 1, message: "hint list: v must be 1")
-    assert(type(data.levels) == array and data.levels.len() > 0,
-      message: "hint list: levels must be a non-empty array")
+    assert(data.levels.len() > 0, message: "hint list: levels must be a non-empty array")
     for level in data.levels {
-      for key in level.keys() {
-        assert(key in _level-fields, message: "hint list: unknown level field " + repr(key))
-      }
+      assert(type(level) == dictionary,
+        message: "hint list: a level must be a dictionary, got " + repr(type(level)))
+      _typed("hint list level", _level-fields, level)
       assert(level.at("format", default: "decimal") in _formats,
         message: "hint list: format must be one of " + _formats.join(", "))
     }
   }
   if kind == "label" {
-    assert(type(data.level) == int and data.level >= 1 and data.level <= 9,
+    assert(data.level >= 1 and data.level <= 9,
       message: "hint label: level must be an integer from 1 to 9")
   }
   if kind == "layout" {
