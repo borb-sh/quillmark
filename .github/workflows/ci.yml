@@ -36,7 +36,7 @@ env:
 #
 # A gate whose verdict matters only at the tag belongs in release.yml: packaging
 # each crate from its own archive and the license-text assert run in
-# `publish-crates`, the last point a failure still costs nothing.
+# `verify-crates`, the last point a failure still costs nothing.
 #
 # A gate reading a file the diff rarely touches earns its runner elsewhere.
 # Dependabot alerts watch Cargo.lock continuously, quiet weeks included, and what
