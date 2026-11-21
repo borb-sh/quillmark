@@ -435,7 +435,7 @@ const HINTS: &str = "#let hints = qm.hints\n#set page(width: 300pt, height: 300p
 fn a_label_that_is_not_what_word_would_print_stays_printed_and_is_reported() {
     for (suffix, label) in [(". ", "3."), (") ", "1.")] {
         let (parts, codes) = render(&format!(
-            "{HINTS}#hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \"{suffix}\"),))[\n\
+            "{HINTS}#hints.hint(\"list\", levels: ((format: \"decimal\", suffix: \"{suffix}\"),))[\n\
              #hints.hint(\"label\", level: 1)[{label}#h(4pt)]Printed.\n]\n"
         ));
         let xml = part(&parts, "word/document.xml");
@@ -456,7 +456,7 @@ fn a_label_that_is_not_what_word_would_print_stays_printed_and_is_reported() {
 #[test]
 fn a_level_with_no_indent_takes_its_first_labels_place() {
     let (parts, _) = render(&format!(
-        "{HINTS}#hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n\
+        "{HINTS}#hints.hint(\"list\", levels: ((format: \"decimal\", suffix: \". \"),))[\n\
          #h(36pt)#hints.hint(\"label\", level: 1)[1.#h(4pt)]Indented.\n]\n"
     ));
     let numbering = part(&parts, "word/numbering.xml");
@@ -468,7 +468,7 @@ fn a_level_with_no_indent_takes_its_first_labels_place() {
 #[test]
 fn a_printed_label_in_a_drawn_enum_is_not_numbered_twice() {
     let (parts, codes) = render(&format!(
-        "{HINTS}#show enum: it => hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),), {{\n\
+        "{HINTS}#show enum: it => hints.hint(\"list\", levels: ((format: \"decimal\", suffix: \". \"),), {{\n\
          for item in it.children {{ block[#hints.hint(\"label\", level: 1)[#(if it.start == auto {{ 1 }} else {{ it.start }}).#h(4pt)]#item.body] }}\n\
          }})\n\
          + First.\n\nBetween.\n\n#enum(start: 3)[Third.]\n"
@@ -512,20 +512,30 @@ fn an_unknown_hint_and_one_left_open_are_reported_and_cost_only_their_paragraph(
 }
 
 #[test]
-fn a_misspelt_hint_fails_the_compile_with_its_message() {
-    let plate = format!(
-        "#import \"@local/quillmark-helper:0.2.0\" as qm\n{HINTS}#qm.hints.hint(\"role\", nme: \"X\")[text]\n"
-    );
-    let quill = common::quill_with_plate(&common::yaml(""), &plate);
-    let err = TypstBackend::default()
-        .open(&quill, &json!({}), common::test_date())
-        .and_then(|s| s.render(&RenderOptions::default().with_output_format(OutputFormat::Pdf)))
-        .err()
-        .expect("a compile error");
-    assert!(
-        format!("{err:?}").contains("hint role: unknown field \\\"nme\\\""),
-        "{err:?}"
-    );
+fn a_misspelt_or_mistyped_hint_fails_the_compile_with_its_message() {
+    for (hint, message) in [
+        (
+            "#qm.hints.hint(\"role\", nme: \"X\")[text]",
+            "hint role: unknown field \\\"nme\\\"",
+        ),
+        (
+            "#qm.hints.hint(\"list\", levels: ((suffix: [.]),))[text]",
+            "hint list level: suffix must be str, got content",
+        ),
+        (
+            "#qm.hints.hint-point(\"font\", family: \"A\", alt: 3)",
+            "hint font: alt must be str, got int",
+        ),
+    ] {
+        let plate = format!("#import \"@local/quillmark-helper:0.2.0\" as qm\n{HINTS}{hint}\n");
+        let quill = common::quill_with_plate(&common::yaml(""), &plate);
+        let err = TypstBackend::default()
+            .open(&quill, &json!({}), common::test_date())
+            .and_then(|s| s.render(&RenderOptions::default().with_output_format(OutputFormat::Pdf)))
+            .err()
+            .expect("a compile error");
+        assert!(format!("{err:?}").contains(message), "{hint}: {err:?}");
+    }
 }
 
 #[test]

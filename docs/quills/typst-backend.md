@@ -522,11 +522,11 @@ What is known to differ, with no warning:
 
 #### Hints
 
-A quill states what its frames cannot show with `qm.hints`. A hint emits only labelled metadata, so the PDF is unchanged, and a misspelt kind or field fails the compile. A bracket closes under the element it opens in; one left open raises `docx::hint_unclosed` and costs that element only. A hint around what it cannot apply to (a `label` outside any `list`, a `layout` around no grid, `chrome` around no place) raises `docx::hint_unchecked` and is ignored.
+A quill states what its frames cannot show with `qm.hints`. A hint emits only labelled metadata, so the PDF is unchanged, and a misspelt kind or field, or a value of the wrong type, fails the compile. A bracket closes under the element it opens in; one left open raises `docx::hint_unclosed` and costs that element only. A hint around what it cannot apply to (a `label` outside any `list`, a `layout` around no grid, `chrome` around no place) raises `docx::hint_unchecked` and is ignored.
 
 ```typst
 #let hints = qm.hints
-#hints.hint("list", v: 1, name: "Letter Paragraph", levels: (
+#hints.hint("list", name: "Letter Paragraph", levels: (
   (format: "decimal", suffix: ".  "),
   (format: "lower-letter", suffix: ".  ", indent: 18pt),
 ))[
@@ -536,7 +536,7 @@ A quill states what its frames cannot show with `qm.hints`. A hint emits only la
 
 | Hint | Form | Data | Word gets |
 |---|---|---|---|
-| `list` | bracket around one list | `v: 1`, `name`, `levels`: per level `format`, `prefix`, `suffix`, `underline`, `visible`, `indent` | a multilevel numbering and one paragraph style per level; a level with no `indent` takes the place of its first label, so `indent` matters only for a level the document does not print |
+| `list` | bracket around one list | `name`, `levels`: per level `format`, `prefix`, `suffix`, `underline`, `visible`, `indent` | a multilevel numbering and one paragraph style per level; a level with no `indent` takes the place of its first label, so `indent` matters only for a level the document does not print |
 | `label` | bracket around a printed number and the space after it | `level` | the paragraph numbered live; a label whose text is not the level's `prefix`, the number Word counts and `suffix` stays printed text with `docx::label_mismatch` |
 | `role` | bracket around paragraphs | `name`, `next` | a paragraph style of that name |
 | `layout` | bracket around a grid | `form: "tabbed"` | each row as one paragraph of label, tab and text |
