@@ -40,19 +40,6 @@ use sections::{Pages, fill_inherited};
 use space::{Entry, Hold, Placed, Prev, Strides, drop_opening_break};
 use tables::tabbed_hint;
 
-pub const CODE_FONT_NOT_EMBEDDED: &str = Code::FontNotEmbedded.as_str();
-pub const CODE_PLACE_ANCHORED: &str = Code::PlaceAnchored.as_str();
-pub const CODE_SHAPE_DROPPED: &str = Code::ShapeDropped.as_str();
-pub const CODE_INK_DROPPED: &str = Code::InkDropped.as_str();
-pub const CODE_LABEL_MISMATCH: &str = Code::LabelMismatch.as_str();
-pub const CODE_TOC_FROZEN: &str = Code::TocFrozen.as_str();
-pub const CODE_HINT_UNCHECKED: &str = Code::HintMisused.as_str();
-pub const CODE_COLUMNS_FLATTENED: &str = Code::ColumnsFlattened.as_str();
-pub const CODE_DIRECTION_DROPPED: &str = Code::DirectionDropped.as_str();
-pub const CODE_UNSTRUCTURED_TEXT: &str = Code::UnstructuredText.as_str();
-pub const CODE_PAGE_NUMBER_FROZEN: &str = Code::PageNumberFrozen.as_str();
-pub const CODE_LINK_SCRIPT: &str = Code::LinkScript.as_str();
-
 fn tw(pt: f64) -> Twips {
     (pt * 20.0).round() as Twips
 }
