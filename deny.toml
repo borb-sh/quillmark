@@ -1,0 +1,12 @@
+# `cargo deny check advisories`, run by `.github/workflows/audit.yml`. Only the
+# advisories check is configured; licenses and sources are not checked here.
+
+[advisories]
+# An unmaintained crate fails the check only when a workspace crate depends on
+# it directly; the rest arrive through the Typst toolchain, which picks them.
+unmaintained = "workspace"
+ignore = [
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml comes through Typst (citationberg, plist) and parses only a quill's own CSL and syntax files, which the threat model trusts; the fix needs a Typst release on quick-xml 0.41" },
+    { id = "RUSTSEC-2026-0195", reason = "as RUSTSEC-2026-0194" },
+    { id = "RUSTSEC-2026-0486", reason = "rustix is a dev-only dependency through tempfile, which calls none of the affected xattr functions" },
+]
