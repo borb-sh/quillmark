@@ -115,9 +115,6 @@ export interface QuillFieldSchema {
      *  `richtext` only, admits lists, headings, quotes, code, rules and
      *  tables too. */
     shape?: "lines" | "blocks";
-    /** `true` beside every `shape`: the legacy spelling of "more than one
-     *  line". Read `shape`. */
-    multiline?: boolean;
 }
 
 /** Schema entry for the main card or a named card kind. */

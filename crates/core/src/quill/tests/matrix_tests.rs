@@ -545,9 +545,7 @@ fn a_members_cells_are_addressable() {
         "{item}"
     );
     assert!(
-        item["properties"]["title"]
-            .get("quillmark:multiline")
-            .is_none(),
+        item["properties"]["title"].get("quillmark:shape").is_none(),
         "{item}"
     );
     assert!(

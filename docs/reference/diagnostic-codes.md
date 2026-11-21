@@ -71,7 +71,6 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::default_over_max`
 - `quill::default_type_mismatch`
 - `quill::deprecated_groups`
-- `quill::deprecated_multiline`
 - `quill::deprecated_license`
 - `quill::duplicate_group`
 - `quill::empty_description`
