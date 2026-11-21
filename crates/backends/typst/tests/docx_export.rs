@@ -432,30 +432,44 @@ fn hints_number_paragraphs_live_and_name_their_roles_tabs_chrome_keep_and_font()
 const HINTS: &str = "#let hints = qm.hints\n#set page(width: 300pt, height: 300pt, margin: 30pt)\n";
 
 #[test]
-fn a_label_the_count_does_not_reach_stays_printed_and_is_reported() {
-    let (parts, codes) = render(&format!(
+fn a_label_that_is_not_what_word_would_print_stays_printed_and_is_reported() {
+    for (suffix, label) in [(". ", "3."), (") ", "1.")] {
+        let (parts, codes) = render(&format!(
+            "{HINTS}#hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \"{suffix}\"),))[\n\
+             #hints.hint(\"label\", level: 1)[{label}#h(4pt)]Printed.\n]\n"
+        ));
+        let xml = part(&parts, "word/document.xml");
+        let texts: Vec<String> = paragraphs(&xml).into_iter().map(|p| p.0).collect();
+        assert!(
+            texts
+                .iter()
+                .any(|t| t.starts_with(label) && t.ends_with("Printed.")),
+            "{texts:?}"
+        );
+        assert!(
+            codes.iter().any(|c| c == "docx::label_mismatch"),
+            "{codes:?}"
+        );
+    }
+}
+
+#[test]
+fn a_level_with_no_indent_takes_its_first_labels_place() {
+    let (parts, _) = render(&format!(
         "{HINTS}#hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n\
-         #hints.hint(\"label\", level: 1, value: 3)[3.#h(4pt)]Third, but first.\n]\n"
+         #h(36pt)#hints.hint(\"label\", level: 1)[1.#h(4pt)]Indented.\n]\n"
     ));
+    let numbering = part(&parts, "word/numbering.xml");
+    assert!(numbering.contains("w:firstLine=\"720\""), "{numbering}");
     let xml = part(&parts, "word/document.xml");
-    let texts: Vec<String> = paragraphs(&xml).into_iter().map(|p| p.0).collect();
-    assert!(
-        texts
-            .iter()
-            .any(|t| t.starts_with("3.") && t.ends_with("Third, but first.")),
-        "{texts:?}"
-    );
-    assert!(
-        codes.iter().any(|c| c == "docx::label_mismatch"),
-        "{codes:?}"
-    );
+    assert!(!xml.contains("<w:ind "), "the level carries it: {xml}");
 }
 
 #[test]
 fn a_printed_label_in_a_drawn_enum_is_not_numbered_twice() {
     let (parts, codes) = render(&format!(
         "{HINTS}#show enum: it => hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),), {{\n\
-         for item in it.children {{ block[#hints.hint(\"label\", level: 1, value: it.start)[#it.start.#h(4pt)]#item.body] }}\n\
+         for item in it.children {{ block[#hints.hint(\"label\", level: 1)[#(if it.start == auto {{ 1 }} else {{ it.start }}).#h(4pt)]#item.body] }}\n\
          }})\n\
          + First.\n\nBetween.\n\n#enum(start: 3)[Third.]\n"
     ));

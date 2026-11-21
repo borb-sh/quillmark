@@ -20,11 +20,11 @@
 
 #hints.hint("list", v: 1, name: "Letter Paragraph", levels: levels)[
   #hints.hint("role", name: "Letter Body")[
-    #hints.hint("label", level: 1, value: 1)[1.#h(1em)]The first paragraph is long enough that it wraps onto a second line, so its number has text after it on both lines of the page.
+    #hints.hint("label", level: 1)[1.#h(1em)]The first paragraph is long enough that it wraps onto a second line, so its number has text after it on both lines of the page.
 
-    #h(18pt)#hints.hint("label", level: 2, value: 1)[a.#h(1em)]A sub-paragraph sits under its parent's text.
+    #h(18pt)#hints.hint("label", level: 2)[a.#h(1em)]A sub-paragraph sits under its parent's text.
 
-    #hints.hint("label", level: 1, value: 2)[2.#h(1em)]The second paragraph is the last one.
+    #hints.hint("label", level: 1)[2.#h(1em)]The second paragraph is the last one.
   ]
 ]
 
