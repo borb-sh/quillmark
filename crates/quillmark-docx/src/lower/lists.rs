@@ -15,6 +15,19 @@ pub(super) struct Scheme {
     pub(super) levels: Vec<HintLevel>,
 }
 
+/// A paragraph indent whose first line starts `at` from the column's edge.
+pub(super) fn first_line(at: f64) -> Indent {
+    Indent {
+        left: Some(0),
+        right: None,
+        first: Some(if at >= 0.0 {
+            FirstLine::Indent(tw(at))
+        } else {
+            FirstLine::Hanging(tw(-at))
+        }),
+    }
+}
+
 pub(super) fn num_format(f: NumberFormat) -> NumFormat {
     match f {
         NumberFormat::Decimal => NumFormat::Decimal,
@@ -77,22 +90,14 @@ impl<'a> Lower<'a> {
                         suffix: ".".into(),
                         underline: false,
                         visible: true,
-                        indent: 0.0,
+                        indent: None,
                     })
             })
             .collect();
         let id = style_id(name);
         let mut word = Vec::new();
         for (i, l) in levels.iter().enumerate() {
-            let indent = Indent {
-                left: Some(0),
-                right: None,
-                first: Some(if l.indent >= 0.0 {
-                    FirstLine::Indent(tw(l.indent))
-                } else {
-                    FirstLine::Hanging(tw(-l.indent))
-                }),
-            };
+            let indent = first_line(l.indent.unwrap_or(0.0));
             let style = format!("{id}{}", i + 1);
             word.push(Level {
                 start: 1,
@@ -346,6 +351,23 @@ impl<'a> Lower<'a> {
         labels.sort();
         bodies.sort();
         (labels, bodies)
+    }
+
+    /// Level `l`'s indent in `scheme`; a level with none takes `at`, the
+    /// first label printed at it, for its level and style.
+    pub(super) fn level_indent(&mut self, scheme: usize, l: usize, at: f64) -> f64 {
+        let s = &mut self.schemes[scheme];
+        if let Some(indent) = s.levels[l].indent {
+            return indent;
+        }
+        s.levels[l].indent = Some(at);
+        let style = format!("{}{}", style_id(&s.name), l + 1);
+        let abstract_id = s.abstract_id as usize;
+        self.numbering.abstracts[abstract_id].levels[l].indent = first_line(at);
+        if let Some(st) = self.extra_styles.iter_mut().find(|st| st.id == style) {
+            st.par.indent = Some(first_line(at));
+        }
+        at
     }
 
     pub(super) fn text_of(&self, n: NodeId) -> String {

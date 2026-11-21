@@ -530,14 +530,14 @@ A quill states what its frames cannot show with `qm.hints`. A hint emits only la
   (format: "decimal", suffix: ".  "),
   (format: "lower-letter", suffix: ".  ", indent: 18pt),
 ))[
-  #hints.hint("label", level: 1, value: 1)[1.#h(1em)]The first paragraph.
+  #hints.hint("label", level: 1)[1.#h(1em)]The first paragraph.
 ]
 ```
 
 | Hint | Form | Data | Word gets |
 |---|---|---|---|
-| `list` | bracket around one list | `v: 1`, `name`, `levels`: per level `format`, `prefix`, `suffix`, `underline`, `visible`, `indent` | a multilevel numbering and one paragraph style per level |
-| `label` | bracket around a printed number and the space after it | `level`, `value` | the paragraph numbered live; a `value` Word would not count stays printed text with `docx::label_mismatch` |
+| `list` | bracket around one list | `v: 1`, `name`, `levels`: per level `format`, `prefix`, `suffix`, `underline`, `visible`, `indent` | a multilevel numbering and one paragraph style per level; a level with no `indent` takes the place of its first label, so `indent` matters only for a level the document does not print |
+| `label` | bracket around a printed number and the space after it | `level` | the paragraph numbered live; a label whose text is not the level's `prefix`, the number Word counts and `suffix` stays printed text with `docx::label_mismatch` |
 | `role` | bracket around paragraphs | `name`, `next` | a paragraph style of that name |
 | `layout` | bracket around a grid | `form: "tabbed"` | each row as one paragraph of label, tab and text |
 | `chrome` | bracket around a `place` | none | the placed object in the page header, or the footer for a `place` aligned to the bottom |

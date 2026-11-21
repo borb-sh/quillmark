@@ -457,7 +457,7 @@ plates! {
          #hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n{}]\n",
         (1..=16)
             .map(|i| format!(
-                "#hints.hint(\"label\", level: 1, value: {i})[{i}.#h(4pt)]Paragraph {i}.\n\n#v(8pt)\n\n"
+                "#hints.hint(\"label\", level: 1)[{i}.#h(4pt)]Paragraph {i}.\n\n#v(8pt)\n\n"
             ))
             .collect::<String>()
     );
@@ -482,7 +482,7 @@ plates! {
          = Alpha\n#lorem(70)\n\n= Beta\n#lorem(60)\n\n= Gamma\nShort.\n";
     plate hints_misused: format!(
         "#let hints = qm.hints\n{PAGE}\
-         #hints.hint(\"label\", level: 1, value: 1)[1.#h(4pt)]A label outside any list.\n\n\
+         #hints.hint(\"label\", level: 1)[1.#h(4pt)]A label outside any list.\n\n\
          #hints.hint(\"layout\", form: \"tabbed\")[A paragraph, not a grid.]\n\n\
          #hints.hint(\"chrome\")[A paragraph, not a place.]\n"
     );
@@ -491,7 +491,7 @@ plates! {
          #hints.hint(\"layout\", form: \"tabbed\")[#grid(columns: (auto, 1fr), [FROM:], [Here])]\n\
          #hints.hint(\"chrome\")[#place(top + right)[Mark]]\n\
          #hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n\
-         #hints.hint(\"label\", level: 1, value: 1)[1.#h(4pt)]In a list.\n]\n"
+         #hints.hint(\"label\", level: 1)[1.#h(4pt)]In a list.\n]\n"
     );
     plate form_fields: format!(
         "{PAGE}Name: #qm.form-field(\"name\", type: \"text\", value: \"Ann\")\n\n\
@@ -530,7 +530,7 @@ plates! {
     plate label_the_count_does_not_reach: format!(
         "#let hints = qm.hints\n{PAGE}\
          #hints.hint(\"list\", v: 1, levels: ((format: \"decimal\", suffix: \". \"),))[\n\
-         #hints.hint(\"label\", level: 1, value: 3)[3.#h(4pt)]Third, but first.\n]\n"
+         #hints.hint(\"label\", level: 1)[3.#h(4pt)]Third, but first.\n]\n"
     );
     plate unknown_and_open_hints: format!(
         "{PAGE}#metadata((kind: \"__qm_hint__\", hint: \"mystery\"))<__qm_hint__>\

@@ -307,8 +307,9 @@ pub struct HintLevel {
     pub underline: bool,
     /// False for a level that counts and prints no number.
     pub visible: bool,
-    /// The first line's indent from the column's edge.
-    pub indent: f64,
+    /// The first line's indent from the column's edge; none to take it from
+    /// the level's first printed label.
+    pub indent: Option<f64>,
 }
 
 /// What a quill says about the content between a bracket's open and close.
@@ -320,7 +321,7 @@ pub enum BracketHint {
         levels: Vec<HintLevel>,
     },
     /// The automatic number, at 1-based `level`, of the paragraph it sits in.
-    Label { level: u8, value: Option<u64> },
+    Label { level: u8 },
     /// A named role for the paragraphs inside, and the role after them.
     Role { name: String, next: Option<String> },
     /// A grid that is a line of label, tab and text.

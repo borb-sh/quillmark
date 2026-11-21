@@ -1045,10 +1045,6 @@ impl Reader<'_> {
                             Value::Int(n) => n.clamp(1, 9) as u8,
                             _ => 1,
                         },
-                        value: match get("value") {
-                            Value::Int(n) if n >= 0 => Some(n as u64),
-                            _ => None,
-                        },
                     },
                     Bracket::Role => BracketHint::Role {
                         name: text(get("name")).unwrap_or_default(),
@@ -1192,7 +1188,7 @@ fn hint_level(v: &Value, size: f64) -> Option<HintLevel> {
         suffix: text("suffix"),
         underline: matches!(get("underline"), Value::Bool(true)),
         visible: !matches!(get("visible"), Value::Bool(false)),
-        indent: length(&get("indent"), size).unwrap_or(0.0),
+        indent: length(&get("indent"), size),
     })
 }
 
