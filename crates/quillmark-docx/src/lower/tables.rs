@@ -575,10 +575,7 @@ impl<'a> Lower<'a> {
                     (p, bottom)
                 });
             }
-            let height = match (tops.get(r), tops.get(r + 1)) {
-                (Some((p, a)), Some((q, b))) if p == q => Some(tw(b - a)),
-                _ => None,
-            };
+            let height = bounds.map(|(_, y0, y1)| tw(y1 - y0));
             rows.push(Row {
                 props: RowProps {
                     cant_split: true,
