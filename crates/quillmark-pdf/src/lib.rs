@@ -18,9 +18,6 @@ mod tag;
 mod update;
 mod writer;
 
-#[doc(hidden)]
-pub mod testkit;
-
 pub use appearance::overflows;
 pub use error::PdfError;
 pub use stamp::{

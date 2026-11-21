@@ -40,7 +40,8 @@ serde-saphyr = "~2.1"
 serde_json = { version = "~1.0", features = ["preserve_order"] }
 jsonschema = { version = "~0.60", default-features = false }
 thiserror = "~2.0"
-toml = "~1.2"
+# The version Typst links, so the workspace builds one copy.
+toml = "~0.8"
 glob = "0.3.3"
 unicode-normalization = "0.1"
 

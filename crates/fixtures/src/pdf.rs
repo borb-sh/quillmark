@@ -14,7 +14,7 @@ use pdf_writer::{Array, Content, Finish, Name, Null, Pdf, Rect, Ref, Settings, T
 /// base numbers positionally.
 pub const NULL_OBJECT: i32 = 99;
 
-/// An id below [`NULL_OBJECT`] that no testkit base writes an object under.
+/// An id below [`NULL_OBJECT`] that no fixture base writes an object under.
 pub const NO_OBJECT: i32 = 98;
 
 /// The id [`BasePdf::raw_object`] writes its bytes under, below [`NO_OBJECT`].
@@ -434,12 +434,12 @@ fn find(haystack: &[u8], needle: &[u8]) -> usize {
     haystack
         .windows(needle.len())
         .position(|w| w == needle)
-        .expect("a testkit base carries the needle")
+        .expect("a fixture base carries the needle")
 }
 
 fn rfind(haystack: &[u8], needle: &[u8]) -> usize {
     haystack
         .windows(needle.len())
         .rposition(|w| w == needle)
-        .expect("a testkit base carries the needle")
+        .expect("a fixture base carries the needle")
 }

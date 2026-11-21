@@ -10,7 +10,7 @@
 //! `y_canvas = (pageHeightPt - y_pdf) × scale` flip.
 
 use quillmark::{Document, Engine, FileTreeNode, Quill};
-use quillmark_pdf::testkit::BasePdf;
+use quillmark_fixtures::pdf::BasePdf;
 
 mod common;
 

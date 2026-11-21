@@ -41,7 +41,7 @@ pub(crate) fn compile_document(
     world: &QuillWorld,
 ) -> Result<(PagedDocument, Vec<Diagnostic>), RenderError> {
     let Warned { output, warnings } = typst::compile::<PagedDocument>(world);
-    comemo::evict(COMEMO_EVICT_MAX_AGE);
+    typst::comemo::evict(COMEMO_EVICT_MAX_AGE);
 
     match output {
         Ok(doc) => Ok((doc, map_typst_errors(&warnings, world))),

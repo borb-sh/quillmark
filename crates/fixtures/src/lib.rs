@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 pub mod acroform;
+pub mod pdf;
 
 /// Path to `resources/<name>` in this crate.
 pub fn resource_path(name: &str) -> PathBuf {

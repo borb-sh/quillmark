@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use lopdf::dictionary;
 
-use quillmark_pdf::testkit::BasePdf;
+use quillmark_fixtures::pdf::BasePdf;
 use quillmark_pdf::{
     AppearanceStates, CHECKBOX_ON_STATE, FieldSpec, FieldType, StampOptions, regions_of, stamp,
 };
@@ -864,13 +864,13 @@ fn a_reference_past_size_names_no_object_the_update_writes() {
 fn an_info_reference_to_a_non_dict_gets_a_fresh_info() {
     let base = BasePdf::letter(1).raw_object("42").build();
     let at = find_sub(&base, b"trailer\n<<") + b"trailer\n<<".len();
-    let reference = format!(" /Info {} 0 R", quillmark_pdf::testkit::RAW_OBJECT);
+    let reference = format!(" /Info {} 0 R", quillmark_fixtures::pdf::RAW_OBJECT);
     let base = [&base[..at], reference.as_bytes(), &base[at..]].concat();
 
     let result = stamp(base, &[], &StampOptions::default()).expect("stamp ok");
     let doc = lopdf::Document::load_mem(&result).expect("lopdf reparse");
     let info_ref = doc.trailer.get(b"Info").unwrap().as_reference().unwrap();
-    assert_ne!(info_ref.0, quillmark_pdf::testkit::RAW_OBJECT as u32);
+    assert_ne!(info_ref.0, quillmark_fixtures::pdf::RAW_OBJECT as u32);
     let info = doc.get_object(info_ref).unwrap().as_dict().unwrap();
     assert!(info.get(b"Producer").is_ok());
 }

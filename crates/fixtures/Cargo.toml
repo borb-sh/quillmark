@@ -8,3 +8,4 @@ publish = false  # Don't publish test fixtures to crates.io
 
 [dependencies]
 lopdf = { workspace = true }
+pdf-writer = { workspace = true }
