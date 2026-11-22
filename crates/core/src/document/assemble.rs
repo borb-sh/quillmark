@@ -329,8 +329,9 @@ pub(super) fn build_block(
 
 /// Put back the text written for each number YAML read from a spelling that is
 /// not the number's own text, so a `text` field holds `0012` and `1.50` as
-/// written, and a `number` field reads them from that text. A spelling a merge
-/// shadows reads as a number other than the one its path holds, and stays out.
+/// written, and a `number` field reads them from that text. A spelling a later
+/// merge shadows reads as a number other than the one its path holds, and
+/// stays out.
 fn keep_numeric_spellings(
     value: &mut serde_json::Value,
     spellings: Vec<(Vec<PathSegment>, String)>,
@@ -342,6 +343,7 @@ fn keep_numeric_spellings(
         });
         if let Some(node) = node
             && let serde_json::Value::Number(n) = node
+            && n.to_string() != text
             && crate::value::yaml_number(&text).as_ref() == Some(n)
         {
             *node = serde_json::Value::String(text);

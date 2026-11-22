@@ -942,7 +942,7 @@ fn a_text_field_keeps_a_numeric_spelling_as_written() {
     assert_eq!(data["i"], json!(31));
 
     let (_, data) = payload(
-        "rows:\n  - &row\n    code: 0012\n    qty: 0x1F\n  - *row\n  - <<: *row\n    qty: 2\n  - <<: [{code: 7}, {code: 0012}]\n",
+        "rows:\n  - &row\n    code: 0012\n    qty: 0x1F\n  - *row\n  - <<: *row\n    qty: 2\n  - <<: [{code: 7}, {code: 0012}]\n  - {code: 12.0, <<: {code: 0012}}\n  - {<<: {code: 0012}, code: 012}\n",
     );
     assert_eq!(
         data["rows"][1]["code"]["text"],
@@ -963,6 +963,25 @@ fn a_text_field_keeps_a_numeric_spelling_as_written() {
         data["rows"][3]["code"]["text"],
         json!("7"),
         "the first merge's key wins"
+    );
+    assert_eq!(
+        data["rows"][4]["code"]["text"],
+        json!("12.0"),
+        "an own key wins"
+    );
+    assert_eq!(
+        data["rows"][5]["code"]["text"],
+        json!("012"),
+        "an own key after the merge wins"
+    );
+
+    let doc = Document::parse("~~~\n$quill: q@1.0\nn: 1234567890123456789\n~~~\n")
+        .expect("parses")
+        .document;
+    assert_eq!(
+        doc.main().payload().get("n").map(|v| v.as_json().clone()),
+        Some(json!(1234567890123456789_i64)),
+        "a number written as its own text stays a number"
     );
 }
 

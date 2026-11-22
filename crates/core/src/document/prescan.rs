@@ -25,6 +25,16 @@ use serde_saphyr::granit_parser::{
 
 use crate::value::PathSegment;
 
+/// A numeric spelling the scan records, and, when a merge brings it, the
+/// frame of the mapping holding that merge and where the merged key sits in
+/// `path`: a key the mapping holds itself shadows it.
+#[derive(Debug, Clone)]
+struct Spelled {
+    path: Vec<PathSegment>,
+    text: String,
+    merged: Option<(usize, usize)>,
+}
+
 /// One ordered hint extracted from the fence body. `Field` captures only the
 /// key; the value comes from the value parse. An inline `Comment` immediately
 /// follows its host `Field` in the item stream.
@@ -490,7 +500,7 @@ struct Walk<'a> {
     /// Each comment inside a collection, in the order recorded.
     nested: Vec<Recorded>,
     tags: Vec<Vec<PathSegment>>,
-    numeric: Vec<(Vec<PathSegment>, String)>,
+    numeric: Vec<Spelled>,
     /// What an alias of each anchor brings to [`Self::numeric`], by anchor id:
     /// each spelling with its path below the anchored node.
     numeric_anchors: HashMap<usize, Vec<(Vec<PathSegment>, String)>>,
@@ -605,7 +615,7 @@ impl<'a> Walk<'a> {
             items: self.items,
             nested_comments: self.nested.into_iter().map(|r| r.comment).collect(),
             unsupported_tags: self.tags,
-            numeric_spellings: self.numeric,
+            numeric_spellings: self.numeric.into_iter().map(|n| (n.path, n.text)).collect(),
         })
     }
 
@@ -1102,11 +1112,18 @@ impl<'a> Walk<'a> {
             _ => return Ok(()),
         };
         let at = self.merged_path(depth);
+        let merged = (0..depth)
+            .rev()
+            .find(|&f| {
+                let frame = &self.frames[f];
+                !frame.sequence && matches!(frame.children.last(), Some(Child::Merged(_)))
+            })
+            .map(|f| (f, self.merged_path(f).len()));
         for (rest, text) in brought {
             let mut path = at.clone();
             path.extend(rest);
             self.charge_path(&path, text.len())?;
-            self.numeric.push((path, text));
+            self.numeric.push(Spelled { path, text, merged });
         }
         Ok(())
     }
@@ -1212,12 +1229,24 @@ impl<'a> Walk<'a> {
                     }
                 }
             }
+            if merges && !frame.sequence {
+                let mut kept = self.numeric.split_off(frame.numeric_from);
+                kept.retain(
+                    |n| match (n.merged, n.path.get(n.merged.map_or(0, |m| m.1))) {
+                        (Some((f, _)), Some(PathSegment::Key(key))) if f == depth => {
+                            !frame.keys.contains(key)
+                        }
+                        _ => true,
+                    },
+                );
+                self.numeric.extend(kept);
+            }
             if frame.anchor != 0 {
                 let below = self.numeric[frame.numeric_from..]
                     .iter()
-                    .filter_map(|(path, text)| {
-                        let rest = path.strip_prefix(frame.numeric_at.as_slice())?;
-                        Some((rest.to_vec(), text.clone()))
+                    .filter_map(|n| {
+                        let rest = n.path.strip_prefix(frame.numeric_at.as_slice())?;
+                        Some((rest.to_vec(), n.text.clone()))
                     })
                     .collect();
                 self.numeric_anchors.insert(frame.anchor, below);
