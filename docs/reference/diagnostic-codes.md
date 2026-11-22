@@ -287,6 +287,7 @@ The PDF reader and stamp spine both PDF-producing backends share.
 - `pdf::stamp_parse`
 - `pdf::struct_tree`
 - `pdf::update_parse`
+- `pdf::widgets_untagged`
 - `pdf::write`
 - `pdf::xref_stream`
 

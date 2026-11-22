@@ -81,7 +81,7 @@ fn stamped_with(
     lopdf::Dictionary,
     HashMap<String, lopdf::Dictionary>,
 ) {
-    quillmark_fixtures::acroform::parse(&stamp(base, fields, opts).expect("stamp ok"))
+    quillmark_fixtures::acroform::parse(&stamp(base, fields, opts).expect("stamp ok").pdf)
 }
 
 fn stamped_on(
@@ -198,7 +198,8 @@ fn no_fields_stamps_info_producer_alone() {
         &[],
         &StampOptions::default(),
     )
-    .expect("stamp ok");
+    .expect("stamp ok")
+    .pdf;
 
     let doc = lopdf::Document::load_mem(&result).expect("lopdf reparse");
     assert!(
@@ -438,7 +439,9 @@ fn inline_annots_are_merged_not_replaced() {
     let base = BasePdf::letter(1).inline_annot();
     let existing = base.inline_annot_id();
     let fields = vec![text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi")];
-    let result = stamp(base.build(), &fields, &StampOptions::default()).expect("stamp ok");
+    let result = stamp(base.build(), &fields, &StampOptions::default())
+        .expect("stamp ok")
+        .pdf;
 
     let doc = lopdf::Document::load_mem(&result).expect("reparse");
     let pages = doc.get_pages();
@@ -468,7 +471,9 @@ fn xref_emits_multiple_subsections_when_ids_have_gaps() {
     // Overwriting low ids while allocating fresh high ones leaves gaps in the
     // changed-id set, so the appended xref needs several subsections.
     let base = build_base_pdf(1);
-    let result = stamp(base, &all_four_fields(), &StampOptions::default()).expect("stamp ok");
+    let result = stamp(base, &all_four_fields(), &StampOptions::default())
+        .expect("stamp ok")
+        .pdf;
 
     // The appended table is the last standalone `\nxref\n`. Header lines carry
     // two numeric tokens; entries carry three.
@@ -509,7 +514,8 @@ fn a_nonsense_font_size_falls_back_to_auto_rather_than_forging_a_da() {
     for bad in [f32::NAN, f32::INFINITY, -12.0] {
         fields[0].font_size = Some(bad);
         let out = stamp(base.clone(), &fields, &StampOptions::default())
-            .unwrap_or_else(|e| panic!("{bad} should stamp: {}", e.message));
+            .unwrap_or_else(|e| panic!("{bad} should stamp: {}", e.message))
+            .pdf;
         let text = String::from_utf8_lossy(&out);
         assert!(
             text.contains("/Helv 0 Tf 0 g"),
@@ -540,7 +546,8 @@ fn a_checkbox_registers_the_check_font_and_only_it() {
         &[agree.clone()],
         &StampOptions::default(),
     )
-    .expect("stamp ok");
+    .expect("stamp ok")
+    .pdf;
     let text = String::from_utf8_lossy(&out);
     assert!(
         !text.contains("Times-Roman") && !text.contains("/TiRo"),
@@ -567,7 +574,9 @@ fn a_checkbox_registers_the_check_font_and_only_it() {
 
     let mut typed = text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi");
     typed.font = quillmark_pdf::FormFont::Times;
-    let out = stamp(build_base_pdf(1), &[typed], &StampOptions::default()).expect("stamp ok");
+    let out = stamp(build_base_pdf(1), &[typed], &StampOptions::default())
+        .expect("stamp ok")
+        .pdf;
     let text = String::from_utf8_lossy(&out);
     assert!(
         text.contains("Times-Roman") && text.contains("/TiRo"),
@@ -851,7 +860,9 @@ fn a_non_winansi_value_draws_substituted_while_the_field_keeps_it_whole() {
 #[test]
 fn a_reference_past_size_names_no_object_the_update_writes() {
     let base = with_page_insertion(&build_base_pdf(1), b" /Annots [6 0 R] /X 9 %c\n0 R");
-    let out = stamp(base, &all_four_fields(), &StampOptions::default()).expect("stamp ok");
+    let out = stamp(base, &all_four_fields(), &StampOptions::default())
+        .expect("stamp ok")
+        .pdf;
     let doc = lopdf::Document::load_mem(&out).expect("lopdf reparse");
     for id in [6, 9] {
         assert!(doc.get_object((id, 0)).is_err(), "object {id} is written");
@@ -867,7 +878,9 @@ fn an_info_reference_to_a_non_dict_gets_a_fresh_info() {
     let reference = format!(" /Info {} 0 R", quillmark_fixtures::pdf::RAW_OBJECT);
     let base = [&base[..at], reference.as_bytes(), &base[at..]].concat();
 
-    let result = stamp(base, &[], &StampOptions::default()).expect("stamp ok");
+    let result = stamp(base, &[], &StampOptions::default())
+        .expect("stamp ok")
+        .pdf;
     let doc = lopdf::Document::load_mem(&result).expect("lopdf reparse");
     let info_ref = doc.trailer.get(b"Info").unwrap().as_reference().unwrap();
     assert_ne!(info_ref.0, quillmark_fixtures::pdf::RAW_OBJECT as u32);
@@ -1010,13 +1023,14 @@ fn on_a_tagged_base_every_widget_kids_included_is_a_form_element_under_the_top_e
         radio.value = Some("no".into());
         fields.push(radio);
     }
-    let pdf = stamp(
+    let stamped = stamp(
         BasePdf::letter(1).tagged().build(),
         &fields,
         &StampOptions::default(),
     )
     .expect("stamp ok");
-    let doc = lopdf::Document::load_mem(&pdf).expect("parse");
+    assert!(stamped.warnings.is_empty());
+    let doc = lopdf::Document::load_mem(&stamped.pdf).expect("parse");
 
     let forms = form_elements_by_widget(&doc);
     assert_eq!(forms.len(), fields.len());
@@ -1074,6 +1088,16 @@ fn on_a_tagged_base_every_widget_kids_included_is_a_form_element_under_the_top_e
 
 #[test]
 fn an_untagged_base_stays_untagged() {
+    let out = stamp(
+        build_base_pdf(1),
+        &all_four_fields(),
+        &StampOptions::default(),
+    )
+    .expect("stamp ok");
+    assert!(
+        out.warnings.is_empty(),
+        "an untagged base is no loss to warn of"
+    );
     let (doc, _, widgets) = stamped(&all_four_fields());
     assert!(doc.catalog().unwrap().get(b"StructTreeRoot").is_err());
     assert!(widgets.values().all(|w| w.get(b"StructParent").is_err()));
@@ -1142,8 +1166,9 @@ fn a_root_of_several_elements_takes_the_form_elements_itself() {
             .set("K", ps.map(lopdf::Object::Reference).to_vec());
     });
     let fields = all_four_fields();
-    let doc = lopdf::Document::load_mem(&stamp(base, &fields, &StampOptions::default()).unwrap())
-        .unwrap();
+    let doc =
+        lopdf::Document::load_mem(&stamp(base, &fields, &StampOptions::default()).unwrap().pdf)
+            .unwrap();
     let forms = form_elements_by_widget(&doc);
     assert_eq!(forms.len(), fields.len());
     for (_, form) in &forms {
@@ -1160,8 +1185,9 @@ fn a_top_element_of_one_kid_keeps_it_first_among_the_form_elements() {
         doc.get_dictionary_mut(top).unwrap().set("K", p1);
     });
     let fields = all_four_fields();
-    let doc = lopdf::Document::load_mem(&stamp(base, &fields, &StampOptions::default()).unwrap())
-        .unwrap();
+    let doc =
+        lopdf::Document::load_mem(&stamp(base, &fields, &StampOptions::default()).unwrap().pdf)
+            .unwrap();
     let forms = form_elements_by_widget(&doc);
     assert_eq!(forms.len(), fields.len());
     let kids = kids_of(&doc, top_id);
@@ -1195,10 +1221,32 @@ fn a_parent_tree_of_kids_is_left_as_written_and_its_widgets_untagged() {
             .set("ParentTree", dictionary! { "Kids" => vec![leaf.into()] });
     });
     let before = lopdf::Document::load_mem(&base).unwrap();
+    assert_eq!(untagged_warnings(base.clone()), ["pdf::widgets_untagged"]);
     let (doc, _, widgets) = stamped_on(base, &all_four_fields());
     assert_eq!(
         doc.get_dictionary(root_id).unwrap(),
         before.get_dictionary(root_id).unwrap()
     );
     assert!(widgets.values().all(|w| w.get(b"StructParent").is_err()));
+}
+
+#[test]
+fn a_top_element_whose_kids_are_an_object_of_their_own_leaves_its_widgets_untagged() {
+    let base = reshaped_tagged_base(|doc, _, top, ps| {
+        let kids = doc.add_object(ps.map(lopdf::Object::Reference).to_vec());
+        doc.get_dictionary_mut(top).unwrap().set("K", kids);
+    });
+    assert_eq!(untagged_warnings(base.clone()), ["pdf::widgets_untagged"]);
+    let (_, _, widgets) = stamped_on(base, &all_four_fields());
+    assert!(widgets.values().all(|w| w.get(b"StructParent").is_err()));
+}
+
+/// The codes of the warnings stamping every field kind onto `base` raises.
+fn untagged_warnings(base: Vec<u8>) -> Vec<String> {
+    stamp(base, &all_four_fields(), &StampOptions::default())
+        .expect("stamp ok")
+        .warnings
+        .into_iter()
+        .filter_map(|w| w.code)
+        .collect()
 }

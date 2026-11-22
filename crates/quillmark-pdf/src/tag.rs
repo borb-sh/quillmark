@@ -10,9 +10,16 @@ use crate::writer::{alloc_id, dict_object};
 
 const CODE_TAG: &str = "pdf::struct_tree";
 
-pub(crate) struct Tagged {
-    /// The `/StructParent` key each widget carries, by position.
-    pub struct_parents: Vec<i64>,
+/// What [`tag_widgets`] did with a base's structure tree.
+pub(crate) enum Tagging {
+    /// The base carries no `/StructTreeRoot`, and stays untagged.
+    BaseUntagged,
+    /// Each widget's `/StructParent` key, by position.
+    Tagged { struct_parents: Vec<i64> },
+    /// The base is tagged in a shape this writer leaves as written: a
+    /// `/ParentTree` of `/Kids`, or a top element whose `/K` array is an
+    /// object of its own. The widgets stay out of the tree.
+    Left,
 }
 
 fn err(msg: impl Into<String>) -> PdfError {
@@ -20,17 +27,16 @@ fn err(msg: impl Into<String>) -> PdfError {
 }
 
 /// `widgets` is `(widget id, page id, alternate text)` per widget, in stamp
-/// order. `None` when the base carries no `/StructTreeRoot`: an untagged base
-/// stays untagged.
+/// order.
 pub(crate) fn tag_widgets(
     idx: &ObjectIndex,
     catalog: &[u8],
     widgets: &[(u32, u32, Option<&str>)],
     next_id: &mut u32,
     objects: &mut Vec<UpdatedObject>,
-) -> Result<Option<Tagged>, PdfError> {
+) -> Result<Tagging, PdfError> {
     let Some(root_value) = idx.value(catalog, "StructTreeRoot") else {
-        return Ok(None);
+        return Ok(Tagging::BaseUntagged);
     };
     let (root_id, _) = parse_indirect_ref(root_value)
         .ok_or_else(|| err("/StructTreeRoot is not an indirect reference"))?;
@@ -64,7 +70,7 @@ pub(crate) fn tag_widgets(
         None => (root_id, root),
     };
     if !takes_kids(idx, parent) {
-        return Ok(None);
+        return Ok(Tagging::Left);
     }
 
     let (nums, inline_tree, tree_id) = match idx.value(root, "ParentTree") {
@@ -81,9 +87,8 @@ pub(crate) fn tag_widgets(
                     (inner, true, None)
                 }
             };
-            // A tree of `/Kids` is left as written, and its widgets untagged.
             if idx.value(dict, "Kids").is_some() {
-                return Ok(None);
+                return Ok(Tagging::Left);
             }
             let nums = idx
                 .value(dict, "Nums")
@@ -156,7 +161,7 @@ pub(crate) fn tag_widgets(
     );
     objects.push(dict_object(root_id, &new_root));
 
-    Ok(Some(Tagged { struct_parents }))
+    Ok(Tagging::Tagged { struct_parents })
 }
 
 /// Whether `/K` can take more kids in place: absent, an inline array, or one

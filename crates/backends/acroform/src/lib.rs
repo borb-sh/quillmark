@@ -232,7 +232,7 @@ fn stamp_raster(base_pdf: &[u8], field_specs: &[FieldSpec]) -> Result<HayroPdf, 
         ..StampOptions::default()
     };
     let stamped = stamp(base_pdf.to_vec(), field_specs, &opts)?;
-    HayroPdf::new(stamped).map_err(|_| {
+    HayroPdf::new(stamped.pdf).map_err(|_| {
         RenderError::coded(
             "acroform::stamped_parse_failed",
             "failed to parse the stamped PDF for rasterisation",
@@ -272,15 +272,17 @@ impl SessionHandle for AcroformSession {
             ));
         }
 
-        let pdf = stamp(
+        let stamped = stamp(
             self.base_pdf.clone(),
             &self.field_specs,
             &StampOptions::default(),
         )?;
-        Ok(RenderResult::new(
-            vec![Artifact::new(pdf, OutputFormat::Pdf)],
+        let mut result = RenderResult::new(
+            vec![Artifact::new(stamped.pdf, OutputFormat::Pdf)],
             OutputFormat::Pdf,
-        ))
+        );
+        result.warnings = stamped.warnings;
+        Ok(result)
     }
 
     fn page_count(&self) -> usize {

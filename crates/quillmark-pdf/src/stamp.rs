@@ -17,6 +17,7 @@ use pdf_writer::types::{
 use pdf_writer::writers::{Annotation, Field, Form};
 use pdf_writer::{Chunk, Finish, Name, Rect, Ref, Str, TextStr};
 
+use quillmark_core::error::{Diagnostic, Severity};
 use quillmark_core::region::RenderedRegion;
 
 use crate::appearance::{self, Appearance, Normal};
@@ -25,6 +26,7 @@ use crate::reader::{
     ObjectIndex, UpdatedObject, array_elements, as_dict, is_name, parse_indirect_ref,
     set_dict_value,
 };
+use crate::tag::Tagging;
 use crate::update::PdfUpdate;
 use crate::writer::{alloc_id, append_refs_to_array_key, dict_object, to_ref, type1_font_object};
 use crate::{FieldSpec, FieldType, FormFont, TextAlign};
@@ -33,6 +35,7 @@ const CODE_PARSE: &str = "pdf::stamp_parse";
 const CODE_EXISTING_ACROFORM: &str = "pdf::existing_acroform";
 const CODE_CONFLICTING_FIELD: &str = "pdf::conflicting_field";
 const CODE_BAD_ON_STATE: &str = "pdf::bad_on_state";
+const CODE_WIDGETS_UNTAGGED: &str = "pdf::widgets_untagged";
 
 /// The fixed checkbox on-state export name. A checkbox [`FieldSpec`] carries
 /// this as its `value` when checked, `None` when not.
@@ -158,6 +161,30 @@ pub enum AppearanceStates {
     Selected,
 }
 
+/// What [`stamp`] writes: the PDF, and a `pdf::widgets_untagged` warning when
+/// the base is tagged in a shape the stamp leaves as written, so the widgets
+/// are not in its structure tree.
+#[derive(Debug, Clone)]
+pub struct Stamped {
+    pub pdf: Vec<u8>,
+    pub warnings: Vec<Diagnostic>,
+}
+
+fn widgets_untagged() -> Diagnostic {
+    Diagnostic::new(
+        Severity::Warning,
+        "the form's fields are not in the PDF's structure tree, so assistive technology \
+         reading the tags does not reach them"
+            .to_string(),
+    )
+    .with_code(CODE_WIDGETS_UNTAGGED.to_string())
+    .with_hint(
+        "The base PDF's structure tree is in a shape Quillmark leaves as written: a \
+         `/ParentTree` of `/Kids`, or a top element whose `/K` array is an object of its own."
+            .to_string(),
+    )
+}
+
 /// What a stamped widget's `/AP` `/N` names: one stream, or a box's two
 /// states.
 enum NormalRef {
@@ -182,7 +209,7 @@ pub fn stamp(
     base: Vec<u8>,
     fields: &[FieldSpec],
     opts: &StampOptions,
-) -> Result<Vec<u8>, PdfError> {
+) -> Result<Stamped, PdfError> {
     for spec in fields {
         spec.assert_finite_rect()?;
     }
@@ -194,6 +221,7 @@ pub fn stamp(
     let pdf = base;
     let idx = ObjectIndex::new(&pdf);
     let mut up = PdfUpdate::begin(&idx, &opts.producer)?;
+    let mut warnings = Vec::new();
 
     if !fields.is_empty() {
         // Before any allocation: a second `/AcroForm` on the catalog is a dict
@@ -256,15 +284,27 @@ pub fn stamp(
             .map(|(spec, &wid)| (wid, pages[spec.page].id, spec.tooltip.as_deref()))
             .collect();
         let catalog = idx.dict(up.catalog_id, CODE_PARSE, "catalog")?;
-        let tagged =
-            crate::tag::tag_widgets(&idx, catalog, &tag_inputs, &mut up.next_id, &mut up.objects)?;
+        let struct_parents = match crate::tag::tag_widgets(
+            &idx,
+            catalog,
+            &tag_inputs,
+            &mut up.next_id,
+            &mut up.objects,
+        )? {
+            Tagging::Tagged { struct_parents } => Some(struct_parents),
+            Tagging::BaseUntagged => None,
+            Tagging::Left => {
+                warnings.push(widgets_untagged());
+                None
+            }
+        };
 
         // Grouped by page for the page-side `/Annots`.
         let mut widgets_by_page: Vec<Vec<u32>> = vec![Vec::new(); page_count];
         for (at, ((spec, &wid), &parent)) in
             fields.iter().zip(&widget_ids).zip(&parent_of).enumerate()
         {
-            let struct_parent = tagged.as_ref().map(|t| t.struct_parents[at]);
+            let struct_parent = struct_parents.as_ref().map(|keys| keys[at]);
             widgets_by_page[spec.page].push(wid);
             let page_ref = to_ref(pages[spec.page].id)?;
             let normal = match appearance::of(spec).zip(registered_font(&fonts, &font_ids, spec)) {
@@ -373,7 +413,10 @@ pub fn stamp(
         }
     }
 
-    Ok(up.finish(pdf))
+    Ok(Stamped {
+        pdf: up.finish(pdf),
+        warnings,
+    })
 }
 
 /// Whether the page dict `page` holds a `/Subtype /Widget` annotation in its
