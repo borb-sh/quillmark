@@ -180,7 +180,7 @@ fn widgets_untagged() -> Diagnostic {
     .with_code(CODE_WIDGETS_UNTAGGED.to_string())
     .with_hint(
         "The base PDF's structure tree is in a shape Quillmark leaves as written: a \
-         `/ParentTree` of `/Kids`, or a top element whose `/K` array is an object of its own."
+         `/ParentTree` of `/Kids`, or a `/K` array held in an object of its own where the fields would join it."
             .to_string(),
     )
 }

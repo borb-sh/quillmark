@@ -17,8 +17,8 @@ pub(crate) enum Tagging {
     /// Each widget's `/StructParent` key, by position.
     Tagged { struct_parents: Vec<i64> },
     /// The base is tagged in a shape this writer leaves as written: a
-    /// `/ParentTree` of `/Kids`, or a top element whose `/K` array is an
-    /// object of its own. The widgets stay out of the tree.
+    /// `/ParentTree` of `/Kids`, or a `/K` array held in an object of its
+    /// own where the widgets would join it. The widgets stay out of the tree.
     Left,
 }
 
