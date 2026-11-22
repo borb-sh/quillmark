@@ -257,10 +257,11 @@ pub(crate) fn render_document_pages(
             let (pdf, warnings) = export_pdf(document, world, !field_specs.is_empty())?;
             let stamped = stamp(pdf, field_specs, &StampOptions::default())?;
             let mut result = RenderResult::new(
-                vec![Artifact::new(stamped, OutputFormat::Pdf)],
+                vec![Artifact::new(stamped.pdf, OutputFormat::Pdf)],
                 OutputFormat::Pdf,
             );
             result.warnings = warnings;
+            result.warnings.extend(stamped.warnings);
             Ok(result)
         }
     }

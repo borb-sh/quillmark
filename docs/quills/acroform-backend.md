@@ -26,6 +26,8 @@ The background's cross-reference data is a classic `xref` table. One held in a c
 
 Nulling the key (PyMuPDF's `xref_set_key` sets a key to `null` rather than deleting it) strips the catalog entry alone, and the old widget annotations stay live in the page `/Annots`. A background whose page `/Annots` hold a `/Subtype /Widget`, written directly or referenced, is refused as `pdf::existing_acroform` too, whatever its catalog holds, and the message names the page.
 
+A tagged background stays tagged: each widget joins its structure tree as a `Form` element. A tree in a shape the stamp leaves as written, a `/ParentTree` of `/Kids`, or a `/K` array held in an object of its own where the widgets would join it, keeps the widgets out of it, and the PDF render warns `pdf::widgets_untagged`.
+
 !!! note "Where the assets come from"
     Producing a clean `form.pdf` + `Form.yaml` from a raw source PDF (decrypt, strip, extract, verify) is the job of a separate *quillification* layer and is out of scope for Quillmark, which checks the result of the stripping, not how it was reached. V1 quills hand-author both assets; the `sample_form` fixture in `crates/fixtures/resources/quills/sample_form/` is a worked example.
 

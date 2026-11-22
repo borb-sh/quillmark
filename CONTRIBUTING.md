@@ -64,3 +64,7 @@ recorded and the last place to catch a missing one.
   release can change what a plate compiles to. The release's guide names the
   new Typst version, and so does `docs/quills/typst-backend.md` § "Typst
   Version". A Typst patch bump is not a `!`.
+
+## License
+
+A contribution is licensed under the Apache License 2.0 in [`LICENSE`](LICENSE), as its section 5 provides, with no further terms and no separate agreement to sign.

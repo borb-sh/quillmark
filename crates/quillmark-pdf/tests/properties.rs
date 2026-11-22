@@ -237,7 +237,8 @@ proptest! {
             Ok(vec![[0.0, 0.0, 612.0, 792.0]])
         );
         let out = stamp(base.clone(), &every_field_kind(), &StampOptions::default())
-            .map_err(|e| TestCaseError::fail(format!("{}: {}", e.code, e.message)))?;
+            .map_err(|e| TestCaseError::fail(format!("{}: {}", e.code, e.message)))?
+            .pdf;
         let update = &out[base.len()..];
         for (key, want) in [
             (&b"/AcroForm"[..], 1),

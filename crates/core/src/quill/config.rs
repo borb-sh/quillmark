@@ -553,6 +553,9 @@ impl QuillConfig {
                     return Ok(value.clone());
                 }
                 if let Some(s) = json_value.as_str() {
+                    if let Some(num) = crate::value::yaml_number(s) {
+                        return Ok(QuillValue::from_json(num.into()));
+                    }
                     if let Ok(i) = s.parse::<i64>() {
                         return Ok(QuillValue::from_json(serde_json::Number::from(i).into()));
                     }
@@ -601,6 +604,9 @@ impl QuillConfig {
                 }
                 if let Some(s) = json_value.as_str() {
                     if let Ok(i) = s.parse::<i64>() {
+                        return Ok(QuillValue::from_json(serde_json::Number::from(i).into()));
+                    }
+                    if let Some(i) = crate::value::yaml_number(s).and_then(|n| n.as_i64()) {
                         return Ok(QuillValue::from_json(serde_json::Number::from(i).into()));
                     }
                     return Err(CoercionError::uncoercible(

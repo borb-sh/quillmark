@@ -21,8 +21,8 @@ mod writer;
 pub use appearance::overflows;
 pub use error::PdfError;
 pub use stamp::{
-    AppearanceStates, CHECK_FONT, CHECK_FONT_RESOURCE, CHECKBOX_ON_STATE, StampOptions, regions_of,
-    stamp,
+    AppearanceStates, CHECK_FONT, CHECK_FONT_RESOURCE, CHECKBOX_ON_STATE, StampOptions, Stamped,
+    regions_of, stamp,
 };
 pub use writer::unencodable_chars;
 
