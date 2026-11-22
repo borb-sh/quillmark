@@ -274,9 +274,10 @@ pub(super) fn build_block(
         let (message, hint, line, column) = match refusal {
             Refusal::OverBudget { budget } => {
                 return ParseError::InvalidStructure(format!(
-                    "The card-yaml block's comments and tags record their nesting paths in \
-                     more than {} bytes, each level above them costing its key and a fixed \
-                     overhead. Merge the comments, or move them nearer the top level.",
+                    "The card-yaml block's comments, tags and numbers spelled other than \
+                     plainly (`0012`, `1.50`) record their nesting paths in more than {} \
+                     bytes, each level above them costing its key and a fixed overhead. \
+                     Merge the comments, quote the numbers, or move them nearer the top level.",
                     budget
                 ));
             }
@@ -328,7 +329,8 @@ pub(super) fn build_block(
 
 /// Put back the text written for each number YAML read from a spelling that is
 /// not the number's own text, so a `text` field holds `0012` and `1.50` as
-/// written, and a `number` field reads them from that text.
+/// written, and a `number` field reads them from that text. A spelling a merge
+/// shadows reads as a number other than the one its path holds, and stays out.
 fn keep_numeric_spellings(
     value: &mut serde_json::Value,
     spellings: Vec<(Vec<PathSegment>, String)>,
@@ -340,7 +342,7 @@ fn keep_numeric_spellings(
         });
         if let Some(node) = node
             && let serde_json::Value::Number(n) = node
-            && n.to_string() != text
+            && crate::value::yaml_number(&text).as_ref() == Some(n)
         {
             *node = serde_json::Value::String(text);
         }

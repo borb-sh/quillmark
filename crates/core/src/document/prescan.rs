@@ -67,7 +67,8 @@ pub(crate) struct PreScan {
 /// Why the scan refuses a block the value parse reads.
 #[derive(Debug)]
 pub(crate) enum Refusal {
-    /// The paths the block's comments and tags record outgrew this
+    /// The paths the block's comments, tags and numeric spellings record
+    /// outgrew this
     /// [`budget`].
     OverBudget { budget: usize },
     /// Text other than comments and a `...` follows the root node, which the
@@ -213,6 +214,10 @@ struct Frame {
     anchor: usize,
     /// Where its comments start among `Walk::nested`.
     first: usize,
+    /// Where its numeric spellings start among `Walk::numeric`, and its path
+    /// as the value holds it.
+    numeric_from: usize,
+    numeric_at: Vec<PathSegment>,
 }
 
 #[derive(Debug)]
@@ -486,8 +491,9 @@ struct Walk<'a> {
     nested: Vec<Recorded>,
     tags: Vec<Vec<PathSegment>>,
     numeric: Vec<(Vec<PathSegment>, String)>,
-    /// The text of each anchored scalar [`Self::numeric`] records, by anchor id.
-    numeric_anchors: HashMap<usize, String>,
+    /// What an alias of each anchor brings to [`Self::numeric`], by anchor id:
+    /// each spelling with its path below the anchored node.
+    numeric_anchors: HashMap<usize, Vec<(Vec<PathSegment>, String)>>,
     /// Open collections, outermost first, then the ones a run of own-line
     /// comments closed before it found its slots.
     frames: Vec<Frame>,
@@ -749,23 +755,8 @@ impl<'a> Walk<'a> {
             self.charge_path(&path, 0)?;
             self.tags.push(path);
         }
-        let numeric = match event {
-            Event::Scalar(text, ScalarStyle::Plain, anchor, None)
-                if text
-                    .starts_with(|c: char| c.is_ascii_digit() || matches!(c, '+' | '-' | '.')) =>
-            {
-                if *anchor != 0 {
-                    self.numeric_anchors.insert(*anchor, text.to_string());
-                }
-                Some(text.to_string())
-            }
-            Event::Alias(id) => self.numeric_anchors.get(id).cloned(),
-            _ => None,
-        };
-        if let Some(text) = numeric.filter(|_| role != Role::Key) {
-            let path = self.merged_path(depth);
-            self.charge_path(&path, text.len())?;
-            self.numeric.push((path, text));
+        if role != Role::Key {
+            self.record_numeric(event, depth)?;
         }
         let first = self.nested.len();
         let led = self.bind(bound, top, shape, role)?;
@@ -798,6 +789,12 @@ impl<'a> Walk<'a> {
                 merged: feeds && parent.is_some_and(|p| !p.sequence || p.merged),
                 anchor,
                 first,
+                numeric_from: self.numeric.len(),
+                numeric_at: if anchor != 0 {
+                    self.merged_path(depth)
+                } else {
+                    Vec::new()
+                },
             });
             self.live = self.frames.len();
             if let Some(c) = dash_trailer {
@@ -1083,6 +1080,37 @@ impl<'a> Walk<'a> {
         Ok(())
     }
 
+    /// Record the spelling of a plain value scalar YAML may read as a number
+    /// other than its own text, and each such spelling an alias brings, at
+    /// the path the value holds it.
+    fn record_numeric(&mut self, event: &Event<'_>, depth: usize) -> Result<(), Refusal> {
+        let brought = match event {
+            Event::Scalar(text, ScalarStyle::Plain, anchor, None) => {
+                let spelled = text
+                    .starts_with(|c: char| c.is_ascii_digit() || matches!(c, '+' | '-' | '.'))
+                    && !crate::value::is_plain_number(text);
+                let brought: Vec<_> = spelled
+                    .then(|| (Vec::new(), text.to_string()))
+                    .into_iter()
+                    .collect();
+                if *anchor != 0 {
+                    self.numeric_anchors.insert(*anchor, brought.clone());
+                }
+                brought
+            }
+            Event::Alias(id) => self.numeric_anchors.get(id).cloned().unwrap_or_default(),
+            _ => return Ok(()),
+        };
+        let at = self.merged_path(depth);
+        for (rest, text) in brought {
+            let mut path = at.clone();
+            path.extend(rest);
+            self.charge_path(&path, text.len())?;
+            self.numeric.push((path, text));
+        }
+        Ok(())
+    }
+
     /// The path of the collection at `depth`: the root at 0, and past it the
     /// value of `frames[depth - 1]`'s current entry.
     fn path(&self, depth: usize) -> Vec<PathSegment> {
@@ -1185,6 +1213,14 @@ impl<'a> Walk<'a> {
                 }
             }
             if frame.anchor != 0 {
+                let below = self.numeric[frame.numeric_from..]
+                    .iter()
+                    .filter_map(|(path, text)| {
+                        let rest = path.strip_prefix(frame.numeric_at.as_slice())?;
+                        Some((rest.to_vec(), text.clone()))
+                    })
+                    .collect();
+                self.numeric_anchors.insert(frame.anchor, below);
                 let mut seen = HashSet::new();
                 let keys = flat
                     .keys

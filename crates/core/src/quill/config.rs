@@ -112,19 +112,6 @@ pub(crate) fn scalar_as_string(value: &serde_json::Value) -> Option<String> {
     }
 }
 
-/// The number a plain YAML scalar of text `s` reads as, such as `0x1F` or
-/// `1_000`: the spellings a document keeps as text (see
-/// `document::assemble::keep_numeric_spellings`) that Rust's own parse refuses.
-fn yaml_number(s: &str) -> Option<serde_json::Number> {
-    if s.is_empty() || s.contains(|c: char| c.is_whitespace() || c == '#') {
-        return None;
-    }
-    match crate::value::parse_yaml::<serde_json::Value>(s) {
-        Ok(serde_json::Value::Number(n)) => Some(n),
-        _ => None,
-    }
-}
-
 /// Reduce a lenient value to its authored-string form: a bare string, the
 /// sole element of a length-1 array when that element is a string (the
 /// array-unwrap leniency), or a bare scalar's canonical text (via
@@ -566,6 +553,9 @@ impl QuillConfig {
                     return Ok(value.clone());
                 }
                 if let Some(s) = json_value.as_str() {
+                    if let Some(num) = crate::value::yaml_number(s) {
+                        return Ok(QuillValue::from_json(num.into()));
+                    }
                     if let Ok(i) = s.parse::<i64>() {
                         return Ok(QuillValue::from_json(serde_json::Number::from(i).into()));
                     }
@@ -573,9 +563,6 @@ impl QuillConfig {
                         if let Some(num) = serde_json::Number::from_f64(f) {
                             return Ok(QuillValue::from_json(num.into()));
                         }
-                    }
-                    if let (Leniency::Render, Some(num)) = (mode, yaml_number(s)) {
-                        return Ok(QuillValue::from_json(num.into()));
                     }
                     return Err(CoercionError::uncoercible(
                         path,
@@ -619,9 +606,7 @@ impl QuillConfig {
                     if let Ok(i) = s.parse::<i64>() {
                         return Ok(QuillValue::from_json(serde_json::Number::from(i).into()));
                     }
-                    if let (Leniency::Render, Some(i)) =
-                        (mode, yaml_number(s).and_then(|n| n.as_i64()))
-                    {
+                    if let Some(i) = crate::value::yaml_number(s).and_then(|n| n.as_i64()) {
                         return Ok(QuillValue::from_json(serde_json::Number::from(i).into()));
                     }
                     return Err(CoercionError::uncoercible(

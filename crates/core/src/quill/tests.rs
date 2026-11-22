@@ -888,18 +888,28 @@ schema:
 }
 
 /// YAML reads `0012`, `1.50` and `0x1F` as numbers, so a `text` field holds
-/// the text written and a `number` or `integer` field reads the number that
-/// text spells, wherever the scalar sits in the payload.
+/// the text written and a `number` field reads the number YAML reads, wherever
+/// the scalar sits in the payload and through an alias or a merge, and a
+/// spelling a merge shadows stays out.
 #[test]
 fn a_text_field_keeps_a_numeric_spelling_as_written() {
     use serde_json::json;
 
-    let config = quill_with_field(
-        "    f: { type: text }\n    n: { type: number }\n    i: { type: integer }\n    rows:\n      type: array\n      items:\n        type: object\n        properties:\n          code: { type: text }\n",
-    )
-    .expect("the declaration loads");
+    let quill = quill_from_yaml(&with_header(
+        "schema:\n  main:\n    fields:\n      f: { type: text }\n      n: { type: number }\n      i: { type: integer }\n      rows:\n        type: array\n        items:\n          type: object\n          properties:\n            code: { type: text }\n            qty: { type: number }\n",
+    ));
+    let payload = |md: &str| {
+        let mut doc = Document::parse(&format!("~~~\n$quill: q@1.0\n$kind: main\n{md}~~~\n"))
+            .expect("parses")
+            .document;
+        let diags = quill.conform(&mut doc).expect("conforms");
+        assert!(diags.is_empty(), "{md}: {diags:?}");
+        let data = quill.compile_data(&doc, test_date()).expect("renders");
+        (doc, data)
+    };
+
     for (written, number) in [
-        ("0012", json!(12)),
+        ("0012", json!(12.0)),
         ("1.50", json!(1.5)),
         ("1e3", json!(1000.0)),
         ("0x1F", json!(31)),
@@ -907,32 +917,65 @@ fn a_text_field_keeps_a_numeric_spelling_as_written() {
         ("+15551234567", json!(15551234567_i64)),
         ("12", json!(12)),
     ] {
-        let md = format!(
-            "~~~\n$quill: test_quill\nf: {written}\nn: {written}\nrows:\n  - code: {written}\n~~~\n"
-        );
-        let doc = Document::parse(&md).expect("parses").document;
-        let coerced = config
-            .coerce_payload(&doc.main().payload().to_index_map())
-            .expect("coerces");
-        let get = |k: &str| coerced.get(k).expect("present").as_json().clone();
-        assert_eq!(get("f"), text(written), "text from {written}");
-        assert_eq!(get("n"), number, "number from {written}");
+        let (_, data) = payload(&format!(
+            "f: {written}\nn: {written}\nrows:\n  - code: {written}\n    qty: {written}\n"
+        ));
+        assert_eq!(data["f"]["text"], json!(written), "text from {written}");
+        assert_eq!(data["n"], number, "number from {written}");
         assert_eq!(
-            get("rows")[0]["code"],
-            text(written),
+            data["rows"][0]["code"]["text"],
+            json!(written),
             "nested text from {written}"
+        );
+        assert_eq!(
+            data["rows"][0]["qty"], number,
+            "nested number from {written}"
         );
     }
 
-    let doc = Document::parse("~~~\n$quill: test_quill\nn: &code 0012\nf: *code\ni: 0x1F\n~~~\n")
-        .expect("parses")
-        .document;
-    let coerced = config
-        .coerce_payload(&doc.main().payload().to_index_map())
-        .expect("coerces");
-    let get = |k: &str| coerced.get(k).expect("present").as_json().clone();
-    assert_eq!(get("i"), json!(31));
-    assert_eq!(get("f"), text("0012"), "text through an alias");
+    let (_, data) = payload("n: &code 0012\nf: *code\ni: 0x1F\n");
+    assert_eq!(
+        data["f"]["text"],
+        json!("0012"),
+        "text through a scalar alias"
+    );
+    assert_eq!(data["i"], json!(31));
+
+    let (_, data) = payload(
+        "rows:\n  - &row\n    code: 0012\n    qty: 0x1F\n  - *row\n  - <<: *row\n    qty: 2\n  - <<: [{code: 7}, {code: 0012}]\n",
+    );
+    assert_eq!(
+        data["rows"][1]["code"]["text"],
+        json!("0012"),
+        "through a mapping alias"
+    );
+    assert_eq!(
+        data["rows"][2]["code"]["text"],
+        json!("0012"),
+        "through a merge"
+    );
+    assert_eq!(
+        data["rows"][2]["qty"],
+        json!(2),
+        "a merge brings no key the mapping holds"
+    );
+    assert_eq!(
+        data["rows"][3]["code"]["text"],
+        json!("7"),
+        "the first merge's key wins"
+    );
+}
+
+/// A block of numbers written plainly records nothing, so its size is the
+/// value parse's to bound.
+#[test]
+fn a_long_list_of_plain_numbers_parses() {
+    let points = (0..20_000)
+        .map(|i| (i % 10).to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let md = format!("~~~\n$quill: q\ndata:\n  series:\n    - points: [{points}]\n~~~\n");
+    assert!(Document::parse(&md).is_ok());
 }
 
 /// One field's coercion: `field_yaml` declares it as `f`, `value` is what a

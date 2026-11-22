@@ -80,6 +80,48 @@ pub(crate) fn parse_yaml<'de, T: Deserialize<'de>>(
 
 const EXPANSION_SLACK: usize = 4 * 1024;
 
+/// The number a plain YAML scalar of text `s` reads as, such as `0012`,
+/// `0x1F` or `1_000`.
+pub(crate) fn yaml_number(s: &str) -> Option<serde_json::Number> {
+    if s.is_empty() || s.contains(|c: char| c.is_whitespace() || c == '#') {
+        return None;
+    }
+    match parse_yaml::<serde_json::Value>(s) {
+        Ok(serde_json::Value::Number(n)) => Some(n),
+        _ => None,
+    }
+}
+
+/// Whether `s` is a decimal YAML reads as a number whose own text is `s`:
+/// `12`, `-3`, `1.5`, `12.0`. Each digit is significant, at most 15 of them,
+/// so the shortest text of the number read is `s` again.
+pub(crate) fn is_plain_number(s: &str) -> bool {
+    let digits = s.strip_prefix('-').unwrap_or(s);
+    let (int, frac) = match digits.split_once('.') {
+        Some((int, frac)) => (int, Some(frac)),
+        None => (digits, None),
+    };
+    let int_ok = int == "0"
+        || (int.starts_with(|c: char| ('1'..='9').contains(&c))
+            && int.bytes().all(|b| b.is_ascii_digit()));
+    let negative_zero =
+        digits.len() < s.len() && int == "0" && frac.is_none_or(|f| f.bytes().all(|b| b == b'0'));
+    if !int_ok || negative_zero {
+        return false;
+    }
+    match frac {
+        None => int.len() <= 18,
+        Some(frac) => {
+            let leading = frac.bytes().take_while(|&b| b == b'0').count();
+            !frac.is_empty()
+                && frac.bytes().all(|b| b.is_ascii_digit())
+                && (frac == "0" || !frac.ends_with('0'))
+                && int.len() + frac.len() <= 15
+                && (int != "0" || leading < 4)
+        }
+    }
+}
+
 /// Deserialize `T` from YAML as `Quill.yaml` is read: under the parser's own
 /// budget, so an over-deep document errors rather than overflowing its stack,
 /// and with only `true` and `false` as booleans. A value that parses but does
@@ -285,5 +327,15 @@ mod tests {
         };
         assert!(!json_depth_exceeds(&container_terminated(100), 100));
         assert!(json_depth_exceeds(&container_terminated(101), 100));
+    }
+
+    proptest::proptest! {
+        /// A number written plainly is the text of the number YAML reads.
+        #[test]
+        fn a_plain_number_is_its_own_text(s in "-?(0|[1-9][0-9]{0,19})(\\.[0-9]{1,17})?") {
+            if is_plain_number(&s) {
+                proptest::prop_assert_eq!(yaml_number(&s).map(|n| n.to_string()), Some(s));
+            }
+        }
     }
 }
