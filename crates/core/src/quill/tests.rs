@@ -887,6 +887,54 @@ schema:
     assert!(groups["addressing"].as_object().unwrap().is_empty());
 }
 
+/// YAML reads `0012`, `1.50` and `0x1F` as numbers, so a `text` field holds
+/// the text written and a `number` or `integer` field reads the number that
+/// text spells, wherever the scalar sits in the payload.
+#[test]
+fn a_text_field_keeps_a_numeric_spelling_as_written() {
+    use serde_json::json;
+
+    let config = quill_with_field(
+        "    f: { type: text }\n    n: { type: number }\n    i: { type: integer }\n    rows:\n      type: array\n      items:\n        type: object\n        properties:\n          code: { type: text }\n",
+    )
+    .expect("the declaration loads");
+    for (written, number) in [
+        ("0012", json!(12)),
+        ("1.50", json!(1.5)),
+        ("1e3", json!(1000.0)),
+        ("0x1F", json!(31)),
+        ("1_000", json!(1000)),
+        ("+15551234567", json!(15551234567_i64)),
+        ("12", json!(12)),
+    ] {
+        let md = format!(
+            "~~~\n$quill: test_quill\nf: {written}\nn: {written}\nrows:\n  - code: {written}\n~~~\n"
+        );
+        let doc = Document::parse(&md).expect("parses").document;
+        let coerced = config
+            .coerce_payload(&doc.main().payload().to_index_map())
+            .expect("coerces");
+        let get = |k: &str| coerced.get(k).expect("present").as_json().clone();
+        assert_eq!(get("f"), text(written), "text from {written}");
+        assert_eq!(get("n"), number, "number from {written}");
+        assert_eq!(
+            get("rows")[0]["code"],
+            text(written),
+            "nested text from {written}"
+        );
+    }
+
+    let doc = Document::parse("~~~\n$quill: test_quill\nn: &code 0012\nf: *code\ni: 0x1F\n~~~\n")
+        .expect("parses")
+        .document;
+    let coerced = config
+        .coerce_payload(&doc.main().payload().to_index_map())
+        .expect("coerces");
+    let get = |k: &str| coerced.get(k).expect("present").as_json().clone();
+    assert_eq!(get("i"), json!(31));
+    assert_eq!(get("f"), text("0012"), "text through an alias");
+}
+
 /// One field's coercion: `field_yaml` declares it as `f`, `value` is what a
 /// document carries there. `Ok` is the coerced JSON; `Err` is the `(path,
 /// target)` pair a refusal names, which is what a caller routes on.

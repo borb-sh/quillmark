@@ -233,7 +233,7 @@ pub(super) fn build_block(
     let yaml = raw_content.replace("\r\n", "\n");
 
     let content = yaml.trim().to_string();
-    let (meta_items, yaml_value) = if content.is_empty() {
+    let (meta_items, mut yaml_value) = if content.is_empty() {
         (Vec::new(), None)
     } else {
         let mut parsed = match crate::value::parse_yaml::<serde_json::Value>(&content) {
@@ -311,6 +311,10 @@ pub(super) fn build_block(
         }
     })?;
 
+    if let Some(value) = yaml_value.as_mut() {
+        keep_numeric_spellings(value, pre.numeric_spellings);
+    }
+
     Ok(MetadataBlock {
         start: block_start,
         end: block_end,
@@ -320,6 +324,27 @@ pub(super) fn build_block(
         pre_nested_comments: pre.nested_comments,
         unsupported_tags: pre.unsupported_tags,
     })
+}
+
+/// Put back the text written for each number YAML read from a spelling that is
+/// not the number's own text, so a `text` field holds `0012` and `1.50` as
+/// written, and a `number` field reads them from that text.
+fn keep_numeric_spellings(
+    value: &mut serde_json::Value,
+    spellings: Vec<(Vec<PathSegment>, String)>,
+) {
+    for (path, text) in spellings {
+        let node = path.iter().try_fold(&mut *value, |v, seg| match seg {
+            PathSegment::Key(k) => v.get_mut(k.as_str()),
+            PathSegment::Index(i) => v.get_mut(*i),
+        });
+        if let Some(node) = node
+            && let serde_json::Value::Number(n) = node
+            && n.to_string() != text
+        {
+            *node = serde_json::Value::String(text);
+        }
+    }
 }
 
 /// Decompose markdown into a typed [`Document`], its non-fatal warnings (the

@@ -59,6 +59,9 @@ pub(crate) struct PreScan {
     /// Paths of the tagged nodes, relative to the fence root (the first
     /// segment is the owning top-level key).
     pub unsupported_tags: Vec<Vec<PathSegment>>,
+    /// Each untagged plain value scalar that may read as a number, with its
+    /// path as [`Self::unsupported_tags`] gives it and the text written.
+    pub numeric_spellings: Vec<(Vec<PathSegment>, String)>,
 }
 
 /// Why the scan refuses a block the value parse reads.
@@ -482,6 +485,9 @@ struct Walk<'a> {
     /// Each comment inside a collection, in the order recorded.
     nested: Vec<Recorded>,
     tags: Vec<Vec<PathSegment>>,
+    numeric: Vec<(Vec<PathSegment>, String)>,
+    /// The text of each anchored scalar [`Self::numeric`] records, by anchor id.
+    numeric_anchors: HashMap<usize, String>,
     /// Open collections, outermost first, then the ones a run of own-line
     /// comments closed before it found its slots.
     frames: Vec<Frame>,
@@ -533,6 +539,8 @@ impl<'a> Walk<'a> {
             items: Vec::new(),
             nested: Vec::new(),
             tags: Vec::new(),
+            numeric: Vec::new(),
+            numeric_anchors: HashMap::new(),
             frames: Vec::new(),
             live: 0,
             pending: Vec::new(),
@@ -591,6 +599,7 @@ impl<'a> Walk<'a> {
             items: self.items,
             nested_comments: self.nested.into_iter().map(|r| r.comment).collect(),
             unsupported_tags: self.tags,
+            numeric_spellings: self.numeric,
         })
     }
 
@@ -739,6 +748,24 @@ impl<'a> Walk<'a> {
             let path = self.merged_path(depth);
             self.charge_path(&path, 0)?;
             self.tags.push(path);
+        }
+        let numeric = match event {
+            Event::Scalar(text, ScalarStyle::Plain, anchor, None)
+                if text
+                    .starts_with(|c: char| c.is_ascii_digit() || matches!(c, '+' | '-' | '.')) =>
+            {
+                if *anchor != 0 {
+                    self.numeric_anchors.insert(*anchor, text.to_string());
+                }
+                Some(text.to_string())
+            }
+            Event::Alias(id) => self.numeric_anchors.get(id).cloned(),
+            _ => None,
+        };
+        if let Some(text) = numeric.filter(|_| role != Role::Key) {
+            let path = self.merged_path(depth);
+            self.charge_path(&path, text.len())?;
+            self.numeric.push((path, text));
         }
         let first = self.nested.len();
         let led = self.bind(bound, top, shape, role)?;

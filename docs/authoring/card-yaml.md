@@ -139,25 +139,19 @@ document with its quill by the name after the `.`.
 The data payload (everything in the YAML mapping except the `$`-prefixed
 metadata keys) is standard YAML.
 
-YAML reads an unquoted value by its shape before the schema sees it, so a
-`text` field takes what YAML read, not what you wrote. Quote these:
+YAML reads an unquoted value by its shape before the schema sees it. A value
+that reads as a number keeps the text you wrote: a `text` field holds
+`zip: 02134` as `02134`, `ver: 1.10` as `1.10` and `code: 0x1F` as `0x1F`, and
+a `number` or `integer` field reads the number that text spells. Quote these:
 
 | Written | Reaches the page | Write instead |
 |---|---|---|
-| `zip: 02134`, a leading zero | `2134.0` | `zip: "02134"` |
-| `ver: 1.10`, a version-like number | `1.1` | `ver: "1.10"` |
-| `batch: 2024_07`, an `_` between digits | `202407` | `batch: "2024_07"` |
-| `code: 0x1F`, a `0x`, `0o` or `0b` prefix | `31` | `code: "0x1F"` |
-| `room: 1E3`, an exponent | `1000.0` | `room: "1E3"` |
-| `phone: +15551234567`, a leading `+` | `15551234567` | `phone: "+15551234567"` |
-| `id: 18446744073709551616`, an integer past 18446744073709551615 | `1.8446744073709552e+19` | `id: "18446744073709551616"` |
-| `ratio: .5` or `5.`, a `.` with no digit on one side | `0.5`, `5.0` | `ratio: ".5"` |
 | `ext: .inf` or `.nan`, all lowercase, capitalized or all uppercase | nothing: the parse fails | `ext: ".inf"` |
 | `id: 1e999`, a number too large to hold | nothing: the parse fails | `id: "1e999"` |
 | `text: Approve Item #12`, a space or tab then `#` | `Approve Item`: the rest is a comment | `text: "Approve Item #12"` |
 
-`quillmark check` reports only the rows that fail the parse; the rest are
-well-formed YAML, read as a number or cut at a comment. A word needs no quotes
+`quillmark check` reports only the rows that fail the parse; the last is
+well-formed YAML, cut at a comment. A word needs no quotes
 unless it is `true`, `false` or `null` all lowercase, capitalized or all
 uppercase, or `~`: `tRue`, `nUlL`, `yes`, `no`, `on`, `off`, `y` and `n` stay
 text.
