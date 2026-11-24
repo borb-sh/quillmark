@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.141.0 - 2026-11-24
+
+Upgrade path: [0.140 → 0.141](docs/migrations/0.140-to-0.141.md). A `text` or
+`richtext` field declaring `multiline:` fails to load as
+`quill::field_parse_error`, its hint naming `shape:`, and `schema()` and the
+transform schema carry `shape` alone, without `multiline`;
+`QUILLMARK_MULTILINE_KEY` is removed. An unquoted value whose text is not the
+number YAML reads it as, such as `0012`, `1.50` or `+15551234567`, is held as
+the text written, through aliases and merges too, so a `text` field prints
+`0012`; a `number` or `integer` field reads the number it did. `quillmark_pdf::stamp`
+returns `Stamped { pdf, warnings }` and warns `pdf::widgets_untagged` when a
+tagged base's structure tree keeps the widgets out, and `quillmark_docx::lower`'s
+`CODE_*` constants are removed in favour of `notice::Code`. The repository and
+packages move to github.com/birdorbs.
+
+- feat(core)!: remove the legacy multiline spelling of a text field's shape
+- fix(core)!: a value YAML reads as a number keeps the text written, so a text field holds 0012
+- fix(core): a numeric spelling follows aliases and merges, and a shadowed one stays out
+- fix(core): a key a mapping holds itself shadows the spelling a merge brings
+- feat(pdf)!: warn pdf::widgets_untagged when a tagged base's tree keeps the widgets out
+- refactor(docx)!: lower's CODE_* constants are gone
+- chore(deps): one toml and one comemo in the graph
+- chore: point repository URLs at birdorbs
+
 ## v0.140.0 - 2026-11-21
 
 Upgrade path: [0.139 → 0.140](docs/migrations/0.139-to-0.140.md). Word is a
