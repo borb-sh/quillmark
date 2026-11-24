@@ -10,7 +10,7 @@
 ## Setup
 
 ```bash
-git clone https://github.com/borb-sh/quillmark
+git clone https://github.com/birdorbs/quillmark
 cd quillmark
 cargo test --workspace
 ```

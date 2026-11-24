@@ -14,7 +14,7 @@ headline break, enough to pick the guide.
 
 A stored row loads across every step but two: 0.125 → 0.126 refuses a body nested past 12 levels or a `$quill` its narrowed grammar refuses, such as the lone major `memo@1`, and 0.129 → 0.130 a row under any tag older than `quillmark/document@0.124.0`. Each guide says how to rewrite such a row before upgrading. The storage DTO's bytes and tag hold across every step here except 0.123 → 0.124, 0.128 → 0.129, 0.130 → 0.131, 0.133 → 0.134 and 0.134 → 0.135, where canonical bytes move (content hashes recompute) and the tag becomes `quillmark/document@0.124.0`, `@0.129.0`, `@0.131.0`, `@0.134.0` and `@0.135.0` in turn. At 0.130 → 0.131 a row holding a table's `headless: true` loads it with `head: 0` beside it, a body mark over a line break as one mark per line, and overlapping links as one link per character, at 0.131 → 0.132 one holding a `term` line or a `description` or `element` container loads as what it held, and at 0.135 → 0.136 one holding an anchor whose id opens with `~` loads it as transient; each rewrites once when saved, under the same tag. At 0.132 → 0.133 a row holding a table on a line it shares with prose loads as stored, where it loaded with the line broken. A build older than a step that moves the tag refuses a row the newer build has rewritten.
 
-The guides for steps up to 0.123 are in the repository at [v0.140.0](https://github.com/borb-sh/quillmark/tree/v0.140.0/docs/migrations).
+The guides for steps up to 0.123 are in the repository at [v0.140.0](https://github.com/birdorbs/quillmark/tree/v0.140.0/docs/migrations).
 
 ## Guides
 

@@ -1,8 +1,8 @@
 site_name: Quillmark
 site_description: "Schema-driven document framework: Markdown in, typeset PDF, SVG and PNG out"
 site_url: https://quillmark.dev/
-repo_url: https://github.com/borb-sh/quillmark
-repo_name: borb-sh/quillmark
+repo_url: https://github.com/birdorbs/quillmark
+repo_name: birdorbs/quillmark
 edit_uri: edit/main/docs/
 
 theme:

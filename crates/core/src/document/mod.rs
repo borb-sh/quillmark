@@ -2,7 +2,7 @@
 //!
 //! A [`Document`] holds a root [`Card`] plus ordered composable cards. The
 //! format is specified in
-//! [markdown-spec.md](https://github.com/borb-sh/quillmark/blob/main/prose/references/markdown-spec.md).
+//! [markdown-spec.md](https://github.com/birdorbs/quillmark/blob/main/prose/references/markdown-spec.md).
 
 use serde::{Deserialize, Serialize};
 

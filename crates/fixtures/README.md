@@ -1,6 +1,6 @@
 # quillmark-fixtures
 
-Sample Quill templates and markdown files backing [Quillmark](https://github.com/borb-sh/quillmark)'s tests and examples, the helpers that resolve their paths, and the base PDFs (`pdf`) and AcroForm readers (`acroform`) the PDF form tests use.
+Sample Quill templates and markdown files backing [Quillmark](https://github.com/birdorbs/quillmark)'s tests and examples, the helpers that resolve their paths, and the base PDFs (`pdf`) and AcroForm readers (`acroform`) the PDF form tests use.
 
 ## Usage
 

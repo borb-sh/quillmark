@@ -27,8 +27,8 @@ keywords = ["markdown", "pdf", "typst", "rendering", "templates"]
 
 [project.urls]
 Homepage = "https://quillmark.dev/"
-Repository = "https://github.com/borb-sh/quillmark"
-Changelog = "https://github.com/borb-sh/quillmark/blob/main/CHANGELOG.md"
+Repository = "https://github.com/birdorbs/quillmark"
+Changelog = "https://github.com/birdorbs/quillmark/blob/main/CHANGELOG.md"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]

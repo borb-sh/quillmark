@@ -52,4 +52,4 @@ Key contract points:
   `update` is transactional: if it throws, the canvas still shows the
   last-good compile, so keep it up and surface the diagnostics.
 
-The rules behind this design: [Quillmark invariants § Preview](https://github.com/borb-sh/quillmark/blob/main/prose/INVARIANTS.md#preview).
+The rules behind this design: [Quillmark invariants § Preview](https://github.com/birdorbs/quillmark/blob/main/prose/INVARIANTS.md#preview).

@@ -2,9 +2,9 @@
 
 Python bindings for Quillmark, a schema-driven document framework.
 
-Maintained by [borb-sh](https://github.com/borb-sh).
+Maintained by [birdorbs](https://github.com/birdorbs).
 
-Quillmark is pre-1.0. Its [stability statement](https://github.com/borb-sh/quillmark#status) says what any release can change and what every release keeps.
+Quillmark is pre-1.0. Its [stability statement](https://github.com/birdorbs/quillmark#status) says what any release can change and what every release keeps.
 
 ## Installation
 
@@ -222,8 +222,8 @@ out-of-range op.
 
 ## Changelog
 
-See the [changelog](https://github.com/borb-sh/quillmark/blob/main/CHANGELOG.md)
-and the [GitHub Releases](https://github.com/borb-sh/quillmark/releases) page for
+See the [changelog](https://github.com/birdorbs/quillmark/blob/main/CHANGELOG.md)
+and the [GitHub Releases](https://github.com/birdorbs/quillmark/releases) page for
 release notes and version history.
 
 ## Development

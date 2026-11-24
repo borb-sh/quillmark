@@ -1,14 +1,14 @@
 # Quillmark CLI
 
-`quillmark`, the command-line interface to [Quillmark](https://github.com/borb-sh/quillmark): renders Markdown with card-yaml blocks through a quill into PDF, SVG, or PNG.
+`quillmark`, the command-line interface to [Quillmark](https://github.com/birdorbs/quillmark): renders Markdown with card-yaml blocks through a quill into PDF, SVG, or PNG.
 
-Maintained by [borb-sh](https://github.com/borb-sh).
+Maintained by [birdorbs](https://github.com/birdorbs).
 
-Quillmark is pre-1.0. Its [stability statement](https://github.com/borb-sh/quillmark#status) says what any release can change and what every release keeps.
+Quillmark is pre-1.0. Its [stability statement](https://github.com/birdorbs/quillmark#status) says what any release can change and what every release keeps.
 
 ## Installation
 
-Prebuilt binaries are on each [GitHub Release](https://github.com/borb-sh/quillmark/releases), and `cargo install quillmark-cli --locked` builds from source. The [CLI reference](https://quillmark.dev/cli/reference/#installation) has the other routes and what `quillmark --version` prints.
+Prebuilt binaries are on each [GitHub Release](https://github.com/birdorbs/quillmark/releases), and `cargo install quillmark-cli --locked` builds from source. The [CLI reference](https://quillmark.dev/cli/reference/#installation) has the other routes and what `quillmark --version` prints.
 
 ## Quick start
 
@@ -55,7 +55,7 @@ itself rejects (`-f odt`). Diagnostics go to stderr.
 ## Links
 
 - [CLI reference](../../../docs/cli/reference.md)
-- [Changelog](https://github.com/borb-sh/quillmark/blob/main/CHANGELOG.md) and [releases](https://github.com/borb-sh/quillmark/releases)
+- [Changelog](https://github.com/birdorbs/quillmark/blob/main/CHANGELOG.md) and [releases](https://github.com/birdorbs/quillmark/releases)
 
 ## License
 

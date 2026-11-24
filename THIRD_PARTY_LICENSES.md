@@ -2357,15 +2357,15 @@ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH RE
 
 ## Apache License 2.0
 
-- quillmark-acroform 0.140.0 (https://github.com/borb-sh/quillmark)
-- quillmark-typst 0.140.0 (https://github.com/borb-sh/quillmark)
-- quillmark-cli 0.140.0 (https://github.com/borb-sh/quillmark)
+- quillmark-acroform 0.140.0 (https://github.com/birdorbs/quillmark)
+- quillmark-typst 0.140.0 (https://github.com/birdorbs/quillmark)
+- quillmark-cli 0.140.0 (https://github.com/birdorbs/quillmark)
 - quillmark-python 0.140.0
-- quillmark-content 0.140.0 (https://github.com/borb-sh/quillmark)
-- quillmark-core 0.140.0 (https://github.com/borb-sh/quillmark)
-- quillmark 0.140.0 (https://github.com/borb-sh/quillmark)
-- quillmark-docx 0.140.0 (https://github.com/borb-sh/quillmark)
-- quillmark-pdf 0.140.0 (https://github.com/borb-sh/quillmark)
+- quillmark-content 0.140.0 (https://github.com/birdorbs/quillmark)
+- quillmark-core 0.140.0 (https://github.com/birdorbs/quillmark)
+- quillmark 0.140.0 (https://github.com/birdorbs/quillmark)
+- quillmark-docx 0.140.0 (https://github.com/birdorbs/quillmark)
+- quillmark-pdf 0.140.0 (https://github.com/birdorbs/quillmark)
 - ciborium-io 0.2.2 (https://github.com/enarx/ciborium)
 - ciborium-ll 0.2.2 (https://github.com/enarx/ciborium)
 - ciborium 0.2.2 (https://github.com/enarx/ciborium)
@@ -7097,7 +7097,7 @@ limitations under the License.
 
 ## Apache License 2.0
 
-- quillmark-wasm 0.140.0 (https://github.com/borb-sh/quillmark)
+- quillmark-wasm 0.140.0 (https://github.com/birdorbs/quillmark)
 - quillmark-fixtures 0.140.0
 - arraydeque 0.5.1 (https://github.com/andylokandy/arraydeque)
 - codex 0.3.0 (https://github.com/typst/codex)

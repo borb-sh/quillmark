@@ -7,7 +7,7 @@
   "author": "Quillmark Contributors",
   "homepage": "https://quillmark.dev/",
   "bugs": {
-    "url": "https://github.com/borb-sh/quillmark/issues"
+    "url": "https://github.com/birdorbs/quillmark/issues"
   },
   "keywords": [
     "markdown",
@@ -25,7 +25,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/borb-sh/quillmark.git"
+    "url": "git+https://github.com/birdorbs/quillmark.git"
   },
   "files": [
     "core",
