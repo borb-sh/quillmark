@@ -1098,7 +1098,7 @@ schema:
         );
     }
 
-    /// The keys a named consumer composes sentences from: `borb-sh/quillmark-js`,
+    /// The keys a named consumer composes sentences from: `birdorbs/quillmark-js`,
     /// whose `packages/svelte/tests/visual/diagnostic-args.test.ts` asserts each
     /// one against the published wasm build.
     ///

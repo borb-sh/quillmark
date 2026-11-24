@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Report privately through GitHub: [open a draft security advisory](https://github.com/borb-sh/quillmark/security/advisories/new). Do not open a public issue for a vulnerability.
+Report privately through GitHub: [open a draft security advisory](https://github.com/birdorbs/quillmark/security/advisories/new). Do not open a public issue for a vulnerability.
 
 Include the Quillmark version, the surface (Rust, Python, WASM, CLI), and the smallest document or quill that reproduces it. The fix ships in a new release, and the advisory is published with it.
 

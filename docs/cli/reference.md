@@ -4,7 +4,7 @@ Command-line interface for Quillmark rendering.
 
 ## Installation
 
-Each [GitHub Release](https://github.com/borb-sh/quillmark/releases) carries
+Each [GitHub Release](https://github.com/birdorbs/quillmark/releases) carries
 prebuilt binaries for Linux (x86_64, aarch64), macOS (Apple silicon, Intel) and
 Windows (x86_64). With
 [cargo-binstall](https://github.com/cargo-bins/cargo-binstall), the same

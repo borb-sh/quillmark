@@ -50,4 +50,4 @@ Add the same line to an existing project that runs prettier, along with any othe
 
 ## More
 
-[quillkit's README](https://github.com/borb-sh/quillmark-js/tree/main/packages/quillkit#readme) covers every flag, gating starter templates with `--templates`, and deploying a site to Vercel, Netlify or GitHub Pages.
+[quillkit's README](https://github.com/birdorbs/quillmark-js/tree/main/packages/quillkit#readme) covers every flag, gating starter templates with `--templates`, and deploying a site to Vercel, Netlify or GitHub Pages.

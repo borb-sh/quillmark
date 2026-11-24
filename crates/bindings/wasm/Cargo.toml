@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 description = "WebAssembly bindings for Quillmark, a schema-driven document framework"
 license.workspace = true
-repository = "https://github.com/borb-sh/quillmark"
+repository = "https://github.com/birdorbs/quillmark"
 readme = "README.md"
 publish = false
 

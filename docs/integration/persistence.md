@@ -41,4 +41,4 @@ Equal documents serialize to byte-equal JSON, and re-serializing under any later
 
 A row still carrying an older schema tag migrates forward on read; that migrated form's bytes become stable once you **rewrite the row under its current tag** (read-repair).
 
-The rules behind this: [Quillmark invariants § Storage](https://github.com/borb-sh/quillmark/blob/main/prose/INVARIANTS.md#storage).
+The rules behind this: [Quillmark invariants § Storage](https://github.com/birdorbs/quillmark/blob/main/prose/INVARIANTS.md#storage).

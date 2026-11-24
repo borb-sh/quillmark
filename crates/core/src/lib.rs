@@ -6,7 +6,7 @@
 //! backends implement, and structured diagnostics carrying source locations.
 //!
 //! The markdown grammar is specified in
-//! [markdown-spec.md](https://github.com/borb-sh/quillmark/blob/main/prose/references/markdown-spec.md).
+//! [markdown-spec.md](https://github.com/birdorbs/quillmark/blob/main/prose/references/markdown-spec.md).
 //!
 //! ```no_run
 //! use quillmark_core::document::Document;

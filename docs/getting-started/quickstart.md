@@ -67,7 +67,7 @@ This paragraph is the document body. *Markdown* works here.
     `cargo install` builds from source, so it needs a
     [Rust toolchain](https://rustup.rs). Prebuilt binaries need none:
     `cargo binstall quillmark-cli` installs one, and each
-    [GitHub Release](https://github.com/borb-sh/quillmark/releases) carries the
+    [GitHub Release](https://github.com/birdorbs/quillmark/releases) carries the
     archives ([Installation](../cli/reference.md#installation)).
     `render` writes `document.pdf`. `quillmark check my_quill document.md`
     reports what the document gets wrong without rendering, and
