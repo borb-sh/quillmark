@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.141.0 - 2026-11-24
+
+- chore: point repository URLs at birdorbs
+- fix(core): a key a mapping holds itself shadows the spelling a merge brings
+- docs(pdf): name the root's /K array among the shapes left untagged
+- fix(core): a numeric spelling follows aliases and merges, and a shadowed one stays out
+- docs: CONTRIBUTING says how a contribution is licensed
+- docs(migrations): 0.141 guide rows for numeric spellings and Stamped
+- feat(pdf)!: warn pdf::widgets_untagged when a tagged base's tree keeps the widgets out
+- fix(core)!: a value YAML reads as a number keeps the text written, so a text field holds 0012
+- ci: the publish environment is spelled lowercase
+- docs: remove the migration guides for steps up to 0.123
+- chore(deps): acroform's hayro follows typst-render's 0.7
+- feat(core)!: remove the legacy multiline spelling of a text field's shape (#2522)
+- chore(typst): drop the comment of the removed comemo dependency
+- ci: point the release-gate note at verify-crates (#2530)
+- ci: keep dependency code away from publish tokens, pin docs dependencies (#2519)
+- test(pdf): the base-PDF builders live in quillmark-fixtures
+- refactor(docx)!: lower's CODE_* constants are gone
+- chore(deps): one toml and one comemo in the graph
+- build(deps): Bump hayro from 0.8.0 to 0.9.0 (#2409)
+- chore(deps): Bump taiki-e/install-action (#2501)
+
 ## v0.140.0 - 2026-11-21
 
 Upgrade path: [0.139 → 0.140](docs/migrations/0.139-to-0.140.md). Word is a
