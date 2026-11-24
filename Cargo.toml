@@ -38,7 +38,7 @@ homepage = "https://quillmark.dev/"
 serde = { version = "~1.0", features = ["derive"] }
 serde-saphyr = "~2.1"
 serde_json = { version = "~1.0", features = ["preserve_order"] }
-jsonschema = { version = "~0.60", default-features = false }
+jsonschema = { version = "~0.61", default-features = false }
 thiserror = "~2.0"
 # The version Typst links, so the workspace builds one copy.
 toml = "~0.8"
