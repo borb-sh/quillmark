@@ -329,7 +329,8 @@ pub(super) fn build_block(
 
 /// Put back the text written for each number YAML read from a spelling that is
 /// not the number's own text, so a `text` field holds `0012` and `1.50` as
-/// written, and a `number` field reads them from that text. A spelling a later
+/// written, and a `number` field reads them from that text. The emitter's own
+/// spelling of a number (`1.0e-7`) reads as the number. A spelling a later
 /// merge shadows reads as a number other than the one its path holds, and
 /// stays out.
 fn keep_numeric_spellings(
@@ -344,6 +345,7 @@ fn keep_numeric_spellings(
         if let Some(node) = node
             && let serde_json::Value::Number(n) = node
             && n.to_string() != text
+            && super::emit::saphyr_emit_scalar(&serde_json::Value::Number(n.clone())) != text
             && crate::value::yaml_number(&text).as_ref() == Some(n)
         {
             *node = serde_json::Value::String(text);
