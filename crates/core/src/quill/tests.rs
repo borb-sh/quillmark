@@ -888,10 +888,10 @@ schema:
 }
 
 /// A plain scalar resolves by YAML 1.2.2's core schema wherever it sits in
-/// the payload and through an alias or a merge: `0012` is the integer 12, so
-/// a `text` field holds `12` and a `number` field 12, and a spelling the core
-/// schema holds no number, `1_000`, is the text written. A spelling a merge
-/// shadows stays out.
+/// the payload and through an alias: `0012` is the integer 12, so a `text`
+/// field holds `12` and a `number` field 12, and a spelling the core schema
+/// holds no number, `1_000`, is the text written. An integer past 64 bits
+/// fails the parse.
 #[test]
 fn a_plain_scalar_resolves_by_the_core_schema() {
     use serde_json::json;
@@ -957,39 +957,35 @@ fn a_plain_scalar_resolves_by_the_core_schema() {
         "a number field refuses text the core schema holds no number"
     );
 
-    let data = payload(
-        "rows:\n  - &row\n    code: 1_000\n    qty: 0x1F\n  - *row\n  - <<: *row\n    qty: 2\n  - <<: [{code: 7}, {code: 1_000}]\n  - {code: 12.0, <<: {code: 1_000}}\n  - {<<: {code: 1_000}, code: 012}\n",
-    );
+    let data = payload("rows:\n  - &row\n    code: 0012\n    qty: 0x1F\n  - *row\n");
     assert_eq!(
         data["rows"][1]["code"]["text"],
-        json!("1_000"),
+        json!("12"),
         "through a mapping alias"
     );
-    assert_eq!(
-        data["rows"][2]["code"]["text"],
-        json!("1_000"),
-        "through a merge"
-    );
-    assert_eq!(
-        data["rows"][2]["qty"],
-        json!(2),
-        "a merge brings no key the mapping holds"
-    );
-    assert_eq!(
-        data["rows"][3]["code"]["text"],
-        json!("7"),
-        "the first merge's key wins"
-    );
-    assert_eq!(
-        data["rows"][4]["code"]["text"],
-        json!("12.0"),
-        "an own key wins"
-    );
-    assert_eq!(
-        data["rows"][5]["code"]["text"],
-        json!("12"),
-        "an own key after the merge wins"
-    );
+    assert_eq!(data["rows"][1]["qty"], json!(31));
+
+    for (written, stored) in [
+        ("18446744073709551615", json!(u64::MAX)),
+        ("-9223372036854775808", json!(i64::MIN)),
+    ] {
+        assert_eq!(
+            parse(&format!("n: {written}\n"))
+                .main()
+                .payload()
+                .get("n")
+                .map(|v| v.as_json().clone()),
+            Some(stored)
+        );
+    }
+    for written in [
+        "18446744073709551616",
+        "-9223372036854775809",
+        "0x10000000000000000",
+    ] {
+        let src = format!("~~~\n$quill: q@1.0\nn: [1, {written}]\n~~~\n");
+        assert!(Document::parse(&src).is_err(), "{written}");
+    }
 }
 
 /// A block of numbers written plainly records nothing, so its size is the

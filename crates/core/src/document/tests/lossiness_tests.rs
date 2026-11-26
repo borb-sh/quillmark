@@ -390,64 +390,30 @@ fn an_alias_key_holds_its_comments_and_tags() {
     assert_eq!(Document::parse(&md).unwrap().document, out.document, "{md}");
 }
 
-/// A mapping holding a merge reads its own keys, then each key the merge
-/// brings that it does not already hold. A comment keeps its slot among those
-/// keys: one ahead of, on or inside a merge sits with the keys that merge
-/// brings, one at an own key with that key, and one inside a merged key the
-/// mapping overrides ahead of where that key would sit. An item whose merges
-/// bring no key emits as `{}`, which holds no comment, so its comments follow
-/// the item.
+/// YAML 1.2 has no merge: `<<` is an ordinary key, holding its value, and a
+/// comment or tag inside it stays there.
 #[test]
-fn a_comment_around_or_inside_a_merge_keeps_its_slot() {
-    let cases = [
-        (
-            "m:\n  w: 0\n  # before\n  <<: # on\n    # first\n    x: 1 # x\n    # between\n    \
-             z: 2\n    # last\n  # after\n  v: 3\n  # end\n",
-            "m:\n  w: 0\n  # after\n  v: 3\n  # before\n  # on\n  # first\n  x: 1 # x\n  \
-             # between\n  z: 2\n  # last\n  # end\n",
-        ),
-        (
-            "b: &b\n  x: 1\nm:\n  # before\n  <<: *b\n  # after\n  c: 2\n",
-            "m:\n  # after\n  c: 2\n  # before\n  x: 1\n",
-        ),
-        (
-            "p: &p {x: 1, z: 2}\nq: &q {z: 3, u: 4}\nm:\n  x: 0\n  <<: [*p, # p\n    *q] # q\n",
-            "m:\n  x: 0\n  # p\n  z: 2\n  u: 4\n  # q\n",
-        ),
-        (
-            "p: &p {x: 1}\nq: &q {z: 2}\nm:\n  <<:\n    # p\n    - *p\n    # q\n    - *q\n  c: 3\n",
-            "m:\n  c: 3\n  # p\n  x: 1\n  # q\n  z: 2\n",
-        ),
-        (
-            "m:\n  <<:\n    a:\n      # inside a\n      deep: 1\n    <<: {b: 2}\n  a: 0\n",
-            "m:\n  a: 0\n  # inside a\n  b: 2\n",
-        ),
-        (
-            "l:\n  - <<: {x: 1}\n    c: 2 # c\n",
-            "l:\n  - c: 2 # c\n    x: 1\n",
-        ),
-        (
-            "l:\n  - <<:\n      # c\n  - 1\n",
-            "l:\n  - {}\n  # c\n  - 1\n",
-        ),
-        (
-            "d: &d {}\nl:\n  - <<: *d\n    # note\n",
-            "l:\n  - {}\n  # note\n",
-        ),
-        (
-            "$ext:\n  d: &d {a: 1}\nx: 0\n# before\n<<: *d # on\nc: 2\n",
-            "x: 0\nc: 2\n# before\n# on\na: 1\n",
-        ),
-    ];
-    for (fields, emitted) in cases {
-        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
-        let doc = Document::parse(&src)
-            .unwrap_or_else(|e| panic!("{src}\n{e}"))
-            .document;
-        let md = doc.to_markdown();
-        assert!(md.contains(emitted), "Source:\n{src}\nGot:\n{md}");
-        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
-    }
+fn a_merge_key_is_an_ordinary_key() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\nb: &b\n  x: 1\nm:\n  <<: # on\n    # inside\n    y: !t 2\n  z: *b\n~~~\n";
+    let out = Document::parse(src).unwrap();
+    assert_eq!(
+        out.document
+            .main()
+            .payload()
+            .get("m")
+            .map(|v| v.as_json().clone()),
+        Some(serde_json::json!({ "<<": { "y": 2 }, "z": { "x": 1 } }))
+    );
+    assert_eq!(
+        anchors(&out),
+        [("parse::unsupported_yaml_tag", Some("main.m.<<.y"))]
+    );
+    let md = out.document.to_markdown();
+    assert!(
+        md.contains("m:\n  \"<<\": # on\n    # inside\n    \"y\": 2\n"),
+        "{md}"
+    );
+    assert_eq!(Document::parse(&md).unwrap().document, out.document, "{md}");
 }
 
 /// A comment's text ends at its last character that is not whitespace, so
@@ -963,24 +929,4 @@ fn a_refused_table_attribute_names_the_attribute_and_its_tag() {
         .find(|w| w.code.as_deref() == Some("parse::dropped_construct"))
         .expect("the refused attribute warns");
     assert_eq!(warning.args["construct"], "table[widths]");
-}
-
-/// The value holds a merge's keys in the mapping holding the merge, so a tag
-/// inside the merge warns at that key's path there.
-#[test]
-fn a_tag_inside_a_merge_warns_where_the_value_holds_it() {
-    for (yaml, path) in [
-        ("m: {<<: {x: !t 1}}", "main.m.x"),
-        ("m:\n  <<: [{a: 1}, {x: !t 1}]", "main.m.x"),
-        ("m: {<<: !t {x: 1}}", "main.m"),
-        ("<<: {x: !t 1}", "main.x"),
-    ] {
-        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{yaml}\n~~~\n");
-        let out = Document::parse(&src).unwrap();
-        assert_eq!(
-            anchors(&out),
-            [("parse::unsupported_yaml_tag", Some(path))],
-            "{yaml}"
-        );
-    }
 }

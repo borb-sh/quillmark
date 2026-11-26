@@ -150,6 +150,7 @@ are text, which a `number` or `integer` field refuses. Quote these too:
 |---|---|---|
 | `ext: .inf` or `.nan`, all lowercase, capitalized or all uppercase | nothing: the parse fails | `ext: ".inf"` |
 | `id: 1e999`, a number too large to hold | nothing: the parse fails | `id: "1e999"` |
+| `id: 18446744073709551616`, an integer past 64 bits | nothing: the parse fails | `id: "18446744073709551616"` |
 | `text: Approve Item #12`, a space or tab then `#` | `Approve Item`: the rest is a comment | `text: "Approve Item #12"` |
 
 `quillmark check` reports only the rows that fail the parse; the last is
