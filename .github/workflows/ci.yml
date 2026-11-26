@@ -141,8 +141,8 @@ jobs:
   # decoded, in a release build, each failing past its budget
   # (crates/content/tests/speed.rs) along with a revise of tables past the
   # import's cell budget, and one keystroke through Card::write on
-  # a long body (crates/core/tests/speed.rs). Its own job so the timing runs on
-  # a runner no other build shares.
+  # a long body and a parse of deep long keys (crates/core/tests/speed.rs).
+  # Its own job so the timing runs on a runner no other build shares.
   speed:
     runs-on: ubuntu-latest
     steps:

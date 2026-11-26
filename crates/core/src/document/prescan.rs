@@ -1111,6 +1111,9 @@ impl<'a> Walk<'a> {
             Event::Alias(id) => self.numeric_anchors.get(id).cloned().unwrap_or_default(),
             _ => return Ok(()),
         };
+        if brought.is_empty() {
+            return Ok(());
+        }
         let at = self.merged_path(depth);
         let merged = (0..depth)
             .rev()
