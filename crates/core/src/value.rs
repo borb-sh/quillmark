@@ -80,8 +80,8 @@ pub(crate) fn parse_yaml<'de, T: Deserialize<'de>>(
 
 const EXPANSION_SLACK: usize = 4 * 1024;
 
-/// The number a plain YAML scalar of text `s` reads as, such as `0012`,
-/// `0x1F` or `1_000`.
+/// The number the saphyr parser reads a plain scalar of text `s` as, YAML 1.1
+/// spellings (`0b11`, `1_000`) included.
 pub(crate) fn yaml_number(s: &str) -> Option<serde_json::Number> {
     if s.is_empty() || s.contains(|c: char| c.is_whitespace() || c == '#') {
         return None;
@@ -90,6 +90,54 @@ pub(crate) fn yaml_number(s: &str) -> Option<serde_json::Number> {
         Ok(serde_json::Value::Number(n)) => Some(n),
         _ => None,
     }
+}
+
+/// The number YAML 1.2.2's core schema resolves a plain scalar of text `s` to:
+/// a decimal integer with an optional sign (`0012` is 12), an unsigned `0o`
+/// octal or `0x` hexadecimal, or a float (`1.50`, `.5`, `1.`, `1e3`). Anything
+/// else is no number, `0b11`, `1_000`, `0X1F` and `-0x1F` among them, and so
+/// are the non-finite floats, which JSON cannot hold.
+pub(crate) fn core_number(s: &str) -> Option<serde_json::Number> {
+    let digits = |t: &str, radix: u32| !t.is_empty() && t.chars().all(|c| c.is_digit(radix));
+    for (prefix, radix) in [("0o", 8), ("0x", 16)] {
+        if let Some(t) = s.strip_prefix(prefix) {
+            return digits(t, radix)
+                .then(|| u64::from_str_radix(t, radix).ok())
+                .flatten()
+                .map(Into::into);
+        }
+    }
+    let unsigned = s.strip_prefix(['-', '+']).unwrap_or(s);
+    if digits(unsigned, 10) {
+        let negative = s.starts_with('-');
+        let int = unsigned.trim_start_matches('0');
+        let int = if int.is_empty() { "0" } else { int };
+        if negative {
+            if let Ok(i) = format!("-{int}").parse::<i64>() {
+                return Some(i.into());
+            }
+        } else if let Ok(u) = int.parse::<u64>() {
+            return Some(u.into());
+        }
+    } else {
+        let (mantissa, exponent) = match unsigned.split_once(['e', 'E']) {
+            Some((m, e)) => (m, Some(e)),
+            None => (unsigned, None),
+        };
+        let mantissa_ok = match mantissa.split_once('.') {
+            Some((int, frac)) => {
+                (int.is_empty() && digits(frac, 10))
+                    || (digits(int, 10) && (frac.is_empty() || digits(frac, 10)))
+            }
+            None => digits(mantissa, 10),
+        };
+        let exponent_ok =
+            exponent.is_none_or(|e| digits(e.strip_prefix(['-', '+']).unwrap_or(e), 10));
+        if !(mantissa_ok && exponent_ok) {
+            return None;
+        }
+    }
+    s.parse::<f64>().ok().and_then(serde_json::Number::from_f64)
 }
 
 /// Whether `s` is a decimal YAML reads as a number whose own text is `s`:
@@ -334,8 +382,37 @@ mod tests {
         #[test]
         fn a_plain_number_is_its_own_text(s in "-?(0|[1-9][0-9]{0,19})(\\.[0-9]{1,17})?") {
             if is_plain_number(&s) {
-                proptest::prop_assert_eq!(yaml_number(&s).map(|n| n.to_string()), Some(s));
+                proptest::prop_assert_eq!(core_number(&s).map(|n| n.to_string()), Some(s));
             }
+        }
+    }
+
+    #[test]
+    fn the_core_schema_resolves_its_own_number_forms_and_no_others() {
+        for (text, number) in [
+            ("0012", serde_json::json!(12)),
+            ("+5", serde_json::json!(5)),
+            ("-0", serde_json::json!(0)),
+            ("0o17", serde_json::json!(15)),
+            ("0x1F", serde_json::json!(31)),
+            ("1.50", serde_json::json!(1.5)),
+            (".5", serde_json::json!(0.5)),
+            ("1.", serde_json::json!(1.0)),
+            ("1E3", serde_json::json!(1000.0)),
+            ("-1.5e-3", serde_json::json!(-0.0015)),
+            ("99999999999999999999", serde_json::json!(1e20)),
+        ] {
+            assert_eq!(
+                core_number(text).map(serde_json::Value::from),
+                Some(number),
+                "{text}"
+            );
+        }
+        for text in [
+            "0b11", "1_000", "0x1_F", "0X1F", "0O17", "-0x1F", "+0o7", "0x", "0o8", "1e", ".e3",
+            ".", "1e400", ".inf", ".nan", "1:30", "", "1.5.",
+        ] {
+            assert_eq!(core_number(text), None, "{text}");
         }
     }
 }

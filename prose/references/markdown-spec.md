@@ -241,6 +241,11 @@ data payload.
   `false` all lowercase, capitalized or all uppercase. Any other casing, such
   as `tRue`, and YAML 1.1's `y`, `n`, `yes`, `no`, `on` and `off`, in any
   case, are strings.
+- **Numbers.** A plain scalar resolves by the YAML 1.2.2 core schema: a
+  decimal integer with an optional sign (`0012` is 12), an unsigned `0o`
+  octal or `0x` hexadecimal, or a float (`1.50`, `.5`, `1e3`). Any other
+  spelling, such as YAML 1.1's `0b11` and `1_000`, `0X1F` or `-0x1F`, is a
+  string. A non-finite float (`.inf`, `.nan`, `1e999`) fails the parse.
 - **YAML comments.** Both own-line comments (`# …` on their own line) and
   inline comments (`field: value  # note`) are supported on data fields and
   round-trip through `toMarkdown`. Comments inside nested YAML values

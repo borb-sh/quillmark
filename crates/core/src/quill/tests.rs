@@ -887,71 +887,87 @@ schema:
     assert!(groups["addressing"].as_object().unwrap().is_empty());
 }
 
-/// YAML reads `0012`, `1.50` and `0x1F` as numbers, so a `text` field holds
-/// the text written and a `number` field reads the number YAML reads, wherever
-/// the scalar sits in the payload and through an alias or a merge, and a
-/// spelling a merge shadows stays out.
+/// A plain scalar resolves by YAML 1.2.2's core schema wherever it sits in
+/// the payload and through an alias or a merge: `0012` is the integer 12, so
+/// a `text` field holds `12` and a `number` field 12, and a spelling the core
+/// schema holds no number, `1_000`, is the text written. A spelling a merge
+/// shadows stays out.
 #[test]
-fn a_text_field_keeps_a_numeric_spelling_as_written() {
+fn a_plain_scalar_resolves_by_the_core_schema() {
     use serde_json::json;
 
     let quill = quill_from_yaml(&with_header(
         "schema:\n  main:\n    fields:\n      f: { type: text }\n      n: { type: number }\n      i: { type: integer }\n      rows:\n        type: array\n        items:\n          type: object\n          properties:\n            code: { type: text }\n            qty: { type: number }\n",
     ));
-    let payload = |md: &str| {
-        let mut doc = Document::parse(&format!("~~~\n$quill: q@1.0\n$kind: main\n{md}~~~\n"))
+    let parse = |md: &str| {
+        Document::parse(&format!("~~~\n$quill: q@1.0\n$kind: main\n{md}~~~\n"))
             .expect("parses")
-            .document;
+            .document
+    };
+    let payload = |md: &str| {
+        let mut doc = parse(md);
         let diags = quill.conform(&mut doc).expect("conforms");
         assert!(diags.is_empty(), "{md}: {diags:?}");
-        let data = quill.compile_data(&doc, test_date()).expect("renders");
-        (doc, data)
+        quill.compile_data(&doc, test_date()).expect("renders")
     };
 
-    for (written, number) in [
-        ("0012", json!(12.0)),
+    for (written, stored) in [
+        ("0012", json!(12)),
         ("1.50", json!(1.5)),
         ("1e3", json!(1000.0)),
         ("0x1F", json!(31)),
-        ("1_000", json!(1000)),
+        ("0o17", json!(15)),
         ("+15551234567", json!(15551234567_i64)),
         ("12", json!(12)),
+        ("0b11", json!("0b11")),
+        ("1_000", json!("1_000")),
+        ("0X1F", json!("0X1F")),
     ] {
-        let (_, data) = payload(&format!(
-            "f: {written}\nn: {written}\nrows:\n  - code: {written}\n    qty: {written}\n"
+        let doc = parse(&format!(
+            "n: {written}\narr: [{written}]\nobj: {{qty: {written}}}\n"
         ));
-        assert_eq!(data["f"]["text"], json!(written), "text from {written}");
-        assert_eq!(data["n"], number, "number from {written}");
+        let get = |k: &str| doc.main().payload().get(k).map(|v| v.as_json().clone());
+        assert_eq!(get("n"), Some(stored.clone()), "{written}");
+        assert_eq!(get("arr"), Some(json!([stored])), "item {written}");
         assert_eq!(
-            data["rows"][0]["code"]["text"],
-            json!(written),
-            "nested text from {written}"
-        );
-        assert_eq!(
-            data["rows"][0]["qty"], number,
-            "nested number from {written}"
+            get("obj"),
+            Some(json!({ "qty": stored })),
+            "member {written}"
         );
     }
 
-    let (_, data) = payload("n: &code 0012\nf: *code\ni: 0x1F\n");
+    let data = payload("f: 0012\nn: 1.50\ni: 0x1F\nrows:\n  - code: 0012\n    qty: 1.50\n");
+    assert_eq!(data["f"]["text"], json!("12"));
+    assert_eq!(data["n"], json!(1.5));
+    assert_eq!(data["i"], json!(31));
+    assert_eq!(data["rows"][0]["code"]["text"], json!("12"));
+    assert_eq!(data["rows"][0]["qty"], json!(1.5));
+
+    let data = payload("rows:\n  - code: &code 1_000\nf: *code\n");
     assert_eq!(
         data["f"]["text"],
-        json!("0012"),
+        json!("1_000"),
         "text through a scalar alias"
     );
-    assert_eq!(data["i"], json!(31));
 
-    let (_, data) = payload(
-        "rows:\n  - &row\n    code: 0012\n    qty: 0x1F\n  - *row\n  - <<: *row\n    qty: 2\n  - <<: [{code: 7}, {code: 0012}]\n  - {code: 12.0, <<: {code: 0012}}\n  - {<<: {code: 0012}, code: 012}\n",
+    let mut doc = parse("n: 1_000\n");
+    quill.conform(&mut doc).expect("conforms");
+    assert!(
+        quill.compile_data(&doc, test_date()).is_err(),
+        "a number field refuses text the core schema holds no number"
+    );
+
+    let data = payload(
+        "rows:\n  - &row\n    code: 1_000\n    qty: 0x1F\n  - *row\n  - <<: *row\n    qty: 2\n  - <<: [{code: 7}, {code: 1_000}]\n  - {code: 12.0, <<: {code: 1_000}}\n  - {<<: {code: 1_000}, code: 012}\n",
     );
     assert_eq!(
         data["rows"][1]["code"]["text"],
-        json!("0012"),
+        json!("1_000"),
         "through a mapping alias"
     );
     assert_eq!(
         data["rows"][2]["code"]["text"],
-        json!("0012"),
+        json!("1_000"),
         "through a merge"
     );
     assert_eq!(
@@ -971,17 +987,8 @@ fn a_text_field_keeps_a_numeric_spelling_as_written() {
     );
     assert_eq!(
         data["rows"][5]["code"]["text"],
-        json!("012"),
+        json!("12"),
         "an own key after the merge wins"
-    );
-
-    let doc = Document::parse("~~~\n$quill: q@1.0\nn: 1234567890123456789\n~~~\n")
-        .expect("parses")
-        .document;
-    assert_eq!(
-        doc.main().payload().get("n").map(|v| v.as_json().clone()),
-        Some(json!(1234567890123456789_i64)),
-        "a number written as its own text stays a number"
     );
 }
 

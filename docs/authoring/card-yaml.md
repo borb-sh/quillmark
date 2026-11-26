@@ -139,10 +139,12 @@ document with its quill by the name after the `.`.
 The data payload (everything in the YAML mapping except the `$`-prefixed
 metadata keys) is standard YAML.
 
-YAML reads an unquoted value by its shape before the schema sees it. A value
-that reads as a number keeps the text you wrote: a `text` field holds
-`zip: 02134` as `02134`, `ver: 1.10` as `1.10` and `code: 0x1F` as `0x1F`, and
-a `number` or `integer` field reads the number that text spells. Quote these:
+YAML reads an unquoted value by its shape before the schema sees it, by the
+YAML 1.2.2 core schema. A decimal with an optional sign, a `0o` octal, a `0x`
+hexadecimal or a float is a number, so a `text` field holds `zip: 02134` as
+`2134`, `ver: 1.10` as `1.1` and `code: 0x1F` as `31`: quote a value whose
+digits are text. YAML 1.1's `0b11` and `1_000`, `0X1F` and a signed `-0x1F`
+are text, which a `number` or `integer` field refuses. Quote these too:
 
 | Written | Reaches the page | Write instead |
 |---|---|---|
