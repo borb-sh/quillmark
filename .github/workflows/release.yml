@@ -592,6 +592,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
       - name: Download cli-x86_64-unknown-linux-musl
         continue-on-error: true
@@ -633,6 +634,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: gh release upload "v${VERSION}" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Check each built archive is attached
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          built=$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?filter=latest&per_page=100" \
+            --jq '.jobs[] | select(.conclusion == "success") | .name')
+          missing=0
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin x86_64-pc-windows-msvc; do
+            grep -qF "build-cli (${target}," <<<"$built" || continue
+            if ! compgen -G "dist/quillmark-cli-${target}-v${VERSION}.*" >/dev/null; then
+              echo "::error::cli-${target} built but its archive did not download"
+              missing=1
+            fi
+          done
+          exit "$missing"
 
   # ──────────────────────────────────────────────
   # Publish: Python → PyPI
