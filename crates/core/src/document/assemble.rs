@@ -313,7 +313,7 @@ pub(super) fn build_block(
     })?;
 
     if let Some(value) = yaml_value.as_mut() {
-        keep_numeric_spellings(value, pre.numeric_spellings);
+        resolve_core_numbers(value, pre.numeric_spellings);
     }
 
     Ok(MetadataBlock {
@@ -327,16 +327,12 @@ pub(super) fn build_block(
     })
 }
 
-/// Put back the text written for each number YAML read from a spelling that is
-/// not the number's own text, so a `text` field holds `0012` and `1.50` as
-/// written, and a `number` field reads them from that text. The emitter's own
-/// spelling of a number (`1.0e-7`) reads as the number. A spelling a later
-/// merge shadows reads as a number other than the one its path holds, and
-/// stays out.
-fn keep_numeric_spellings(
-    value: &mut serde_json::Value,
-    spellings: Vec<(Vec<PathSegment>, String)>,
-) {
+/// Resolve each plain scalar the parser read as a number by YAML 1.2.2's core
+/// schema: `0012` is the integer 12 and `1.50` the float 1.5, and a spelling
+/// the core schema holds no number, `0b11` or `1_000`, is the text written. A
+/// spelling a later merge shadows reads as a number other than the one its
+/// path holds, and stays out.
+fn resolve_core_numbers(value: &mut serde_json::Value, spellings: Vec<(Vec<PathSegment>, String)>) {
     for (path, text) in spellings {
         let node = path.iter().try_fold(&mut *value, |v, seg| match seg {
             PathSegment::Key(k) => v.get_mut(k.as_str()),
@@ -344,11 +340,12 @@ fn keep_numeric_spellings(
         });
         if let Some(node) = node
             && let serde_json::Value::Number(n) = node
-            && n.to_string() != text
-            && super::emit::saphyr_emit_scalar(&serde_json::Value::Number(n.clone())) != text
             && crate::value::yaml_number(&text).as_ref() == Some(n)
         {
-            *node = serde_json::Value::String(text);
+            *node = match crate::value::core_number(&text) {
+                Some(core) => serde_json::Value::Number(core),
+                None => serde_json::Value::String(text),
+            };
         }
     }
 }
