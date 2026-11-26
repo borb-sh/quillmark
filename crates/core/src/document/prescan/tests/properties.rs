@@ -28,23 +28,10 @@ enum Node {
     EmptyMap,
     EmptySeq,
     Map(Vec<(String, Node)>),
-    /// A mapping whose second entries come in through a merge (`<<`) written
-    /// among its own: it reads its own keys, then each merged one it does not
-    /// hold.
-    Merged(Vec<(String, Node)>, Vec<(String, Node)>),
     Seq(Vec<Node>),
 }
 
 impl Node {
-    /// A mapping's own entries and the ones it merges.
-    fn mapping(&self) -> Option<(&[(String, Node)], &[(String, Node)])> {
-        match self {
-            Node::Map(entries) => Some((entries, &[])),
-            Node::Merged(own, merged) => Some((own, merged)),
-            _ => None,
-        }
-    }
-
     fn json(&self) -> Value {
         match self {
             Node::Word(w) => Value::String(w.clone()),
@@ -56,12 +43,6 @@ impl Node {
             Node::Map(entries) => {
                 Value::Object(entries.iter().map(|(k, v)| (k.clone(), v.json())).collect())
             }
-            Node::Merged(own, merged) => Value::Object(
-                own.iter()
-                    .chain(merged.iter().filter(|(k, _)| !holds(own, k)))
-                    .map(|(k, v)| (k.clone(), v.json()))
-                    .collect(),
-            ),
             Node::Seq(items) => Value::Array(items.iter().map(Node::json).collect()),
         }
     }
@@ -71,10 +52,6 @@ impl Node {
 /// null.
 fn reads_text(tag: &str) -> bool {
     matches!(tag, "!!str" | "!")
-}
-
-fn holds(entries: &[(String, Node)], key: &str) -> bool {
-    entries.iter().any(|(k, _)| k == key)
 }
 
 fn distinct(entries: Vec<(String, Node)>) -> Vec<(String, Node)> {
@@ -100,8 +77,6 @@ fn arb_node() -> impl Strategy<Value = Node> {
     leaf.prop_recursive(4, 48, 4, |inner| {
         prop_oneof![
             2 => arb_entries(inner.clone()).prop_map(Node::Map),
-            1 => (arb_entries(inner.clone()), arb_entries(inner.clone()))
-                .prop_map(|(own, merged)| Node::Merged(own, merged)),
             2 => prop::collection::vec(inner, 1..4).prop_map(Node::Seq),
         ]
     })
@@ -140,35 +115,10 @@ struct Render {
     nested: Vec<NestedComment>,
 }
 
-/// Where a `Render` writes the merge bringing `merged` among `entries`, the
-/// mapping's own, written from `from` on.
-fn merge_at(entries: &[(String, Node)], merged: &[(String, Node)], from: usize) -> Option<usize> {
-    let n = entries.len();
-    (!merged.is_empty()).then(|| ((n + merged.len()) % (n + 1)).max(from))
-}
-
-/// How many of `merged` the mapping holding `entries` takes in.
-fn brought(entries: &[(String, Node)], merged: &[(String, Node)]) -> usize {
-    merged.iter().filter(|(k, _)| !holds(entries, k)).count()
-}
-
 /// The slot of a comment below the value of `entries[i]` that holds none: it
-/// waits for the next child, the merge's keys or an own key, or follows the
-/// last key.
-fn next_slot(
-    entries: &[(String, Node)],
-    merged: &[(String, Node)],
-    from: usize,
-    i: usize,
-) -> usize {
-    let n = entries.len();
-    if merge_at(entries, merged, from) == Some(i + 1) {
-        n
-    } else if i + 1 < n {
-        i + 1
-    } else {
-        n + brought(entries, merged)
-    }
+/// waits for the next key, or follows the last.
+fn next_slot(entries: &[(String, Node)], i: usize) -> usize {
+    (i + 1).min(entries.len())
 }
 
 fn child(path: &[PathSegment], segment: PathSegment) -> Vec<PathSegment> {
@@ -294,11 +244,7 @@ impl Render {
             }
             Node::Map(entries) => {
                 self.line(0, &head(":"));
-                self.map(entries, &[], 0, column + 2, path);
-            }
-            Node::Merged(own, merged) => {
-                self.line(0, &head(":"));
-                self.map(own, merged, 0, column + 2, path);
+                self.map(entries, 0, column + 2, path);
             }
             Node::Seq(items) => {
                 self.line(0, &head(":"));
@@ -309,22 +255,16 @@ impl Render {
         None
     }
 
-    /// A mapping's entries from `from` on, at `column`, and a merge among
-    /// them past `from` bringing `merged`.
+    /// A mapping's entries from `from` on, at `column`.
     fn map(
         &mut self,
         entries: &[(String, Node)],
-        merged: &[(String, Node)],
         from: usize,
         column: usize,
         path: &[PathSegment],
     ) {
         let n = entries.len();
-        let at = merge_at(entries, merged, from);
         for (i, (k, v)) in entries.iter().enumerate().skip(from) {
-            if at == Some(i) {
-                self.merge(entries, merged, column, path);
-            }
             self.own(column, path, i);
             self.field(path, i, k);
             let t = self.comment();
@@ -333,57 +273,10 @@ impl Render {
             }
             let value = child(path, PathSegment::Key(k.clone()));
             if let Some(c) = self.entry(" ".repeat(column), column, k, v, &value, &t) {
-                self.mark(path, next_slot(entries, merged, from, i), &c, false);
+                self.mark(path, next_slot(entries, i), &c, false);
             }
         }
-        if at == Some(n) {
-            self.merge(entries, merged, column, path);
-        }
-        self.own(column, path, n + brought(entries, merged));
-    }
-
-    /// `<<:` at `column`, holding `merged` in a block mapping. Each comment
-    /// takes its slot among the keys of the mapping: `own`'s, then each merged
-    /// one `own` does not hold. Those on and inside a merged key `own` holds
-    /// land ahead of where it would sit.
-    fn merge(
-        &mut self,
-        own: &[(String, Node)],
-        merged: &[(String, Node)],
-        column: usize,
-        path: &[PathSegment],
-    ) {
-        let mut seat = own.len();
-        self.own(column, path, seat);
-        let t = self.comment();
-        self.line(column, &format!("<<:{}", trailer(&t)));
-        if let Some(t) = &t {
-            self.mark(path, seat, t, false);
-        }
-        for (k, v) in merged {
-            let held = !holds(own, k);
-            self.own(column + 2, path, seat);
-            if held {
-                self.field(path, seat, k);
-            }
-            let t = self.comment();
-            if let Some(t) = &t {
-                self.mark(path, seat, t, held);
-            }
-            let value = child(path, PathSegment::Key(k.clone()));
-            let first = self.nested.len();
-            let after = self.entry(" ".repeat(column + 2), column + 2, k, v, &value, &t);
-            if !held {
-                for c in self.nested.split_off(first) {
-                    self.mark(path, seat, &c.text, false);
-                }
-            }
-            seat += usize::from(held);
-            if let Some(c) = after {
-                self.mark(path, seat, &c, false);
-            }
-        }
-        self.own(column + 2, path, seat);
+        self.own(column, path, n);
     }
 
     /// A comment at the dashes' column after the last item is the next key's
@@ -408,8 +301,7 @@ impl Render {
     ) {
         let own = child(path, PathSegment::Index(i));
         match item {
-            Node::Map(_) | Node::Merged(..) => {
-                let (entries, merged) = item.mapping().expect("a mapping");
+            Node::Map(entries) => {
                 let (k, v) = &entries[0];
                 let value = child(&own, PathSegment::Key(k.clone()));
                 let lead = self.comment();
@@ -443,9 +335,9 @@ impl Render {
                     )
                 };
                 if let Some(c) = after {
-                    self.mark(&own, next_slot(entries, merged, 1, 0), &c, false);
+                    self.mark(&own, next_slot(entries, 0), &c, false);
                 }
-                self.map(entries, merged, 1, dash + 2, &own);
+                self.map(entries, 1, dash + 2, &own);
             }
             Node::Seq(inner) => {
                 if let Some(t) = &t {
@@ -472,9 +364,7 @@ impl Render {
 }
 
 /// Where `c` emits among the comments of fields holding `fields`: at each level
-/// the place its path takes in the value, then its slot. A merge writes keys
-/// past the source order, so the marks a `Render` makes in source order sort
-/// by this.
+/// the place its path takes in the value, then its slot.
 fn emit_order(fields: &Map<String, Value>, c: &NestedComment) -> Vec<usize> {
     let mut order = Vec::new();
     let mut map = fields;
@@ -518,21 +408,19 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(400))]
 
     /// Every comment reads back into the slot it was written at, under either
-    /// sequence indentation, under keys written as aliases and among the keys
-    /// a merge brings, and the document round-trips through `to_markdown`.
+    /// sequence indentation and under keys written as aliases, and the
+    /// document round-trips through `to_markdown`.
     #[test]
     fn every_comment_reads_back_into_its_slot(
         entries in arb_entries(arb_node()),
-        merged in prop::option::weighted(0.3, arb_entries(arb_node())),
         fill in arb_fill(),
     ) {
-        let merged = merged.unwrap_or_default();
-        let Value::Object(fields) = Node::Merged(entries.clone(), merged.clone()).json() else {
+        let Value::Object(fields) = Node::Map(entries.clone()).json() else {
             unreachable!("a mapping reads as an object");
         };
         for (zero, alias) in [(false, false), (true, false), (false, true)] {
             let mut render = Render::new(zero, alias, fill.clone());
-            render.map(&entries, &merged, 0, 0, &[]);
+            render.map(&entries, 0, 0, &[]);
             let src = format!("~~~\n$quill: q\n$kind: main\n{}~~~\n", render.src);
             let doc = Document::parse(&src)
                 .unwrap_or_else(|e| panic!("the rendering parses: {e}\n{src}"))
@@ -569,8 +457,6 @@ struct Scribble {
     anchors: usize,
     /// The anchor on each key text written with one.
     keys: HashMap<String, usize>,
-    /// The anchors on the merges' values written so far.
-    merges: Vec<usize>,
     src: String,
 }
 
@@ -581,7 +467,6 @@ impl Scribble {
             at: 0,
             anchors: 0,
             keys: HashMap::new(),
-            merges: Vec::new(),
             src: String::new(),
         }
     }
@@ -756,13 +641,12 @@ impl Scribble {
                 self.line(0, &format!("{lead}{k}{sep}{t}"));
                 self.notes(column + 4);
             }
-            Node::Map(_) | Node::Merged(..) => {
-                let (entries, merged) = v.mapping().expect("a mapping");
+            Node::Map(entries) => {
                 let t = self.tail();
                 self.line(0, &format!("{lead}{k}:{t}"));
                 let child = column + 1 + self.pick(4);
                 self.notes(child + 2);
-                self.block_map(entries, merged, 0, child);
+                self.block_map(entries, 0, child);
             }
             Node::Seq(items) => {
                 let t = self.tail();
@@ -774,63 +658,15 @@ impl Scribble {
         }
     }
 
-    /// A mapping's entries from `from` on, at `column`, and a merge among
-    /// them past `from` bringing `merged`.
-    fn block_map(
-        &mut self,
-        entries: &[(String, Node)],
-        merged: &[(String, Node)],
-        from: usize,
-        column: usize,
-    ) {
-        let at = (!merged.is_empty()).then(|| self.pick(entries.len() + 1).max(from));
+    /// A mapping's entries from `from` on, at `column`.
+    fn block_map(&mut self, entries: &[(String, Node)], from: usize, column: usize) {
         for (i, (k, v)) in entries.iter().enumerate().skip(from) {
             if i > from {
                 self.notes(column + 2);
             }
-            if at == Some(i) {
-                self.merge(merged, " ".repeat(column), column);
-                self.notes(column + 2);
-            }
             self.entry(" ".repeat(column), column, k, v);
         }
-        if at == Some(entries.len()) {
-            self.notes(column + 2);
-            self.merge(merged, " ".repeat(column), column);
-        }
         self.notes(column + 2);
-    }
-
-    /// `<<` at `column`, `lead` ahead of it on its line, bringing `merged` as
-    /// the picks spell it: a block or flow mapping, a sequence holding one, or
-    /// an alias to a merge's value written before, under `!!merge` or not.
-    fn merge(&mut self, merged: &[(String, Node)], lead: String, column: usize) {
-        let key = ["<<", "<<", "!!merge <<"][self.pick(3)];
-        let t = self.tail();
-        let alias = self.pick(self.merges.len() + 2);
-        if let Some(&n) = self.merges.get(alias) {
-            self.line(0, &format!("{lead}{key}: *m{n}{t}"));
-            return;
-        }
-        if let Some(flow) = self.flow(&Node::Map(merged.to_vec()), column + 2) {
-            self.line(0, &format!("{lead}{key}: {flow}{t}"));
-            return;
-        }
-        let anchor = (self.pick(3) == 0).then(|| {
-            self.anchors += 1;
-            self.anchors
-        });
-        let named = anchor.map_or_else(String::new, |n| format!(" &m{n}"));
-        self.line(0, &format!("{lead}{key}:{named}{t}"));
-        let child = column + 1 + self.pick(3);
-        self.notes(child + 2);
-        if self.pick(3) == 0 {
-            self.item(" ".repeat(child), child, &Node::Map(merged.to_vec()));
-            self.notes(child + 2);
-        } else {
-            self.block_map(merged, &[], 0, child);
-        }
-        self.merges.extend(anchor);
     }
 
     fn block_seq(&mut self, items: &[Node], dash: usize) {
@@ -851,23 +687,17 @@ impl Scribble {
             return;
         }
         match item {
-            Node::Merged(entries, merged) if self.pick(3) == 0 => {
-                self.merge(merged, format!("{lead}- "), dash + 2);
-                self.block_map(entries, &[], 0, dash + 2);
-            }
-            Node::Map(_) | Node::Merged(..) if self.pick(2) == 0 => {
-                let (entries, merged) = item.mapping().expect("a mapping");
+            Node::Map(entries) if self.pick(2) == 0 => {
                 let (k, v) = &entries[0];
                 self.entry(format!("{lead}- "), dash + 2, k, v);
-                self.block_map(entries, merged, 1, dash + 2);
+                self.block_map(entries, 1, dash + 2);
             }
-            Node::Map(_) | Node::Merged(..) => {
-                let (entries, merged) = item.mapping().expect("a mapping");
+            Node::Map(entries) => {
                 let t = self.tail();
                 self.line(0, &format!("{lead}-{t}"));
                 let child = dash + 1 + self.pick(3);
                 self.notes(child + 2);
-                self.block_map(entries, merged, 0, child);
+                self.block_map(entries, 0, child);
             }
             Node::Seq(inner) if self.pick(2) == 0 => {
                 self.item(format!("{lead}- "), dash + 2, &inner[0]);

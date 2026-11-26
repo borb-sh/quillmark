@@ -291,6 +291,15 @@ pub(super) fn build_block(
                 line,
                 column,
             ),
+            Refusal::UnheldInteger { text, line, column } => (
+                format!("integer `{text}` is past 64 bits"),
+                format!(
+                    "A number holds an integer from -9223372036854775808 to \
+                     18446744073709551615. Quote it to keep the digits as text: `\"{text}\"`."
+                ),
+                line,
+                column,
+            ),
             Refusal::SharedKey { key, line, column } => (
                 format!("duplicate mapping key: {key}"),
                 format!(
@@ -329,9 +338,7 @@ pub(super) fn build_block(
 
 /// Resolve each plain scalar the parser read as a number by YAML 1.2.2's core
 /// schema: `0012` is the integer 12 and `1.50` the float 1.5, and a spelling
-/// the core schema holds no number, `0b11` or `1_000`, is the text written. A
-/// spelling a later merge shadows reads as a number other than the one its
-/// path holds, and stays out.
+/// the core schema holds no number, `0b11` or `1_000`, is the text written.
 fn resolve_core_numbers(value: &mut serde_json::Value, spellings: Vec<(Vec<PathSegment>, String)>) {
     for (path, text) in spellings {
         let node = path.iter().try_fold(&mut *value, |v, seg| match seg {
@@ -339,8 +346,7 @@ fn resolve_core_numbers(value: &mut serde_json::Value, spellings: Vec<(Vec<PathS
             PathSegment::Index(i) => v.get_mut(*i),
         });
         if let Some(node) = node
-            && let serde_json::Value::Number(n) = node
-            && crate::value::yaml_number(&text).as_ref() == Some(n)
+            && let serde_json::Value::Number(_) = node
         {
             *node = match crate::value::core_number(&text) {
                 Some(core) => serde_json::Value::Number(core),
