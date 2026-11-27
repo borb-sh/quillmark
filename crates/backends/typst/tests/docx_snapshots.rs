@@ -381,20 +381,7 @@ plates! {
         "{PAGE}#quote(block: true, attribution: [Someone])[Quoted words.]\n\n\
          #figure(block[The body.], caption: [The caption.])\n\nAfter.\n"
     );
-    hosted memo_heading_stack:
-        "#set page(width: 612pt, height: 792pt, margin: 72pt)\n\
-         #set text(font: \"TeX Gyre Termes\", size: 12pt)\n\
-         #set par(leading: 0.5em, spacing: 0pt)\n\
-         #set block(spacing: 0pt)\n\
-         Dated line\n\
-         #v(13.95pt)\n\
-         #grid(columns: (auto, auto, 1fr), [MEMORANDUM FOR], \"  \", grid([123 OG/CC], [123 MXG/CC]))\n\
-         #v(13.95pt)\n\
-         #grid(columns: (auto, auto, 1fr), [FROM:], \"  \", [123 CS/SCX])\n\
-         #v(13.95pt)\n\
-         #grid(columns: (auto, auto, 1fr), [SUBJECT:], \"  \", [Annual Review])\n\
-         #v(13.95pt)\n\
-         Body text.\n";
+    hosted memo_heading_stack: word::HEADING_STACK;
     plate space_inside_grid_cells: format!(
         "{PAGE}Body text.\n#grid(columns: (1fr, 1fr), \
          [#v(14pt)\n#v(42pt)\nLeft name\n\nLeft title], \
@@ -404,19 +391,7 @@ plates! {
         "{PAGE}#grid(columns: (auto, 1fr), [One], [Left])\n#v(20pt)\n\
          #grid(columns: (auto, 1fr), [Two], [Right])\nAfter.\n"
     );
-    hosted two_grids_in_a_block:
-        "#set page(width: 612pt, height: 792pt, margin: 72pt)\n\
-         #set text(font: \"TeX Gyre Termes\", size: 12pt)\n\
-         #set par(leading: 0.5em, spacing: 0pt)\n\
-         #set block(spacing: 0pt)\n\
-         Last line.\n\
-         #v(40pt)\n\
-         #block(breakable: false, sticky: true)[\
-         #grid(columns: (auto, 1fr), [1st Ind, 123 OG/CC], align(right)[14 November 2026])\n\
-         #v(13.95pt)\n\
-         #grid(columns: (auto, auto, 1fr), [MEMORANDUM FOR], \"  \", [123 CS/SCX])]\n\
-         #v(13.95pt)\n\
-         Body text.\n";
+    hosted two_grids_in_a_block: word::INDORSEMENT;
     hosted content_sized_column_with_room: format!(
         "{PAGE}#set text(font: \"TeX Gyre Termes\", size: 12pt)\n\
          #grid(columns: 2, column-gutter: 1fr, [123 OG/CC], [])\n"

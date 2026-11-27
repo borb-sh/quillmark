@@ -10,38 +10,28 @@ mod common;
 #[test]
 fn the_probes_leave_every_fixture_page_drawn_as_it_was() {
     let mut checked = 0;
-    for name in quillmark_fixtures::quill_names() {
-        let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path(&name))
-            .unwrap_or_else(|e| panic!("{name} loads: {e:?}"));
-        if quill.backend_id() != "typst" {
-            continue;
-        }
-        for doc in std::iter::once(quill.seed_document()).chain(quill.example_document()) {
-            let data = quill
-                .compile_checked(&doc, common::test_date())
-                .unwrap_or_else(|e| panic!("{name} compiles its data: {e:?}"));
-            let check = probe_check(&quill, &data, common::test_date())
-                .unwrap_or_else(|e| panic!("{name} compiles: {e:?}"));
-            assert_eq!(
-                check.plain_hashes, check.probed_hashes,
-                "{name}: the probes moved ink"
-            );
-            assert!(
-                check.plain_svg == check.probed_svg,
-                "{name}: the probes changed a page"
-            );
-            let codes = |w: &[quillmark_core::error::Diagnostic]| {
-                w.iter()
-                    .map(|d| (d.code.clone(), d.message.clone()))
-                    .collect::<Vec<_>>()
-            };
-            assert_eq!(
-                codes(&check.plain_warnings),
-                codes(&check.probed_warnings),
-                "{name}: the probes raised a warning"
-            );
-            checked += 1;
-        }
+    for (name, quill, data) in common::typst_fixture_documents() {
+        let check = probe_check(&quill, &data, common::test_date())
+            .unwrap_or_else(|e| panic!("{name} compiles: {e:?}"));
+        assert_eq!(
+            check.plain_hashes, check.probed_hashes,
+            "{name}: the probes moved ink"
+        );
+        assert!(
+            check.plain_svg == check.probed_svg,
+            "{name}: the probes changed a page"
+        );
+        let codes = |w: &[quillmark_core::error::Diagnostic]| {
+            w.iter()
+                .map(|d| (d.code.clone(), d.message.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            codes(&check.plain_warnings),
+            codes(&check.probed_warnings),
+            "{name}: the probes raised a warning"
+        );
+        checked += 1;
     }
     assert!(checked >= 4, "the sweep reached {checked} documents");
 }
