@@ -60,11 +60,11 @@ pub use quillmark_core::{
 
 pub use quillmark_content::change::{Change, Dropped, MoveReason, Moved};
 
+mod engine;
 mod load;
-mod orchestration;
 
+pub use engine::Engine;
 pub use load::{quill_from_path, tree_from_path};
-pub use orchestration::Engine;
 
 #[cfg(feature = "typst")]
 pub use quillmark_typst::{
