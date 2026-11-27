@@ -403,18 +403,7 @@ impl SessionHandle for TypstSession {
         };
         let size = p.frame.size();
         quillmark_core::backend::check_raster(scale, size.x.to_pt() as f32, size.y.to_pt() as f32)?;
-        let pixmap = typst_render::render(p, &compile::render_options(scale));
-        let width = pixmap.width();
-        let height = pixmap.height();
-        let mut rgba = Vec::with_capacity((width as usize) * (height as usize) * 4);
-        for px in pixmap.pixels() {
-            let c = px.demultiply();
-            rgba.push(c.red());
-            rgba.push(c.green());
-            rgba.push(c.blue());
-            rgba.push(c.alpha());
-        }
-        Ok(Some((width, height, rgba)))
+        Ok(Some(compile::render_rgba(p, scale)))
     }
 
     fn regions(&self) -> Vec<quillmark_core::region::RenderedRegion> {
@@ -1083,6 +1072,64 @@ mod tests {
             hashes_of(&quill_with(true)),
             "identical ink must fingerprint identically across a whole-file span shift"
         );
+    }
+
+    /// A transparent page under translucent, antialiased ink puts many partial
+    /// alphas on the raster, which is where demultiply rounds.
+    #[test]
+    fn render_rgba_matches_per_pixel_demultiply() {
+        use quillmark_core::quill::FileTreeNode;
+
+        const PLATE: &str = r#"#import "@local/quillmark-helper:0.2.0" as qm
+#set page(width: 120pt, height: 120pt, margin: 10pt, fill: none)
+#for i in range(1, 10) {
+  place(dx: i * 8pt, dy: i * 8pt, circle(radius: 20pt, fill: rgb(200, 40, 120, i * 25)))
+}
+#text(fill: rgb(20, 90, 200, 50%))[#qm.data.prose]
+"#;
+        let yaml = "quill:\n  name: alpha\n  version: 0.1.0\n  backend: typst\n  description: demultiply guard\ntypst:\n  plate_file: plate.typ\nschema:\n  main:\n    fields:\n      prose:\n        type: richtext\n        shape: blocks\n        description: body\n";
+        let mut files = HashMap::new();
+        for (name, contents) in [("Quill.yaml", yaml), ("plate.typ", PLATE)] {
+            files.insert(
+                name.to_string(),
+                FileTreeNode::File {
+                    contents: contents.as_bytes().to_vec(),
+                },
+            );
+        }
+        let quill = Quill::from_tree(FileTreeNode::Directory { files }).expect("quill");
+        let json = serde_json::json!({ "prose": content("Translucent ink over nothing.") });
+        let plate_content = read_plate(&quill).expect("plate");
+        let transform_schema =
+            build_transform_schema(quill.config(), quillmark_core::quill::SchemaCodec::Content);
+        let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
+        let (world, _windows) =
+            world::QuillWorld::new_with_data(&quill, &plate_content, &json, &schema_meta)
+                .expect("world");
+        let (document, _warnings) = compile::compile_document(&world).expect("compile");
+        let page = &document.pages()[0];
+        let pixmap = typst_render::render(page, &compile::render_options(2.0));
+
+        let expected: Vec<u8> = pixmap
+            .pixels()
+            .iter()
+            .flat_map(|px| {
+                let c = px.demultiply();
+                [c.red(), c.green(), c.blue(), c.alpha()]
+            })
+            .collect();
+        let partial = pixmap
+            .pixels()
+            .iter()
+            .filter(|px| px.alpha() != 0 && px.alpha() != 255)
+            .count();
+        assert!(
+            partial > 1000,
+            "the page must carry translucent ink, got {partial} pixels"
+        );
+        let (width, height, rgba) = compile::render_rgba(page, 2.0);
+        assert_eq!((width, height), (pixmap.width(), pixmap.height()));
+        assert_eq!(rgba, expected);
     }
 
     /// Asks Typst's introspector how many blocks the compile really produced,

@@ -299,17 +299,13 @@ impl SessionHandle for AcroformSession {
         page: usize,
         scale: f32,
     ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> {
-        let Some(pixmap) = self.raster(page, scale)? else {
+        let Some(mut pixmap) = self.raster(page, scale)? else {
             return Ok(None);
         };
         let w = pixmap.width() as u32;
         let h = pixmap.height() as u32;
-        let bytes = pixmap
-            .take_unpremultiplied()
-            .into_iter()
-            .flat_map(|p| [p.r, p.g, p.b, p.a])
-            .collect();
-        Ok(Some((w, h, bytes)))
+        unpremultiply(pixmap.data_as_u8_slice_mut());
+        Ok(Some((w, h, pixmap.data_as_u8_slice().to_vec())))
     }
 
     /// A widget's `/Rect` is user space, which starts at the canvas box's
@@ -396,5 +392,49 @@ fn standard_font_settings() -> InterpreterSettings {
             FontQuery::Fallback(f) => Some(f.pick_standard_font().get_font_data()),
         }),
         ..Default::default()
+    }
+}
+
+/// Unpremultiplies RGBA bytes in place with the rounding of vello's
+/// `Pixmap::take_unpremultiplied`, leaving opaque and fully transparent pixels
+/// untouched.
+fn unpremultiply(rgba: &mut [u8]) {
+    for px in rgba.chunks_exact_mut(4) {
+        let a = px[3];
+        if a == 0 || a == 255 {
+            continue;
+        }
+        let k = 255.0 / f32::from(a);
+        for c in &mut px[..3] {
+            *c = (f32::from(*c) * k + 0.5) as u8;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hayro::vello_cpu::color::PremulRgba8;
+
+    #[test]
+    fn unpremultiply_matches_vello_for_every_alpha_and_component() {
+        let pixels: Vec<PremulRgba8> = (0..=255u8)
+            .flat_map(|a| {
+                (0..=255u8).map(move |c| PremulRgba8 {
+                    r: c,
+                    g: c / 2,
+                    b: 255 - c,
+                    a,
+                })
+            })
+            .collect();
+        let expected: Vec<u8> = Pixmap::from_parts(pixels.clone(), 256, 256)
+            .take_unpremultiplied()
+            .into_iter()
+            .flat_map(|p| [p.r, p.g, p.b, p.a])
+            .collect();
+        let mut pixmap = Pixmap::from_parts(pixels, 256, 256);
+        unpremultiply(pixmap.data_as_u8_slice_mut());
+        assert_eq!(pixmap.data_as_u8_slice(), expected.as_slice());
     }
 }
