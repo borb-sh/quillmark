@@ -155,40 +155,30 @@ fn page_setup_chrome_and_numbers_become_section_properties_and_fields() {
 
 #[test]
 fn every_fixture_exports_with_all_its_text_placed() {
-    for name in quillmark_fixtures::quill_names() {
-        let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path(&name))
-            .unwrap_or_else(|e| panic!("{name} loads: {e:?}"));
-        if quill.backend_id() != "typst" {
-            continue;
-        }
-        for doc in std::iter::once(quill.seed_document()).chain(quill.example_document()) {
-            let data = quill
-                .compile_checked(&doc, common::test_date())
-                .expect("data");
-            let session = TypstBackend::default()
-                .open(&quill, &data, common::test_date())
-                .expect("open");
-            let result = session
-                .render(&RenderOptions::default().with_output_format(OutputFormat::Docx))
-                .unwrap_or_else(|e| panic!("{name}: {e:?}"));
-            let codes: Vec<_> = result
-                .warnings
+    for (name, quill, data) in common::typst_fixture_documents() {
+        let session = TypstBackend::default()
+            .open(&quill, &data, common::test_date())
+            .expect("open");
+        let result = session
+            .render(&RenderOptions::default().with_output_format(OutputFormat::Docx))
+            .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        let codes: Vec<_> = result
+            .warnings
+            .iter()
+            .filter_map(|w| w.code.clone())
+            .collect();
+        assert!(
+            !codes
                 .iter()
-                .filter_map(|w| w.code.clone())
-                .collect();
-            assert!(
-                !codes
-                    .iter()
-                    .any(|c| c == "docx::ink_dropped" || c == "docx::probes_disabled"),
-                "{name}: {:?}",
-                result.warnings
-            );
-            let parts = word::unzip(&result.artifacts[0].bytes);
-            for (n, bytes) in &parts {
-                if n.ends_with(".xml") || n.ends_with(".rels") {
-                    let s = String::from_utf8(bytes.clone()).unwrap();
-                    roxmltree::Document::parse(&s).unwrap_or_else(|e| panic!("{name} {n}: {e}"));
-                }
+                .any(|c| c == "docx::ink_dropped" || c == "docx::probes_disabled"),
+            "{name}: {:?}",
+            result.warnings
+        );
+        let parts = word::unzip(&result.artifacts[0].bytes);
+        for (n, bytes) in &parts {
+            if n.ends_with(".xml") || n.ends_with(".rels") {
+                let s = String::from_utf8(bytes.clone()).unwrap();
+                roxmltree::Document::parse(&s).unwrap_or_else(|e| panic!("{name} {n}: {e}"));
             }
         }
     }

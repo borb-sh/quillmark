@@ -257,34 +257,24 @@ fn a_footnote_is_its_own_node_and_its_reference_a_mark() {
 
 #[test]
 fn every_fixture_reads_into_a_tree_that_holds_each_item_once() {
-    for name in quillmark_fixtures::quill_names() {
-        let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path(&name))
-            .unwrap_or_else(|e| panic!("{name} loads: {e:?}"));
-        if quill.backend_id() != "typst" {
-            continue;
-        }
-        for doc in std::iter::once(quill.seed_document()).chain(quill.example_document()) {
-            let data = quill
-                .compile_checked(&doc, common::test_date())
-                .expect("data");
-            let ir = layout(&quill, &data, common::test_date()).expect("reads");
-            let mut seen = std::collections::HashSet::new();
-            for n in ir.subtree(0) {
-                assert_eq!(ir.nodes[n].parent.is_none(), n == 0, "{name}");
-                for c in &ir.nodes[n].children {
-                    if let Child::Item(r) = c {
-                        assert_eq!(ir.item(*r).node, n, "{name}");
-                        assert!(seen.insert(*r), "{name}: an item is read twice");
-                    }
-                    if let Child::Node(m) = c {
-                        assert_eq!(ir.nodes[*m].parent, Some(n), "{name}");
-                    }
+    for (name, quill, data) in common::typst_fixture_documents() {
+        let ir = layout(&quill, &data, common::test_date()).expect("reads");
+        let mut seen = std::collections::HashSet::new();
+        for n in ir.subtree(0) {
+            assert_eq!(ir.nodes[n].parent.is_none(), n == 0, "{name}");
+            for c in &ir.nodes[n].children {
+                if let Child::Item(r) = c {
+                    assert_eq!(ir.item(*r).node, n, "{name}");
+                    assert!(seen.insert(*r), "{name}: an item is read twice");
+                }
+                if let Child::Node(m) = c {
+                    assert_eq!(ir.nodes[*m].parent, Some(n), "{name}");
                 }
             }
-            let items: usize = ir.pages.iter().map(|p| p.items.len()).sum();
-            assert_eq!(seen.len(), items, "{name}: an item is outside the tree");
-            assert!(ir.pages.iter().all(|p| p.number_text.is_some()), "{name}");
         }
+        let items: usize = ir.pages.iter().map(|p| p.items.len()).sum();
+        assert_eq!(seen.len(), items, "{name}: an item is outside the tree");
+        assert!(ir.pages.iter().all(|p| p.number_text.is_some()), "{name}");
     }
 }
 

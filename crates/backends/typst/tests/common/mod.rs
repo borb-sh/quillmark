@@ -80,6 +80,30 @@ pub fn test_date() -> CalendarDate {
     CalendarDate::new(2026, 3, 14).expect("a calendar day")
 }
 
+/// Each Typst fixture quill's seed and example documents, as the fixture's
+/// name, its quill, and the document's compiled data.
+pub fn typst_fixture_documents() -> impl Iterator<Item = (String, Quill, serde_json::Value)> {
+    quillmark_fixtures::quill_names()
+        .into_iter()
+        .flat_map(|name| {
+            let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path(&name))
+                .unwrap_or_else(|e| panic!("{name} loads: {e:?}"));
+            let docs: Vec<_> = if quill.backend_id() == "typst" {
+                std::iter::once(quill.seed_document())
+                    .chain(quill.example_document())
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            docs.into_iter().map(move |doc| {
+                let data = quill
+                    .compile_checked(&doc, test_date())
+                    .unwrap_or_else(|e| panic!("{name} compiles its data: {e:?}"));
+                (name.clone(), quill.clone(), data)
+            })
+        })
+}
+
 /// Each page's SVG for a body of `markdown`, and the render's warnings.
 pub fn body_svgs(quill: &Quill, markdown: &str) -> (Vec<String>, Vec<Diagnostic>) {
     let data = serde_json::json!({ "$body": content(markdown) });
