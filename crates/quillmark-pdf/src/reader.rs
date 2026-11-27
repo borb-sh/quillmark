@@ -373,7 +373,7 @@ impl<'a> ObjectIndex<'a> {
         let object = &self.pdf[s..e - b"endobj".len()];
         let header_end = object.windows(3).position(|w| w == b"obj")? + 3;
         let start = skip_ws_and_comments(object, header_end);
-        Some(&object[start..read_value_end(object, start)?])
+        Some(&object[start..read_value_end(object, start)])
     }
 
     /// The generation in object `id`'s header, or `None` when the object is
@@ -527,7 +527,7 @@ fn dict_entries(dict: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
             i += 1;
         }
         let after_key = i;
-        i = read_value_end(dict, skip_ws_and_comments(dict, after_key))?;
+        i = read_value_end(dict, skip_ws_and_comments(dict, after_key));
         Some((&dict[key_start..after_key], &dict[after_key..i]))
     })
 }
@@ -609,7 +609,7 @@ pub(crate) fn array_elements(value: &[u8]) -> impl Iterator<Item = &[u8]> {
     let mut i = 0;
     std::iter::from_fn(move || {
         let start = skip_ws_and_comments(inner, i);
-        i = read_value_end(inner, start)?;
+        i = read_value_end(inner, start);
         (i > start).then(|| &inner[start..i])
     })
 }
@@ -698,10 +698,10 @@ fn skip_stream_body(b: &[u8], i: usize) -> Option<usize> {
 
 /// The index after the last byte of the value beginning at `start`, whose
 /// leading whitespace is skipped before the value type is classified.
-fn read_value_end(b: &[u8], start: usize) -> Option<usize> {
+fn read_value_end(b: &[u8], start: usize) -> usize {
     let mut i = ws_end(b, start);
     if i >= b.len() {
-        return Some(i);
+        return i;
     }
     match b[i] {
         b'[' => {
@@ -717,25 +717,25 @@ fn read_value_end(b: &[u8], start: usize) -> Option<usize> {
                 } else if b[i] == b']' {
                     depth -= 1;
                     if depth == 0 {
-                        return Some(i + 1);
+                        return i + 1;
                     }
                 }
                 i += 1;
             }
-            Some(i)
+            i
         }
-        b'(' => Some(skip_pdf_string(b, i)),
-        b'<' if b[i..].starts_with(b"<<") => Some(match dict_end(b, i) {
+        b'(' => skip_pdf_string(b, i),
+        b'<' if b[i..].starts_with(b"<<") => match dict_end(b, i) {
             Ok(close) => close + 2,
             Err(stop) => stop,
-        }),
-        b'<' => Some(skip_pdf_hex_string(b, i)),
+        },
+        b'<' => skip_pdf_hex_string(b, i),
         b'/' => {
             i += 1;
             while i < b.len() && !is_pdf_delim(b[i]) {
                 i += 1;
             }
-            Some(i)
+            i
         }
         c if c.is_ascii_digit() || c == b'-' || c == b'+' || c == b'.' => {
             // Possibly `N N R`; the standalone-R check rejects `5 0 Rect`.
@@ -749,16 +749,16 @@ fn read_value_end(b: &[u8], start: usize) -> Option<usize> {
                 j = skip_ws_and_comments(b, j);
                 if b.get(j).copied() == Some(b'R') && b.get(j + 1).is_none_or(|c| is_pdf_delim(*c))
                 {
-                    return Some(j + 1);
+                    return j + 1;
                 }
             }
-            Some(num_end)
+            num_end
         }
         _ => {
             while i < b.len() && !is_pdf_delim(b[i]) {
                 i += 1;
             }
-            Some(i)
+            i
         }
     }
 }

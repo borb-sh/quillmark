@@ -1459,7 +1459,6 @@ impl Card {
     /// The revise of `before`, the value at `target`, by `markdown`, as
     /// [`revise`](Self::revise) builds it, landed nowhere.
     fn revision(
-        &self,
         before: &quillmark_content::model::Content,
         markdown: &str,
     ) -> Result<quillmark_content::diff::Revision, EditError> {
@@ -1497,7 +1496,7 @@ impl Card {
                     .map_err(|e| field_decode(name, &[], Codec::Text, e))?,
             };
             before.codec = Codec::Text.content();
-            let revised = self.revision(&before, &text)?;
+            let revised = Self::revision(&before, &text)?;
             let stored = QuillValue::from_json(revised.content.to_value());
             return self.revising(target, before, Vec::new(), |card| {
                 card.payload_mut()
@@ -1514,7 +1513,7 @@ impl Card {
             }
             _ => std::borrow::Cow::Borrowed(body.as_str()),
         };
-        let revised = self.revision(&before, &body)?;
+        let revised = Self::revision(&before, &body)?;
         super::write::keeps_ext_islands(&before, &revised.content)?;
         let (stored, _) = resolve_field_write(
             name,

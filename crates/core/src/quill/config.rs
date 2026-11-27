@@ -3213,7 +3213,7 @@ fn populate_field_content(
     // above, so a matrix re-derives them rather than importing each literal
     // again.
     if matches!(field.r#type, FieldType::Matrix { .. }) {
-        let _ = field.rebuild_matrix_members();
+        field.rebuild_matrix_members();
     }
 }
 

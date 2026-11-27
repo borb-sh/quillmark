@@ -225,7 +225,7 @@ impl QuillWorld {
             }
         }
 
-        Self::load_assets_from_quill(source, &mut binaries, &mut load_warnings)?;
+        Self::load_assets_from_quill(source, &mut binaries, &mut load_warnings);
 
         // Quillmark never downloads packages: every package a quill imports is
         // vendored under `packages/` in the quill tree.
@@ -386,7 +386,7 @@ impl QuillWorld {
         source: &Quill,
         binaries: &mut HashMap<FileId, Bytes>,
         warnings: &mut Vec<Diagnostic>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) {
         let asset_paths = source.files().find_files("assets/*");
 
         for asset_path in asset_paths {
@@ -402,8 +402,6 @@ impl QuillWorld {
                 binaries.insert(id, Bytes::new(contents.to_vec()));
             }
         }
-
-        Ok(())
     }
 
     /// Every `.typ` file outside `packages/` at its path from the quill root, so
