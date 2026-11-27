@@ -118,12 +118,13 @@ fn recompile(
 
     let unclosed = overlay::unclosed_claims(&document);
     let hashes = page_hashes(&document);
+    let (unsupported_tex, unknown_families) = content_warnings(config, data, world.families());
     let warnings = session_warnings(
         world,
         compile_warnings,
         &unclosed,
-        tex::unsupported(config, data),
-        families::unknown(config, data, world.families()),
+        unsupported_tex,
+        unknown_families,
         glyphs::missing(&document),
     );
     Ok(Compiled {
@@ -136,6 +137,22 @@ fn recompile(
         warnings,
         unclosed_claims: unclosed.into_iter().map(|(claim, _)| claim).collect(),
     })
+}
+
+/// Both checks read each content field of the plate JSON `data` in one walk,
+/// since decoding the field is the walk's cost; each list keeps field order.
+fn content_warnings(
+    config: &QuillConfig,
+    data: &serde_json::Value,
+    families: &families::Families,
+) -> (Vec<Diagnostic>, Vec<Diagnostic>) {
+    let mut unsupported_tex = Vec::new();
+    let mut unknown_families = Vec::new();
+    config.each_plate_content(data, &mut |at, content| {
+        tex::unsupported(at, content, &mut unsupported_tex);
+        families::unknown(at, content, families, &mut unknown_families);
+    });
+    (unsupported_tex, unknown_families)
 }
 
 /// One order, built in one place, so an `update` that swaps only what it

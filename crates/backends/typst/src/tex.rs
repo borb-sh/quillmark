@@ -13,7 +13,6 @@ use quillmark_content::model::Content;
 use quillmark_content::model::IslandType;
 use quillmark_core::error::{Diagnostic, Severity};
 use quillmark_core::path::DocPath;
-use quillmark_core::quill::QuillConfig;
 
 const CODE: &str = "typst::unsupported_tex";
 
@@ -62,43 +61,43 @@ pub(crate) fn lower(tex: &str) -> Lowered {
     }
 }
 
-/// One `typst::unsupported_tex` per content field of the plate JSON `data`
-/// whose equations hold a command outside the vocabulary, naming each.
-pub(crate) fn unsupported(config: &QuillConfig, data: &serde_json::Value) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    config.each_plate_content(data, &mut |at: &DocPath, content: &Content| {
-        let mut unknown = BTreeSet::new();
-        let mut deep = false;
-        for isl in content.islands.iter().filter(|i| i.island_type == IslandType::Math) {
-            let tex = isl.props.get("tex").and_then(|v| v.as_str()).unwrap_or("");
-            let lowered = lower(tex);
-            unknown.extend(lowered.unknown);
-            deep |= lowered.deep;
-        }
-        let warn = |message: String, hint: String| {
-            Diagnostic::new(Severity::Warning, message)
-                .with_code(CODE.to_string())
-                .with_path(at.to_string())
-                .with_hint(hint)
-        };
-        if !unknown.is_empty() {
-            let named: Vec<String> = unknown.iter().map(|c| format!("`\\{c}`")).collect();
-            let them = if named.len() == 1 { "it" } else { "them" };
-            diags.push(warn(
-                format!("an equation in this field uses {}, which the Typst backend does not lower", named.join(", ")),
-                format!(
-                    "the Typst backend lowers the TeX math commands docs/authoring/markdown-syntax.md lists; rewrite {them} with those"
-                ),
-            ));
-        }
-        if deep {
-            diags.push(warn(
-                format!("an equation in this field nests groups deeper than {MAX_DEPTH}, and draws what lies past that flat"),
-                "flatten the equation's braces and arguments".to_string(),
-            ));
-        }
-    });
-    diags
+/// Pushes one `typst::unsupported_tex` when the equations of the content field
+/// at `at` hold a command outside the vocabulary, naming each.
+pub(crate) fn unsupported(at: &DocPath, content: &Content, diags: &mut Vec<Diagnostic>) {
+    let mut unknown = BTreeSet::new();
+    let mut deep = false;
+    for isl in content
+        .islands
+        .iter()
+        .filter(|i| i.island_type == IslandType::Math)
+    {
+        let tex = isl.props.get("tex").and_then(|v| v.as_str()).unwrap_or("");
+        let lowered = lower(tex);
+        unknown.extend(lowered.unknown);
+        deep |= lowered.deep;
+    }
+    let warn = |message: String, hint: String| {
+        Diagnostic::new(Severity::Warning, message)
+            .with_code(CODE.to_string())
+            .with_path(at.to_string())
+            .with_hint(hint)
+    };
+    if !unknown.is_empty() {
+        let named: Vec<String> = unknown.iter().map(|c| format!("`\\{c}`")).collect();
+        let them = if named.len() == 1 { "it" } else { "them" };
+        diags.push(warn(
+            format!("an equation in this field uses {}, which the Typst backend does not lower", named.join(", ")),
+            format!(
+                "the Typst backend lowers the TeX math commands docs/authoring/markdown-syntax.md lists; rewrite {them} with those"
+            ),
+        ));
+    }
+    if deep {
+        diags.push(warn(
+            format!("an equation in this field nests groups deeper than {MAX_DEPTH}, and draws what lies past that flat"),
+            "flatten the equation's braces and arguments".to_string(),
+        ));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
