@@ -348,7 +348,7 @@ pub fn stamp(
                 .collect::<Result<_, _>>()?;
             up.objects.push(UpdatedObject {
                 id: fid,
-                bytes: write_parent_field(&kids, to_ref(fid)?, &kid_refs)?,
+                bytes: write_parent_field(&kids, to_ref(fid)?, &kid_refs),
             });
         }
 
@@ -584,7 +584,7 @@ fn write_kid_widget(
 
 /// Serialize the field dictionary holding `kids`, which [`check_group`] has
 /// held to one type and value.
-fn write_parent_field(kids: &[&FieldSpec], id: Ref, kid_refs: &[Ref]) -> Result<Vec<u8>, PdfError> {
+fn write_parent_field(kids: &[&FieldSpec], id: Ref, kid_refs: &[Ref]) -> Vec<u8> {
     let mut chunk = Chunk::new();
     {
         let mut field = chunk.form_field(id);
@@ -592,7 +592,7 @@ fn write_parent_field(kids: &[&FieldSpec], id: Ref, kid_refs: &[Ref]) -> Result<
         field.children(kid_refs.iter().copied());
         field.finish();
     }
-    Ok(chunk.as_bytes().to_vec())
+    chunk.as_bytes().to_vec()
 }
 
 /// The entries of the field `widgets` are the widgets of, read off the first:

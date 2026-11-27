@@ -146,9 +146,9 @@ pub fn change(c: &Content, op: &BlockOp) -> Result<Change, ApplyError> {
         .ok_or_else(|| ApplyError::UnknownBlock { id: op.id().into() })?;
     let ranges = c.block_ranges();
     match op {
-        BlockOp::Replace { with, .. } => replace(c, k, &ranges, with),
-        BlockOp::InsertAfter { with, .. } => insert_after(c, k, &ranges, with),
-        BlockOp::Delete { .. } => delete(c, k, &ranges),
+        BlockOp::Replace { with, .. } => Ok(replace(c, k, &ranges, with)),
+        BlockOp::InsertAfter { with, .. } => Ok(insert_after(c, k, &ranges, with)),
+        BlockOp::Delete { .. } => Ok(delete(c, k, &ranges)),
     }
 }
 
@@ -332,12 +332,7 @@ fn rebase(with: &Content, strip: usize, base: &[String]) -> (Vec<Block>, Vec<Con
     (blocks, containers)
 }
 
-fn replace(
-    c: &Content,
-    k: usize,
-    ranges: &[(Scalar, Scalar)],
-    with: &Content,
-) -> Result<Change, ApplyError> {
+fn replace(c: &Content, k: usize, ranges: &[(Scalar, Scalar)], with: &Content) -> Change {
     let (with, _) = placeheld(with, 0);
     let target = &c.blocks[k];
     let (blocks, containers) = match (in_item(c, target), lone_item(&with)) {
@@ -358,15 +353,10 @@ fn replace(
         ..Splice::new(s, deleted, with.text.clone())
     }));
     steps.push(set_block(&target.id, first));
-    Ok(Change::new(steps))
+    Change::new(steps)
 }
 
-fn insert_after(
-    c: &Content,
-    k: usize,
-    ranges: &[(Scalar, Scalar)],
-    with: &Content,
-) -> Result<Change, ApplyError> {
+fn insert_after(c: &Content, k: usize, ranges: &[(Scalar, Scalar)], with: &Content) -> Change {
     let target = &c.blocks[k];
     let mut last = k;
     let item = in_item(c, target);
@@ -416,32 +406,28 @@ fn insert_after(
         islands: with.islands.clone(),
         ..Splice::new(at, "", format!("\n{}", with.text))
     }));
-    Ok(Change::new(steps))
+    Change::new(steps)
 }
 
-fn delete(c: &Content, k: usize, ranges: &[(Scalar, Scalar)]) -> Result<Change, ApplyError> {
+fn delete(c: &Content, k: usize, ranges: &[(Scalar, Scalar)]) -> Change {
     let text = |s: Scalar, e: Scalar| -> String { c.text.chars().skip(s).take(e - s).collect() };
     let (s, e) = ranges[k];
     if k > 0 {
-        return Ok(Change::new(vec![Step::Splice(Splice::new(
-            s - 1,
-            text(s - 1, e),
-            "",
-        ))]));
+        return Change::new(vec![Step::Splice(Splice::new(s - 1, text(s - 1, e), ""))]);
     }
     if c.blocks.len() == 1 {
         let empty = Block::new(c.blocks[0].id.clone(), crate::model::BlockKind::Para);
-        return Ok(Change::new(vec![
+        return Change::new(vec![
             Step::Splice(Splice::new(0, text(0, e), "")),
             set_block(&c.blocks[0].id, &empty),
-        ]));
+        ]);
     }
     let next = &c.blocks[1];
     let (s1, _) = ranges[1];
-    Ok(Change::new(vec![
+    Change::new(vec![
         Step::Splice(Splice::new(0, text(0, s1), "")),
         set_block(&c.blocks[0].id, next),
-    ]))
+    ])
 }
 
 fn set_block(id: &str, shape: &Block) -> Step {

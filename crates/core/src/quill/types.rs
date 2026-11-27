@@ -845,7 +845,7 @@ impl FieldSchema {
             default_content: None,
         };
         let mut schema = schema;
-        schema.rebuild_matrix_members()?;
+        schema.rebuild_matrix_members();
         Ok(schema)
     }
 
@@ -855,9 +855,9 @@ impl FieldSchema {
     ///
     /// Both hold copies of the columns, so the loader re-derives them once the
     /// columns' content companions are imported.
-    pub(crate) fn rebuild_matrix_members(&mut self) -> Result<(), String> {
+    pub(crate) fn rebuild_matrix_members(&mut self) {
         if self.r#type.matrix_roster().is_empty() {
-            return Ok(());
+            return;
         }
         let columns = self.properties.clone().unwrap_or_default();
         let name = self.name.clone();
@@ -885,7 +885,6 @@ impl FieldSchema {
         };
         self.member = Some(member(false));
         self.added_item = self.r#type.is_open_matrix().then(|| member(true));
-        Ok(())
     }
 
     /// The member schema a matrix key composes under, judged on its stored
