@@ -478,3 +478,33 @@ proptest! {
         }
     }
 }
+
+/// A finite float, weighted to the exponent spellings the emitter writes with
+/// a `.0` mantissa (`1.0e-7`) that `serde_json` writes without.
+fn arb_finite_number() -> impl Strategy<Value = Value> {
+    prop_oneof![
+        prop::sample::select(&[1e-7, 0.000001, 1e16, 1e21, 5e-324, -1e-10, 1.5e-7][..])
+            .prop_map(Value::from),
+        any::<f64>()
+            .prop_filter("finite", |f| f.is_finite())
+            .prop_map(Value::from),
+        any::<i64>().prop_map(Value::from),
+    ]
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(500))]
+
+    /// A number the document holds reads back from its own emission as that
+    /// number, not as the text the emitter spelled it with.
+    #[test]
+    fn an_emitted_number_reads_back_as_the_number(n in arb_finite_number()) {
+        let mut doc = Document::new("q".parse().unwrap());
+        doc.unchecked()
+            .store_field(None, "n", QuillValue::from_json(n.clone()))
+            .unwrap();
+        let md = doc.to_markdown();
+        let back = Document::parse(&md).unwrap().document;
+        prop_assert_eq!(&doc, &back, "emitted:\n{}", md);
+    }
+}
