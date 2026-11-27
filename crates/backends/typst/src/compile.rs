@@ -30,6 +30,25 @@ pub(crate) fn render_options(pixel_per_pt: f32) -> RenderOptions {
     }
 }
 
+/// Rasterizes `page` to non-premultiplied RGBA, row-major. Only non-opaque
+/// pixels are demultiplied, with tiny-skia's own rounding.
+pub(crate) fn render_rgba(page: &Page, pixel_per_pt: f32) -> (u32, u32, Vec<u8>) {
+    let mut pixmap = typst_render::render(page, &render_options(pixel_per_pt));
+    for i in 0..pixmap.pixels().len() {
+        let px = pixmap.pixels()[i];
+        if !px.is_opaque() {
+            let c = px.demultiply();
+            pixmap.data_mut()[i * 4..i * 4 + 4].copy_from_slice(&[
+                c.red(),
+                c.green(),
+                c.blue(),
+                c.alpha(),
+            ]);
+        }
+    }
+    (pixmap.width(), pixmap.height(), pixmap.take())
+}
+
 /// `comemo`'s cache is process-global and unbounded without eviction; 10 matches
 /// typst-cli's watch-loop policy. The age clock is process-global too, so
 /// interleaved sessions evict each other's entries early — lost reuse, never a
