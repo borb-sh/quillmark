@@ -14,10 +14,10 @@
 //! to its write, and [`repair`] makes valid a state two concurrent edits
 //! merged into.
 //!
-//! The line form, `lines` and the `migrate` between it and the model, is what
-//! the markdown import walks and the shape a v1 stored value decodes from; it
-//! is hidden from the documented surface and no public API takes or answers
-//! it. The markdown export and the renderers read the model through [`view`].
+//! The line form, `lines` and the `migrate` from it to the model, is the shape
+//! a v1 stored value decodes from; it is hidden from the documented surface
+//! and no public API takes or answers it. The markdown export and the
+//! renderers read the model through [`view`].
 
 pub mod anchors;
 pub mod blocks;

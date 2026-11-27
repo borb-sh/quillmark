@@ -1566,8 +1566,9 @@ impl PyReader {
         read_value_to_py(py, read)
     }
 
-    /// Read the body (`field=None`) or a content field as canonical Content-JSON (`{text, lines, marks,
-    /// islands}`): the `Content` twin of `get`, which projects. Decodes through
+    /// Read the body (`field=None`) or a content field as canonical Content-JSON
+    /// (`{text, blocks, containers, marks, anchors, islands, codec}`, empty keys
+    /// omitted): the `Content` twin of `get`, which projects. Decodes through
     /// the codec the declared type names, so a field the writer committed and one
     /// a markdown parse left as an authored string read back the same.
     ///

@@ -425,9 +425,9 @@ fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &
 /// value: a top-level field, an object property, an array element.
 ///
 /// Projecting keeps card-yaml markdown-clean rather than carrying a nested
-/// `{text, lines, marks, islands}` tree. It is lossy: island ids and
-/// content-only marks do not survive, and the storage DTO is the lossless
-/// carrier.
+/// `{text, blocks, containers, marks, anchors, islands}` tree. It is lossy:
+/// island ids and content-only marks do not survive, and the storage DTO is
+/// the lossless carrier.
 ///
 /// The guard requires the object, its retired spellings respelled
 /// ([`respell_retired`](quillmark_content::lines::serial::respell_retired)), to

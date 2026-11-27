@@ -1,11 +1,11 @@
 //! Between the content model and the line form. [`from_lines`] is the v1
-//! migration and the last step of a markdown import: a line run joined by
+//! migration, the last step of every v1 decode: a line run joined by
 //! hard breaks becomes one block, container runs become containers by id, and
 //! anchor marks become anchors, every id minted deterministically; an anchor
 //! id held twice keeps its first holder, and a block-only island sharing its
-//! line takes a block of its own. [`to_lines`] is the lowering the anchor
-//! contexts, a revise's carry and core's line reads take, computing the
-//! ordinals and run parity the line form spells.
+//! line takes a block of its own. [`to_lines`] lowers the model back to the
+//! line form, computing the ordinals and run parity it spells; tests build
+//! v1 values with it.
 
 use crate::ids::{Minter, prefix};
 use crate::lines::model::{self as line, Container as LineContainer, Line, LineKind};
