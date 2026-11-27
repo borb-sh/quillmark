@@ -151,7 +151,9 @@ fn sort_own_keys(m: Map<String, Value>) -> Map<String, Value> {
 /// validate: the [`Value`]-input counterpart to
 /// [`Content::from_canonical_json`].
 pub fn from_canonical_value(v: &Value) -> Result<Lines, ParseError> {
-    seal(Content::from_value(v)?)
+    let rt = Content::from_value(v)?.into_lines();
+    rt.validate().map_err(ParseError::Invalid)?;
+    Ok(rt)
 }
 
 /// `v` with the retired spellings the decoder reads permanently written as the
@@ -211,14 +213,6 @@ fn respell_table(props: &mut Value) {
     if settled != stored {
         *props = settled;
     }
-}
-
-/// Mint and check: the tail both wire lanes share, after the authored lane has
-/// read its own refusals off the decode.
-fn seal(rt: Content) -> Result<Lines, ParseError> {
-    let rt = rt.into_lines();
-    rt.validate().map_err(ParseError::Invalid)?;
-    Ok(rt)
 }
 
 /// Read an opaque payload bag (`attrs`, `props`) off the wire, absent → `Null`.
@@ -571,206 +565,6 @@ pub(crate) fn mark_from_value(v: &Value) -> Result<Mark, ParseError> {
         }
     };
     Ok(Mark { start, end, kind })
-}
-
-// Authored-lane readers, strict about the payload spelling.
-//
-// [`payload`] reads a built-in's payload from a named sibling where there is no
-// bag, so `{"type": "link", "url": "…"}` decodes. The two lanes answer that
-// oppositely. Storage (`Content::from_canonical_json`) stays lenient: content
-// stored in that spelling is beyond any migration's reach, a `richtext` field
-// resting as a content object under no schema tag. Authored
-// ([`from_authored_value`]) rejects it, the shape meaning a stale copy of the encoding.
-//
-// The rule is narrow on purpose: a *legacy payload key* beside the name that
-// spelled it, nothing else, off the same frozen table [`payload`] reads.
-
-/// The authored lane's verdict on a mark, without building it. Table cells are
-/// the only caller: [`parse_cell`] reads their marks leniently, so a cell mark
-/// reaches no strict decode that would raise the error on its own.
-pub(crate) fn reject_unreadable_mark(v: &Value) -> Result<(), ParseError> {
-    reject_mark_legacy(v)?;
-    reject_unwritable_link_url(v)?;
-    mark_from_value(v)?;
-    Ok(())
-}
-
-/// A link `url` `export::url_is_writable` refuses is a shape error: the
-/// emitter writes it into the destination slot of `[…](…)`, which admits no line
-/// ending, so the export's percent-encoding of it is a rewrite the host did not
-/// ask for.
-///
-/// The rule is on the lanes that **store** a url. An op naming a mark already in
-/// the field matches on kind equality, and a url the model holds has no other
-/// spelling, so refusing it there would leave a legacy link unremovable.
-pub(crate) fn reject_unwritable_link_url(v: &Value) -> Result<(), ParseError> {
-    let Some(o) = v.as_object() else {
-        return Ok(());
-    };
-    if o.get("type").and_then(Value::as_str) != Some("link") {
-        return Ok(());
-    }
-    reject_unwritable_url(
-        payload(o, legacy_mark_keys("link"), "url").and_then(Value::as_str),
-        "link url",
-    )
-}
-
-/// [`reject_unwritable_link_url`] on an `image` island's `url` prop, which the
-/// emitter writes into the same slot.
-fn reject_unwritable_image_url(v: &Value) -> Result<(), ParseError> {
-    let image = crate::model::IslandType::Image.as_str();
-    if v.get("type").and_then(Value::as_str) != Some(image) {
-        return Ok(());
-    }
-    reject_unwritable_url(
-        v.get("props")
-            .and_then(|p| p.get("url"))
-            .and_then(Value::as_str),
-        "image url",
-    )
-}
-
-/// A `math` island whose `tex` the markdown projection cannot write between
-/// its delimiters (`export::tex_is_writable`), read as it rests once
-/// settled. A `tex` that is no string is the props carrier's to hold.
-fn reject_unwritable_tex(v: &Value) -> Result<(), ParseError> {
-    if v.get("type").and_then(Value::as_str) != Some(crate::model::IslandType::Math.as_str()) {
-        return Ok(());
-    }
-    let props = v.get("props");
-    let display = props.and_then(|p| p.get("display")) == Some(&Value::Bool(true));
-    match props.and_then(|p| p.get("tex")).and_then(Value::as_str) {
-        Some(tex) if !crate::export::tex_is_writable(&crate::model::settle_tex(tex), display) => {
-            Err(ParseError::Shape("math tex"))
-        }
-        _ => Ok(()),
-    }
-}
-
-fn reject_unwritable_url(url: Option<&str>, err: &'static str) -> Result<(), ParseError> {
-    match url {
-        Some(u) if !crate::export::url_is_writable(u) => Err(ParseError::Shape(err)),
-        _ => Ok(()),
-    }
-}
-
-/// [`from_canonical_value`] for a content the **host authored just now**: the
-/// `overwrite` input, not a blob read back from storage. Same decode, plus the
-/// legacy-spelling rule on every axis the decode reads — line kinds,
-/// containers, prose marks, table-cell marks — and the writability rule on the
-/// urls the projection spells.
-pub fn from_authored_value(v: &Value) -> Result<Lines, ParseError> {
-    authored_lane_scan(v)?;
-    seal(Content::from_value(v)?)
-}
-
-/// The authored-lane scan [`from_authored_value`] runs. Structural rather than a
-/// blind recursive walk: an island's `props` is opaque host payload that may
-/// legitimately contain an object spelled `{"type": "link", "url": …}`, and
-/// rejecting that would make the carrier unable to carry.
-fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
-    for line in arr_or_empty(v, "lines") {
-        reject_line_kind_legacy(line)?;
-        for c in arr_or_empty(line, "containers") {
-            reject_container_legacy(c)?;
-            if container_from_value(c)?.is_none() {
-                let name = c
-                    .get("container")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                return Err(ParseError::UnknownName {
-                    axis: "container",
-                    name: name.to_string(),
-                });
-            }
-        }
-    }
-    // Both rules here: the strict decode `from_canonical_value` runs next reads
-    // prose marks on the storage lane, so it carries neither.
-    for m in arr_or_empty(v, "marks") {
-        reject_mark_legacy(m)?;
-        reject_unwritable_link_url(m)?;
-    }
-    // Cell marks ride the prose mark shape, so the rules follow them in, plus
-    // the readability check, since no strict decode reaches them. Dispatch goes
-    // through `IslandType`, so a new mark-carrying type is a compile error
-    // here rather than a silent skip.
-    for island in arr_or_empty(v, "islands") {
-        let ty = island
-            .get("type")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        match crate::model::IslandType::parse(ty) {
-            Some(crate::model::IslandType::Table) => {
-                let Some(props) = island.get("props") else {
-                    continue;
-                };
-                for cell in table_cell_values(props) {
-                    for m in arr_or_empty(cell, "marks") {
-                        reject_unreadable_mark(m)?;
-                    }
-                }
-            }
-            Some(crate::model::IslandType::Footnote) => {
-                if let Some(props) = island.get("props") {
-                    arr_or_empty(props, "marks")
-                        .iter()
-                        .try_for_each(reject_unreadable_mark)?;
-                }
-            }
-            // No cells; the one prop the projection writes is the url.
-            Some(crate::model::IslandType::Image) => reject_unwritable_image_url(island)?,
-            Some(crate::model::IslandType::Math) => reject_unwritable_tex(island)?,
-            // No cells; this scan reads raw JSON, and an unknown type is the
-            // decode's to refuse.
-            Some(crate::model::IslandType::Ext(_)) | None => {}
-        }
-    }
-    Ok(())
-}
-
-fn reject_line_kind_legacy(v: &Value) -> Result<(), ParseError> {
-    reject_legacy_siblings(v, "kind", legacy_line_kind_keys, "legacy kind payload")
-}
-
-fn reject_container_legacy(v: &Value) -> Result<(), ParseError> {
-    reject_legacy_siblings(
-        v,
-        "container",
-        legacy_container_keys,
-        "legacy container payload",
-    )
-}
-
-fn reject_mark_legacy(v: &Value) -> Result<(), ParseError> {
-    reject_legacy_siblings(v, "type", legacy_mark_keys, "legacy mark payload")
-}
-
-/// Error when `v` spells a built-in's payload the `@0.93.0` way, as a named
-/// sibling. A non-object or a missing/non-string discriminant is left to the
-/// reader that follows, which reports the shape error in its own terms.
-///
-/// The storage lane reads that spelling; a host writing it *now* holds a stale
-/// copy of the encoding, and the sibling it means is not necessarily the one
-/// [`payload`] would read — a bag beside it wins, so the write would land
-/// somewhere the host did not aim.
-fn reject_legacy_siblings(
-    v: &Value,
-    discriminant: &str,
-    legacy: fn(&str) -> &'static [&'static str],
-    err: &'static str,
-) -> Result<(), ParseError> {
-    let Some(o) = v.as_object() else {
-        return Ok(());
-    };
-    let Some(tag) = o.get(discriminant).and_then(Value::as_str) else {
-        return Ok(());
-    };
-    if legacy(tag).iter().any(|k| o.contains_key(*k)) {
-        return Err(ParseError::Shape(err));
-    }
-    Ok(())
 }
 
 /// Parse a table-cell object `{text, marks}` leniently: its plain text plus the
@@ -1217,12 +1011,6 @@ mod tests {
             })),
             "island props accepted a 1 000-deep payload"
         );
-        // The authored lane funnels through the same decode, so it refuses
-        // the same shape rather than trapping on its own scan first.
-        assert!(matches!(
-            from_authored_value(&v),
-            Err(ParseError::Invalid(Invariant::JsonTooDeep { .. }))
-        ));
     }
 
     /// The cap admits every payload a stored blob can carry, so closing the
@@ -1502,10 +1290,10 @@ mod tests {
         }
     }
 
-    /// Every axis is a closed set, and the two lanes agree: the name is
-    /// refused, not carried, and the error names the axis and the name.
+    /// Every axis is a closed set: the name is refused, not carried, and the
+    /// error names the axis and the name.
     #[test]
-    fn an_unknown_name_is_refused_on_every_axis_and_both_lanes() {
+    fn an_unknown_name_is_refused_on_every_axis() {
         let doc = |islands: &str, lines: &str, marks: &str, text: &str| {
             format!(
                 r#"{{"islands":[{islands}],"lines":[{lines}],"marks":[{marks}],"text":"{text}"}}"#
@@ -1550,26 +1338,21 @@ mod tests {
         ];
         for (axis, name, json) in cases {
             let v: Value = serde_json::from_str(&json).unwrap();
-            for (lane, got) in [
-                ("storage", from_canonical_value(&v)),
-                ("authored", from_authored_value(&v)),
-            ] {
-                assert_eq!(
-                    got.unwrap_err(),
-                    ParseError::UnknownName {
-                        axis,
-                        name: name.to_string()
-                    },
-                    "{lane} lane accepted {axis} {name:?}"
-                );
-            }
+            assert_eq!(
+                from_canonical_value(&v).unwrap_err(),
+                ParseError::UnknownName {
+                    axis,
+                    name: name.to_string()
+                },
+                "accepted {axis} {name:?}"
+            );
         }
     }
 
     /// A table cell's marks are read leniently, so without a decoder arm of
     /// their own a name outside the vocabulary would be dropped by `canon_cell`
-    /// and the row would open with its bytes moved. It is refused instead, on
-    /// both lanes, like the mark axis everywhere else.
+    /// and the row would open with its bytes moved. It is refused instead, like
+    /// the mark axis everywhere else.
     #[test]
     fn an_unknown_cell_mark_name_is_refused_rather_than_dropped() {
         let cell_marks = |marks: &str| {
@@ -1585,19 +1368,14 @@ mod tests {
         };
         let outside = cell_marks(r#"{"end":1,"start":0,"type":"highlight"}"#);
         let v: Value = serde_json::from_str(&outside).unwrap();
-        for (lane, got) in [
-            ("storage", from_canonical_value(&v)),
-            ("authored", from_authored_value(&v)),
-        ] {
-            assert_eq!(
-                got.unwrap_err(),
-                ParseError::UnknownName {
-                    axis: "mark type",
-                    name: "highlight".to_string()
-                },
-                "{lane} lane accepted a cell mark type outside the vocabulary"
-            );
-        }
+        assert_eq!(
+            from_canonical_value(&v).unwrap_err(),
+            ParseError::UnknownName {
+                axis: "mark type",
+                name: "highlight".to_string()
+            },
+            "accepted a cell mark type outside the vocabulary"
+        );
 
         // The split holds: a *malformed* cell mark is still skipped, so the row
         // opens. That rule is about shape, and predates the closure.
@@ -1622,12 +1400,11 @@ mod tests {
         }
     }
 
-    /// A host writing the `@0.93.0` spelling now holds a stale copy of the
-    /// encoding, and where a bag sits beside it the sibling it meant is not
-    /// the one [`payload`] reads. The last case is a cell mark that will not
-    /// parse at all, the one axis with no strict decode behind it.
+    /// Stored content in the `@0.93.0` spelling keeps loading, and most of it
+    /// reaches no migration. The last case is a cell mark that will not parse
+    /// at all, the one axis with no strict decode behind it.
     #[test]
-    fn authored_lane_rejects_the_legacy_payload_spelling() {
+    fn the_legacy_payload_spelling_opens() {
         let bad = [
             // line kind
             r#"{"islands":[],"lines":[{"containers":[],"kind":"heading","level":2}],"marks":[],"text":"x"}"#,
@@ -1651,19 +1428,12 @@ mod tests {
             ),
         ];
         for json in bad {
-            let v: Value = serde_json::from_str(json).unwrap();
-            assert!(
-                matches!(from_authored_value(&v), Err(ParseError::Shape(_))),
-                "accepted: {json}"
-            );
-            // The storage lane opens all five: stored content in that
-            // spelling must keep loading, and most of it reaches no migration.
             assert!(
                 Content::from_canonical_json(json).is_ok(),
-                "storage lane rejected: {json}"
+                "rejected: {json}"
             );
         }
-        // …and what storage does with the unreadable one: skips it, keeping the
+        // …and what it does with the unreadable one: skips it, keeping the
         // document openable.
         let rt = Content::from_canonical_json(bad[4]).unwrap();
         assert!(
@@ -1676,7 +1446,7 @@ mod tests {
 
     /// A foreign bag on a built-in is neither the legacy spelling nor a
     /// payload: it drops unread on a member that carries none, and is read past
-    /// on one that does. Both lanes agree, the shape being unambiguous.
+    /// on one that does, on the value and the JSON lane alike.
     #[test]
     fn a_foreign_bag_on_a_built_in_drops_unread() {
         let json = concat!(
@@ -1685,33 +1455,17 @@ mod tests {
             r#""marks":[{"attrs":{"y":2},"end":1,"start":0,"type":"strong"}],"text":"x"}"#
         );
         let v: Value = serde_json::from_str(json).unwrap();
-        let rt = from_authored_value(&v).expect("authored lane accepts");
+        let rt = from_canonical_value(&v).expect("value lane accepts");
         assert_eq!(rt.lines[0].kind, LineKind::Para);
         assert_eq!(rt.marks[0].kind, MarkKind::Strong);
         assert_eq!(
-            Content::from_canonical_json(json).expect("storage lane accepts"),
+            Content::from_canonical_json(json).expect("JSON lane accepts"),
             rt
         );
         assert_eq!(
             rt.to_canonical_json(),
             r#"{"islands":[],"lines":[{"containers":[{"container":"quote"}],"kind":"para"}],"marks":[{"end":1,"start":0,"type":"strong"}],"text":"x"}"#
         );
-    }
-
-    /// An opaque carrier is not scanned: a foreign key inside a table island's
-    /// `props` may hold a link-shaped value with a url the projection could not
-    /// write, and the authored lane leaves it alone.
-    #[test]
-    fn authored_lane_leaves_opaque_props_payload_alone() {
-        let json = concat!(
-            r#"{"islands":[{"id":"i1","props":{"aligns":["none"],"#,
-            r#""header":[{"marks":[],"text":"h"}],"note":{"type":"link","url":"a\nb"},"#,
-            r#""rows":[[{"marks":[],"text":"c"}]]},"type":"table"}],"#,
-            r#""lines":[{"containers":[],"kind":"para"}],"marks":[],"text":"￼"}"#
-        );
-        let v: Value = serde_json::from_str(json).unwrap();
-        let rt = from_authored_value(&v).unwrap();
-        assert_eq!(rt.to_canonical_json(), json);
     }
 
     /// A `lang` is written into a fence header unquoted, so every lane that
@@ -1753,30 +1507,20 @@ mod tests {
         }
     }
 
-    /// The same split on a link or image `url`: CommonMark admits no line
-    /// ending in a destination, so the whole-content authored door refuses one
-    /// as deep as the values the projection writes, while storage keeps what it
-    /// holds and the export percent-encodes it.
+    /// A link or image `url` CommonMark cannot write, a line ending in a
+    /// destination, rests as stored; the export percent-encodes it.
     #[test]
-    fn an_unwritable_url_decodes_on_storage_and_is_refused_when_authored() {
-        for (json, refusal) in [
-            (
-                concat!(
-                    r#"{"islands":[],"lines":[{"containers":[],"kind":"para"}],"#,
-                    r#""marks":[{"attrs":{"url":"a\nb"},"end":1,"start":0,"type":"link"}],"text":"x"}"#
-                ),
-                "link url",
+    fn an_unwritable_url_rests_as_stored() {
+        for json in [
+            concat!(
+                r#"{"islands":[],"lines":[{"containers":[],"kind":"para"}],"#,
+                r#""marks":[{"attrs":{"url":"a\nb"},"end":1,"start":0,"type":"link"}],"text":"x"}"#
             ),
-            (
-                concat!(
-                    r#"{"islands":[{"id":"i1","props":{"alt":"a","url":"u\rv"},"#,
-                    r#""type":"image"}],"lines":[{"containers":[],"kind":"para"}],"marks":[],"text":"￼"}"#
-                ),
-                "image url",
+            concat!(
+                r#"{"islands":[{"id":"i1","props":{"alt":"a","url":"u\rv"},"#,
+                r#""type":"image"}],"lines":[{"containers":[],"kind":"para"}],"marks":[],"text":"￼"}"#
             ),
         ] {
-            let v: Value = serde_json::from_str(json).unwrap();
-            assert_eq!(from_authored_value(&v), Err(ParseError::Shape(refusal)));
             assert_eq!(
                 Content::from_canonical_json(json)
                     .unwrap()
@@ -1786,11 +1530,11 @@ mod tests {
         }
     }
 
-    /// A block-only island's slot sharing its line rests as given on both
-    /// lanes: the mint moves no text, so a merge of concurrent edits stores as
-    /// it is, and the markdown projection gives the slot its line.
+    /// A block-only island's slot sharing its line rests as given: the mint
+    /// moves no text, so a merge of concurrent edits stores as it is, and the
+    /// markdown projection gives the slot its line.
     #[test]
-    fn a_block_island_sharing_its_line_rests_as_given_on_both_lanes() {
+    fn a_block_island_sharing_its_line_rests_as_given() {
         let json = concat!(
             r#"{"islands":[{"id":"isl-0","props":{"aligns":["none"],"#,
             r#""header":[{"marks":[],"text":"h"}],"rows":[[{"marks":[],"text":"c"}]]},"#,
@@ -1800,9 +1544,6 @@ mod tests {
         let stored = Content::from_canonical_json(json).expect("storage lane accepts");
         assert_eq!(stored.validate(), Ok(()));
         assert_eq!(stored.to_canonical_json(), json);
-        let authored = from_authored_value(&serde_json::from_str(json).unwrap())
-            .expect("authored lane accepts");
-        assert_eq!(authored, stored);
     }
 
     /// `island` names the line a block island sits on, which is a `Para`, and
@@ -1932,7 +1673,7 @@ mod tests {
 
     /// A stored definition list or `qm-*` element loads as the blocks it held:
     /// a term line as a paragraph, a description or element container gone
-    /// from every path. The authored lane refuses either container.
+    /// from every path.
     #[test]
     fn a_retired_construct_loads_as_what_it_held() {
         let stored = serde_json::json!({
@@ -1962,13 +1703,6 @@ mod tests {
                 (LineKind::Para, vec![Container::Quote { instance: 0 }]),
             ]
         );
-        assert!(matches!(
-            from_authored_value(&stored),
-            Err(ParseError::UnknownName {
-                axis: "container",
-                ..
-            })
-        ));
     }
 
     /// The runs a dropped container parted stay parted: a list beside an
@@ -2025,12 +1759,6 @@ mod tests {
             let json = content(mark);
             assert_eq!(
                 Content::from_canonical_json(&json),
-                Err(ParseError::Shape(shape)),
-                "{mark}"
-            );
-            let value: Value = serde_json::from_str(&json).unwrap();
-            assert_eq!(
-                from_authored_value(&value),
                 Err(ParseError::Shape(shape)),
                 "{mark}"
             );

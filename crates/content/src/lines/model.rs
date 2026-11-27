@@ -273,7 +273,7 @@ impl Container {
     ///
     /// The **identity** rule, read and written alike: two adjacent lines sit in
     /// one container instance iff this holds *and* their
-    /// [`instance`](Self::instance)s are equal. [`crate::lines::traverse::runs`]
+    /// [`instance`](Self::instance)s are equal. [`crate::migrate::from_lines`]
     /// applies it, and a producer separates its runs against it. Whether the
     /// *projection* can then tell two runs apart is
     /// [`same_weld`](Self::same_weld).

@@ -6,4 +6,3 @@
 pub mod island;
 pub mod model;
 pub mod serial;
-pub mod traverse;

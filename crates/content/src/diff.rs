@@ -12,7 +12,6 @@ use crate::change::{
 use crate::delta::{Op, diff_words as text_diff, relocate, without_sentinel};
 use crate::ids::{Minter, prefix};
 use crate::markdown::{ImportError, ImportWarning};
-use crate::migrate::from_lines;
 use crate::model::IslandType;
 use crate::model::{
     Block, BlockKind, Codec, Container, ContainerKind, Content, ISLAND_SLOT, Invariant, Island,
@@ -1060,13 +1059,4 @@ fn holding(before: &Content, want: &Content, top: bool) -> Content {
         }
     }
     want
-}
-
-/// A line-form value written over `before`, under the ids of what it kept and
-/// its codec.
-#[doc(hidden)]
-pub fn lift(before: &Content, after: &crate::lines::model::Content) -> Content {
-    let mut out = align(before, from_lines(after));
-    out.codec = before.codec;
-    out
 }

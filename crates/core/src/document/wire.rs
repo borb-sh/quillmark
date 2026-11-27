@@ -469,7 +469,7 @@ mod tests {
 
     /// The card wire is not an authored-lane door. Every `Card` a read hands
     /// back is a valid `CardInput`, so `body` takes the legacy payload spelling
-    /// `overwrite` refuses, and decodes it as storage does.
+    /// and decodes it as storage does.
     #[test]
     fn card_wire_body_decodes_storage_lane() {
         let legacy = json!({
@@ -478,8 +478,6 @@ mod tests {
             "marks": [],
             "text": "hi",
         });
-        assert!(quillmark_content::lines::serial::from_authored_value(&legacy).is_err());
-
         let card = Card::try_from(CardWire::new(String::new(), legacy.clone()))
             .expect("the card wire decodes storage-lane");
         let storage = quillmark_content::model::Content::from_value_lenient(&legacy)
