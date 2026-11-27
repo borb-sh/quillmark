@@ -530,7 +530,8 @@ mod tests {
     fn a_non_finite_float_names_no_option_and_hints_its_quoted_spelling() {
         for (content, example) in [
             ("s: .inf\n", "`s: \".inf\"`"),
-            ("title: Memo\ns: -.NaN # aside\n", "`s: \"-.NaN\"`"),
+            ("title: Memo\ns: .NaN # aside\n", "`s: \".NaN\"`"),
+            ("s: -.Inf\n", "`s: \"-.Inf\"`"),
             ("s: 1e999\n", "`s: \"1e999\"`"),
             ("s: [.nan]\n", "`field: \".nan\"`"),
         ] {
@@ -546,6 +547,13 @@ mod tests {
             let hint = enriched.hint.expect("a hint");
             assert!(hint.contains(example), "{content:?}: {hint}");
         }
+    }
+
+    #[test]
+    fn a_signed_nan_is_no_core_schema_float_and_reads_as_text() {
+        let value = crate::value::parse_yaml::<serde_json::Value>("s: -.NaN\n")
+            .expect("`-.NaN` is a plain string");
+        assert_eq!(value, serde_json::json!({ "s": "-.NaN" }));
     }
 
     #[test]
