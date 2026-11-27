@@ -72,12 +72,13 @@ pub struct CardWire {
     #[serde(default, alias = "payload_items")]
     pub payload_items: Vec<PayloadItemWire>,
     /// The card body as canonical Content-JSON: the source-of-truth content
-    /// model (a content object, `{text, lines, marks, islands}`). The empty content
-    /// when absent. A markdown string is also accepted on input (imported), so an
-    /// LLM/markdown writer can hand a string here.
+    /// model (a content object, `{text, blocks, containers, marks, anchors,
+    /// islands, codec}`). The empty content when absent. A markdown string is
+    /// also accepted on input (imported), so an LLM/markdown writer can hand a
+    /// string here.
     ///
-    /// The canonical form (`serial::to_canonical_value`), a zero
-    /// `Container::instance` omitted. `payload_items` carries the stored bytes
+    /// The canonical form ([`Content::to_value`](quillmark_content::model::Content::to_value)),
+    /// every empty key omitted. `payload_items` carries the stored bytes
     /// verbatim, which is its contract and why the binding types it `unknown`.
     ///
     /// No `body_markdown` projection rides this wire: delimiter safety makes
