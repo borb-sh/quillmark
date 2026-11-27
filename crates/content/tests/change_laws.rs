@@ -1818,11 +1818,11 @@ proptest! {
 
 mod diffs {
     use super::*;
-    use quillmark_content::diff::{align, diff, lift, replace, revise};
+    use quillmark_content::diff::{align, diff, replace, revise};
     use quillmark_content::markdown::{
         Loss, to_markdown, to_markdown_annotated, to_markdown_checked,
     };
-    use quillmark_content::migrate::to_lines;
+    use quillmark_content::migrate::{from_lines, to_lines};
 
     /// The two equal once every block, container and island id is renamed by
     /// where it first appears.
@@ -1944,7 +1944,8 @@ mod diffs {
         fn the_line_form_keeps_every_value_but_its_named_losses(d in document(), ops in ops()) {
             for c in [d.clone(), apply(&d, &change_for(&d, &ops)).unwrap().content] {
                 let c = without_ext(c);
-                let mut lifted = lift(&c, &to_lines(&c));
+                let mut lifted = align(&c, from_lines(&to_lines(&c)));
+                lifted.codec = c.codec;
                 let mut want = c.clone();
                 for loss in to_markdown_checked(&c).losses {
                     let Loss::SlotBreaks { island, slot } = loss else { continue };
