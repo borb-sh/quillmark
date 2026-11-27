@@ -6,7 +6,6 @@ use std::collections::BTreeMap;
 use quillmark_content::model::Content;
 use quillmark_core::error::{Diagnostic, Severity};
 use quillmark_core::path::DocPath;
-use quillmark_core::quill::QuillConfig;
 use typst::Library;
 use typst::comemo::Track;
 use typst::engine::Sink;
@@ -99,37 +98,33 @@ pub(crate) fn with_run_rule(
     Some(out)
 }
 
-/// One `typst::unknown_font_family` per family a content field of the plate
-/// JSON `data` names and `families` does not offer, spelled as the field
-/// first does.
+/// Pushes one `typst::unknown_font_family` per family the content field at `at`
+/// names and `families` does not offer, spelled as the field first does.
 pub(crate) fn unknown(
-    config: &QuillConfig,
-    data: &serde_json::Value,
+    at: &DocPath,
+    content: &Content,
     families: &Families,
-) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    config.each_plate_content(data, &mut |at: &DocPath, content: &Content| {
-        let mut missing: BTreeMap<String, String> = BTreeMap::new();
-        for name in content.font_families() {
-            let key = name.to_lowercase();
-            if !families.offered.contains_key(&key) {
-                missing.entry(key).or_insert(name);
-            }
+    diags: &mut Vec<Diagnostic>,
+) {
+    let mut missing: BTreeMap<String, String> = BTreeMap::new();
+    for name in content.font_families() {
+        let key = name.to_lowercase();
+        if !families.offered.contains_key(&key) {
+            missing.entry(key).or_insert(name);
         }
-        for name in missing.into_values() {
-            diags.push(
-                Diagnostic::new(
-                    Severity::Warning,
-                    format!("this field sets text in `{name}`, a family the host's font library does not hold, so that text keeps the surrounding font"),
-                )
-                .with_code(CODE.to_string())
-                .with_arg("family", name.clone().into())
-                .with_path(at.to_string())
-                .with_hint("add the family to the host's font library, or choose a family it holds".to_string()),
-            );
-        }
-    });
-    diags
+    }
+    for name in missing.into_values() {
+        diags.push(
+            Diagnostic::new(
+                Severity::Warning,
+                format!("this field sets text in `{name}`, a family the host's font library does not hold, so that text keeps the surrounding font"),
+            )
+            .with_code(CODE.to_string())
+            .with_arg("family", name.clone().into())
+            .with_path(at.to_string())
+            .with_hint("add the family to the host's font library, or choose a family it holds".to_string()),
+        );
+    }
 }
 
 #[cfg(test)]
@@ -236,7 +231,7 @@ mod tests {
         .expect("world");
         world.inject_helper_package(&data, &meta).expect("inject");
         let (document, mut warnings) = compile::compile_document(&world).expect("compile");
-        warnings.extend(super::unknown(quill.config(), &data, world.families()));
+        warnings.extend(crate::content_warnings(quill.config(), &data, world.families()).1);
 
         fn walk(frame: &Frame, out: &mut Vec<(String, String)>) {
             for (_, item) in frame.items() {

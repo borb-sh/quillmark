@@ -328,13 +328,18 @@ impl SessionHandle for AcroformSession {
     }
 
     /// Specs and raster swap together only after both succeed. The background
-    /// never changes, so field deltas are the only visible delta.
+    /// never changes, so field deltas are the only visible delta, and equal
+    /// specs keep the raster they would stamp again.
     fn update(
         &mut self,
         _config: &QuillConfig,
         json_data: &serde_json::Value,
     ) -> Result<ChangeSet, RenderError> {
         let field_specs = resolve_field_specs(&self.bound, json_data);
+        if field_specs == self.field_specs {
+            self.warnings = value_warnings(&field_specs, json_data);
+            return Ok(ChangeSet::new(self.canvas_boxes.len(), Vec::new()));
+        }
         let raster = stamp_raster(&self.base_pdf, &field_specs)?;
         self.warnings = value_warnings(&field_specs, json_data);
 
