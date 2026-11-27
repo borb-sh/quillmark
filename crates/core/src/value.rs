@@ -57,7 +57,7 @@ pub(crate) fn depth_check_meta_map<E>(
 /// The one YAML reading every Quillmark parse shares: only YAML 1.2 Core's
 /// `true`, `True`, `TRUE`, `false`, `False` and `FALSE` are booleans, and any
 /// other casing (`tRue`) and YAML 1.1's words (`y`, `no`, `On`, `OFF`) stay
-/// strings. Comments reach no value, so none is buffered, and a run
+/// strings, and `<<` is an ordinary key: YAML 1.2 has no merge. Comments reach no value, so none is buffered, and a run
 /// of them meets no count limit. With aliases expanded, scalar and tag bytes
 /// stay under twice the input's bytes plus [`EXPANSION_SLACK`], and nodes under
 /// its bytes plus [`EXPANSION_SLACK`], so a block's value is linear in its
@@ -69,6 +69,7 @@ pub(crate) fn parse_yaml<'de, T: Deserialize<'de>>(
         yaml,
         serde_saphyr::options! {
             strict_booleans: true,
+            merge_keys: serde_saphyr::MergeKeyPolicy::AsOrdinary,
             emit_comments: false,
             budget: serde_saphyr::budget! {
                 max_total_scalar_bytes: yaml.len().saturating_mul(2).saturating_add(EXPANSION_SLACK),
@@ -80,16 +81,62 @@ pub(crate) fn parse_yaml<'de, T: Deserialize<'de>>(
 
 const EXPANSION_SLACK: usize = 4 * 1024;
 
-/// The number a plain YAML scalar of text `s` reads as, such as `0012`,
-/// `0x1F` or `1_000`.
-pub(crate) fn yaml_number(s: &str) -> Option<serde_json::Number> {
-    if s.is_empty() || s.contains(|c: char| c.is_whitespace() || c == '#') {
+fn digits(t: &str, radix: u32) -> bool {
+    !t.is_empty() && t.chars().all(|c| c.is_digit(radix))
+}
+
+/// The integer of a core-schema integer spelling, `None` within when it lies
+/// past `i64` below or `u64` above; `None` for any other text.
+fn core_integer(s: &str) -> Option<Option<serde_json::Number>> {
+    for (prefix, radix) in [("0o", 8), ("0x", 16)] {
+        if let Some(t) = s.strip_prefix(prefix) {
+            return digits(t, radix).then(|| u64::from_str_radix(t, radix).ok().map(Into::into));
+        }
+    }
+    let unsigned = s.strip_prefix(['-', '+']).unwrap_or(s);
+    if !digits(unsigned, 10) {
         return None;
     }
-    match parse_yaml::<serde_json::Value>(s) {
-        Ok(serde_json::Value::Number(n)) => Some(n),
-        _ => None,
+    let int = unsigned.trim_start_matches('0');
+    let int = if int.is_empty() { "0" } else { int };
+    Some(match s.starts_with('-') {
+        true => format!("-{int}").parse::<i64>().ok().map(Into::into),
+        false => int.parse::<u64>().ok().map(Into::into),
+    })
+}
+
+/// Whether `s` spells a core-schema integer no JSON number holds exactly,
+/// past `i64` below or `u64` above.
+pub(crate) fn is_unheld_integer(s: &str) -> bool {
+    matches!(core_integer(s), Some(None))
+}
+
+/// The number YAML 1.2.2's core schema resolves a plain scalar of text `s` to:
+/// a decimal integer with an optional sign (`0012` is 12), an unsigned `0o`
+/// octal or `0x` hexadecimal, or a float (`1.50`, `.5`, `1.`, `1e3`). Anything
+/// else is no number, `0b11`, `1_000`, `0X1F` and `-0x1F` among them, and so
+/// are an integer past 64 bits and the non-finite floats, which JSON cannot
+/// hold.
+pub(crate) fn core_number(s: &str) -> Option<serde_json::Number> {
+    if let Some(integer) = core_integer(s) {
+        return integer;
     }
+    let unsigned = s.strip_prefix(['-', '+']).unwrap_or(s);
+    let (mantissa, exponent) = match unsigned.split_once(['e', 'E']) {
+        Some((m, e)) => (m, Some(e)),
+        None => (unsigned, None),
+    };
+    let mantissa_ok = match mantissa.split_once('.') {
+        Some((int, frac)) => {
+            (int.is_empty() && digits(frac, 10))
+                || (digits(int, 10) && (frac.is_empty() || digits(frac, 10)))
+        }
+        None => digits(mantissa, 10),
+    };
+    let exponent_ok = exponent.is_none_or(|e| digits(e.strip_prefix(['-', '+']).unwrap_or(e), 10));
+    (mantissa_ok && exponent_ok)
+        .then(|| s.parse::<f64>().ok().and_then(serde_json::Number::from_f64))
+        .flatten()
 }
 
 /// Whether `s` is a decimal YAML reads as a number whose own text is `s`:
@@ -334,8 +381,63 @@ mod tests {
         #[test]
         fn a_plain_number_is_its_own_text(s in "-?(0|[1-9][0-9]{0,19})(\\.[0-9]{1,17})?") {
             if is_plain_number(&s) {
-                proptest::prop_assert_eq!(yaml_number(&s).map(|n| n.to_string()), Some(s));
+                proptest::prop_assert_eq!(core_number(&s).map(|n| n.to_string()), Some(s));
             }
+        }
+    }
+
+    /// YAML 1.2 has no merge, so `Quill.yaml` and a card read `<<` as a key.
+    #[test]
+    fn a_merge_key_is_an_ordinary_key() {
+        let value: serde_json::Value =
+            from_yaml_str("a: &a {x: 1}\nb:\n  <<: *a\n  y: 2\n").unwrap();
+        assert_eq!(value["b"], serde_json::json!({ "<<": { "x": 1 }, "y": 2 }));
+    }
+
+    #[test]
+    fn the_core_schema_resolves_its_own_number_forms_and_no_others() {
+        for (text, number) in [
+            ("0012", serde_json::json!(12)),
+            ("+5", serde_json::json!(5)),
+            ("-0", serde_json::json!(0)),
+            ("0o17", serde_json::json!(15)),
+            ("0x1F", serde_json::json!(31)),
+            ("1.50", serde_json::json!(1.5)),
+            (".5", serde_json::json!(0.5)),
+            ("1.", serde_json::json!(1.0)),
+            ("1E3", serde_json::json!(1000.0)),
+            ("-1.5e-3", serde_json::json!(-0.0015)),
+        ] {
+            assert_eq!(
+                core_number(text).map(serde_json::Value::from),
+                Some(number),
+                "{text}"
+            );
+        }
+        for text in [
+            "0b11",
+            "1_000",
+            "0x1_F",
+            "0X1F",
+            "0O17",
+            "-0x1F",
+            "+0o7",
+            "0x",
+            "0o8",
+            "1e",
+            ".e3",
+            ".",
+            "1e400",
+            ".inf",
+            ".nan",
+            "1:30",
+            "",
+            "1.5.",
+            "18446744073709551616",
+            "-9223372036854775809",
+            "0x10000000000000000",
+        ] {
+            assert_eq!(core_number(text), None, "{text}");
         }
     }
 }

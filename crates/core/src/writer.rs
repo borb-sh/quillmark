@@ -919,6 +919,31 @@ schema:
         assert_eq!(err.code(), "edit::field_not_single_line");
     }
 
+    /// A string for an integer field is read by the YAML 1.2.2 core schema:
+    /// its decimal, `0o` and `0x` forms land, and YAML 1.1's do not.
+    #[test]
+    fn an_integer_field_reads_a_string_by_the_core_schema() {
+        let config = config();
+        for (text, n) in [("0012", 12), ("+5", 5), ("0o17", 15), ("0x1F", 31)] {
+            let mut doc = blank_doc();
+            TypedWriter::new(&config, &mut doc)
+                .set("qty", text)
+                .unwrap();
+            assert_eq!(
+                doc.main().payload().get("qty").map(|v| v.as_json().clone()),
+                Some(serde_json::json!(n)),
+                "{text}"
+            );
+        }
+        for text in ["0b11", "1_000", "0X1F", "-0x1F", "0x1_F"] {
+            let mut doc = blank_doc();
+            let err = TypedWriter::new(&config, &mut doc)
+                .set("qty", text)
+                .unwrap_err();
+            assert_eq!(err.code(), "edit::field_coercion_failed", "{text}");
+        }
+    }
+
     /// A content value holding a list is refused where the field holds lines.
     #[test]
     fn a_field_of_lines_refuses_a_stored_block() {
